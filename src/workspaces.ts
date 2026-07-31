@@ -53,6 +53,7 @@ export interface WorkspaceContext {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
+  includeBootstrapContext: boolean;
 }
 
 export interface WorkspaceReadPath {
@@ -67,6 +68,10 @@ export interface OpenWorkspaceInput {
   baseRef?: string;
 }
 
+export interface OpenWorkspaceOptions {
+  conversationScopeHash?: string;
+}
+
 type PathStats = Stats;
 type DirectoryOps = {
   stat: (path: string) => Promise<PathStats>;
@@ -75,14 +80,48 @@ type DirectoryOps = {
 
 export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, Workspace>();
+  private readonly pendingConversationOpens = new Map<string, Promise<WorkspaceContext>>();
 
   constructor(
     private readonly config: ServerConfig,
     private readonly store?: WorkspaceStore,
   ) {}
 
-  async openWorkspace(input: string | OpenWorkspaceInput): Promise<WorkspaceContext> {
-    const options = typeof input === "string" ? { path: input } : input;
+  async openWorkspace(
+    input: string | OpenWorkspaceInput,
+    openOptions: OpenWorkspaceOptions = {},
+  ): Promise<WorkspaceContext> {
+    const workspaceInput = typeof input === "string" ? { path: input } : input;
+    const conversationScopeHash = openOptions.conversationScopeHash;
+    if (!conversationScopeHash || !this.store) {
+      return this.openNewWorkspace(workspaceInput);
+    }
+
+    const targetKey = await this.conversationTargetKey(workspaceInput);
+    const operationKey = JSON.stringify([conversationScopeHash, targetKey]);
+    const pending = this.pendingConversationOpens.get(operationKey);
+    if (pending) {
+      const context = await pending;
+      return this.reusedWorkspaceContext(context.workspace);
+    }
+
+    const open = this.openConversationWorkspace(
+      workspaceInput,
+      conversationScopeHash,
+      targetKey,
+    );
+    this.pendingConversationOpens.set(operationKey, open);
+
+    try {
+      return await open;
+    } finally {
+      if (this.pendingConversationOpens.get(operationKey) === open) {
+        this.pendingConversationOpens.delete(operationKey);
+      }
+    }
+  }
+
+  private async openNewWorkspace(options: OpenWorkspaceInput): Promise<WorkspaceContext> {
     const mode = options.mode ?? "checkout";
 
     if (mode === "worktree") {
@@ -90,6 +129,57 @@ export class WorkspaceRegistry {
     }
 
     return this.openCheckoutWorkspace(options.path);
+  }
+
+  private async openConversationWorkspace(
+    input: OpenWorkspaceInput,
+    conversationScopeHash: string,
+    targetKey: string,
+  ): Promise<WorkspaceContext> {
+    const binding = this.store?.getConversationBinding(conversationScopeHash, targetKey);
+    if (binding) {
+      try {
+        const workspace = this.getWorkspace(binding.workspaceSessionId);
+        const workspaceStats = await stat(workspace.root);
+        if (workspaceStats.isDirectory()) {
+          this.store?.touchConversationBinding(conversationScopeHash, targetKey);
+          return this.reusedWorkspaceContext(workspace);
+        }
+      } catch {
+        // The persisted workspace is no longer usable; replace its binding below.
+      }
+
+      this.workspaces.delete(binding.workspaceSessionId);
+      this.store?.deleteConversationBinding(conversationScopeHash, targetKey);
+    }
+
+    const context = await this.openNewWorkspace(input);
+    this.store?.setConversationBinding({
+      conversationScopeHash,
+      targetKey,
+      workspaceSessionId: context.workspace.id,
+    });
+    return context;
+  }
+
+  private async conversationTargetKey(input: OpenWorkspaceInput): Promise<string> {
+    const mode = input.mode ?? "checkout";
+    const path = assertAllowedPath(input.path, this.config.allowedRoots);
+    const canonicalPath = await realpath(path).catch(() => path);
+    return JSON.stringify([
+      mode,
+      canonicalPath,
+      mode === "worktree" ? input.baseRef ?? "HEAD" : null,
+    ]);
+  }
+
+  private reusedWorkspaceContext(workspace: Workspace): WorkspaceContext {
+    return {
+      workspace,
+      agentsFiles: [],
+      availableAgentsFiles: [],
+      includeBootstrapContext: false,
+    };
   }
 
   getWorkspace(workspaceId: string): Workspace {
@@ -228,7 +318,12 @@ export class WorkspaceRegistry {
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
 
-    return { workspace, agentsFiles, availableAgentsFiles };
+    return {
+      workspace,
+      agentsFiles,
+      availableAgentsFiles,
+      includeBootstrapContext: true,
+    };
   }
 
   private loadSkillsForWorkspace(root: string): Pick<Workspace, "skills" | "skillDiagnostics"> {

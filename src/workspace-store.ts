@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
+  workspaceConversationBindings,
   workspaceSessions,
+  type WorkspaceConversationBindingRow,
   type WorkspaceSessionRow,
 } from "./db/schema.js";
 
@@ -20,6 +22,14 @@ export interface WorkspaceSession {
   lastUsedAt: string;
 }
 
+export interface WorkspaceConversationBinding {
+  conversationScopeHash: string;
+  targetKey: string;
+  workspaceSessionId: string;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
 export interface WorkspaceStore {
   createSession(input: {
     id: string;
@@ -32,6 +42,17 @@ export interface WorkspaceStore {
   }): WorkspaceSession;
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
+  getConversationBinding(
+    conversationScopeHash: string,
+    targetKey: string,
+  ): WorkspaceConversationBinding | undefined;
+  setConversationBinding(input: {
+    conversationScopeHash: string;
+    targetKey: string;
+    workspaceSessionId: string;
+  }): WorkspaceConversationBinding;
+  touchConversationBinding(conversationScopeHash: string, targetKey: string): void;
+  deleteConversationBinding(conversationScopeHash: string, targetKey: string): void;
   close?(): void;
 }
 
@@ -102,6 +123,79 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .run();
   }
 
+  getConversationBinding(
+    conversationScopeHash: string,
+    targetKey: string,
+  ): WorkspaceConversationBinding | undefined {
+    const row = this.database.db
+      .select()
+      .from(workspaceConversationBindings)
+      .where(
+        and(
+          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.targetKey, targetKey),
+        ),
+      )
+      .get();
+
+    return row ? rowToWorkspaceConversationBinding(row) : undefined;
+  }
+
+  setConversationBinding(input: {
+    conversationScopeHash: string;
+    targetKey: string;
+    workspaceSessionId: string;
+  }): WorkspaceConversationBinding {
+    const now = new Date().toISOString();
+    this.database.db
+      .insert(workspaceConversationBindings)
+      .values({
+        conversationScopeHash: input.conversationScopeHash,
+        targetKey: input.targetKey,
+        workspaceSessionId: input.workspaceSessionId,
+        createdAt: now,
+        lastUsedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          workspaceConversationBindings.conversationScopeHash,
+          workspaceConversationBindings.targetKey,
+        ],
+        set: {
+          workspaceSessionId: input.workspaceSessionId,
+          lastUsedAt: now,
+        },
+      })
+      .run();
+
+    return this.getConversationBinding(input.conversationScopeHash, input.targetKey)!;
+  }
+
+  touchConversationBinding(conversationScopeHash: string, targetKey: string): void {
+    this.database.db
+      .update(workspaceConversationBindings)
+      .set({ lastUsedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.targetKey, targetKey),
+        ),
+      )
+      .run();
+  }
+
+  deleteConversationBinding(conversationScopeHash: string, targetKey: string): void {
+    this.database.db
+      .delete(workspaceConversationBindings)
+      .where(
+        and(
+          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.targetKey, targetKey),
+        ),
+      )
+      .run();
+  }
+
   close(): void {
     this.database.close();
   }
@@ -122,6 +216,18 @@ function rowToWorkspaceSession(row: WorkspaceSessionRow): WorkspaceSession {
     baseRef: row.baseRef ?? undefined,
     baseSha: row.baseSha ?? undefined,
     managed: row.managed === "true",
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+  };
+}
+
+function rowToWorkspaceConversationBinding(
+  row: WorkspaceConversationBindingRow,
+): WorkspaceConversationBinding {
+  return {
+    conversationScopeHash: row.conversationScopeHash,
+    targetKey: row.targetKey,
+    workspaceSessionId: row.workspaceSessionId,
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,
   };

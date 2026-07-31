@@ -17,6 +17,15 @@ ChatGPT should call `open_workspace` once for a project folder:
 The result includes a `workspaceId`. All later file, search, edit, show-changes,
 and shell calls should reuse that same `workspaceId`.
 
+ChatGPT sends an anonymized conversation identifier in
+`_meta["openai/session"]`. DevSpace uses that value only as a correlation scope:
+if `open_workspace` is called again for the same path, mode, and base ref in the
+same ChatGPT conversation, DevSpace returns the existing `workspaceId` and omits
+the project instructions, skills, subagent metadata, and diagnostics already
+returned by the first call. The conversation binding is persisted so reconnecting
+the MCP transport or restarting DevSpace does not create another managed worktree
+for the same ChatGPT conversation and target.
+
 Do not reopen the same folder unless:
 
 - the `workspaceId` is rejected as unknown

@@ -50,6 +50,7 @@ import {
 } from "./mcp-sessions.js";
 import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { openAiConversationScopeHash } from "./request-meta.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
@@ -751,7 +752,7 @@ function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this once per project folder or worktree before reading, editing, searching, writing, showing changes, or running commands. Reuse the returned workspaceId for later calls in the same folder; do not call open_workspace again unless switching folders/worktrees, changing checkout/worktree mode, the workspaceId is rejected as unknown, or the user explicitly asks to reopen. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for an isolated or parallel coding session. Returns a workspaceId, loaded root project instructions, and nested instruction file paths the model should read before working in those directories.",
+        "Open a local project directory as a coding workspace. Call this once per project folder or worktree before reading, editing, searching, writing, showing changes, or running commands. Reuse the returned workspaceId for later calls in the same folder. In ChatGPT, repeated calls for the same target in one conversation return the existing workspaceId and omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for an isolated or parallel coding session.",
       inputSchema: {
         path: z
           .string()
@@ -784,35 +785,44 @@ function createMcpServer(
             managed: z.boolean(),
           })
           .optional(),
-        agentsFiles: z.array(workspaceAgentsFileOutputSchema),
-        availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema),
-        skills: z.array(workspaceSkillOutputSchema),
-        agentProviders: z.array(workspaceLocalAgentProviderOutputSchema),
-        agents: z.array(workspaceLocalAgentOutputSchema),
-        skillDiagnostics: z.array(z.unknown()),
+        agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
+        availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
+        skills: z.array(workspaceSkillOutputSchema).optional(),
+        agentProviders: z.array(workspaceLocalAgentProviderOutputSchema).optional(),
+        agents: z.array(workspaceLocalAgentOutputSchema).optional(),
+        skillDiagnostics: z.array(z.unknown()).optional(),
         instruction: z.string(),
       },
       ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: { readOnlyHint: true },
     },
-    async ({ path, mode, baseRef }) => {
+    async ({ path, mode, baseRef }, { _meta }) => {
       const startedAt = performance.now();
-      const { workspace, agentsFiles, availableAgentsFiles } = await workspaces.openWorkspace({ path, mode, baseRef });
-      if (config.widgets === "changes") {
+      const {
+        workspace,
+        agentsFiles,
+        availableAgentsFiles,
+        includeBootstrapContext,
+      } = await workspaces.openWorkspace(
+        { path, mode, baseRef },
+        { conversationScopeHash: openAiConversationScopeHash(_meta) },
+      );
+      const reused = !includeBootstrapContext;
+      if (config.widgets === "changes" && includeBootstrapContext) {
         void reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
           root: workspace.root,
         });
       }
-      const visibleSkills = workspace.skills
+      const visibleSkills = includeBootstrapContext ? workspace.skills
         .filter((skill) => !skill.disableModelInvocation)
         .map((skill) => ({
           name: skill.name,
           description: skill.description,
           path: formatPathForPrompt(skill.filePath),
-        }));
-      const visibleAgentProviders = config.subagents ? localAgentProviders : [];
-      const visibleAgents = workspace.agentProfiles.map((profile) => {
+        })) : [];
+      const visibleAgentProviders = includeBootstrapContext && config.subagents ? localAgentProviders : [];
+      const visibleAgents = includeBootstrapContext ? workspace.agentProfiles.map((profile) => {
         const summary = summarizeLocalAgentProfile(profile);
         const availability = visibleAgentProviders.find((provider) => provider.name === summary.provider);
         return {
@@ -820,24 +830,29 @@ function createMcpServer(
           providerAvailable: availability?.available,
           providerUnavailableReason: availability?.reason,
         };
-      });
-      const loadedAgentsFiles = agentsFiles.map((file) => ({
+      }) : [];
+      const loadedAgentsFiles = includeBootstrapContext ? agentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
         content: file.content,
-      }));
-      const availableAgentsFileOutputs = availableAgentsFiles.map((file) => ({
+      })) : [];
+      const availableAgentsFileOutputs = includeBootstrapContext ? availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
-      }));
-      const instruction = config.skillsEnabled
-        ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
-        : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
+      })) : [];
+      const instruction = reused
+        ? "Reuse this workspaceId for subsequent tool calls. Workspace instructions, nested instruction paths, skills, subagent metadata, and diagnostics were already returned earlier in this ChatGPT conversation and are intentionally omitted here."
+        : config.skillsEnabled
+          ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
+          : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
       const resultContent: ToolContent[] = [
         {
           type: "text" as const,
           text: [
-            `Opened workspace ${workspace.id}`,
+            `${reused ? "Workspace already open as" : "Opened workspace"} ${workspace.id}`,
             `Root: ${workspace.root}`,
             `Mode: ${workspace.mode}`,
+            reused
+              ? "Bootstrap details omitted because they were already returned in this ChatGPT conversation."
+              : undefined,
             loadedAgentsFiles.length > 0
               ? `Loaded project instructions: ${loadedAgentsFiles.map((file) => file.path).join(", ")}`
               : undefined,
@@ -878,6 +893,7 @@ function createMcpServer(
             path: workspace.root,
             summary: {
               mode: workspace.mode,
+              reused,
               agentsFiles: loadedAgentsFiles.length,
               availableAgentsFiles: availableAgentsFileOutputs.length,
               skills: visibleSkills.length,
@@ -893,12 +909,16 @@ function createMcpServer(
           mode: workspace.mode,
           sourceRoot: workspace.sourceRoot,
           worktree: workspace.worktree,
-          agentsFiles: loadedAgentsFiles,
-          availableAgentsFiles: availableAgentsFileOutputs,
-          skills: visibleSkills,
-          agentProviders: visibleAgentProviders,
-          agents: visibleAgents,
-          skillDiagnostics: workspace.skillDiagnostics,
+          ...(includeBootstrapContext
+            ? {
+                agentsFiles: loadedAgentsFiles,
+                availableAgentsFiles: availableAgentsFileOutputs,
+                skills: visibleSkills,
+                agentProviders: visibleAgentProviders,
+                agents: visibleAgents,
+                skillDiagnostics: workspace.skillDiagnostics,
+              }
+            : {}),
           instruction,
         },
       };

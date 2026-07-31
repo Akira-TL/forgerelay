@@ -59,6 +59,7 @@ try {
     agentsFiles.map((file) => file.content),
     ["global instructions\n", "root instructions\n"],
   );
+
   assert.deepEqual(
     availableAgentsFiles.map((file) => file.path),
     [join(root, "nested", "AGENTS.md")],
@@ -159,11 +160,52 @@ try {
   const stateDir = join(root, ".state");
   const firstStore = new SqliteWorkspaceStore(stateDir);
   const persistentRegistry = new WorkspaceRegistry(config, firstStore);
-  const persistentWorkspace = await persistentRegistry.openWorkspace(root);
-  const persistentWorktree = await persistentRegistry.openWorkspace({
-    path: gitRoot,
-    mode: "worktree",
+  const persistentWorkspace = await persistentRegistry.openWorkspace(root, {
+    conversationScopeHash: "chat-checkout",
   });
+  const reusedPersistentWorkspace = await persistentRegistry.openWorkspace(root, {
+    conversationScopeHash: "chat-checkout",
+  });
+  assert.equal(persistentWorkspace.includeBootstrapContext, true);
+  assert.equal(reusedPersistentWorkspace.includeBootstrapContext, false);
+  assert.equal(reusedPersistentWorkspace.workspace.id, persistentWorkspace.workspace.id);
+  assert.deepEqual(reusedPersistentWorkspace.agentsFiles, []);
+  assert.deepEqual(reusedPersistentWorkspace.availableAgentsFiles, []);
+
+  const otherConversationWorkspace = await persistentRegistry.openWorkspace(root, {
+    conversationScopeHash: "chat-checkout-other",
+  });
+  assert.equal(otherConversationWorkspace.includeBootstrapContext, true);
+  assert.notEqual(otherConversationWorkspace.workspace.id, persistentWorkspace.workspace.id);
+
+  const staleWorkspaceRoot = join(root, "stale-conversation-workspace");
+  await mkdir(staleWorkspaceRoot);
+  const staleWorkspace = await persistentRegistry.openWorkspace(staleWorkspaceRoot, {
+    conversationScopeHash: "chat-stale",
+  });
+  await rm(staleWorkspaceRoot, { recursive: true, force: true });
+  const replacementWorkspace = await persistentRegistry.openWorkspace(staleWorkspaceRoot, {
+    conversationScopeHash: "chat-stale",
+  });
+  assert.equal(replacementWorkspace.includeBootstrapContext, true);
+  assert.notEqual(replacementWorkspace.workspace.id, staleWorkspace.workspace.id);
+  assert.equal((await stat(staleWorkspaceRoot)).isDirectory(), true);
+
+  const worktreeInput = { path: gitRoot, mode: "worktree" as const };
+  const [persistentWorktree, concurrentWorktree] = await Promise.all([
+    persistentRegistry.openWorkspace(worktreeInput, {
+      conversationScopeHash: "chat-worktree",
+    }),
+    persistentRegistry.openWorkspace(worktreeInput, {
+      conversationScopeHash: "chat-worktree",
+    }),
+  ]);
+  assert.equal(persistentWorktree.includeBootstrapContext, true);
+  assert.equal(concurrentWorktree.includeBootstrapContext, false);
+  assert.equal(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
+  assert.equal(concurrentWorktree.workspace.root, persistentWorktree.workspace.root);
+  assert.deepEqual(concurrentWorktree.agentsFiles, []);
+  assert.deepEqual(concurrentWorktree.availableAgentsFiles, []);
   firstStore.close();
 
   const secondStore = new SqliteWorkspaceStore(stateDir);
@@ -172,16 +214,46 @@ try {
   assert.equal(restoredWorkspace.root, root);
   assert.equal(restoredWorkspace.mode, "checkout");
 
+  const reboundWorkspace = await restoredRegistry.openWorkspace(root, {
+    conversationScopeHash: "chat-checkout",
+  });
+  assert.equal(reboundWorkspace.includeBootstrapContext, false);
+  assert.equal(reboundWorkspace.workspace.id, persistentWorkspace.workspace.id);
+
   const restoredWorktree = restoredRegistry.getWorkspace(persistentWorktree.workspace.id);
   assert.equal(restoredWorktree.mode, "worktree");
   assert.equal(restoredWorktree.sourceRoot, gitRoot);
   assert.equal(restoredWorktree.root, persistentWorktree.workspace.root);
   assert.equal(restoredWorktree.worktree?.managed, true);
+
+  const reboundWorktree = await restoredRegistry.openWorkspace(worktreeInput, {
+    conversationScopeHash: "chat-worktree",
+  });
+  assert.equal(reboundWorktree.includeBootstrapContext, false);
+  assert.equal(reboundWorktree.workspace.id, persistentWorktree.workspace.id);
+  assert.equal(reboundWorktree.workspace.root, persistentWorktree.workspace.root);
   secondStore.close();
 
   if (platform() !== "win32") {
     const aliasRoot = join(root, "alias-root");
     await symlink(root, aliasRoot, "dir");
+
+    const aliasStateDir = join(root, ".alias-state");
+    const aliasStore = new SqliteWorkspaceStore(aliasStateDir);
+    const aliasRegistry = new WorkspaceRegistry(config, aliasStore);
+    const directConversationWorkspace = await aliasRegistry.openWorkspace(root, {
+      conversationScopeHash: "chat-alias",
+    });
+    const aliasedConversationWorkspace = await aliasRegistry.openWorkspace(aliasRoot, {
+      conversationScopeHash: "chat-alias",
+    });
+    assert.equal(aliasedConversationWorkspace.includeBootstrapContext, false);
+    assert.equal(
+      aliasedConversationWorkspace.workspace.id,
+      directConversationWorkspace.workspace.id,
+    );
+    aliasStore.close();
+
     const aliasConfig = loadConfig({
       DEVSPACE_ALLOWED_ROOTS: aliasRoot,
       DEVSPACE_WORKTREE_ROOT: join(aliasRoot, ".devspace", "alias-worktrees"),
