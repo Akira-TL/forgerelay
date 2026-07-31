@@ -752,7 +752,7 @@ function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this once per project folder or worktree before reading, editing, searching, writing, showing changes, or running commands. Reuse the returned workspaceId for later calls in the same folder. In ChatGPT, repeated calls for the same target in one conversation return the existing workspaceId and omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for an isolated or parallel coding session.",
+        "Open a local project directory as a coding workspace. Call this before reading, editing, searching, writing, showing changes, or running commands, then reuse the returned workspaceId. In ChatGPT, checkout mode reuses the existing checkout workspace for the same project and conversation. Every worktree-mode call creates a new managed worktree and workspace. After the first open for a project in one ChatGPT conversation, later opens omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for a new isolated or parallel coding session.",
       inputSchema: {
         path: z
           .string()
@@ -763,7 +763,7 @@ function createMcpServer(
           .enum(["checkout", "worktree"])
           .optional()
           .describe(
-            "Defaults to checkout. Use checkout to work in the actual directory. Use worktree to create an isolated managed Git worktree for parallel work.",
+            "Defaults to checkout. Use checkout to work in the actual directory. Each worktree-mode call creates a new isolated managed Git worktree and workspace for parallel work.",
           ),
         baseRef: z
           .string()
@@ -802,12 +802,13 @@ function createMcpServer(
         workspace,
         agentsFiles,
         availableAgentsFiles,
+        workspaceReused,
         includeBootstrapContext,
       } = await workspaces.openWorkspace(
         { path, mode, baseRef },
         { conversationScopeHash: openAiConversationScopeHash(_meta) },
       );
-      const reused = !includeBootstrapContext;
+      const bootstrapOmitted = !includeBootstrapContext;
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -846,18 +847,20 @@ function createMcpServer(
       const cardInstruction = config.skillsEnabled
         ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
         : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
-      const instruction = reused
-        ? "Reuse this workspaceId for subsequent tool calls. Workspace instructions, nested instruction paths, skills, subagent metadata, and diagnostics were already returned earlier in this ChatGPT conversation and are intentionally omitted here."
-        : cardInstruction;
+      const instruction = includeBootstrapContext
+        ? cardInstruction
+        : workspaceReused
+          ? "Reuse this workspaceId for subsequent tool calls. Project instructions, nested instruction paths, skills, subagent metadata, and diagnostics for this project were already returned earlier in this ChatGPT conversation and are intentionally omitted here."
+          : "Use this new workspaceId for subsequent tool calls. Project instructions, nested instruction paths, skills, subagent metadata, and diagnostics for this project were already returned earlier in this ChatGPT conversation and are intentionally omitted here.";
       const resultContent: ToolContent[] = [
         {
           type: "text" as const,
           text: [
-            `${reused ? "Workspace already open as" : "Opened workspace"} ${workspace.id}`,
+            `${workspaceReused ? "Workspace already open as" : "Opened workspace"} ${workspace.id}`,
             `Root: ${workspace.root}`,
             `Mode: ${workspace.mode}`,
-            reused
-              ? "Bootstrap details omitted because they were already returned in this ChatGPT conversation."
+            bootstrapOmitted
+              ? "Project bootstrap details omitted because they were already returned for this project in this ChatGPT conversation."
               : undefined,
             loadedAgentsFiles.length > 0
               ? `Loaded project instructions: ${loadedAgentsFiles.map((file) => file.path).join(", ")}`

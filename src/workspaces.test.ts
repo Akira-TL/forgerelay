@@ -227,6 +227,25 @@ try {
   assert.equal(reusedProjectCheckout.workspaceReused, true);
   assert.equal(reusedProjectCheckout.includeBootstrapContext, false);
 
+  const worktreeFirst = await persistentRegistry.openWorkspace(worktreeInput, {
+    conversationScopeHash: "chat-worktree-first",
+  });
+  const checkoutAfterWorktree = await persistentRegistry.openWorkspace(gitRoot, {
+    conversationScopeHash: "chat-worktree-first",
+  });
+  const reusedCheckoutAfterWorktree = await persistentRegistry.openWorkspace(gitRoot, {
+    conversationScopeHash: "chat-worktree-first",
+  });
+  assert.equal(worktreeFirst.includeBootstrapContext, true);
+  assert.equal(worktreeFirst.workspaceReused, false);
+  assert.equal(checkoutAfterWorktree.includeBootstrapContext, false);
+  assert.equal(checkoutAfterWorktree.workspaceReused, false);
+  assert.equal(checkoutAfterWorktree.workspace.mode, "checkout");
+  assert.notEqual(checkoutAfterWorktree.workspace.id, worktreeFirst.workspace.id);
+  assert.equal(reusedCheckoutAfterWorktree.includeBootstrapContext, false);
+  assert.equal(reusedCheckoutAfterWorktree.workspaceReused, true);
+  assert.equal(reusedCheckoutAfterWorktree.workspace.id, checkoutAfterWorktree.workspace.id);
+
   const [persistentWorktree, concurrentWorktree] = await Promise.all([
     persistentRegistry.openWorkspace(worktreeInput, {
       conversationScopeHash: "chat-worktree-concurrent",

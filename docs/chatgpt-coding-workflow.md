@@ -19,21 +19,25 @@ and shell calls should reuse that same `workspaceId`.
 
 ChatGPT sends an anonymized conversation identifier in
 `_meta["openai/session"]`. DevSpace uses that value only as a correlation scope:
-if `open_workspace` is called again for the same path, mode, and base ref in the
-same ChatGPT conversation, DevSpace returns the existing `workspaceId` and omits
-the project instructions, skills, subagent metadata, and diagnostics already
-returned by the first call. The conversation binding is persisted so reconnecting
-the MCP transport or restarting DevSpace does not create another managed worktree
-for the same ChatGPT conversation and target. The workspace card still receives
-the complete hidden display payload, so first and repeated calls render the same
-workspace details without adding those fields to the model transcript again.
+if checkout mode is called again for the same canonical project path in the same
+ChatGPT conversation, DevSpace returns the existing checkout `workspaceId`.
+Worktree mode is deliberately different: every call creates a new managed
+worktree and a new workspace session, even for the same path and base ref.
 
-Do not reopen the same folder unless:
+Project bootstrap delivery is tracked separately from workspace reuse. The first
+open for a canonical project path in a ChatGPT conversation returns project
+instructions, skills, subagent metadata, and diagnostics. Later checkout or
+worktree opens for that project omit those fields from the model response, even
+when a new worktree workspace is created. This state is persisted across MCP
+reconnects and DevSpace restarts. The workspace card still receives the complete
+hidden display payload, so every call renders full workspace details without
+adding the bootstrap fields to the model transcript again.
+
+Do not reopen the same checkout folder unless:
 
 - the `workspaceId` is rejected as unknown
 - the user switches to another folder
-- the user switches between checkout and worktree mode
-- the user explicitly asks to reopen
+- the user asks for a new isolated worktree
 
 ## Checkout Mode
 
@@ -66,6 +70,11 @@ Managed worktrees are created under:
 
 Worktree mode requires a Git repository with at least one commit. It starts from
 `HEAD` unless `baseRef` is provided.
+
+Each worktree-mode call creates a new managed worktree and returns a new
+`workspaceId`. Reuse that ID for work inside that worktree; call
+`open_workspace` in worktree mode again only when another isolated worktree is
+actually required.
 
 Uncommitted source checkout changes are not copied into the managed worktree.
 DevSpace reports when the source checkout was dirty so the model can decide how

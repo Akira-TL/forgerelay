@@ -21,12 +21,59 @@ const redirectUri = "https://chatgpt.com/connector_platform_oauth_redirect";
 
 try {
   await testDatabaseConfiguration(join(root, "database-configuration"));
+  testConversationBootstrapMigration(join(root, "bootstrap-migration"));
   testPersistenceAndTokenHashing(join(root, "persistence"));
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
+}
+
+function testConversationBootstrapMigration(stateDir: string): void {
+  const initial = openDatabase(stateDir);
+  try {
+    initial.sqlite.prepare(`
+      insert into workspace_sessions (
+        id, root, status, mode, managed, created_at, last_used_at
+      ) values (?, ?, 'active', 'worktree', 'true', ?, ?)
+    `).run("ws_existing", "/tmp/project-worktree", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z");
+    initial.sqlite.prepare(`
+      insert into workspace_conversation_bindings (
+        conversation_scope_hash, target_key, workspace_session_id, created_at, last_used_at
+      ) values (?, ?, ?, ?, ?)
+    `).run(
+      "chat-existing",
+      JSON.stringify(["worktree", "/tmp/project", "HEAD"]),
+      "ws_existing",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-02T00:00:00.000Z",
+    );
+    initial.sqlite.exec(`
+      drop table workspace_conversation_bootstraps;
+      delete from devspace_schema_migrations where version = 5;
+    `);
+  } finally {
+    initial.close();
+  }
+
+  const migrated = openDatabase(stateDir);
+  try {
+    assert.deepEqual(
+      migrated.sqlite.prepare(`
+        select conversation_scope_hash, project_key, created_at, last_used_at
+        from workspace_conversation_bootstraps
+      `).all(),
+      [{
+        conversation_scope_hash: "chat-existing",
+        project_key: "/tmp/project",
+        created_at: "2026-01-01T00:00:00.000Z",
+        last_used_at: "2026-01-02T00:00:00.000Z",
+      }],
+    );
+  } finally {
+    migrated.close();
+  }
 }
 
 async function testDatabaseConfiguration(stateDir: string): Promise<void> {
