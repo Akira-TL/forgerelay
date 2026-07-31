@@ -808,8 +808,8 @@ function createMcpServer(
         { conversationScopeHash: openAiConversationScopeHash(_meta) },
       );
       const reused = !includeBootstrapContext;
-      if (config.widgets === "changes" && includeBootstrapContext) {
-        void reviewCheckpoints.initializeWorkspace({
+      if (config.widgets === "changes") {
+        await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
           root: workspace.root,
         });

@@ -40,6 +40,16 @@ try {
   assert.equal(firstReview.files.some((file) => file.path === "new.txt"), true);
   assert.match(firstReview.patch, /world/);
 
+  const restartedManager = createReviewCheckpointManager();
+  await restartedManager.initializeWorkspace({ workspaceId: "ws_review", root });
+  const afterRestart = await restartedManager.reviewChanges({
+    workspaceId: "ws_review",
+    root,
+    markReviewed: false,
+  });
+  assert.equal(afterRestart.summary.files, 2);
+  assert.match(afterRestart.patch, /world/);
+
   const stillUnreviewed = await manager.reviewChanges({
     workspaceId: "ws_review",
     root,

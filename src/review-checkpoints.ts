@@ -48,26 +48,32 @@ const REVIEW_REF_PREFIX = "refs/devspace/review";
 
 export function createReviewCheckpointManager(): ReviewCheckpointManager {
   const states = new Map<string, WorkspaceReviewState>();
+  const initializations = new Map<string, Promise<void>>();
 
   return {
     async initializeWorkspace({ workspaceId, root }) {
-      const refs = reviewRefs(workspaceId);
-      const state: WorkspaceReviewState = { root, ...refs };
-      states.set(workspaceId, state);
+      const existingState = states.get(workspaceId);
+      if (
+        existingState?.root === root &&
+        (existingState.gitRoot !== undefined || existingState.diagnostic !== undefined)
+      ) {
+        return;
+      }
 
+      const pending = initializations.get(workspaceId);
+      if (pending) {
+        await pending;
+        return;
+      }
+
+      const initialize = initializeWorkspaceState(states, workspaceId, root);
+      initializations.set(workspaceId, initialize);
       try {
-        const eligibility = await getGitEligibility(root);
-        if (!eligibility.ok || !eligibility.gitRoot) {
-          state.diagnostic = eligibility.message ?? "show_changes requires a Git workspace in this version.";
-          return;
+        await initialize;
+      } finally {
+        if (initializations.get(workspaceId) === initialize) {
+          initializations.delete(workspaceId);
         }
-
-        state.gitRoot = eligibility.gitRoot;
-        const commit = await createWorkingTreeSnapshot(eligibility.gitRoot);
-        await git(eligibility.gitRoot, ["update-ref", state.openRef, commit]);
-        await git(eligibility.gitRoot, ["update-ref", state.baselineRef, commit]);
-      } catch (error) {
-        state.diagnostic = error instanceof Error ? error.message : String(error);
       }
     },
 
@@ -109,6 +115,50 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       };
     },
   };
+}
+
+async function initializeWorkspaceState(
+  states: Map<string, WorkspaceReviewState>,
+  workspaceId: string,
+  root: string,
+): Promise<void> {
+  const refs = reviewRefs(workspaceId);
+  const state: WorkspaceReviewState = { root, ...refs };
+  states.set(workspaceId, state);
+
+  try {
+    const eligibility = await getGitEligibility(root);
+    if (!eligibility.ok || !eligibility.gitRoot) {
+      state.diagnostic = eligibility.message ?? "show_changes requires a Git workspace in this version.";
+      return;
+    }
+
+    state.gitRoot = eligibility.gitRoot;
+    const [hasOpenRef, hasBaselineRef] = await Promise.all([
+      hasCommitRef(eligibility.gitRoot, state.openRef),
+      hasCommitRef(eligibility.gitRoot, state.baselineRef),
+    ]);
+    if (hasOpenRef && hasBaselineRef) return;
+
+    const commit = await createWorkingTreeSnapshot(eligibility.gitRoot);
+    if (!hasOpenRef) {
+      await git(eligibility.gitRoot, ["update-ref", state.openRef, commit]);
+    }
+    if (!hasBaselineRef) {
+      await git(eligibility.gitRoot, ["update-ref", state.baselineRef, commit]);
+    }
+  } catch (error) {
+    state.diagnostic = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function hasCommitRef(gitRoot: string, ref: string): Promise<boolean> {
+  try {
+    await git(gitRoot, ["rev-parse", "--verify", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function reviewRefs(workspaceId: string): Pick<WorkspaceReviewState, "openRef" | "baselineRef"> {
