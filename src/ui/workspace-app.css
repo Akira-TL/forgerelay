@@ -39,6 +39,13 @@ body {
   color: var(--color-text-primary, #f5f5f6);
 }
 
+.tool-card,
+.tool-card * {
+  scrollbar-width: thin;
+  scrollbar-color: gray transparent;
+  scrollbar-gutter: stable;
+}
+
 .empty {
   padding: 14px 16px;
   color: var(--color-text-secondary, #b6b6bd);
