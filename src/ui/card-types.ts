@@ -25,7 +25,14 @@ export interface ToolResultCard {
   root?: string;
   mode?: "checkout" | "worktree";
   sourceRoot?: string;
-  worktree?: Record<string, unknown>;
+  worktree?: {
+    path?: string;
+    baseRef?: string;
+    baseSha?: string;
+    dirtySource?: boolean;
+    detached?: boolean;
+    managed?: boolean;
+  };
   status?: string;
   summary?: Record<string, unknown>;
   files?: Array<{
@@ -49,8 +56,20 @@ export interface ToolResultCard {
     description?: string;
     path?: string;
   }>;
-  agentProviders?: Array<Record<string, unknown>>;
-  agents?: Array<Record<string, unknown>>;
+  agentProviders?: Array<{
+    name?: string;
+    available?: boolean;
+    reason?: string;
+  }>;
+  agents?: Array<{
+    name?: string;
+    description?: string;
+    provider?: string;
+    model?: string;
+    thinking?: string;
+    providerAvailable?: boolean;
+    providerUnavailableReason?: string;
+  }>;
   skillDiagnostics?: unknown[];
   instruction?: string;
 }
@@ -142,10 +161,16 @@ export function isExpandableCard(card: ToolResultCard): boolean {
     return (
       Number(card.summary?.agentsFiles ?? 0) > 0 ||
       Number(card.summary?.skills ?? 0) > 0 ||
+      Number(card.summary?.agentProviders ?? 0) > 0 ||
+      Number(card.summary?.agents ?? 0) > 0 ||
       Number(card.summary?.skillDiagnostics ?? 0) > 0 ||
       Boolean(card.agentsFiles?.length) ||
       Boolean(card.availableAgentsFiles?.length) ||
       Boolean(card.skills?.length) ||
+      Boolean(card.agentProviders?.length) ||
+      Boolean(card.agents?.length) ||
+      Boolean(card.worktree) ||
+      Boolean(card.instruction) ||
       Boolean(card.skillDiagnostics?.length)
     );
   }

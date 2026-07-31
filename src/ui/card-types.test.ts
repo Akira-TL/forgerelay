@@ -23,3 +23,18 @@ assert.equal(
   true,
 );
 assert.equal(isExpandableCard({ tool: "apply_patch" }), false);
+
+assert.equal(
+  isExpandableCard({
+    tool: "open_workspace",
+    agentProviders: [{ name: "codex", available: true }],
+  }),
+  true,
+);
+assert.equal(
+  isExpandableCard({
+    tool: "open_workspace",
+    agents: [{ name: "reviewer", provider: "codex" }],
+  }),
+  true,
+);

@@ -449,21 +449,78 @@ function workspacePayloadText(card: ToolResultCard): string {
   const agentsFiles = card.agentsFiles ?? [];
   const availableAgentsFiles = card.availableAgentsFiles ?? [];
   const skills = card.skills ?? [];
+  const agentProviders = card.agentProviders ?? [];
+  const agents = card.agents ?? [];
+  const diagnostics = card.skillDiagnostics ?? [];
   const lines = [
     card.workspaceId ? `Workspace: ${card.workspaceId}` : undefined,
     card.root ? `Root: ${card.root}` : undefined,
+    card.mode ? `Mode: ${card.mode}` : undefined,
+    card.sourceRoot ? `Source root: ${card.sourceRoot}` : undefined,
+    card.worktree ? formatWorktree(card.worktree) : undefined,
     skills.length > 0
       ? `Skills: ${skills.map((skill) => skill.name ?? skill.path ?? "unnamed").join(", ")}`
       : "Skills: none",
+    agentProviders.length > 0
+      ? `Agent providers: ${agentProviders.map(formatAgentProvider).join(", ")}`
+      : undefined,
+    agents.length > 0
+      ? `Agents: ${agents.map(formatAgent).join(", ")}`
+      : undefined,
+    diagnostics.length > 0
+      ? `Skill diagnostics: ${diagnostics.map(formatDiagnostic).join("; ")}`
+      : undefined,
     availableAgentsFiles.length > 0
       ? `Nested instructions: ${availableAgentsFiles.map((file) => file.path ?? "unknown").join(", ")}`
       : undefined,
     agentsFiles.length > 0
       ? `\n${formatAgentsFilesForPayload(agentsFiles)}`
       : "\nAGENTS.md: none loaded",
+    card.instruction ? `\nInstruction: ${card.instruction}` : undefined,
   ].filter((line): line is string => typeof line === "string");
 
   return lines.join("\n");
+}
+
+function formatWorktree(worktree: NonNullable<ToolResultCard["worktree"]>): string {
+  const details = [
+    worktree.baseRef ? `base ${worktree.baseRef}` : undefined,
+    worktree.baseSha ? `at ${worktree.baseSha.slice(0, 12)}` : undefined,
+    worktree.managed === true ? "managed" : undefined,
+    worktree.detached === true ? "detached" : undefined,
+    worktree.dirtySource === true ? "dirty source" : undefined,
+  ].filter((detail): detail is string => Boolean(detail));
+  return `Worktree: ${worktree.path ?? "unknown"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+}
+
+function formatAgentProvider(
+  provider: NonNullable<ToolResultCard["agentProviders"]>[number],
+): string {
+  const name = provider.name ?? "unknown";
+  if (provider.available !== false) return name;
+  return provider.reason ? `${name} unavailable: ${provider.reason}` : `${name} unavailable`;
+}
+
+function formatAgent(agent: NonNullable<ToolResultCard["agents"]>[number]): string {
+  const details = [
+    agent.provider,
+    agent.model,
+    agent.thinking ? `thinking ${agent.thinking}` : undefined,
+    agent.providerAvailable === false
+      ? agent.providerUnavailableReason ?? "provider unavailable"
+      : undefined,
+  ].filter((detail): detail is string => Boolean(detail));
+  return `${agent.name ?? "unnamed"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+}
+
+function formatDiagnostic(diagnostic: unknown): string {
+  if (typeof diagnostic === "string") return diagnostic;
+  if (diagnostic instanceof Error) return diagnostic.message;
+  try {
+    return JSON.stringify(diagnostic);
+  } catch {
+    return String(diagnostic);
+  }
 }
 
 function formatAgentsFilesForPayload(
