@@ -27,6 +27,11 @@ const migrations: Migration[] = [
     name: "workspace-conversation-bindings",
     up: migrateWorkspaceConversationBindings,
   },
+  {
+    version: 5,
+    name: "workspace-conversation-bootstraps",
+    up: migrateWorkspaceConversationBootstraps,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -196,6 +201,57 @@ function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
     create index if not exists workspace_conversation_bindings_workspace_idx
       on workspace_conversation_bindings(workspace_session_id);
   `);
+}
+
+function migrateWorkspaceConversationBootstraps(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists workspace_conversation_bootstraps (
+      conversation_scope_hash text not null,
+      project_key text not null,
+      created_at text not null,
+      last_used_at text not null,
+      primary key (conversation_scope_hash, project_key)
+    );
+  `);
+
+  const bindings = sqlite.prepare(`
+    select conversation_scope_hash, target_key, created_at, last_used_at
+    from workspace_conversation_bindings
+  `).all() as Array<{
+    conversation_scope_hash: string;
+    target_key: string;
+    created_at: string;
+    last_used_at: string;
+  }>;
+  const insertBootstrap = sqlite.prepare(`
+    insert or ignore into workspace_conversation_bootstraps (
+      conversation_scope_hash,
+      project_key,
+      created_at,
+      last_used_at
+    ) values (?, ?, ?, ?)
+  `);
+
+  for (const binding of bindings) {
+    const projectKey = projectKeyFromConversationTarget(binding.target_key);
+    if (!projectKey) continue;
+    insertBootstrap.run(
+      binding.conversation_scope_hash,
+      projectKey,
+      binding.created_at,
+      binding.last_used_at,
+    );
+  }
+}
+
+function projectKeyFromConversationTarget(targetKey: string): string | undefined {
+  try {
+    const parsed = JSON.parse(targetKey) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return typeof parsed[1] === "string" && parsed[1].length > 0 ? parsed[1] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function addColumnIfMissing(

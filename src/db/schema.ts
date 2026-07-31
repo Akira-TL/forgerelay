@@ -55,6 +55,19 @@ export const workspaceConversationBindings = sqliteTable(
   ],
 );
 
+export const workspaceConversationBootstraps = sqliteTable(
+  "workspace_conversation_bootstraps",
+  {
+    conversationScopeHash: text("conversation_scope_hash").notNull(),
+    projectKey: text("project_key").notNull(),
+    createdAt: text("created_at").notNull(),
+    lastUsedAt: text("last_used_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationScopeHash, table.projectKey] }),
+  ],
+);
+
 export const oauthClients = sqliteTable(
   "oauth_clients",
   {
@@ -120,5 +133,7 @@ export type LoadedAgentFileRow = typeof loadedAgentFiles.$inferSelect;
 export type NewLoadedAgentFileRow = typeof loadedAgentFiles.$inferInsert;
 export type WorkspaceConversationBindingRow = typeof workspaceConversationBindings.$inferSelect;
 export type NewWorkspaceConversationBindingRow = typeof workspaceConversationBindings.$inferInsert;
+export type WorkspaceConversationBootstrapRow = typeof workspaceConversationBootstraps.$inferSelect;
+export type NewWorkspaceConversationBootstrapRow = typeof workspaceConversationBootstraps.$inferInsert;
 export type LocalAgentSessionRow = typeof localAgentSessions.$inferSelect;
 export type NewLocalAgentSessionRow = typeof localAgentSessions.$inferInsert;
