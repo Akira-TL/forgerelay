@@ -102,7 +102,10 @@ export class WorkspaceRegistry {
     const pending = this.pendingConversationOpens.get(operationKey);
     if (pending) {
       const context = await pending;
-      return this.reusedWorkspaceContext(context.workspace);
+      return {
+        ...context,
+        includeBootstrapContext: false,
+      };
     }
 
     const open = this.openConversationWorkspace(
@@ -143,7 +146,7 @@ export class WorkspaceRegistry {
         const workspaceStats = await stat(workspace.root);
         if (workspaceStats.isDirectory()) {
           this.store?.touchConversationBinding(conversationScopeHash, targetKey);
-          return this.reusedWorkspaceContext(workspace);
+          return await this.reusedWorkspaceContext(workspace);
         }
       } catch {
         // The persisted workspace is no longer usable; replace its binding below.
@@ -173,11 +176,15 @@ export class WorkspaceRegistry {
     ]);
   }
 
-  private reusedWorkspaceContext(workspace: Workspace): WorkspaceContext {
+  private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+    workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
+    const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
+    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+
     return {
       workspace,
-      agentsFiles: [],
-      availableAgentsFiles: [],
+      agentsFiles,
+      availableAgentsFiles,
       includeBootstrapContext: false,
     };
   }

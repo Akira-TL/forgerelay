@@ -23,6 +23,9 @@ export interface ToolResultCard {
   workspaceId?: string;
   path?: string;
   root?: string;
+  mode?: "checkout" | "worktree";
+  sourceRoot?: string;
+  worktree?: Record<string, unknown>;
   status?: string;
   summary?: Record<string, unknown>;
   files?: Array<{
@@ -46,6 +49,8 @@ export interface ToolResultCard {
     description?: string;
     path?: string;
   }>;
+  agentProviders?: Array<Record<string, unknown>>;
+  agents?: Array<Record<string, unknown>>;
   skillDiagnostics?: unknown[];
   instruction?: string;
 }

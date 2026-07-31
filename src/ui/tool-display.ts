@@ -27,7 +27,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
     case "open_workspace":
       return {
         icon: toolIcons.folderOpen,
-        title: card.summary?.reused === true ? "Reused workspace" : "Opened workspace",
+        title: "Opened workspace",
         label: card.root ?? card.path,
         tone: "workspace",
       };
@@ -123,7 +123,6 @@ export function getToolHeaderSummary(card: ToolResultCard): ToolHeaderSummary {
   if (card.tool === "open_workspace") {
     const parts = [
       typeof summary.mode === "string" ? summary.mode : undefined,
-      summary.reused === true ? "reused" : undefined,
       countLabel(summaryNumber(summary, "agentsFiles"), "instruction"),
       countLabel(summaryNumber(summary, "skills"), "skill"),
     ].filter((part): part is string => Boolean(part));

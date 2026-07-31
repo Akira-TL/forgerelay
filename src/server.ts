@@ -814,35 +814,41 @@ function createMcpServer(
           root: workspace.root,
         });
       }
-      const visibleSkills = includeBootstrapContext ? workspace.skills
+      const cardSkills = workspace.skills
         .filter((skill) => !skill.disableModelInvocation)
         .map((skill) => ({
           name: skill.name,
           description: skill.description,
           path: formatPathForPrompt(skill.filePath),
-        })) : [];
-      const visibleAgentProviders = includeBootstrapContext && config.subagents ? localAgentProviders : [];
-      const visibleAgents = includeBootstrapContext ? workspace.agentProfiles.map((profile) => {
+        }));
+      const cardAgentProviders = config.subagents ? localAgentProviders : [];
+      const cardAgents = workspace.agentProfiles.map((profile) => {
         const summary = summarizeLocalAgentProfile(profile);
-        const availability = visibleAgentProviders.find((provider) => provider.name === summary.provider);
+        const availability = cardAgentProviders.find((provider) => provider.name === summary.provider);
         return {
           ...summary,
           providerAvailable: availability?.available,
           providerUnavailableReason: availability?.reason,
         };
-      }) : [];
-      const loadedAgentsFiles = includeBootstrapContext ? agentsFiles.map((file) => ({
+      });
+      const cardAgentsFiles = agentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
         content: file.content,
-      })) : [];
-      const availableAgentsFileOutputs = includeBootstrapContext ? availableAgentsFiles.map((file) => ({
+      }));
+      const cardAvailableAgentsFiles = availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
-      })) : [];
+      }));
+      const visibleSkills = includeBootstrapContext ? cardSkills : [];
+      const visibleAgentProviders = includeBootstrapContext ? cardAgentProviders : [];
+      const visibleAgents = includeBootstrapContext ? cardAgents : [];
+      const loadedAgentsFiles = includeBootstrapContext ? cardAgentsFiles : [];
+      const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
+      const cardInstruction = config.skillsEnabled
+        ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
+        : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
       const instruction = reused
         ? "Reuse this workspaceId for subsequent tool calls. Workspace instructions, nested instruction paths, skills, subagent metadata, and diagnostics were already returned earlier in this ChatGPT conversation and are intentionally omitted here."
-        : config.skillsEnabled
-          ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
-          : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, the user asks to reopen, or you switch to a different folder/worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
+        : cardInstruction;
       const resultContent: ToolContent[] = [
         {
           type: "text" as const,
@@ -891,14 +897,23 @@ function createMcpServer(
             workspaceId: workspace.id,
             root: workspace.root,
             path: workspace.root,
+            mode: workspace.mode,
+            sourceRoot: workspace.sourceRoot,
+            worktree: workspace.worktree,
+            agentsFiles: cardAgentsFiles,
+            availableAgentsFiles: cardAvailableAgentsFiles,
+            skills: cardSkills,
+            agentProviders: cardAgentProviders,
+            agents: cardAgents,
+            skillDiagnostics: workspace.skillDiagnostics,
+            instruction: cardInstruction,
             summary: {
               mode: workspace.mode,
-              reused,
-              agentsFiles: loadedAgentsFiles.length,
-              availableAgentsFiles: availableAgentsFileOutputs.length,
-              skills: visibleSkills.length,
-              agentProviders: visibleAgentProviders.length,
-              agents: visibleAgents.length,
+              agentsFiles: cardAgentsFiles.length,
+              availableAgentsFiles: cardAvailableAgentsFiles.length,
+              skills: cardSkills.length,
+              agentProviders: cardAgentProviders.length,
+              agents: cardAgents.length,
               skillDiagnostics: workspace.skillDiagnostics.length,
             },
           },

@@ -169,8 +169,14 @@ try {
   assert.equal(persistentWorkspace.includeBootstrapContext, true);
   assert.equal(reusedPersistentWorkspace.includeBootstrapContext, false);
   assert.equal(reusedPersistentWorkspace.workspace.id, persistentWorkspace.workspace.id);
-  assert.deepEqual(reusedPersistentWorkspace.agentsFiles, []);
-  assert.deepEqual(reusedPersistentWorkspace.availableAgentsFiles, []);
+  assert.deepEqual(
+    reusedPersistentWorkspace.agentsFiles.map((file) => file.content),
+    persistentWorkspace.agentsFiles.map((file) => file.content),
+  );
+  assert.deepEqual(
+    reusedPersistentWorkspace.availableAgentsFiles,
+    persistentWorkspace.availableAgentsFiles,
+  );
 
   const otherConversationWorkspace = await persistentRegistry.openWorkspace(root, {
     conversationScopeHash: "chat-checkout-other",
@@ -204,8 +210,8 @@ try {
   assert.equal(concurrentWorktree.includeBootstrapContext, false);
   assert.equal(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
   assert.equal(concurrentWorktree.workspace.root, persistentWorktree.workspace.root);
-  assert.deepEqual(concurrentWorktree.agentsFiles, []);
-  assert.deepEqual(concurrentWorktree.availableAgentsFiles, []);
+  assert.deepEqual(concurrentWorktree.agentsFiles, persistentWorktree.agentsFiles);
+  assert.deepEqual(concurrentWorktree.availableAgentsFiles, persistentWorktree.availableAgentsFiles);
   firstStore.close();
 
   const secondStore = new SqliteWorkspaceStore(stateDir);
@@ -219,6 +225,15 @@ try {
   });
   assert.equal(reboundWorkspace.includeBootstrapContext, false);
   assert.equal(reboundWorkspace.workspace.id, persistentWorkspace.workspace.id);
+  assert.deepEqual(
+    reboundWorkspace.agentsFiles.map((file) => file.content),
+    persistentWorkspace.agentsFiles.map((file) => file.content),
+  );
+  assert.deepEqual(reboundWorkspace.availableAgentsFiles, persistentWorkspace.availableAgentsFiles);
+  assert.deepEqual(
+    reboundWorkspace.workspace.agentProfiles.map((profile) => profile.name),
+    persistentWorkspace.workspace.agentProfiles.map((profile) => profile.name),
+  );
 
   const restoredWorktree = restoredRegistry.getWorkspace(persistentWorktree.workspace.id);
   assert.equal(restoredWorktree.mode, "worktree");
@@ -232,6 +247,7 @@ try {
   assert.equal(reboundWorktree.includeBootstrapContext, false);
   assert.equal(reboundWorktree.workspace.id, persistentWorktree.workspace.id);
   assert.equal(reboundWorktree.workspace.root, persistentWorktree.workspace.root);
+  assert.deepEqual(reboundWorktree.agentsFiles, persistentWorktree.agentsFiles);
   secondStore.close();
 
   if (platform() !== "win32") {

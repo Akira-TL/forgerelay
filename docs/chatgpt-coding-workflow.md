@@ -24,7 +24,9 @@ same ChatGPT conversation, DevSpace returns the existing `workspaceId` and omits
 the project instructions, skills, subagent metadata, and diagnostics already
 returned by the first call. The conversation binding is persisted so reconnecting
 the MCP transport or restarting DevSpace does not create another managed worktree
-for the same ChatGPT conversation and target.
+for the same ChatGPT conversation and target. The workspace card still receives
+the complete hidden display payload, so first and repeated calls render the same
+workspace details without adding those fields to the model transcript again.
 
 Do not reopen the same folder unless:
 
