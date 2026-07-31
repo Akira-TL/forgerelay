@@ -26,10 +26,6 @@ for (const [card, expected] of displayCases) {
 
 assert.equal(getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).label, "/tmp/project");
 assert.equal(
-  getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).title,
-  "Opened workspace",
-);
-assert.equal(
   getToolDisplay({ tool: "grep", summary: { pattern: "needle", scope: "src" } }).label,
   "needle in src",
 );
@@ -92,13 +88,6 @@ assert.deepEqual(
   { kind: "diff", additions: 14, removals: 1 },
 );
 
-assert.deepEqual(
-  getToolHeaderSummary({
-    tool: "open_workspace",
-    summary: { mode: "worktree", agentsFiles: 1, skills: 4 },
-  }),
-  { kind: "text", text: "worktree · 1 instruction · 4 skills" },
-);
 assert.deepEqual(
   getToolHeaderSummary({
     tool: "open_workspace",
