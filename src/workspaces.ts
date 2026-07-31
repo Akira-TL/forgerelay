@@ -53,6 +53,7 @@ export interface WorkspaceContext {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
+  workspaceReused: boolean;
   includeBootstrapContext: boolean;
 }
 
@@ -80,7 +81,7 @@ type DirectoryOps = {
 
 export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, Workspace>();
-  private readonly pendingConversationOpens = new Map<string, Promise<WorkspaceContext>>();
+  private readonly pendingCheckoutOpens = new Map<string, Promise<WorkspaceContext>>();
 
   constructor(
     private readonly config: ServerConfig,
@@ -97,29 +98,44 @@ export class WorkspaceRegistry {
       return this.openNewWorkspace(workspaceInput);
     }
 
-    const targetKey = await this.conversationTargetKey(workspaceInput);
+    const projectKey = await this.conversationProjectKey(workspaceInput);
+    const mode = workspaceInput.mode ?? "checkout";
+    if (mode === "worktree") {
+      const context = await this.openWorktreeWorkspace(workspaceInput.path, workspaceInput.baseRef);
+      return {
+        ...context,
+        includeBootstrapContext: this.store.claimConversationBootstrap(
+          conversationScopeHash,
+          projectKey,
+        ),
+      };
+    }
+
+    const targetKey = this.conversationCheckoutTargetKey(projectKey);
     const operationKey = JSON.stringify([conversationScopeHash, targetKey]);
-    const pending = this.pendingConversationOpens.get(operationKey);
+    const pending = this.pendingCheckoutOpens.get(operationKey);
     if (pending) {
       const context = await pending;
       return {
         ...context,
+        workspaceReused: true,
         includeBootstrapContext: false,
       };
     }
 
-    const open = this.openConversationWorkspace(
+    const open = this.openConversationCheckout(
       workspaceInput,
       conversationScopeHash,
       targetKey,
+      projectKey,
     );
-    this.pendingConversationOpens.set(operationKey, open);
+    this.pendingCheckoutOpens.set(operationKey, open);
 
     try {
       return await open;
     } finally {
-      if (this.pendingConversationOpens.get(operationKey) === open) {
-        this.pendingConversationOpens.delete(operationKey);
+      if (this.pendingCheckoutOpens.get(operationKey) === open) {
+        this.pendingCheckoutOpens.delete(operationKey);
       }
     }
   }
@@ -134,10 +150,11 @@ export class WorkspaceRegistry {
     return this.openCheckoutWorkspace(options.path);
   }
 
-  private async openConversationWorkspace(
+  private async openConversationCheckout(
     input: OpenWorkspaceInput,
     conversationScopeHash: string,
     targetKey: string,
+    projectKey: string,
   ): Promise<WorkspaceContext> {
     const binding = this.store?.getConversationBinding(conversationScopeHash, targetKey);
     if (binding) {
@@ -146,7 +163,10 @@ export class WorkspaceRegistry {
         const workspaceStats = await stat(workspace.root);
         if (workspaceStats.isDirectory()) {
           this.store?.touchConversationBinding(conversationScopeHash, targetKey);
-          return await this.reusedWorkspaceContext(workspace);
+          return await this.reusedWorkspaceContext(
+            workspace,
+            this.store?.claimConversationBootstrap(conversationScopeHash, projectKey) ?? true,
+          );
         }
       } catch {
         // The persisted workspace is no longer usable; replace its binding below.
@@ -156,27 +176,32 @@ export class WorkspaceRegistry {
       this.store?.deleteConversationBinding(conversationScopeHash, targetKey);
     }
 
-    const context = await this.openNewWorkspace(input);
+    const context = await this.openCheckoutWorkspace(input.path);
     this.store?.setConversationBinding({
       conversationScopeHash,
       targetKey,
       workspaceSessionId: context.workspace.id,
     });
-    return context;
+    return {
+      ...context,
+      includeBootstrapContext:
+        this.store?.claimConversationBootstrap(conversationScopeHash, projectKey) ?? true,
+    };
   }
 
-  private async conversationTargetKey(input: OpenWorkspaceInput): Promise<string> {
-    const mode = input.mode ?? "checkout";
+  private async conversationProjectKey(input: OpenWorkspaceInput): Promise<string> {
     const path = assertAllowedPath(input.path, this.config.allowedRoots);
-    const canonicalPath = await realpath(path).catch(() => path);
-    return JSON.stringify([
-      mode,
-      canonicalPath,
-      mode === "worktree" ? input.baseRef ?? "HEAD" : null,
-    ]);
+    return await realpath(path).catch(() => path);
   }
 
-  private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+  private conversationCheckoutTargetKey(projectKey: string): string {
+    return JSON.stringify(["checkout", projectKey, null]);
+  }
+
+  private async reusedWorkspaceContext(
+    workspace: Workspace,
+    includeBootstrapContext: boolean,
+  ): Promise<WorkspaceContext> {
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
@@ -185,7 +210,8 @@ export class WorkspaceRegistry {
       workspace,
       agentsFiles,
       availableAgentsFiles,
-      includeBootstrapContext: false,
+      workspaceReused: true,
+      includeBootstrapContext,
     };
   }
 
@@ -329,6 +355,7 @@ export class WorkspaceRegistry {
       workspace,
       agentsFiles,
       availableAgentsFiles,
+      workspaceReused: false,
       includeBootstrapContext: true,
     };
   }

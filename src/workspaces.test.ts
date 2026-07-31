@@ -167,7 +167,9 @@ try {
     conversationScopeHash: "chat-checkout",
   });
   assert.equal(persistentWorkspace.includeBootstrapContext, true);
+  assert.equal(persistentWorkspace.workspaceReused, false);
   assert.equal(reusedPersistentWorkspace.includeBootstrapContext, false);
+  assert.equal(reusedPersistentWorkspace.workspaceReused, true);
   assert.equal(reusedPersistentWorkspace.workspace.id, persistentWorkspace.workspace.id);
   assert.deepEqual(
     reusedPersistentWorkspace.agentsFiles.map((file) => file.content),
@@ -182,6 +184,7 @@ try {
     conversationScopeHash: "chat-checkout-other",
   });
   assert.equal(otherConversationWorkspace.includeBootstrapContext, true);
+  assert.equal(otherConversationWorkspace.workspaceReused, false);
   assert.notEqual(otherConversationWorkspace.workspace.id, persistentWorkspace.workspace.id);
 
   const staleWorkspaceRoot = join(root, "stale-conversation-workspace");
@@ -193,30 +196,61 @@ try {
   const replacementWorkspace = await persistentRegistry.openWorkspace(staleWorkspaceRoot, {
     conversationScopeHash: "chat-stale",
   });
-  assert.equal(replacementWorkspace.includeBootstrapContext, true);
+  assert.equal(replacementWorkspace.includeBootstrapContext, false);
+  assert.equal(replacementWorkspace.workspaceReused, false);
   assert.notEqual(replacementWorkspace.workspace.id, staleWorkspace.workspace.id);
   assert.equal((await stat(staleWorkspaceRoot)).isDirectory(), true);
 
   const worktreeInput = { path: gitRoot, mode: "worktree" as const };
+  const projectCheckout = await persistentRegistry.openWorkspace(gitRoot, {
+    conversationScopeHash: "chat-project-modes",
+  });
+  const firstProjectWorktree = await persistentRegistry.openWorkspace(worktreeInput, {
+    conversationScopeHash: "chat-project-modes",
+  });
+  const secondProjectWorktree = await persistentRegistry.openWorkspace(worktreeInput, {
+    conversationScopeHash: "chat-project-modes",
+  });
+  const reusedProjectCheckout = await persistentRegistry.openWorkspace(gitRoot, {
+    conversationScopeHash: "chat-project-modes",
+  });
+  assert.equal(projectCheckout.includeBootstrapContext, true);
+  assert.equal(projectCheckout.workspaceReused, false);
+  assert.equal(firstProjectWorktree.includeBootstrapContext, false);
+  assert.equal(firstProjectWorktree.workspaceReused, false);
+  assert.equal(secondProjectWorktree.includeBootstrapContext, false);
+  assert.equal(secondProjectWorktree.workspaceReused, false);
+  assert.notEqual(firstProjectWorktree.workspace.id, projectCheckout.workspace.id);
+  assert.notEqual(firstProjectWorktree.workspace.id, secondProjectWorktree.workspace.id);
+  assert.notEqual(firstProjectWorktree.workspace.root, secondProjectWorktree.workspace.root);
+  assert.equal(reusedProjectCheckout.workspace.id, projectCheckout.workspace.id);
+  assert.equal(reusedProjectCheckout.workspaceReused, true);
+  assert.equal(reusedProjectCheckout.includeBootstrapContext, false);
+
   const [persistentWorktree, concurrentWorktree] = await Promise.all([
     persistentRegistry.openWorkspace(worktreeInput, {
-      conversationScopeHash: "chat-worktree",
+      conversationScopeHash: "chat-worktree-concurrent",
     }),
     persistentRegistry.openWorkspace(worktreeInput, {
-      conversationScopeHash: "chat-worktree",
+      conversationScopeHash: "chat-worktree-concurrent",
     }),
   ]);
-  assert.equal(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
-  assert.equal(concurrentWorktree.workspace.root, persistentWorktree.workspace.root);
+  assert.notEqual(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
+  assert.notEqual(concurrentWorktree.workspace.root, persistentWorktree.workspace.root);
+  assert.equal(persistentWorktree.workspaceReused, false);
+  assert.equal(concurrentWorktree.workspaceReused, false);
   const concurrentWorktreeOpens = [persistentWorktree, concurrentWorktree];
   assert.equal(
     concurrentWorktreeOpens.filter((open) => open.includeBootstrapContext).length,
     1,
   );
-  assert.deepEqual(concurrentWorktree.agentsFiles, persistentWorktree.agentsFiles);
   assert.deepEqual(
-    concurrentWorktree.availableAgentsFiles,
-    persistentWorktree.availableAgentsFiles,
+    concurrentWorktree.agentsFiles.map((file) => file.content),
+    persistentWorktree.agentsFiles.map((file) => file.content),
+  );
+  assert.deepEqual(
+    concurrentWorktree.availableAgentsFiles.map((file) => file.path.replace(concurrentWorktree.workspace.root, "<root>")),
+    persistentWorktree.availableAgentsFiles.map((file) => file.path.replace(persistentWorktree.workspace.root, "<root>")),
   );
   firstStore.close();
 
@@ -230,6 +264,7 @@ try {
     conversationScopeHash: "chat-checkout",
   });
   assert.equal(reboundWorkspace.includeBootstrapContext, false);
+  assert.equal(reboundWorkspace.workspaceReused, true);
   assert.equal(reboundWorkspace.workspace.id, persistentWorkspace.workspace.id);
   assert.deepEqual(
     reboundWorkspace.agentsFiles.map((file) => file.content),
@@ -248,12 +283,16 @@ try {
   assert.equal(restoredWorktree.worktree?.managed, true);
 
   const reboundWorktree = await restoredRegistry.openWorkspace(worktreeInput, {
-    conversationScopeHash: "chat-worktree",
+    conversationScopeHash: "chat-worktree-concurrent",
   });
   assert.equal(reboundWorktree.includeBootstrapContext, false);
-  assert.equal(reboundWorktree.workspace.id, persistentWorktree.workspace.id);
-  assert.equal(reboundWorktree.workspace.root, persistentWorktree.workspace.root);
-  assert.deepEqual(reboundWorktree.agentsFiles, persistentWorktree.agentsFiles);
+  assert.equal(reboundWorktree.workspaceReused, false);
+  assert.notEqual(reboundWorktree.workspace.id, persistentWorktree.workspace.id);
+  assert.notEqual(reboundWorktree.workspace.root, persistentWorktree.workspace.root);
+  assert.deepEqual(
+    reboundWorktree.agentsFiles.map((file) => file.content),
+    persistentWorktree.agentsFiles.map((file) => file.content),
+  );
   secondStore.close();
 
   if (platform() !== "win32") {
