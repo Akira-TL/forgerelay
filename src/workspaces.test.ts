@@ -206,12 +206,18 @@ try {
       conversationScopeHash: "chat-worktree",
     }),
   ]);
-  assert.equal(persistentWorktree.includeBootstrapContext, true);
-  assert.equal(concurrentWorktree.includeBootstrapContext, false);
   assert.equal(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
   assert.equal(concurrentWorktree.workspace.root, persistentWorktree.workspace.root);
+  const concurrentWorktreeOpens = [persistentWorktree, concurrentWorktree];
+  assert.equal(
+    concurrentWorktreeOpens.filter((open) => open.includeBootstrapContext).length,
+    1,
+  );
   assert.deepEqual(concurrentWorktree.agentsFiles, persistentWorktree.agentsFiles);
-  assert.deepEqual(concurrentWorktree.availableAgentsFiles, persistentWorktree.availableAgentsFiles);
+  assert.deepEqual(
+    concurrentWorktree.availableAgentsFiles,
+    persistentWorktree.availableAgentsFiles,
+  );
   firstStore.close();
 
   const secondStore = new SqliteWorkspaceStore(stateDir);

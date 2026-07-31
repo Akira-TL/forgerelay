@@ -147,7 +147,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     workspaceSessionId: string;
   }): WorkspaceConversationBinding {
     const now = new Date().toISOString();
-    this.database.db
+    const row = this.database.db
       .insert(workspaceConversationBindings)
       .values({
         conversationScopeHash: input.conversationScopeHash,
@@ -166,9 +166,14 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
           lastUsedAt: now,
         },
       })
-      .run();
+      .returning()
+      .get();
 
-    return this.getConversationBinding(input.conversationScopeHash, input.targetKey)!;
+    if (!row) {
+      throw new Error("Conversation workspace binding upsert returned no row.");
+    }
+
+    return rowToWorkspaceConversationBinding(row);
   }
 
   touchConversationBinding(conversationScopeHash: string, targetKey: string): void {

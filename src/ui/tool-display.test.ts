@@ -26,7 +26,7 @@ for (const [card, expected] of displayCases) {
 
 assert.equal(getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).label, "/tmp/project");
 assert.equal(
-  getToolDisplay({ tool: "open_workspace", root: "/tmp/project", summary: { reused: true } }).title,
+  getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).title,
   "Opened workspace",
 );
 assert.equal(
@@ -102,7 +102,7 @@ assert.deepEqual(
 assert.deepEqual(
   getToolHeaderSummary({
     tool: "open_workspace",
-    summary: { mode: "worktree", reused: true, agentsFiles: 1, skills: 4 },
+    summary: { mode: "worktree", agentsFiles: 1, skills: 4 },
   }),
   { kind: "text", text: "worktree · 1 instruction · 4 skills" },
 );
