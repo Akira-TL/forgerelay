@@ -134,7 +134,6 @@ export class WorkspaceRegistry {
       workspaceInput,
       conversationScopeId,
       targetKey,
-      projectKey,
     );
     this.pendingCheckoutOpens.set(operationKey, open);
 
@@ -161,7 +160,6 @@ export class WorkspaceRegistry {
     input: OpenWorkspaceInput,
     conversationScopeId: string,
     targetKey: string,
-    projectKey: string,
   ): Promise<WorkspaceContext> {
     const binding = this.store?.getConversationBinding(conversationScopeId, targetKey);
     if (binding) {
@@ -186,9 +184,6 @@ export class WorkspaceRegistry {
       targetKey,
       workspaceSessionId: context.workspace.id,
     });
-    // Keep the durable project-level delivery record for migration and
-    // bookkeeping, but derive response suppression from actual reuse.
-    this.store?.claimConversationBootstrap(conversationScopeId, projectKey);
     return {
       ...context,
       includeBootstrapContext: true,

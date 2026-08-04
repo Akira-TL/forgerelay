@@ -1,7 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
-  workspaceConversationBootstraps,
   workspaceConversationBindings,
   workspaceSessions,
   type WorkspaceConversationBindingRow,
@@ -54,7 +53,6 @@ export interface WorkspaceStore {
   }): WorkspaceConversationBinding;
   touchConversationBinding(conversationScopeId: string, targetKey: string): void;
   deleteConversationBinding(conversationScopeId: string, targetKey: string): void;
-  claimConversationBootstrap(conversationScopeId: string, projectKey: string): boolean;
   close?(): void;
 }
 
@@ -201,37 +199,6 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         ),
       )
       .run();
-  }
-
-  claimConversationBootstrap(conversationScopeId: string, projectKey: string): boolean {
-    const now = new Date().toISOString();
-    return this.database.db.transaction((transaction) => {
-      const [inserted] = transaction
-        .insert(workspaceConversationBootstraps)
-        .values({
-          conversationScopeId,
-          projectKey,
-          createdAt: now,
-          lastUsedAt: now,
-        })
-        .onConflictDoNothing()
-        .returning()
-        .all();
-
-      if (inserted) return true;
-
-      transaction
-        .update(workspaceConversationBootstraps)
-        .set({ lastUsedAt: now })
-        .where(
-          and(
-            eq(workspaceConversationBootstraps.conversationScopeId, conversationScopeId),
-            eq(workspaceConversationBootstraps.projectKey, projectKey),
-          ),
-        )
-        .run();
-      return false;
-    });
   }
 
   close(): void {
