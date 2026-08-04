@@ -16,6 +16,7 @@ test("a checkout exposes initial and nested instruction context while filtering 
   const context = await fixture(t);
   const opened = await context.registry.openWorkspace(context.root);
 
+  assert.match(opened.workspace.id, /^ws_[a-f0-9]{10}$/);
   assert.equal(opened.workspace.mode, "checkout");
   assert.deepEqual(
     opened.agentsFiles.map((file) => file.content),

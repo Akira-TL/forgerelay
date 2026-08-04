@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Stats } from "node:fs";
 import type {
   WorkspaceConversationBinding,
@@ -355,7 +355,7 @@ export class WorkspaceRegistry {
     worktree?: WorkspaceWorktree;
   }): Promise<WorkspaceContext> {
     const workspace: Workspace = {
-      id: `ws_${randomUUID()}`,
+      id: `ws_${randomBytes(5).toString("hex")}`,
       root: input.root,
       mode: input.mode,
       sourceRoot: input.sourceRoot,
