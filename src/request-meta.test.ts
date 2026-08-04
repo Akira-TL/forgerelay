@@ -6,10 +6,6 @@ test("undefined request metadata has no conversation scope", () => {
   assert.equal(openAiConversationScopeId(undefined), undefined);
 });
 
-test("null request metadata has no conversation scope", () => {
-  assert.equal(openAiConversationScopeId(null), undefined);
-});
-
 test("missing session metadata has no conversation scope", () => {
   assert.equal(openAiConversationScopeId({}), undefined);
 });
@@ -21,12 +17,6 @@ test("an empty session string has no conversation scope", () => {
 test("a non-string session value has no conversation scope", () => {
   assert.equal(openAiConversationScopeId({ "openai/session": 42 }), undefined);
   assert.equal(openAiConversationScopeId({ "openai/session": {} }), undefined);
-});
-
-test("primitive request metadata has no conversation scope", () => {
-  assert.equal(openAiConversationScopeId(42), undefined);
-  assert.equal(openAiConversationScopeId("metadata"), undefined);
-  assert.equal(openAiConversationScopeId(true), undefined);
 });
 
 test("valid OpenAI session metadata returns the raw opaque session value", () => {

@@ -256,12 +256,22 @@ test("canonical checkout identity remains stable when the requested target start
   assert.equal(second.includeBootstrapContext, false);
 });
 
-test("canonical checkout identity survives symlink aliases", { skip: platform() === "win32" }, async (t) => {
+test("canonical checkout identity survives equivalent path and symlink aliases", async (t) => {
   const { root, project, registry } = await fixture(t);
-  const alias = join(root, "project-alias");
-  await symlink(project, alias, "dir");
 
   const direct = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  const equivalent = await registry.openWorkspace(join(project, "..", "project"), {
+    conversationScopeId: "chat-1",
+  });
+
+  assert.equal(equivalent.workspace.id, direct.workspace.id);
+  assert.equal(equivalent.workspaceReused, true);
+  assert.equal(equivalent.includeBootstrapContext, false);
+
+  if (platform() === "win32") return;
+
+  const alias = join(root, "project-alias");
+  await symlink(project, alias, "dir");
   const aliased = await registry.openWorkspace(alias, { conversationScopeId: "chat-1" });
 
   assert.equal(aliased.workspace.id, direct.workspace.id);
@@ -302,20 +312,6 @@ test("canonical checkout identity survives macOS var path aliases", { skip: plat
   assert.equal(aliased.workspace.id, direct.workspace.id);
   assert.equal(aliased.workspaceReused, true);
   assert.equal(aliased.includeBootstrapContext, false);
-});
-
-test("canonical checkout identity survives equivalent path spellings", async (t) => {
-  const { project, registry } = await fixture(t);
-  const equivalentPath = join(project, "..", "project");
-
-  const direct = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const equivalent = await registry.openWorkspace(equivalentPath, {
-    conversationScopeId: "chat-1",
-  });
-
-  assert.equal(equivalent.workspace.id, direct.workspace.id);
-  assert.equal(equivalent.workspaceReused, true);
-  assert.equal(equivalent.includeBootstrapContext, false);
 });
 
 test("an invalid persisted checkout binding is not reused", async (t) => {

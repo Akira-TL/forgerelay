@@ -197,7 +197,7 @@ function serverInstructions(config: ServerConfig): string {
       : "";
 
   if (config.toolMode === "codex") {
-    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed. Checkout mode can reuse the conversation-scoped workspace; each worktree-mode open creates a new isolated worktree. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
+    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed. Checkout mode can reuse the conversation-scoped workspace when the host provides that optional context; otherwise continue using the returned workspaceId. Each worktree-mode open creates a new isolated worktree. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
   }
 
   const inspection = config.toolMode !== "full"
@@ -752,7 +752,7 @@ function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this before reading, editing, searching, writing, showing changes, or running commands, then reuse the returned workspaceId. In ChatGPT, checkout mode reuses the existing checkout workspace for the same project and conversation. Every worktree-mode call creates a new managed worktree and workspace. After the first open for a project in one ChatGPT conversation, later opens omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for a new isolated or parallel coding session.",
+        "Open a local project directory as a coding workspace. Call this before reading, editing, searching, writing, showing changes, or running commands, then reuse the returned workspaceId. When ChatGPT supplies optional conversation context, checkout mode reuses the existing checkout workspace for the same project and conversation; hosts without supported context receive a normal new workspace and continue with the returned workspaceId. Every worktree-mode call creates a new managed worktree and workspace. After the first open for a project in one ChatGPT conversation, later opens omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for a new isolated or parallel coding session.",
       inputSchema: {
         path: z
           .string()
