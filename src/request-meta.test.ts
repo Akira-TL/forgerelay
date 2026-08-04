@@ -4,6 +4,10 @@ import { openAiConversationScopeId } from "./request-meta.js";
 assert.equal(openAiConversationScopeId(undefined), undefined);
 assert.equal(openAiConversationScopeId({}), undefined);
 assert.equal(openAiConversationScopeId({ "openai/session": "" }), undefined);
+assert.equal(openAiConversationScopeId({ "openai/session": 42 }), undefined);
+assert.equal(openAiConversationScopeId({ "openai/session": {} }), undefined);
+assert.equal(openAiConversationScopeId(null), undefined);
+assert.equal(openAiConversationScopeId(42), undefined);
 assert.equal(openAiConversationScopeId({ "openai/session": "chat-1" }), "chat-1");
 
 assert.equal(

@@ -1,13 +1,14 @@
 function metadataString(
-  meta: Record<string, unknown> | undefined,
+  meta: unknown,
   key: string,
 ): string | undefined {
-  const value = meta?.[key];
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const value = (meta as Record<string, unknown>)[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function openAiConversationScopeId(
-  meta: Record<string, unknown> | undefined,
+  meta: unknown,
 ): string | undefined {
   return metadataString(meta, "openai/session");
 }
