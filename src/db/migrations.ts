@@ -22,6 +22,11 @@ const migrations: Migration[] = [
     name: "local-agent-sessions",
     up: migrateLocalAgentSessions,
   },
+  {
+    version: 4,
+    name: "workspace-conversation-bindings",
+    up: migrateWorkspaceConversationBindings,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -172,6 +177,25 @@ function migrateLocalAgentSessions(sqlite: Database.Database): void {
   `);
 
   addColumnIfMissing(sqlite, "local_agent_sessions", "thinking", "text");
+}
+
+function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists workspace_conversation_bindings (
+      conversation_scope_id text not null,
+      target_key text not null,
+      workspace_session_id text not null,
+      created_at text not null,
+      last_used_at text not null,
+      primary key (conversation_scope_id, target_key),
+      foreign key (workspace_session_id)
+        references workspace_sessions(id)
+        on delete cascade
+    );
+
+    create index if not exists workspace_conversation_bindings_workspace_idx
+      on workspace_conversation_bindings(workspace_session_id);
+  `);
 }
 
 function addColumnIfMissing(

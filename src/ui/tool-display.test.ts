@@ -5,6 +5,8 @@ import { getToolDisplay, getToolHeaderSummary } from "./tool-display.js";
 
 const displayCases: Array<[ToolResultCard, { title: string; tone: string }]> = [
   [{ tool: "open_workspace", root: "/tmp/project" }, { title: "Opened workspace", tone: "workspace" }],
+  [{ tool: "open_workspace", root: "/tmp/project", workspaceReused: true }, { title: "Reused workspace", tone: "workspace" }],
+  [{ tool: "open_workspace", root: "/tmp/project", mode: "worktree" }, { title: "Opened worktree", tone: "workspace" }],
   [{ tool: "read", path: "src/read.ts" }, { title: "Read file", tone: "read" }],
   [{ tool: "write", path: "src/write.ts" }, { title: "Wrote file", tone: "write" }],
   [{ tool: "edit", path: "src/edit.ts" }, { title: "Edited file", tone: "edit" }],

@@ -17,12 +17,36 @@ ChatGPT should call `open_workspace` once for a project folder:
 The result includes a `workspaceId`. All later file, search, edit, show-changes,
 and shell calls should reuse that same `workspaceId`.
 
-Do not reopen the same folder unless:
+ChatGPT may support automatic checkout recovery through optional host
+conversation metadata. This is an OpenAI-host adapter detail, not a standard MCP
+conversation field. When that optional context is available, opening the same
+checkout project again in the same conversation can continue in the existing
+workspace, and the context already provided for that reused checkout is not
+repeated. The portable workflow remains the same: keep using the `workspaceId`
+returned by `open_workspace` for later operations. Hosts without supported
+conversation context receive a normal new workspace and continue with that
+explicit `workspaceId` workflow.
+The model receives actionable workspace instructions; automatic-reuse
+bookkeeping is not a model-facing choice.
+
+Worktree mode is deliberately different: every call creates a new managed
+worktree and a new workspace session with complete context, even for the same
+path and base ref.
+
+The first successful open of a checkout provides complete instructions and
+coding context. A repeated open that reuses the same checkout workspace does
+not repeat the model-visible context, but the workspace UI continues to show the
+complete details. Every new worktree establishes and returns its own complete
+context, even when the same project was already opened in checkout or another
+worktree. Opening checkout after a worktree therefore provides the checkout's
+own context.
+
+Do not call `open_workspace` again for the same checkout folder unless:
 
 - the `workspaceId` is rejected as unknown
-- the user switches to another folder
-- the user switches between checkout and worktree mode
-- the user explicitly asks to reopen
+- work moves to a different project folder
+- work switches between checkout and worktree mode
+- the user asks for a new isolated worktree
 
 ## Checkout Mode
 
@@ -55,6 +79,11 @@ Managed worktrees are created under:
 
 Worktree mode requires a Git repository with at least one commit. It starts from
 `HEAD` unless `baseRef` is provided.
+
+Each worktree-mode call creates a new managed worktree and returns a new
+`workspaceId`. Reuse that ID for work inside that worktree; call
+`open_workspace` in worktree mode again only when another isolated worktree is
+actually required.
 
 Uncommitted source checkout changes are not copied into the managed worktree.
 DevSpace reports when the source checkout was dirty so the model can decide how
@@ -158,10 +187,10 @@ and shell tools. The aggregate `show_changes` tool is not exposed by default.
 Use `DEVSPACE_WIDGETS=off` to disable widget UI, or `DEVSPACE_WIDGETS=changes`
 to expose the aggregate show-changes flow.
 
-When `show_changes` is exposed, models should call it exactly once after the
-final file modification in any turn that changes files. The tool only requires
-the `workspaceId`; DevSpace automatically compares against the last shown
-checkpoint and advances that checkpoint after rendering the aggregate diff.
+When `show_changes` is exposed, call it exactly once after the final file
+modification in any turn that changes files. It shows the combined changes for
+that turn and advances the review point automatically. Reusing a workspace does
+not change this workflow.
 
 ## Shell Use
 
