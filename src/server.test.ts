@@ -140,6 +140,8 @@ test("checkout reuse and context suppression survive a registry restart", async 
   const first = await callOpen(context.client, context.project, "chat-1");
   const firstWorkspaceId = structuredContent(first).workspaceId;
 
+  await context.close();
+
   const restoredStore = new SqliteWorkspaceStore(context.stateDir);
   const restoredServer = createMcpServer(
     context.config,
@@ -151,20 +153,29 @@ test("checkout reuse and context suppression survive a registry restart", async 
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
   const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
-  await Promise.all([
-    restoredClient.connect(restoredClientTransport),
-    restoredServer.connect(restoredServerTransport),
-  ]);
-  t.after(async () => {
+  let restoredClosed = false;
+  const closeRestored = async () => {
+    if (restoredClosed) return;
+    restoredClosed = true;
     await restoredClient.close();
     await restoredServer.close();
     restoredStore.close();
-  });
+  };
+  t.after(closeRestored);
 
-  const restored = await callOpen(restoredClient, context.project, "chat-1");
-  assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
-  assert.equal(structuredContent(restored).agentsFiles, undefined);
-  assert.match(responseText(restored), /same checkout previously opened/);
+  try {
+    await Promise.all([
+      restoredClient.connect(restoredClientTransport),
+      restoredServer.connect(restoredServerTransport),
+    ]);
+
+    const restored = await callOpen(restoredClient, context.project, "chat-1");
+    assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
+    assert.equal(structuredContent(restored).agentsFiles, undefined);
+    assert.match(responseText(restored), /same checkout previously opened/);
+  } finally {
+    await closeRestored();
+  }
 });
 
 interface ServerFixture {
@@ -172,6 +183,7 @@ interface ServerFixture {
   project: string;
   config: ServerConfig;
   stateDir: string;
+  close: () => Promise<void>;
 }
 
 async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise<ServerFixture> {
@@ -229,14 +241,21 @@ async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise
     server.connect(serverTransport),
   ]);
 
-  t.after(async () => {
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
     await client.close();
     await server.close();
     store.close();
+  };
+
+  t.after(async () => {
+    await close();
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, config, stateDir };
+  return { client, project, config, stateDir, close };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
