@@ -158,18 +158,23 @@ export class WorkspaceRegistry {
   ): Promise<WorkspaceContext> {
     const binding = this.store?.getConversationBinding(conversationScopeId, targetKey);
     if (binding) {
+      let reusableWorkspace: Workspace | undefined;
       try {
         const workspace = this.getWorkspace(binding.workspaceSessionId);
         const workspaceStats = await stat(workspace.root);
         if (workspaceStats.isDirectory()) {
-          this.store?.touchConversationBinding(conversationScopeId, targetKey);
-          return await this.reusedWorkspaceContext(
-            workspace,
-            this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
-          );
+          reusableWorkspace = workspace;
         }
       } catch {
         // The persisted workspace is no longer usable; replace its binding below.
+      }
+
+      if (reusableWorkspace) {
+        this.store?.touchConversationBinding(conversationScopeId, targetKey);
+        return await this.reusedWorkspaceContext(
+          reusableWorkspace,
+          this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
+        );
       }
 
       this.workspaces.delete(binding.workspaceSessionId);

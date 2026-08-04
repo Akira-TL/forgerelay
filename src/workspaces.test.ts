@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -179,6 +179,27 @@ try {
     reusedPersistentWorkspace.availableAgentsFiles,
     persistentWorkspace.availableAgentsFiles,
   );
+
+  const projectAgentsDir = join(root, ".devspace", "agents");
+  const projectAgentsBackup = join(root, ".devspace", "agents-backup");
+  await rename(projectAgentsDir, projectAgentsBackup);
+  await writeFile(projectAgentsDir, "not a directory\n");
+  try {
+    await assert.rejects(
+      () => persistentRegistry.openWorkspace(root, { conversationScopeId: "chat-checkout" }),
+      /directory|ENOTDIR/i,
+    );
+    assert.equal(
+      firstStore.getConversationBinding(
+        "chat-checkout",
+        JSON.stringify(["checkout", root, null]),
+      )?.workspaceSessionId,
+      persistentWorkspace.workspace.id,
+    );
+  } finally {
+    await rm(projectAgentsDir, { force: true });
+    await rename(projectAgentsBackup, projectAgentsDir);
+  }
 
   const otherConversationWorkspace = await persistentRegistry.openWorkspace(root, {
     conversationScopeId: "chat-checkout-other",
