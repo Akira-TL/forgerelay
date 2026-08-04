@@ -79,7 +79,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
     async reviewChanges({ workspaceId, root, since = "last_shown", markReviewed = true }) {
       let state = states.get(workspaceId);
-      if (!state) {
+      if (!isInitializedState(state)) {
         await this.initializeWorkspace({ workspaceId, root });
         state = states.get(workspaceId);
       }
@@ -124,7 +124,6 @@ async function initializeWorkspaceState(
 ): Promise<void> {
   const refs = reviewRefs(workspaceId);
   const state: WorkspaceReviewState = { root, ...refs };
-  states.set(workspaceId, state);
 
   try {
     const eligibility = await getGitEligibility(root);
@@ -133,31 +132,38 @@ async function initializeWorkspaceState(
       return;
     }
 
-    state.gitRoot = eligibility.gitRoot;
-    const [hasOpenRef, hasBaselineRef] = await Promise.all([
-      hasCommitRef(eligibility.gitRoot, state.openRef),
-      hasCommitRef(eligibility.gitRoot, state.baselineRef),
+    const [openCommit, baselineCommit] = await Promise.all([
+      commitForRef(eligibility.gitRoot, state.openRef),
+      commitForRef(eligibility.gitRoot, state.baselineRef),
     ]);
-    if (hasOpenRef && hasBaselineRef) return;
 
-    const commit = await createWorkingTreeSnapshot(eligibility.gitRoot);
-    if (!hasOpenRef) {
-      await git(eligibility.gitRoot, ["update-ref", state.openRef, commit]);
+    if (!openCommit && !baselineCommit) {
+      const initialCommit = await createWorkingTreeSnapshot(eligibility.gitRoot);
+      await git(eligibility.gitRoot, ["update-ref", state.openRef, initialCommit]);
+      await git(eligibility.gitRoot, ["update-ref", state.baselineRef, initialCommit]);
+    } else if (openCommit && !baselineCommit) {
+      await git(eligibility.gitRoot, ["update-ref", state.baselineRef, openCommit]);
+    } else if (!openCommit && baselineCommit) {
+      await git(eligibility.gitRoot, ["update-ref", state.openRef, baselineCommit]);
     }
-    if (!hasBaselineRef) {
-      await git(eligibility.gitRoot, ["update-ref", state.baselineRef, commit]);
-    }
+
+    state.gitRoot = eligibility.gitRoot;
   } catch (error) {
     state.diagnostic = error instanceof Error ? error.message : String(error);
+  } finally {
+    states.set(workspaceId, state);
   }
 }
 
-async function hasCommitRef(gitRoot: string, ref: string): Promise<boolean> {
+function isInitializedState(state: WorkspaceReviewState | undefined): boolean {
+  return state?.gitRoot !== undefined || state?.diagnostic !== undefined;
+}
+
+async function commitForRef(gitRoot: string, ref: string): Promise<string | undefined> {
   try {
-    await git(gitRoot, ["rev-parse", "--verify", `${ref}^{commit}`]);
-    return true;
+    return (await git(gitRoot, ["rev-parse", "--verify", `${ref}^{commit}`])).stdout.trim();
   } catch {
-    return false;
+    return undefined;
   }
 }
 

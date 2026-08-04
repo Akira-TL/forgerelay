@@ -50,6 +50,15 @@ try {
   assert.equal(afterRestart.summary.files, 2);
   assert.match(afterRestart.patch, /world/);
 
+  const sinceOpenAfterRestart = await restartedManager.reviewChanges({
+    workspaceId: "ws_review",
+    root,
+    since: "workspace_open",
+    markReviewed: false,
+  });
+  assert.equal(sinceOpenAfterRestart.summary.files, 2);
+  assert.match(sinceOpenAfterRestart.patch, /world/);
+
   const stillUnreviewed = await manager.reviewChanges({
     workspaceId: "ws_review",
     root,
@@ -59,6 +68,27 @@ try {
 
   const afterReviewed = await manager.reviewChanges({ workspaceId: "ws_review", root });
   assert.equal(afterReviewed.summary.files, 0);
+
+  await writeFile(join(root, "README.md"), "hello\nworld\nlater\n");
+
+  const concurrentManager = createReviewCheckpointManager();
+  const [, concurrentReview] = await Promise.all([
+    concurrentManager.initializeWorkspace({ workspaceId: "ws_review", root }),
+    concurrentManager.reviewChanges({ workspaceId: "ws_review", root, markReviewed: false }),
+  ]);
+  assert.equal(concurrentReview.summary.files, 1);
+  assert.match(concurrentReview.patch, /later/);
+
+  await git(root, ["update-ref", "-d", "refs/devspace/review/ws_review/baseline"]);
+  const partiallyRestoredManager = createReviewCheckpointManager();
+  await partiallyRestoredManager.initializeWorkspace({ workspaceId: "ws_review", root });
+  const afterPartialRestore = await partiallyRestoredManager.reviewChanges({
+    workspaceId: "ws_review",
+    root,
+    markReviewed: false,
+  });
+  assert.equal(afterPartialRestore.summary.files, 2);
+  assert.match(afterPartialRestore.patch, /later/);
 } finally {
   await rm(root, { recursive: true, force: true });
 }
