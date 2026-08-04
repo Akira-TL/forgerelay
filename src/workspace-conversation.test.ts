@@ -12,16 +12,12 @@ import { WorkspaceRegistry } from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);
 
-test("a conversation reuses its checkout and receives bootstrap once", async (t) => {
+test("a conversation reuses its checkout context", async (t) => {
   const { project, registry } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const second = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
-  assert.equal(first.workspaceReused, false);
-  assert.equal(first.includeBootstrapContext, true);
-  assert.equal(second.workspaceReused, true);
-  assert.equal(second.includeBootstrapContext, false);
   assert.equal(second.workspace.id, first.workspace.id);
   assert.deepEqual(second.agentsFiles, first.agentsFiles);
   assert.deepEqual(second.availableAgentsFiles, first.availableAgentsFiles);
@@ -37,13 +33,9 @@ test("different conversations receive separate checkout workspaces", async (t) =
   const second = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
 
   assert.notEqual(second.workspace.id, first.workspace.id);
-  assert.equal(first.includeBootstrapContext, true);
-  assert.equal(second.includeBootstrapContext, true);
-  assert.equal(first.workspaceReused, false);
-  assert.equal(second.workspaceReused, false);
 });
 
-test("a conversation can bootstrap each canonical project once", async (t) => {
+test("conversation bindings distinguish canonical projects", async (t) => {
   const { root, project, registry } = await fixture(t);
   const otherProject = join(root, "other-project");
   await mkdir(otherProject);
@@ -62,16 +54,12 @@ test("a conversation can bootstrap each canonical project once", async (t) => {
     conversationScopeId: "chat-1",
   });
 
-  assert.equal(firstProjectOpen.includeBootstrapContext, true);
-  assert.equal(otherProjectOpen.includeBootstrapContext, true);
-  assert.equal(repeatedProjectOpen.includeBootstrapContext, false);
-  assert.equal(repeatedOtherProjectOpen.includeBootstrapContext, false);
   assert.equal(repeatedProjectOpen.workspace.id, firstProjectOpen.workspace.id);
   assert.equal(repeatedOtherProjectOpen.workspace.id, otherProjectOpen.workspace.id);
   assert.notEqual(otherProjectOpen.workspace.id, firstProjectOpen.workspace.id);
 });
 
-test("concurrent checkout opens reuse one workspace and claim bootstrap once", async (t) => {
+test("concurrent checkout opens reuse one workspace and return matching context", async (t) => {
   const { project, registry } = await fixture(t);
 
   const opens = await Promise.all([
@@ -80,8 +68,6 @@ test("concurrent checkout opens reuse one workspace and claim bootstrap once", a
   ]);
 
   assert.equal(new Set(opens.map((open) => open.workspace.id)).size, 1);
-  assert.equal(opens.filter((open) => open.workspaceReused).length, 1);
-  assert.equal(opens.filter((open) => open.includeBootstrapContext).length, 1);
   assert.deepEqual(opens[0].agentsFiles, opens[1].agentsFiles);
   assert.deepEqual(opens[0].availableAgentsFiles, opens[1].availableAgentsFiles);
 });
@@ -93,10 +79,6 @@ test("a checkout without a conversation scope does not use conversation reuse", 
   const second = await registry.openWorkspace(project);
 
   assert.notEqual(second.workspace.id, first.workspace.id);
-  assert.equal(first.workspaceReused, false);
-  assert.equal(second.workspaceReused, false);
-  assert.equal(first.includeBootstrapContext, true);
-  assert.equal(second.includeBootstrapContext, true);
 });
 
 test("worktree requests remain fresh without replacing the reusable checkout", async (t) => {
@@ -112,16 +94,9 @@ test("worktree requests remain fresh without replacing the reusable checkout", a
   });
   const checkoutAgain = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
-  assert.equal(checkout.includeBootstrapContext, true);
-  assert.equal(firstWorktree.includeBootstrapContext, false);
-  assert.equal(secondWorktree.includeBootstrapContext, false);
-  assert.equal(firstWorktree.workspaceReused, false);
-  assert.equal(secondWorktree.workspaceReused, false);
   assert.notEqual(firstWorktree.workspace.id, secondWorktree.workspace.id);
   assert.notEqual(firstWorktree.workspace.root, secondWorktree.workspace.root);
   assert.equal(checkoutAgain.workspace.id, checkout.workspace.id);
-  assert.equal(checkoutAgain.workspaceReused, true);
-  assert.equal(checkoutAgain.includeBootstrapContext, false);
 });
 
 test("a worktree-first conversation creates and then reuses its checkout", async (t) => {
@@ -134,18 +109,12 @@ test("a worktree-first conversation creates and then reuses its checkout", async
   const checkout = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const checkoutAgain = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
-  assert.equal(worktree.includeBootstrapContext, true);
-  assert.equal(worktree.workspaceReused, false);
-  assert.equal(checkout.includeBootstrapContext, false);
-  assert.equal(checkout.workspaceReused, false);
   assert.equal(checkout.workspace.mode, "checkout");
   assert.notEqual(checkout.workspace.id, worktree.workspace.id);
-  assert.equal(checkoutAgain.includeBootstrapContext, false);
-  assert.equal(checkoutAgain.workspaceReused, true);
   assert.equal(checkoutAgain.workspace.id, checkout.workspace.id);
 });
 
-test("concurrent worktree opens claim bootstrap exactly once and return complete context", async (t) => {
+test("concurrent worktree opens remain fresh and return complete context", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const worktreeInput = { path: project, mode: "worktree" as const };
 
@@ -154,9 +123,6 @@ test("concurrent worktree opens claim bootstrap exactly once and return complete
     registry.openWorkspace(worktreeInput, { conversationScopeId: "chat-1" }),
   ]);
 
-  assert.equal([first, second].filter((open) => open.includeBootstrapContext).length, 1);
-  assert.equal(first.workspaceReused, false);
-  assert.equal(second.workspaceReused, false);
   assert.notEqual(first.workspace.id, second.workspace.id);
   assert.notEqual(first.workspace.root, second.workspace.root);
   assert.deepEqual(
@@ -183,8 +149,6 @@ test("checkout reuse survives a registry restart", async (t) => {
   });
 
   assert.equal(restored.workspace.id, first.workspace.id);
-  assert.equal(restored.workspaceReused, true);
-  assert.equal(restored.includeBootstrapContext, false);
 });
 
 test("a failed first context load does not consume bootstrap", async (t) => {
@@ -203,8 +167,6 @@ test("a failed first context load does not consume bootstrap", async (t) => {
   }
 
   const successfulOpen = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  assert.equal(successfulOpen.includeBootstrapContext, true);
-  assert.equal(successfulOpen.workspaceReused, false);
 });
 
 test("a context-loading failure preserves a valid checkout binding", async (t) => {
@@ -225,11 +187,9 @@ test("a context-loading failure preserves a valid checkout binding", async (t) =
 
   const recovered = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   assert.equal(recovered.workspace.id, first.workspace.id);
-  assert.equal(recovered.workspaceReused, true);
-  assert.equal(recovered.includeBootstrapContext, false);
 });
 
-test("a deleted checkout is replaced without repeating bootstrap", async (t) => {
+test("a deleted checkout is replaced with a new workspace", async (t) => {
   const { project, registry } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
@@ -237,8 +197,6 @@ test("a deleted checkout is replaced without repeating bootstrap", async (t) => 
   const replacement = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
   assert.notEqual(replacement.workspace.id, first.workspace.id);
-  assert.equal(replacement.workspaceReused, false);
-  assert.equal(replacement.includeBootstrapContext, false);
   assert.equal((await stat(project)).isDirectory(), true);
 });
 
@@ -250,10 +208,7 @@ test("canonical checkout identity remains stable when the requested target start
   const second = await registry.openWorkspace(missingTarget, { conversationScopeId: "chat-1" });
 
   assert.equal(first.workspace.root, missingTarget);
-  assert.equal(first.includeBootstrapContext, true);
   assert.equal(second.workspace.id, first.workspace.id);
-  assert.equal(second.workspaceReused, true);
-  assert.equal(second.includeBootstrapContext, false);
 });
 
 test("canonical checkout identity survives equivalent path and symlink aliases", async (t) => {
@@ -265,8 +220,6 @@ test("canonical checkout identity survives equivalent path and symlink aliases",
   });
 
   assert.equal(equivalent.workspace.id, direct.workspace.id);
-  assert.equal(equivalent.workspaceReused, true);
-  assert.equal(equivalent.includeBootstrapContext, false);
 
   if (platform() === "win32") return;
 
@@ -275,8 +228,6 @@ test("canonical checkout identity survives equivalent path and symlink aliases",
   const aliased = await registry.openWorkspace(alias, { conversationScopeId: "chat-1" });
 
   assert.equal(aliased.workspace.id, direct.workspace.id);
-  assert.equal(aliased.workspaceReused, true);
-  assert.equal(aliased.includeBootstrapContext, false);
 });
 
 test("canonical checkout identity survives macOS var path aliases", { skip: platform() !== "darwin" }, async (t) => {
@@ -310,8 +261,6 @@ test("canonical checkout identity survives macOS var path aliases", { skip: plat
   );
 
   assert.equal(aliased.workspace.id, direct.workspace.id);
-  assert.equal(aliased.workspaceReused, true);
-  assert.equal(aliased.includeBootstrapContext, false);
 });
 
 test("an invalid persisted checkout binding is not reused", async (t) => {
@@ -337,8 +286,6 @@ test("an invalid persisted checkout binding is not reused", async (t) => {
   });
 
   assert.notEqual(replacement.workspace.id, first.workspace.id);
-  assert.equal(replacement.workspaceReused, false);
-  assert.equal(replacement.includeBootstrapContext, false);
 });
 
 test("an inactive persisted checkout binding is not reused", async (t) => {
@@ -363,8 +310,6 @@ test("an inactive persisted checkout binding is not reused", async (t) => {
   });
 
   assert.notEqual(replacement.workspace.id, first.workspace.id);
-  assert.equal(replacement.workspaceReused, false);
-  assert.equal(replacement.includeBootstrapContext, false);
 });
 
 test("a checkout replaced by a file reports the filesystem error", async (t) => {

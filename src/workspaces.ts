@@ -113,10 +113,8 @@ export class WorkspaceRegistry {
       const context = await this.openWorktreeWorkspace(workspaceInput.path, workspaceInput.baseRef);
       return {
         ...context,
-        includeBootstrapContext: this.store.claimConversationBootstrap(
-          conversationScopeId,
-          projectKey,
-        ),
+        // A new worktree always has its own workspace-specific context.
+        includeBootstrapContext: true,
       };
     }
 
@@ -174,8 +172,7 @@ export class WorkspaceRegistry {
         this.store?.touchConversationBinding(conversationScopeId, targetKey);
         return {
           ...context,
-          includeBootstrapContext:
-            this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
+          includeBootstrapContext: false,
         };
       }
 
@@ -189,10 +186,12 @@ export class WorkspaceRegistry {
       targetKey,
       workspaceSessionId: context.workspace.id,
     });
+    // Keep the durable project-level delivery record for migration and
+    // bookkeeping, but derive response suppression from actual reuse.
+    this.store?.claimConversationBootstrap(conversationScopeId, projectKey);
     return {
       ...context,
-      includeBootstrapContext:
-        this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
+      includeBootstrapContext: true,
     };
   }
 
