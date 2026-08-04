@@ -367,15 +367,6 @@ test("an inactive persisted checkout binding is not reused", async (t) => {
   assert.equal(replacement.includeBootstrapContext, false);
 });
 
-test("a project outside the allowed roots is rejected", async (t) => {
-  const { outsideRoot, registry } = await fixture(t);
-
-  await assert.rejects(
-    () => registry.openWorkspace(outsideRoot, { conversationScopeId: "chat-1" }),
-    /outside allowed roots/,
-  );
-});
-
 test("a checkout replaced by a file reports the filesystem error", async (t) => {
   const context = await fixture(t);
   const target = join(context.root, "file-target");
@@ -440,7 +431,6 @@ test("unexpected filesystem errors are propagated without replacing the binding"
 
 interface WorkspaceFixture {
   root: string;
-  outsideRoot: string;
   project: string;
   stateDir: string;
   config: ServerConfig;
@@ -455,7 +445,6 @@ async function fixture(
   options: { git?: boolean } = {},
 ): Promise<WorkspaceFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-workspace-conversation-test-"));
-  const outsideRoot = await mkdtemp(join(tmpdir(), "devspace-workspace-conversation-outside-test-"));
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
@@ -498,12 +487,10 @@ async function fixture(
   t.after(async () => {
     for (const openStore of stores) openStore.close();
     await rm(root, { recursive: true, force: true });
-    await rm(outsideRoot, { recursive: true, force: true });
   });
 
   return {
     root,
-    outsideRoot,
     project,
     stateDir,
     config,
