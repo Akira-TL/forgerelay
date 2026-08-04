@@ -136,11 +136,14 @@ npx @waishnav/devspace init --force
 client receives an unknown workspace error, call `open_workspace` again for that
 project.
 
-Workspace session metadata is persisted. In ChatGPT, opening the same checkout
-project again in the same conversation can resume the existing workspace;
-worktree mode always creates a new isolated workspace. In all cases, continue
-passing the `workspaceId` returned by `open_workspace` to later tools. Other MCP
-hosts use this explicit workspace workflow as well.
+Workspace session metadata is persisted. ChatGPT may provide optional
+conversation metadata that lets DevSpace resume the same checkout workspace for
+the same project in that conversation; repeated opens reuse the `workspaceId`
+and do not repeat context already provided for that workspace. Worktree mode
+always creates a new isolated workspace with its own context. Hosts without
+supported conversation metadata receive a normal new workspace. In all cases,
+continue passing the `workspaceId` returned by `open_workspace` to later tools.
+Other MCP hosts use this explicit workspace workflow as well.
 
 To review work, call `show_changes` once after the final related file change. It
 shows the combined changes and advances the review point automatically.

@@ -17,21 +17,25 @@ ChatGPT should call `open_workspace` once for a project folder:
 The result includes a `workspaceId`. All later file, search, edit, show-changes,
 and shell calls should reuse that same `workspaceId`.
 
-When ChatGPT opens the same checkout project again in the same conversation,
-DevSpace can continue in the existing checkout workspace. This is a convenience
-for continuing work; the portable workflow remains the same: keep using the
-`workspaceId` returned by `open_workspace` for later operations. Hosts that do
-not provide conversation context continue with that explicit `workspaceId`
-workflow.
+ChatGPT may support automatic checkout recovery through optional host
+conversation metadata. This is an OpenAI-host adapter detail, not a standard MCP
+conversation field. When that optional context is available, opening the same
+checkout project again in the same conversation can continue in the existing
+workspace, and the context already provided for that workspace is not repeated.
+The portable workflow remains the same: keep using the `workspaceId` returned by
+`open_workspace` for later operations. Hosts without supported conversation
+context receive a normal new workspace and continue with that explicit
+`workspaceId` workflow.
 
 Worktree mode is deliberately different: every call creates a new managed
 worktree and a new workspace session, even for the same path and base ref.
 
-The first successful open of a project in a conversation provides its initial
-instructions and coding context. Later opens of that project avoid repeating the
-same setup guidance, including when switching between checkout and worktree
-mode. The workspace UI continues to show the full details for the current
-workspace.
+The first open of a checkout provides its complete instructions and coding
+context. A repeated open that reuses that same checkout workspace does not repeat
+the model-visible context, but the workspace UI continues to show the complete
+details. Every new worktree establishes and returns its own complete context,
+even when the same project was already opened in checkout or another worktree.
+Opening checkout after a worktree therefore provides the checkout's own context.
 
 Do not call `open_workspace` again for the same checkout folder unless:
 
