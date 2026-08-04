@@ -9,7 +9,7 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 
-test("show_changes advances the last-shown checkpoint for incremental reviews", async (t) => {
+test("a clean workspace reports no changes", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
 
@@ -18,6 +18,12 @@ test("show_changes advances the last-shown checkpoint for incremental reviews", 
   assert.equal(clean.summary.files, 0);
   assert.equal(clean.patch, "");
   assert.match(clean.result, /No changes since last shown changes/);
+});
+
+test("show_changes reports changes from the last-shown checkpoint", async (t) => {
+  const root = await committedRepository(t);
+  const manager = createReviewCheckpointManager();
+  await manager.initializeWorkspace({ workspaceId: "ws_review", root });
 
   await writeFile(join(root, "README.md"), "hello\nworld\n");
   await writeFile(join(root, "new.txt"), "new\n");
@@ -31,13 +37,21 @@ test("show_changes advances the last-shown checkpoint for incremental reviews", 
   assert.equal(unreviewed.summary.additions, 2);
   assert.equal(unreviewed.summary.removals, 0);
   assert.match(unreviewed.patch, /world/);
+});
+
+test("marking changes reviewed advances the last-shown checkpoint", async (t) => {
+  const root = await committedRepository(t);
+  const manager = createReviewCheckpointManager();
+  await manager.initializeWorkspace({ workspaceId: "ws_review", root });
+
+  await writeFile(join(root, "README.md"), "hello\nworld\n");
 
   const markedReviewed = await manager.reviewChanges({
     workspaceId: "ws_review",
     root,
     markReviewed: true,
   });
-  assert.equal(markedReviewed.summary.files, 2);
+  assert.equal(markedReviewed.summary.files, 1);
 
   const afterReviewed = await manager.reviewChanges({ workspaceId: "ws_review", root });
   assert.equal(afterReviewed.summary.files, 0);
@@ -49,6 +63,8 @@ test("review checkpoints survive a manager restart", async (t) => {
   const manager = createReviewCheckpointManager();
   await manager.initializeWorkspace({ workspaceId: "ws_restart", root });
   await writeFile(join(root, "README.md"), "hello\nworld\n");
+  await manager.reviewChanges({ workspaceId: "ws_restart", root, markReviewed: true });
+  await writeFile(join(root, "later.txt"), "after restart\n");
 
   const restartedManager = createReviewCheckpointManager();
   await restartedManager.initializeWorkspace({ workspaceId: "ws_restart", root });
@@ -59,7 +75,7 @@ test("review checkpoints survive a manager restart", async (t) => {
     markReviewed: false,
   });
   assert.equal(afterRestart.summary.files, 1);
-  assert.match(afterRestart.patch, /world/);
+  assert.match(afterRestart.patch, /after restart/);
 
   const sinceWorkspaceOpen = await restartedManager.reviewChanges({
     workspaceId: "ws_restart",
@@ -67,8 +83,9 @@ test("review checkpoints survive a manager restart", async (t) => {
     since: "workspace_open",
     markReviewed: false,
   });
-  assert.equal(sinceWorkspaceOpen.summary.files, 1);
+  assert.equal(sinceWorkspaceOpen.summary.files, 2);
   assert.match(sinceWorkspaceOpen.patch, /world/);
+  assert.match(sinceWorkspaceOpen.patch, /after restart/);
 });
 
 test("concurrent initialization produces a usable shared checkpoint state", async (t) => {

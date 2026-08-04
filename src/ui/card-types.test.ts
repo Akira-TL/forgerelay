@@ -51,6 +51,16 @@ test("a workspace card expands when it contains agent metadata", () => {
   );
 });
 
+test("a workspace card expands when it contains available instruction files", () => {
+  assert.equal(
+    isExpandableCard({
+      tool: "open_workspace",
+      availableAgentsFiles: [{ path: "nested/AGENTS.md" }],
+    }),
+    true,
+  );
+});
+
 test("an empty workspace card stays collapsed", () => {
   assert.equal(isExpandableCard({ tool: "open_workspace" }), false);
 });
