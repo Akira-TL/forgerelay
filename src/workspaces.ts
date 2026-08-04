@@ -10,7 +10,12 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree } from "./git-worktrees.js";
-import { assertAllowedPath, isPathInsideRoot, resolveAllowedPath } from "./roots.js";
+import {
+  AccessDeniedError,
+  assertAllowedPath,
+  isPathInsideRoot,
+  resolveAllowedPath,
+} from "./roots.js";
 import {
   loadWorkspaceSkills,
   markSkillActivated,
@@ -165,8 +170,8 @@ export class WorkspaceRegistry {
       const reusableWorkspace = await this.findReusableCheckoutWorkspace(binding);
 
       if (reusableWorkspace) {
-        this.store?.touchConversationBinding(conversationScopeId, targetKey);
         const context = await this.reusedWorkspaceContext(reusableWorkspace);
+        this.store?.touchConversationBinding(conversationScopeId, targetKey);
         return {
           ...context,
           includeBootstrapContext:
@@ -204,10 +209,15 @@ export class WorkspaceRegistry {
       root = this.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
       const rootStats = await stat(root);
       if (!rootStats.isDirectory()) return undefined;
-    } catch {
-      // Path containment and filesystem checks are binding validation. Context
-      // discovery happens below, outside this recovery boundary.
-      return undefined;
+    } catch (error) {
+      if (
+        error instanceof AccessDeniedError ||
+        (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"))
+      ) {
+        return undefined;
+      }
+
+      throw error;
     }
 
     const workspace = this.getWorkspace(binding.workspaceSessionId);
@@ -461,7 +471,7 @@ async function canonicalPath(path: string): Promise<string> {
 
   while (true) {
     try {
-      return resolve(await realpath(candidate), ...missingSegments.reverse());
+      return resolve(await realpath(candidate), ...missingSegments.slice().reverse());
     } catch (error) {
       if (!isErrnoException(error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) {
         throw error;

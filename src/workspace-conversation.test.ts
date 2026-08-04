@@ -404,6 +404,44 @@ test("unexpected storage errors are not mistaken for stale bindings", async (t) 
   );
 });
 
+test("unexpected filesystem errors are propagated without replacing the binding", {
+  skip: platform() === "win32",
+}, async (t) => {
+  const context = await fixture(t);
+  const first = await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" });
+  const targetKey = checkoutTargetKey(context.project);
+  const loopA = join(context.root, "loop-a");
+  const loopB = join(context.root, "loop-b");
+
+  await symlink(loopB, loopA, "dir");
+  await symlink(loopA, loopB, "dir");
+  context.closeStore(context.store);
+
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite
+      .prepare("update workspace_sessions set root = ? where id = ?")
+      .run(loopA, first.workspace.id);
+  } finally {
+    database.close();
+  }
+
+  const restoredStore = context.openStore();
+  const restoredRegistry = new WorkspaceRegistry(context.config, restoredStore);
+  await assert.rejects(
+    () => restoredRegistry.openWorkspace(context.project, { conversationScopeId: "chat-1" }),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ELOOP",
+  );
+
+  const binding = restoredStore.getConversationBinding("chat-1", targetKey);
+  assert.equal(binding?.workspaceSessionId, first.workspace.id);
+  assert.equal(restoredStore.getSession(first.workspace.id)?.root, loopA);
+});
+
 interface WorkspaceFixture {
   root: string;
   outsideRoot: string;
@@ -501,4 +539,8 @@ async function initializeGitRepository(root: string): Promise<void> {
 
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
+}
+
+function checkoutTargetKey(project: string): string {
+  return JSON.stringify(["checkout", project, null]);
 }
