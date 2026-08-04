@@ -115,6 +115,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
       if (markReviewed) {
         await git(state.gitRoot, ["update-ref", state.baselineRef, current]);
+        state.baselineRefAvailable = true;
       }
 
       return {

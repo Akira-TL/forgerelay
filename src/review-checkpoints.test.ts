@@ -99,6 +99,20 @@ try {
   assert.equal(afterPartialRestoreSinceOpen.summary.files, 2);
   assert.match(afterPartialRestoreSinceOpen.patch, /later/);
 
+  const reestablishedBaseline = await partiallyRestoredManager.reviewChanges({
+    workspaceId: "ws_review",
+    root,
+    since: "workspace_open",
+    markReviewed: true,
+  });
+  assert.equal(reestablishedBaseline.summary.files, 2);
+  const afterBaselineReestablished = await partiallyRestoredManager.reviewChanges({
+    workspaceId: "ws_review",
+    root,
+    markReviewed: false,
+  });
+  assert.equal(afterBaselineReestablished.summary.files, 0);
+
   const openMissingSetupManager = createReviewCheckpointManager();
   await openMissingSetupManager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
   await writeFile(join(root, "open-missing.txt"), "still visible from baseline\n");
