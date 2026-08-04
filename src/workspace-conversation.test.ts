@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -405,7 +405,7 @@ test("unexpected filesystem errors are propagated without replacing the binding"
 }, async (t) => {
   const context = await fixture(t);
   const first = await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" });
-  const targetKey = checkoutTargetKey(context.project);
+  const targetKey = checkoutTargetKey(await realpath(context.project));
   const loopA = join(context.root, "loop-a");
   const loopB = join(context.root, "loop-b");
 
