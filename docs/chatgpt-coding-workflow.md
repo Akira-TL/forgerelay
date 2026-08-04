@@ -25,13 +25,15 @@ Worktree mode is deliberately different: every call creates a new managed
 worktree and a new workspace session, even for the same path and base ref.
 
 Project bootstrap delivery is tracked separately from workspace reuse. The first
-open for a canonical project path in a ChatGPT conversation returns project
-instructions, skills, subagent metadata, and diagnostics. Later checkout or
-worktree opens for that project omit those fields from the model response, even
-when a new worktree workspace is created. This state is persisted across MCP
-reconnects and DevSpace restarts. The workspace card still receives the complete
-hidden display payload, so every call renders full workspace details without
-adding the bootstrap fields to the model transcript again.
+successful open, after project context discovery completes, for a canonical
+project path in a ChatGPT conversation returns project instructions and
+diagnostics, plus skills when `DEVSPACE_SKILLS` is enabled and subagent metadata
+when `DEVSPACE_SUBAGENTS=1`. Later checkout or worktree opens for that project
+omit those fields from the model response, even when a new worktree workspace is
+created. This state is persisted across MCP reconnects and DevSpace restarts.
+The workspace card still receives the complete hidden display payload, so every
+call renders full workspace details without adding the bootstrap fields to the
+model transcript again.
 
 Do not call `open_workspace` again for the same checkout folder unless:
 
