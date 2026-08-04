@@ -150,9 +150,10 @@ shows the combined changes and advances the review point automatically.
 
 ## Data Retention
 
-DevSpace does not currently expire old workspace, conversation-resume, or review
-history data automatically. A future retention policy will define cleanup; no
-automatic deletion is performed today.
+DevSpace does not currently prune workspace sessions, conversation bindings,
+conversation bootstrap records, or review refs. A future product retention
+policy will define safe cleanup for these records; no automatic deletion is
+performed today.
 
 ## Workspace Path Rejected
 
