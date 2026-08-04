@@ -31,10 +31,8 @@ interface WorkspaceReviewState {
   gitRoot?: string;
   openRef: string;
   baselineRef: string;
-  historyRef: string;
   openRefAvailable: boolean;
   baselineRefAvailable: boolean;
-  historyEstablished: boolean;
   diagnostic?: string;
 }
 
@@ -57,6 +55,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
   return {
     async initializeWorkspace({ workspaceId, root }) {
       const existingState = states.get(workspaceId);
+      assertWorkspaceRoot(existingState, workspaceId, root);
       if (existingState?.root === root && existingState.gitRoot !== undefined) {
         return;
       }
@@ -64,6 +63,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       const pending = initializations.get(workspaceId);
       if (pending) {
         await pending;
+        assertWorkspaceRoot(states.get(workspaceId), workspaceId, root);
         return;
       }
 
@@ -80,16 +80,16 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
     async reviewChanges({ workspaceId, root, since = "last_shown", markReviewed = true }) {
       let state = states.get(workspaceId);
+      assertWorkspaceRoot(state, workspaceId, root);
       if (!isReadyState(state)) {
         await this.initializeWorkspace({ workspaceId, root });
         state = states.get(workspaceId);
       }
+      assertWorkspaceRoot(state, workspaceId, root);
 
       if (!state?.gitRoot) {
         throw new Error(state?.diagnostic ?? "show_changes requires a Git workspace in this version.");
       }
-
-      await refreshCheckpointAvailability(state);
 
       let effectiveSince = since;
       let usedWorkspaceOpenFallback = false;
@@ -101,7 +101,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         usedWorkspaceOpenFallback = true;
       } else if (since === "workspace_open" && !state.openRefAvailable) {
         throw new Error(
-          "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"last_shown\" if that checkpoint is available.",
+          "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely.",
         );
       }
 
@@ -139,6 +139,16 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
   };
 }
 
+function assertWorkspaceRoot(
+  state: WorkspaceReviewState | undefined,
+  workspaceId: string,
+  root: string,
+): void {
+  if (state && state.root !== root) {
+    throw new Error(`Review checkpoint workspace root mismatch for ${workspaceId}.`);
+  }
+}
+
 async function initializeWorkspaceState(
   states: Map<string, WorkspaceReviewState>,
   workspaceId: string,
@@ -150,7 +160,6 @@ async function initializeWorkspaceState(
     ...refs,
     openRefAvailable: false,
     baselineRefAvailable: false,
-    historyEstablished: false,
   };
 
   try {
@@ -160,37 +169,20 @@ async function initializeWorkspaceState(
       return;
     }
 
-    const [openCommit, baselineCommit, historyCommit] = await Promise.all([
+    const [openCommit, baselineCommit] = await Promise.all([
       commitForRef(eligibility.gitRoot, state.openRef),
       commitForRef(eligibility.gitRoot, state.baselineRef),
-      commitForRef(eligibility.gitRoot, state.historyRef),
     ]);
 
     if (!openCommit && !baselineCommit) {
-      if (historyCommit) {
-        state.gitRoot = eligibility.gitRoot;
-        state.historyEstablished = true;
-        state.diagnostic = "Review checkpoints are missing; show_changes cannot reconstruct that history safely.";
-        return;
-      }
-
       const initialCommit = await createWorkingTreeSnapshot(eligibility.gitRoot);
       await git(eligibility.gitRoot, ["update-ref", state.openRef, initialCommit]);
       await git(eligibility.gitRoot, ["update-ref", state.baselineRef, initialCommit]);
-      await git(eligibility.gitRoot, ["update-ref", state.historyRef, initialCommit]);
       state.openRefAvailable = true;
       state.baselineRefAvailable = true;
-      state.historyEstablished = true;
     } else {
       state.openRefAvailable = openCommit !== undefined;
       state.baselineRefAvailable = baselineCommit !== undefined;
-      state.historyEstablished = true;
-      if (!historyCommit) {
-        const historyCommit = openCommit ?? baselineCommit;
-        if (historyCommit) {
-          await git(eligibility.gitRoot, ["update-ref", state.historyRef, historyCommit]);
-        }
-      }
     }
 
     state.gitRoot = eligibility.gitRoot;
@@ -213,29 +205,13 @@ async function commitForRef(gitRoot: string, ref: string): Promise<string | unde
   }
 }
 
-async function refreshCheckpointAvailability(state: WorkspaceReviewState): Promise<void> {
-  const gitRoot = state.gitRoot;
-  if (!gitRoot) return;
-
-  const [openCommit, baselineCommit] = await Promise.all([
-    commitForRef(gitRoot, state.openRef),
-    commitForRef(gitRoot, state.baselineRef),
-  ]);
-  state.openRefAvailable = openCommit !== undefined;
-  state.baselineRefAvailable = baselineCommit !== undefined;
-  state.diagnostic = state.historyEstablished && !openCommit && !baselineCommit
-    ? "Review checkpoints are missing; show_changes cannot reconstruct that history safely."
-    : undefined;
-}
-
 function reviewRefs(
   workspaceId: string,
-): Pick<WorkspaceReviewState, "openRef" | "baselineRef" | "historyRef"> {
+): Pick<WorkspaceReviewState, "openRef" | "baselineRef"> {
   const segment = safeWorkspaceRefSegment(workspaceId);
   return {
     openRef: `${REVIEW_REF_PREFIX}/${segment}/open`,
     baselineRef: `${REVIEW_REF_PREFIX}/${segment}/baseline`,
-    historyRef: `${REVIEW_REF_PREFIX}/${segment}/history`,
   };
 }
 

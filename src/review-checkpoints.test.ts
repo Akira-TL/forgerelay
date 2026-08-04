@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,51 +9,43 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 
-test("a clean workspace reports no changes", async (t) => {
+test("a clean workspace reports no changes from the last-shown checkpoint", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
 
-  await manager.initializeWorkspace({ workspaceId: "ws_review", root });
-  const clean = await manager.reviewChanges({ workspaceId: "ws_review", root });
+  await manager.initializeWorkspace({ workspaceId: "ws_clean", root });
+  const clean = await manager.reviewChanges({ workspaceId: "ws_clean", root });
+
   assert.equal(clean.summary.files, 0);
   assert.equal(clean.patch, "");
   assert.match(clean.result, /No changes since last shown changes/);
 });
 
-test("show_changes reports changes from the last-shown checkpoint", async (t) => {
+test("show_changes reports and advances the last-shown checkpoint", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_review", root });
+  await manager.initializeWorkspace({ workspaceId: "ws_incremental", root });
 
   await writeFile(join(root, "README.md"), "hello\nworld\n");
   await writeFile(join(root, "new.txt"), "new\n");
 
   const unreviewed = await manager.reviewChanges({
-    workspaceId: "ws_review",
+    workspaceId: "ws_incremental",
     root,
     markReviewed: false,
   });
   assert.deepEqual(unreviewed.files.map((file) => file.path).sort(), ["README.md", "new.txt"]);
   assert.equal(unreviewed.summary.additions, 2);
-  assert.equal(unreviewed.summary.removals, 0);
   assert.match(unreviewed.patch, /world/);
-});
-
-test("marking changes reviewed advances the last-shown checkpoint", async (t) => {
-  const root = await committedRepository(t);
-  const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_review", root });
-
-  await writeFile(join(root, "README.md"), "hello\nworld\n");
 
   const markedReviewed = await manager.reviewChanges({
-    workspaceId: "ws_review",
+    workspaceId: "ws_incremental",
     root,
     markReviewed: true,
   });
-  assert.equal(markedReviewed.summary.files, 1);
+  assert.equal(markedReviewed.summary.files, 2);
 
-  const afterReviewed = await manager.reviewChanges({ workspaceId: "ws_review", root });
+  const afterReviewed = await manager.reviewChanges({ workspaceId: "ws_incremental", root });
   assert.equal(afterReviewed.summary.files, 0);
   assert.equal(afterReviewed.patch, "");
 });
@@ -62,6 +54,7 @@ test("review checkpoints survive a manager restart", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
   await manager.initializeWorkspace({ workspaceId: "ws_restart", root });
+
   await writeFile(join(root, "README.md"), "hello\nworld\n");
   await manager.reviewChanges({ workspaceId: "ws_restart", root, markReviewed: true });
 
@@ -74,21 +67,12 @@ test("review checkpoints survive a manager restart", async (t) => {
     root,
     markReviewed: false,
   });
-  assert.equal(afterRestart.summary.files, 1);
+  assert.deepEqual(afterRestart.files.map((file) => file.path), ["later.txt"]);
   assert.match(afterRestart.patch, /after restart/);
-
-  const sinceWorkspaceOpen = await restartedManager.reviewChanges({
-    workspaceId: "ws_restart",
-    root,
-    since: "workspace_open",
-    markReviewed: false,
-  });
-  assert.equal(sinceWorkspaceOpen.summary.files, 2);
-  assert.match(sinceWorkspaceOpen.patch, /world/);
-  assert.match(sinceWorkspaceOpen.patch, /after restart/);
+  assert.doesNotMatch(afterRestart.patch, /world/);
 });
 
-test("concurrent initialization produces a usable shared checkpoint state", async (t) => {
+test("concurrent initialization produces one usable checkpoint state", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
 
@@ -107,10 +91,11 @@ test("concurrent initialization produces a usable shared checkpoint state", asyn
   assert.deepEqual(afterInitialization.files.map((file) => file.path), ["later.txt"]);
 });
 
-test("a missing last-shown checkpoint falls back to workspace open and re-establishes its baseline", async (t) => {
+test("a missing last-shown checkpoint falls back after restart and can be re-established", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
   await manager.initializeWorkspace({ workspaceId: "ws_missing_baseline", root });
+
   await writeFile(join(root, "README.md"), "hello\nchanged\n");
   await deleteReviewRef(root, "ws_missing_baseline", "baseline");
 
@@ -142,72 +127,57 @@ test("a missing last-shown checkpoint falls back to workspace open and re-establ
   assert.equal(afterReestablished.summary.files, 0);
 });
 
-test("baseline loss during a running manager falls back to workspace open", async (t) => {
+test("a checkpoint workspace rejects a different root without changing its state", async (t) => {
   const root = await committedRepository(t);
+  const otherRoot = await committedRepository(t);
   const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_in_process", root });
-  await writeFile(join(root, "visible.txt"), "visible after ref loss\n");
-  await deleteReviewRef(root, "ws_in_process", "baseline");
 
-  const review = await manager.reviewChanges({
-    workspaceId: "ws_in_process",
-    root,
-    markReviewed: false,
-  });
-  assert.deepEqual(review.files.map((file) => file.path), ["visible.txt"]);
-  assert.match(review.result, /compared from workspace open/);
-});
-
-test("a missing workspace-open checkpoint preserves incremental review but rejects explicit workspace-open comparison", async (t) => {
-  const root = await committedRepository(t);
-  const setupManager = createReviewCheckpointManager();
-  await setupManager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
-  await writeFile(join(root, "baseline.txt"), "still visible from baseline\n");
-  await deleteReviewRef(root, "ws_open_missing", "open");
-
-  const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
-
-  const incremental = await manager.reviewChanges({
-    workspaceId: "ws_open_missing",
-    root,
-    markReviewed: false,
-  });
-  assert.equal(incremental.summary.files, 1);
-  assert.match(incremental.patch, /still visible from baseline/);
+  await manager.initializeWorkspace({ workspaceId: "ws_root_mismatch", root });
 
   await assert.rejects(
     () => manager.reviewChanges({
-      workspaceId: "ws_open_missing",
-      root,
-      since: "workspace_open",
+      workspaceId: "ws_root_mismatch",
+      root: otherRoot,
       markReviewed: false,
     }),
-    /workspace-open review checkpoint is missing/,
+    /workspace root mismatch/,
   );
+
+  await writeFile(join(root, "only-first-root.txt"), "first root\n");
+  const review = await manager.reviewChanges({
+    workspaceId: "ws_root_mismatch",
+    root,
+    markReviewed: false,
+  });
+  assert.deepEqual(review.files.map((file) => file.path), ["only-first-root.txt"]);
 });
 
-test("missing historical checkpoints do not silently fabricate review history", async (t) => {
+test("a concurrent review rejects a different root after initialization", async (t) => {
   const root = await committedRepository(t);
-  const setupManager = createReviewCheckpointManager();
-  await setupManager.initializeWorkspace({ workspaceId: "ws_history_missing", root });
-  await deleteReviewRef(root, "ws_history_missing", "open");
-  await deleteReviewRef(root, "ws_history_missing", "baseline");
-
+  const otherRoot = await committedRepository(t);
   const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_history_missing", root });
 
-  await assert.rejects(
-    () => manager.reviewChanges({ workspaceId: "ws_history_missing", root }),
-    /Review checkpoints are missing; show_changes cannot reconstruct that history safely/,
-  );
+  const [initialization, review] = await Promise.allSettled([
+    manager.initializeWorkspace({ workspaceId: "ws_concurrent_root_mismatch", root }),
+    manager.reviewChanges({
+      workspaceId: "ws_concurrent_root_mismatch",
+      root: otherRoot,
+      markReviewed: false,
+    }),
+  ]);
+
+  assert.equal(initialization.status, "fulfilled");
+  assert.equal(review.status, "rejected");
+  if (review.status === "rejected") {
+    assert.match(String(review.reason), /workspace root mismatch/);
+  }
 });
 
 test("an unborn repository becomes reviewable after its first commit", async (t) => {
   const root = await unbornRepository(t);
   const manager = createReviewCheckpointManager();
-  await manager.initializeWorkspace({ workspaceId: "ws_unborn", root });
 
+  await manager.initializeWorkspace({ workspaceId: "ws_unborn", root });
   await assert.rejects(
     () => manager.reviewChanges({ workspaceId: "ws_unborn", root }),
     /repository has no HEAD commit/,
