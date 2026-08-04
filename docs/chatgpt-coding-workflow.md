@@ -37,6 +37,7 @@ Do not call `open_workspace` again for the same checkout folder unless:
 
 - the `workspaceId` is rejected as unknown
 - work moves to a different project folder
+- work switches between checkout and worktree mode
 - the user asks for a new isolated worktree
 
 ## Checkout Mode
