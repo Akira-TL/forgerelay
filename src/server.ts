@@ -752,7 +752,7 @@ function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this before reading, editing, searching, writing, showing changes, or running commands, then reuse the returned workspaceId. When ChatGPT supplies optional conversation context, checkout mode reuses the existing checkout workspace for the same project and conversation; hosts without supported context receive a normal new workspace and continue with the returned workspaceId. Every worktree-mode call creates a new managed worktree and workspace. After the first open for a project in one ChatGPT conversation, later opens omit bootstrap details already returned. By default this opens the actual checkout; set mode=\"worktree\" when the user asks for a new isolated or parallel coding session.",
+        "Open a local project directory as a coding workspace. Call this once before working in a project or worktree, then reuse the returned workspaceId for later file, search, edit, show-changes, and shell calls. By default this opens the actual checkout; set mode=\"worktree\" when you need isolated or parallel work. Open another workspace when changing projects, switching modes, or starting another isolated worktree.",
       inputSchema: {
         path: z
           .string()
@@ -763,7 +763,7 @@ function createMcpServer(
           .enum(["checkout", "worktree"])
           .optional()
           .describe(
-            "Defaults to checkout. Use checkout to work in the actual directory. Each worktree-mode call creates a new isolated managed Git worktree and workspace for parallel work.",
+            "Defaults to checkout, which works in the actual directory. Use worktree for isolated or parallel Git work.",
           ),
         baseRef: z
           .string()
@@ -1294,7 +1294,7 @@ function createMcpServer(
       {
         title: "Show changes",
         description:
-          "Show aggregate file changes for an open workspace. If the current turn successfully modified files, call this exactly once after the final related file change and before your final response so the user can inspect the combined diff for the turn. Do not call it after every individual file change, and do not skip it because prior file-change tools already displayed per-tool diffs. DevSpace automatically compares against the last shown checkpoint.",
+          "Show the changes made in this turn for an open workspace. Call this once after the final related file change and before your final response so the user can review the combined diff. Do not call it after each individual file change.",
         inputSchema: {
           workspaceId: z
             .string()
