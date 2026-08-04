@@ -87,18 +87,21 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         throw new Error(state?.diagnostic ?? "show_changes requires a Git workspace in this version.");
       }
 
-      const baselineAvailable = since === "workspace_open"
-        ? state.openRefAvailable
-        : state.baselineRefAvailable;
-      if (!baselineAvailable) {
+      let effectiveSince = since;
+      let usedWorkspaceOpenFallback = false;
+      if (since === "last_shown" && !state.baselineRefAvailable) {
+        if (!state.openRefAvailable) {
+          throw new Error("Review checkpoints are missing; show_changes cannot reconstruct that history safely.");
+        }
+        effectiveSince = "workspace_open";
+        usedWorkspaceOpenFallback = true;
+      } else if (since === "workspace_open" && !state.openRefAvailable) {
         throw new Error(
-          since === "workspace_open"
-            ? "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"last_shown\" if that checkpoint is available."
-            : "The last-shown review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"workspace_open\" if that checkpoint is available.",
+          "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"last_shown\" if that checkpoint is available.",
         );
       }
 
-      const baselineRef = since === "workspace_open" ? state.openRef : state.baselineRef;
+      const baselineRef = effectiveSince === "workspace_open" ? state.openRef : state.baselineRef;
       const baseline = (await git(state.gitRoot, ["rev-parse", "--verify", `${baselineRef}^{commit}`])).stdout.trim();
       const current = await createWorkingTreeSnapshot(state.gitRoot);
       const patch = (await git(state.gitRoot, ["diff", "--binary", "--no-color", baseline, current], {
@@ -115,11 +118,15 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         state.baselineRefAvailable = true;
       }
 
+      const fallbackNote = usedWorkspaceOpenFallback
+        ? ` The last-shown checkpoint was missing, so changes were compared from workspace open${markReviewed ? " and the baseline was re-established" : ""}.`
+        : "";
       return {
-        result:
+        result: `${
           summary.files === 0
-            ? `No changes since ${since === "workspace_open" ? "workspace open" : "last shown changes"}.`
-            : `Changed ${summary.files} ${summary.files === 1 ? "file" : "files"} (+${summary.additions} -${summary.removals}).`,
+            ? `No changes since ${effectiveSince === "workspace_open" ? "workspace open" : "last shown changes"}.`
+            : `Changed ${summary.files} ${summary.files === 1 ? "file" : "files"} (+${summary.additions} -${summary.removals}).`
+        }${fallbackNote}`,
         summary,
         files,
         patch,

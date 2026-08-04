@@ -83,30 +83,22 @@ try {
   await git(root, ["update-ref", "-d", "refs/devspace/review/ws_review/baseline"]);
   const partiallyRestoredManager = createReviewCheckpointManager();
   await partiallyRestoredManager.initializeWorkspace({ workspaceId: "ws_review", root });
-  await assert.rejects(
-    () => partiallyRestoredManager.reviewChanges({
-      workspaceId: "ws_review",
-      root,
-      markReviewed: false,
-    }),
-    /last-shown review checkpoint is missing/,
-  );
-  const afterPartialRestoreSinceOpen = await partiallyRestoredManager.reviewChanges({
+  const afterPartialRestore = await partiallyRestoredManager.reviewChanges({
     workspaceId: "ws_review",
     root,
-    since: "workspace_open",
     markReviewed: false,
   });
-  assert.equal(afterPartialRestoreSinceOpen.summary.files, 2);
-  assert.match(afterPartialRestoreSinceOpen.patch, /later/);
+  assert.equal(afterPartialRestore.summary.files, 2);
+  assert.match(afterPartialRestore.patch, /later/);
+  assert.match(afterPartialRestore.result, /compared from workspace open/);
 
   const reestablishedBaseline = await partiallyRestoredManager.reviewChanges({
     workspaceId: "ws_review",
     root,
-    since: "workspace_open",
     markReviewed: true,
   });
   assert.equal(reestablishedBaseline.summary.files, 2);
+  assert.match(reestablishedBaseline.result, /baseline was re-established/);
   const afterBaselineReestablished = await partiallyRestoredManager.reviewChanges({
     workspaceId: "ws_review",
     root,
