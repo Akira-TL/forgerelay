@@ -161,10 +161,10 @@ try {
   const firstStore = new SqliteWorkspaceStore(stateDir);
   const persistentRegistry = new WorkspaceRegistry(config, firstStore);
   const persistentWorkspace = await persistentRegistry.openWorkspace(root, {
-    conversationScopeHash: "chat-checkout",
+    conversationScopeId: "chat-checkout",
   });
   const reusedPersistentWorkspace = await persistentRegistry.openWorkspace(root, {
-    conversationScopeHash: "chat-checkout",
+    conversationScopeId: "chat-checkout",
   });
   assert.equal(persistentWorkspace.includeBootstrapContext, true);
   assert.equal(persistentWorkspace.workspaceReused, false);
@@ -181,7 +181,7 @@ try {
   );
 
   const otherConversationWorkspace = await persistentRegistry.openWorkspace(root, {
-    conversationScopeHash: "chat-checkout-other",
+    conversationScopeId: "chat-checkout-other",
   });
   assert.equal(otherConversationWorkspace.includeBootstrapContext, true);
   assert.equal(otherConversationWorkspace.workspaceReused, false);
@@ -190,11 +190,11 @@ try {
   const staleWorkspaceRoot = join(root, "stale-conversation-workspace");
   await mkdir(staleWorkspaceRoot);
   const staleWorkspace = await persistentRegistry.openWorkspace(staleWorkspaceRoot, {
-    conversationScopeHash: "chat-stale",
+    conversationScopeId: "chat-stale",
   });
   await rm(staleWorkspaceRoot, { recursive: true, force: true });
   const replacementWorkspace = await persistentRegistry.openWorkspace(staleWorkspaceRoot, {
-    conversationScopeHash: "chat-stale",
+    conversationScopeId: "chat-stale",
   });
   assert.equal(replacementWorkspace.includeBootstrapContext, false);
   assert.equal(replacementWorkspace.workspaceReused, false);
@@ -203,16 +203,16 @@ try {
 
   const worktreeInput = { path: gitRoot, mode: "worktree" as const };
   const projectCheckout = await persistentRegistry.openWorkspace(gitRoot, {
-    conversationScopeHash: "chat-project-modes",
+    conversationScopeId: "chat-project-modes",
   });
   const firstProjectWorktree = await persistentRegistry.openWorkspace(worktreeInput, {
-    conversationScopeHash: "chat-project-modes",
+    conversationScopeId: "chat-project-modes",
   });
   const secondProjectWorktree = await persistentRegistry.openWorkspace(worktreeInput, {
-    conversationScopeHash: "chat-project-modes",
+    conversationScopeId: "chat-project-modes",
   });
   const reusedProjectCheckout = await persistentRegistry.openWorkspace(gitRoot, {
-    conversationScopeHash: "chat-project-modes",
+    conversationScopeId: "chat-project-modes",
   });
   assert.equal(projectCheckout.includeBootstrapContext, true);
   assert.equal(projectCheckout.workspaceReused, false);
@@ -228,13 +228,13 @@ try {
   assert.equal(reusedProjectCheckout.includeBootstrapContext, false);
 
   const worktreeFirst = await persistentRegistry.openWorkspace(worktreeInput, {
-    conversationScopeHash: "chat-worktree-first",
+    conversationScopeId: "chat-worktree-first",
   });
   const checkoutAfterWorktree = await persistentRegistry.openWorkspace(gitRoot, {
-    conversationScopeHash: "chat-worktree-first",
+    conversationScopeId: "chat-worktree-first",
   });
   const reusedCheckoutAfterWorktree = await persistentRegistry.openWorkspace(gitRoot, {
-    conversationScopeHash: "chat-worktree-first",
+    conversationScopeId: "chat-worktree-first",
   });
   assert.equal(worktreeFirst.includeBootstrapContext, true);
   assert.equal(worktreeFirst.workspaceReused, false);
@@ -248,10 +248,10 @@ try {
 
   const [persistentWorktree, concurrentWorktree] = await Promise.all([
     persistentRegistry.openWorkspace(worktreeInput, {
-      conversationScopeHash: "chat-worktree-concurrent",
+      conversationScopeId: "chat-worktree-concurrent",
     }),
     persistentRegistry.openWorkspace(worktreeInput, {
-      conversationScopeHash: "chat-worktree-concurrent",
+      conversationScopeId: "chat-worktree-concurrent",
     }),
   ]);
   assert.notEqual(concurrentWorktree.workspace.id, persistentWorktree.workspace.id);
@@ -280,7 +280,7 @@ try {
   assert.equal(restoredWorkspace.mode, "checkout");
 
   const reboundWorkspace = await restoredRegistry.openWorkspace(root, {
-    conversationScopeHash: "chat-checkout",
+    conversationScopeId: "chat-checkout",
   });
   assert.equal(reboundWorkspace.includeBootstrapContext, false);
   assert.equal(reboundWorkspace.workspaceReused, true);
@@ -302,7 +302,7 @@ try {
   assert.equal(restoredWorktree.worktree?.managed, true);
 
   const reboundWorktree = await restoredRegistry.openWorkspace(worktreeInput, {
-    conversationScopeHash: "chat-worktree-concurrent",
+    conversationScopeId: "chat-worktree-concurrent",
   });
   assert.equal(reboundWorktree.includeBootstrapContext, false);
   assert.equal(reboundWorktree.workspaceReused, false);
@@ -322,10 +322,10 @@ try {
     const aliasStore = new SqliteWorkspaceStore(aliasStateDir);
     const aliasRegistry = new WorkspaceRegistry(config, aliasStore);
     const directConversationWorkspace = await aliasRegistry.openWorkspace(root, {
-      conversationScopeHash: "chat-alias",
+      conversationScopeId: "chat-alias",
     });
     const aliasedConversationWorkspace = await aliasRegistry.openWorkspace(aliasRoot, {
-      conversationScopeHash: "chat-alias",
+      conversationScopeId: "chat-alias",
     });
     assert.equal(aliasedConversationWorkspace.includeBootstrapContext, false);
     assert.equal(

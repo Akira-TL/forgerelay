@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 function metadataString(
   meta: Record<string, unknown> | undefined,
   key: string,
@@ -8,13 +6,8 @@ function metadataString(
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export function openAiConversationScopeHash(
+export function openAiConversationScopeId(
   meta: Record<string, unknown> | undefined,
 ): string | undefined {
-  const session = metadataString(meta, "openai/session");
-  if (!session) return undefined;
-
-  return createHash("sha256")
-    .update(JSON.stringify(["openai", session]))
-    .digest("hex");
+  return metadataString(meta, "openai/session");
 }

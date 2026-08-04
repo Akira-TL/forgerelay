@@ -41,7 +41,7 @@ export const loadedAgentFiles = sqliteTable(
 export const workspaceConversationBindings = sqliteTable(
   "workspace_conversation_bindings",
   {
-    conversationScopeHash: text("conversation_scope_hash").notNull(),
+    conversationScopeId: text("conversation_scope_id").notNull(),
     targetKey: text("target_key").notNull(),
     workspaceSessionId: text("workspace_session_id")
       .notNull()
@@ -50,7 +50,7 @@ export const workspaceConversationBindings = sqliteTable(
     lastUsedAt: text("last_used_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.conversationScopeHash, table.targetKey] }),
+    primaryKey({ columns: [table.conversationScopeId, table.targetKey] }),
     index("workspace_conversation_bindings_workspace_idx").on(table.workspaceSessionId),
   ],
 );
@@ -58,13 +58,13 @@ export const workspaceConversationBindings = sqliteTable(
 export const workspaceConversationBootstraps = sqliteTable(
   "workspace_conversation_bootstraps",
   {
-    conversationScopeHash: text("conversation_scope_hash").notNull(),
+    conversationScopeId: text("conversation_scope_id").notNull(),
     projectKey: text("project_key").notNull(),
     createdAt: text("created_at").notNull(),
     lastUsedAt: text("last_used_at").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.conversationScopeHash, table.projectKey] }),
+    primaryKey({ columns: [table.conversationScopeId, table.projectKey] }),
   ],
 );
 

@@ -40,7 +40,7 @@ function testConversationBootstrapMigration(stateDir: string): void {
     `).run("ws_existing", "/tmp/project-worktree", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z");
     initial.sqlite.prepare(`
       insert into workspace_conversation_bindings (
-        conversation_scope_hash, target_key, workspace_session_id, created_at, last_used_at
+        conversation_scope_id, target_key, workspace_session_id, created_at, last_used_at
       ) values (?, ?, ?, ?, ?)
     `).run(
       "chat-existing",
@@ -61,11 +61,11 @@ function testConversationBootstrapMigration(stateDir: string): void {
   try {
     assert.deepEqual(
       migrated.sqlite.prepare(`
-        select conversation_scope_hash, project_key, created_at, last_used_at
+        select conversation_scope_id, project_key, created_at, last_used_at
         from workspace_conversation_bootstraps
       `).all(),
       [{
-        conversation_scope_hash: "chat-existing",
+        conversation_scope_id: "chat-existing",
         project_key: "/tmp/project",
         created_at: "2026-01-01T00:00:00.000Z",
         last_used_at: "2026-01-02T00:00:00.000Z",

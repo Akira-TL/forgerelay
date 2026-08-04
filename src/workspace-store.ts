@@ -24,7 +24,7 @@ export interface WorkspaceSession {
 }
 
 export interface WorkspaceConversationBinding {
-  conversationScopeHash: string;
+  conversationScopeId: string;
   targetKey: string;
   workspaceSessionId: string;
   createdAt: string;
@@ -44,17 +44,17 @@ export interface WorkspaceStore {
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
   getConversationBinding(
-    conversationScopeHash: string,
+    conversationScopeId: string,
     targetKey: string,
   ): WorkspaceConversationBinding | undefined;
   setConversationBinding(input: {
-    conversationScopeHash: string;
+    conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
   }): WorkspaceConversationBinding;
-  touchConversationBinding(conversationScopeHash: string, targetKey: string): void;
-  deleteConversationBinding(conversationScopeHash: string, targetKey: string): void;
-  claimConversationBootstrap(conversationScopeHash: string, projectKey: string): boolean;
+  touchConversationBinding(conversationScopeId: string, targetKey: string): void;
+  deleteConversationBinding(conversationScopeId: string, targetKey: string): void;
+  claimConversationBootstrap(conversationScopeId: string, projectKey: string): boolean;
   close?(): void;
 }
 
@@ -126,7 +126,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   getConversationBinding(
-    conversationScopeHash: string,
+    conversationScopeId: string,
     targetKey: string,
   ): WorkspaceConversationBinding | undefined {
     const row = this.database.db
@@ -134,7 +134,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .from(workspaceConversationBindings)
       .where(
         and(
-          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.conversationScopeId, conversationScopeId),
           eq(workspaceConversationBindings.targetKey, targetKey),
         ),
       )
@@ -144,7 +144,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   setConversationBinding(input: {
-    conversationScopeHash: string;
+    conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
   }): WorkspaceConversationBinding {
@@ -152,7 +152,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     const row = this.database.db
       .insert(workspaceConversationBindings)
       .values({
-        conversationScopeHash: input.conversationScopeHash,
+        conversationScopeId: input.conversationScopeId,
         targetKey: input.targetKey,
         workspaceSessionId: input.workspaceSessionId,
         createdAt: now,
@@ -160,7 +160,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       })
       .onConflictDoUpdate({
         target: [
-          workspaceConversationBindings.conversationScopeHash,
+          workspaceConversationBindings.conversationScopeId,
           workspaceConversationBindings.targetKey,
         ],
         set: {
@@ -178,37 +178,37 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     return rowToWorkspaceConversationBinding(row);
   }
 
-  touchConversationBinding(conversationScopeHash: string, targetKey: string): void {
+  touchConversationBinding(conversationScopeId: string, targetKey: string): void {
     this.database.db
       .update(workspaceConversationBindings)
       .set({ lastUsedAt: new Date().toISOString() })
       .where(
         and(
-          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.conversationScopeId, conversationScopeId),
           eq(workspaceConversationBindings.targetKey, targetKey),
         ),
       )
       .run();
   }
 
-  deleteConversationBinding(conversationScopeHash: string, targetKey: string): void {
+  deleteConversationBinding(conversationScopeId: string, targetKey: string): void {
     this.database.db
       .delete(workspaceConversationBindings)
       .where(
         and(
-          eq(workspaceConversationBindings.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBindings.conversationScopeId, conversationScopeId),
           eq(workspaceConversationBindings.targetKey, targetKey),
         ),
       )
       .run();
   }
 
-  claimConversationBootstrap(conversationScopeHash: string, projectKey: string): boolean {
+  claimConversationBootstrap(conversationScopeId: string, projectKey: string): boolean {
     const now = new Date().toISOString();
     const [inserted] = this.database.db
       .insert(workspaceConversationBootstraps)
       .values({
-        conversationScopeHash,
+        conversationScopeId,
         projectKey,
         createdAt: now,
         lastUsedAt: now,
@@ -224,7 +224,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .set({ lastUsedAt: now })
       .where(
         and(
-          eq(workspaceConversationBootstraps.conversationScopeHash, conversationScopeHash),
+          eq(workspaceConversationBootstraps.conversationScopeId, conversationScopeId),
           eq(workspaceConversationBootstraps.projectKey, projectKey),
         ),
       )
@@ -261,7 +261,7 @@ function rowToWorkspaceConversationBinding(
   row: WorkspaceConversationBindingRow,
 ): WorkspaceConversationBinding {
   return {
-    conversationScopeHash: row.conversationScopeHash,
+    conversationScopeId: row.conversationScopeId,
     targetKey: row.targetKey,
     workspaceSessionId: row.workspaceSessionId,
     createdAt: row.createdAt,

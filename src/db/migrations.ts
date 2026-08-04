@@ -187,12 +187,12 @@ function migrateLocalAgentSessions(sqlite: Database.Database): void {
 function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
   sqlite.exec(`
     create table if not exists workspace_conversation_bindings (
-      conversation_scope_hash text not null,
+      conversation_scope_id text not null,
       target_key text not null,
       workspace_session_id text not null,
       created_at text not null,
       last_used_at text not null,
-      primary key (conversation_scope_hash, target_key),
+      primary key (conversation_scope_id, target_key),
       foreign key (workspace_session_id)
         references workspace_sessions(id)
         on delete cascade
@@ -206,26 +206,26 @@ function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
 function migrateWorkspaceConversationBootstraps(sqlite: Database.Database): void {
   sqlite.exec(`
     create table if not exists workspace_conversation_bootstraps (
-      conversation_scope_hash text not null,
+      conversation_scope_id text not null,
       project_key text not null,
       created_at text not null,
       last_used_at text not null,
-      primary key (conversation_scope_hash, project_key)
+      primary key (conversation_scope_id, project_key)
     );
   `);
 
   const bindings = sqlite.prepare(`
-    select conversation_scope_hash, target_key, created_at, last_used_at
+    select conversation_scope_id, target_key, created_at, last_used_at
     from workspace_conversation_bindings
   `).all() as Array<{
-    conversation_scope_hash: string;
+    conversation_scope_id: string;
     target_key: string;
     created_at: string;
     last_used_at: string;
   }>;
   const insertBootstrap = sqlite.prepare(`
     insert or ignore into workspace_conversation_bootstraps (
-      conversation_scope_hash,
+      conversation_scope_id,
       project_key,
       created_at,
       last_used_at
@@ -236,7 +236,7 @@ function migrateWorkspaceConversationBootstraps(sqlite: Database.Database): void
     const projectKey = projectKeyFromConversationTarget(binding.target_key);
     if (!projectKey) continue;
     insertBootstrap.run(
-      binding.conversation_scope_hash,
+      binding.conversation_scope_id,
       projectKey,
       binding.created_at,
       binding.last_used_at,
