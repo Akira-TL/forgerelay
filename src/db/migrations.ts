@@ -217,6 +217,7 @@ function migrateWorkspaceConversationBootstraps(sqlite: Database.Database): void
   const bindings = sqlite.prepare(`
     select conversation_scope_id, target_key, created_at, last_used_at
     from workspace_conversation_bindings
+    order by created_at asc, target_key asc
   `).all() as Array<{
     conversation_scope_id: string;
     target_key: string;
@@ -244,6 +245,8 @@ function migrateWorkspaceConversationBootstraps(sqlite: Database.Database): void
   }
 }
 
+// Historical target keys are JSON tuples of [mode, projectKey, baseRef].
+// This migration intentionally parses that frozen shape rather than importing the current producer.
 function projectKeyFromConversationTarget(targetKey: string): string | undefined {
   try {
     const parsed = JSON.parse(targetKey) as unknown;
