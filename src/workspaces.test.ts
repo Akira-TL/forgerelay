@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -192,7 +192,7 @@ try {
     assert.equal(
       firstStore.getConversationBinding(
         "chat-checkout",
-        JSON.stringify(["checkout", root, null]),
+        JSON.stringify(["checkout", await realpath(root), null]),
       )?.workspaceSessionId,
       persistentWorkspace.workspace.id,
     );
