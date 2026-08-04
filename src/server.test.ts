@@ -66,6 +66,24 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.skillDiagnostics));
 });
 
+test("concurrent checkout opens return one full context and one reuse instruction", async (t) => {
+  const context = await fixture(t);
+  const [first, second] = await Promise.all([
+    callOpen(context.client, context.project, "chat-1"),
+    callOpen(context.client, context.project, "chat-1"),
+  ]);
+
+  assert.equal(structuredContent(first).workspaceId, structuredContent(second).workspaceId);
+  assert.equal(
+    [first, second].filter((result) => Array.isArray(structuredContent(result).agentsFiles)).length,
+    1,
+  );
+  assert.equal(
+    [first, second].filter((result) => responseText(result).includes("Workspace already open as")).length,
+    1,
+  );
+});
+
 test("new worktrees always receive a fresh workspace and complete worktree context", async (t) => {
   const context = await fixture(t, { git: true });
   const checkout = await callOpen(context.client, context.project, "chat-1");
