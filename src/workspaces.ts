@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
-import type { WorkspaceMode, WorkspaceStore } from "./workspace-store.js";
+import type {
+  WorkspaceConversationBinding,
+  WorkspaceMode,
+  WorkspaceStore,
+} from "./workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
@@ -158,16 +162,7 @@ export class WorkspaceRegistry {
   ): Promise<WorkspaceContext> {
     const binding = this.store?.getConversationBinding(conversationScopeId, targetKey);
     if (binding) {
-      let reusableWorkspace: Workspace | undefined;
-      try {
-        const workspace = this.getWorkspace(binding.workspaceSessionId);
-        const workspaceStats = await stat(workspace.root);
-        if (workspaceStats.isDirectory()) {
-          reusableWorkspace = workspace;
-        }
-      } catch {
-        // The persisted workspace is no longer usable; replace its binding below.
-      }
+      const reusableWorkspace = await this.findReusableCheckoutWorkspace(binding);
 
       if (reusableWorkspace) {
         this.store?.touchConversationBinding(conversationScopeId, targetKey);
@@ -194,6 +189,30 @@ export class WorkspaceRegistry {
       includeBootstrapContext:
         this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
     };
+  }
+
+  private async findReusableCheckoutWorkspace(
+    binding: WorkspaceConversationBinding,
+  ): Promise<Workspace | undefined> {
+    const session = this.store?.getSession(binding.workspaceSessionId);
+    if (!session || session.status !== "active" || session.mode !== "checkout") {
+      return undefined;
+    }
+
+    let root: string;
+    try {
+      root = this.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
+      const rootStats = await stat(root);
+      if (!rootStats.isDirectory()) return undefined;
+    } catch {
+      // Path containment and filesystem checks are binding validation. Context
+      // discovery happens below, outside this recovery boundary.
+      return undefined;
+    }
+
+    const workspace = this.getWorkspace(binding.workspaceSessionId);
+    if (workspace.mode !== "checkout" || workspace.root !== root) return undefined;
+    return workspace;
   }
 
   private async conversationProjectKey(input: OpenWorkspaceInput): Promise<string> {
@@ -443,7 +462,11 @@ async function canonicalPath(path: string): Promise<string> {
   while (true) {
     try {
       return resolve(await realpath(candidate), ...missingSegments.reverse());
-    } catch {
+    } catch (error) {
+      if (!isErrnoException(error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) {
+        throw error;
+      }
+
       const parent = dirname(candidate);
       if (parent === candidate) return path;
       missingSegments.push(basename(candidate));

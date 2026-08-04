@@ -236,6 +236,23 @@ try {
   assert.notEqual(replacementWorkspace.workspace.id, staleWorkspace.workspace.id);
   assert.equal((await stat(staleWorkspaceRoot)).isDirectory(), true);
 
+  const missingTarget = join(root, "missing-canonical-target", "project");
+  const missingTargetWorkspace = await persistentRegistry.openWorkspace(missingTarget, {
+    conversationScopeId: "chat-missing-canonical",
+  });
+  assert.equal(
+    firstStore.getConversationBinding(
+      "chat-missing-canonical",
+      JSON.stringify(["checkout", await realpath(missingTarget), null]),
+    )?.workspaceSessionId,
+    missingTargetWorkspace.workspace.id,
+  );
+  const missingTargetAgain = await persistentRegistry.openWorkspace(missingTarget, {
+    conversationScopeId: "chat-missing-canonical",
+  });
+  assert.equal(missingTargetAgain.workspace.id, missingTargetWorkspace.workspace.id);
+  assert.equal(missingTargetAgain.workspaceReused, true);
+
   const worktreeInput = { path: gitRoot, mode: "worktree" as const };
   const projectCheckout = await persistentRegistry.openWorkspace(gitRoot, {
     conversationScopeId: "chat-project-modes",

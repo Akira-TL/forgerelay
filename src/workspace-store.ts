@@ -205,31 +205,33 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
 
   claimConversationBootstrap(conversationScopeId: string, projectKey: string): boolean {
     const now = new Date().toISOString();
-    const [inserted] = this.database.db
-      .insert(workspaceConversationBootstraps)
-      .values({
-        conversationScopeId,
-        projectKey,
-        createdAt: now,
-        lastUsedAt: now,
-      })
-      .onConflictDoNothing()
-      .returning()
-      .all();
+    return this.database.db.transaction((transaction) => {
+      const [inserted] = transaction
+        .insert(workspaceConversationBootstraps)
+        .values({
+          conversationScopeId,
+          projectKey,
+          createdAt: now,
+          lastUsedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning()
+        .all();
 
-    if (inserted) return true;
+      if (inserted) return true;
 
-    this.database.db
-      .update(workspaceConversationBootstraps)
-      .set({ lastUsedAt: now })
-      .where(
-        and(
-          eq(workspaceConversationBootstraps.conversationScopeId, conversationScopeId),
-          eq(workspaceConversationBootstraps.projectKey, projectKey),
-        ),
-      )
-      .run();
-    return false;
+      transaction
+        .update(workspaceConversationBootstraps)
+        .set({ lastUsedAt: now })
+        .where(
+          and(
+            eq(workspaceConversationBootstraps.conversationScopeId, conversationScopeId),
+            eq(workspaceConversationBootstraps.projectKey, projectKey),
+          ),
+        )
+        .run();
+      return false;
+    });
   }
 
   close(): void {
