@@ -57,6 +57,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
   return {
     async initializeWorkspace({ workspaceId, root }) {
       const existingState = states.get(workspaceId);
+      assertWorkspaceRoot(existingState, workspaceId, root);
       if (existingState?.root === root && existingState.gitRoot !== undefined) {
         return;
       }
@@ -64,6 +65,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       const pending = initializations.get(workspaceId);
       if (pending) {
         await pending;
+        assertWorkspaceRoot(states.get(workspaceId), workspaceId, root);
         return;
       }
 
@@ -80,10 +82,12 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
     async reviewChanges({ workspaceId, root, since = "last_shown", markReviewed = true }) {
       let state = states.get(workspaceId);
+      assertWorkspaceRoot(state, workspaceId, root);
       if (!isReadyState(state)) {
         await this.initializeWorkspace({ workspaceId, root });
         state = states.get(workspaceId);
       }
+      assertWorkspaceRoot(state, workspaceId, root);
 
       if (!state?.gitRoot) {
         throw new Error(state?.diagnostic ?? "show_changes requires a Git workspace in this version.");
@@ -137,6 +141,16 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       };
     },
   };
+}
+
+function assertWorkspaceRoot(
+  state: WorkspaceReviewState | undefined,
+  workspaceId: string,
+  root: string,
+): void {
+  if (state && state.root !== root) {
+    throw new Error(`Review checkpoint workspace root mismatch for ${workspaceId}.`);
+  }
 }
 
 async function initializeWorkspaceState(

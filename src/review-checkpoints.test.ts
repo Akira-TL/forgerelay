@@ -90,6 +90,52 @@ test("concurrent initialization produces a usable shared checkpoint state", asyn
   assert.deepEqual(afterInitialization.files.map((file) => file.path), ["later.txt"]);
 });
 
+test("a checkpoint workspace rejects review requests for a different root", async (t) => {
+  const root = await committedRepository(t);
+  const otherRoot = await committedRepository(t);
+  const manager = createReviewCheckpointManager();
+
+  await manager.initializeWorkspace({ workspaceId: "ws_root_mismatch", root });
+
+  await assert.rejects(
+    () => manager.reviewChanges({
+      workspaceId: "ws_root_mismatch",
+      root: otherRoot,
+      markReviewed: false,
+    }),
+    /workspace root mismatch/,
+  );
+
+  await writeFile(join(root, "only-first-root.txt"), "first root\n");
+  const review = await manager.reviewChanges({
+    workspaceId: "ws_root_mismatch",
+    root,
+    markReviewed: false,
+  });
+  assert.deepEqual(review.files.map((file) => file.path), ["only-first-root.txt"]);
+});
+
+test("a concurrent review rejects a different root after initialization", async (t) => {
+  const root = await committedRepository(t);
+  const otherRoot = await committedRepository(t);
+  const manager = createReviewCheckpointManager();
+
+  const [initialization, review] = await Promise.allSettled([
+    manager.initializeWorkspace({ workspaceId: "ws_concurrent_root_mismatch", root }),
+    manager.reviewChanges({
+      workspaceId: "ws_concurrent_root_mismatch",
+      root: otherRoot,
+      markReviewed: false,
+    }),
+  ]);
+
+  assert.equal(initialization.status, "fulfilled");
+  assert.equal(review.status, "rejected");
+  if (review.status === "rejected") {
+    assert.match(String(review.reason), /workspace root mismatch/);
+  }
+});
+
 test("a missing last-shown checkpoint falls back to workspace open and re-establishes its baseline", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
