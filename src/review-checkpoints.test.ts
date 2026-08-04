@@ -8,6 +8,7 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "devspace-review-checkpoints-test-"));
+const unbornRoot = await mkdtemp(join(tmpdir(), "devspace-review-unborn-test-"));
 
 try {
   await git(root, ["init"]);
@@ -136,8 +137,32 @@ try {
     }),
     /workspace-open review checkpoint is missing/,
   );
+
+  await git(unbornRoot, ["init"]);
+  await git(unbornRoot, ["config", "user.email", "devspace@example.com"]);
+  await git(unbornRoot, ["config", "user.name", "DevSpace Test"]);
+
+  const unbornManager = createReviewCheckpointManager();
+  await unbornManager.initializeWorkspace({ workspaceId: "ws_unborn", root: unbornRoot });
+  await assert.rejects(
+    () => unbornManager.reviewChanges({ workspaceId: "ws_unborn", root: unbornRoot }),
+    /commit|HEAD|Git/i,
+  );
+
+  await writeFile(join(unbornRoot, "README.md"), "first commit\n");
+  await git(unbornRoot, ["add", "README.md"]);
+  await git(unbornRoot, ["commit", "-m", "Initial commit"]);
+
+  const afterFirstCommit = await unbornManager.reviewChanges({
+    workspaceId: "ws_unborn",
+    root: unbornRoot,
+    markReviewed: false,
+  });
+  assert.equal(afterFirstCommit.summary.files, 0);
+  assert.equal(afterFirstCommit.patch, "");
 } finally {
   await rm(root, { recursive: true, force: true });
+  await rm(unbornRoot, { recursive: true, force: true });
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {

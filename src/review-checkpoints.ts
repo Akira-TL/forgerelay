@@ -55,10 +55,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
   return {
     async initializeWorkspace({ workspaceId, root }) {
       const existingState = states.get(workspaceId);
-      if (
-        existingState?.root === root &&
-        (existingState.gitRoot !== undefined || existingState.diagnostic !== undefined)
-      ) {
+      if (existingState?.root === root && existingState.gitRoot !== undefined) {
         return;
       }
 
@@ -81,7 +78,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
     async reviewChanges({ workspaceId, root, since = "last_shown", markReviewed = true }) {
       let state = states.get(workspaceId);
-      if (!isInitializedState(state)) {
+      if (!isReadyState(state)) {
         await this.initializeWorkspace({ workspaceId, root });
         state = states.get(workspaceId);
       }
@@ -175,8 +172,8 @@ async function initializeWorkspaceState(
   }
 }
 
-function isInitializedState(state: WorkspaceReviewState | undefined): boolean {
-  return state?.gitRoot !== undefined || state?.diagnostic !== undefined;
+function isReadyState(state: WorkspaceReviewState | undefined): boolean {
+  return state?.gitRoot !== undefined;
 }
 
 async function commitForRef(gitRoot: string, ref: string): Promise<string | undefined> {
