@@ -47,7 +47,18 @@ function testConversationBootstrapMigration(stateDir: string): void {
       JSON.stringify(["worktree", "/tmp/project", "HEAD"]),
       "ws_existing",
       "2026-01-01T00:00:00.000Z",
-      "2026-01-02T00:00:00.000Z",
+      "2026-01-04T00:00:00.000Z",
+    );
+    initial.sqlite.prepare(`
+      insert into workspace_conversation_bindings (
+        conversation_scope_id, target_key, workspace_session_id, created_at, last_used_at
+      ) values (?, ?, ?, ?, ?)
+    `).run(
+      "chat-existing",
+      JSON.stringify(["checkout", "/tmp/project", null]),
+      "ws_existing",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-03T00:00:00.000Z",
     );
     initial.sqlite.exec(`
       drop table workspace_conversation_bootstraps;
@@ -68,7 +79,7 @@ function testConversationBootstrapMigration(stateDir: string): void {
         conversation_scope_id: "chat-existing",
         project_key: "/tmp/project",
         created_at: "2026-01-01T00:00:00.000Z",
-        last_used_at: "2026-01-02T00:00:00.000Z",
+        last_used_at: "2026-01-03T00:00:00.000Z",
       }],
     );
   } finally {
