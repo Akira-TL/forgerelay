@@ -17,28 +17,21 @@ ChatGPT should call `open_workspace` once for a project folder:
 The result includes a `workspaceId`. All later file, search, edit, show-changes,
 and shell calls should reuse that same `workspaceId`.
 
-ChatGPT may provide an opaque conversation identifier in
-`_meta["openai/session"]`. This is an optional OpenAI-host adapter detail, not a
-standard MCP conversation field. DevSpace stores the value locally and uses it
-only as a correlation scope: if checkout mode is called again for the same
-canonical project path in the same ChatGPT conversation, DevSpace returns the
-existing checkout `workspaceId`. Hosts without a supported conversation
-identifier receive a normal new workspace from `open_workspace` and continue by
-reusing the returned `workspaceId`.
+When ChatGPT opens the same checkout project again in the same conversation,
+DevSpace can continue in the existing checkout workspace. This is a convenience
+for continuing work; the portable workflow remains the same: keep using the
+`workspaceId` returned by `open_workspace` for later operations. Hosts that do
+not provide conversation context continue with that explicit `workspaceId`
+workflow.
 
 Worktree mode is deliberately different: every call creates a new managed
 worktree and a new workspace session, even for the same path and base ref.
 
-Project bootstrap delivery is tracked separately from workspace reuse. The first
-successful open, after project context discovery completes, for a canonical
-project path in a ChatGPT conversation returns project instructions and
-diagnostics, plus skills when `DEVSPACE_SKILLS` is enabled and subagent metadata
-when `DEVSPACE_SUBAGENTS=1`. Later checkout or worktree opens for that project
-omit those fields from the model response, even when a new worktree workspace is
-created. This state is persisted across MCP reconnects and DevSpace restarts.
-The workspace card still receives the complete hidden display payload, so every
-call renders full workspace details without adding the bootstrap fields to the
-model transcript again.
+The first successful open of a project in a conversation provides its initial
+instructions and coding context. Later opens of that project avoid repeating the
+same setup guidance, including when switching between checkout and worktree
+mode. The workspace UI continues to show the full details for the current
+workspace.
 
 Do not call `open_workspace` again for the same checkout folder unless:
 
@@ -186,12 +179,10 @@ and shell tools. The aggregate `show_changes` tool is not exposed by default.
 Use `DEVSPACE_WIDGETS=off` to disable widget UI, or `DEVSPACE_WIDGETS=changes`
 to expose the aggregate show-changes flow.
 
-When `show_changes` is exposed, models should call it exactly once after the
-final file modification in any turn that changes files. The tool only requires
-the `workspaceId`; DevSpace automatically compares against the last shown
-checkpoint and advances that checkpoint after rendering the aggregate diff.
-Conversation-scoped workspace reuse does not add a selectable review baseline or
-otherwise change this behavior.
+When `show_changes` is exposed, call it exactly once after the final file
+modification in any turn that changes files. It shows the combined changes for
+that turn and advances the review point automatically. Reusing a workspace does
+not change this workflow.
 
 ## Shell Use
 

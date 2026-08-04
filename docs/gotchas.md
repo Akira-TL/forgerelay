@@ -136,22 +136,20 @@ npx @waishnav/devspace init --force
 client receives an unknown workspace error, call `open_workspace` again for that
 project.
 
-Workspace session metadata is persisted. When ChatGPT supplies its optional
-`openai/session` adapter metadata, calling `open_workspace` again for the same
-checkout project can return the existing conversation-scoped workspace;
-worktree mode always creates a new isolated workspace. Hosts without supported
-conversation metadata receive a normal new workspace and should continue
-reusing the returned `workspaceId`.
+Workspace session metadata is persisted. In ChatGPT, opening the same checkout
+project again in the same conversation can resume the existing workspace;
+worktree mode always creates a new isolated workspace. In all cases, continue
+passing the `workspaceId` returned by `open_workspace` to later tools. Other MCP
+hosts use this explicit workspace workflow as well.
 
-Conversation-scoped workspace reuse does not change `show_changes`: it still
-compares from and advances the last-shown checkpoint automatically.
+To review work, call `show_changes` once after the final related file change. It
+shows the combined changes and advances the review point automatically.
 
-## Persistence Retention Follow-up
+## Data Retention
 
-DevSpace currently does not prune workspace sessions, conversation bindings,
-conversation bootstrap records, or review refs. A future product retention
-policy should define safe cleanup for these records; this feature does not
-invent expiration or orphan cleanup rules.
+DevSpace does not currently expire old workspace, conversation-resume, or review
+history data automatically. A future retention policy will define cleanup; no
+automatic deletion is performed today.
 
 ## Workspace Path Rejected
 
