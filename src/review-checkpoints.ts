@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git, getGitEligibility, safeWorkspaceRefSegment } from "./git.js";
 
-export type ReviewSince = "last_shown" | "last_review" | "workspace_open";
+export type ReviewSince = "last_shown" | "workspace_open";
 
 export interface ReviewSummary {
   files: number;
@@ -93,7 +93,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
 
       let effectiveSince = since;
       let usedWorkspaceOpenFallback = false;
-      if ((since === "last_shown" || since === "last_review") && !state.baselineRefAvailable) {
+      if (since === "last_shown" && !state.baselineRefAvailable) {
         if (!state.openRefAvailable) {
           throw new Error("Review checkpoints are missing; show_changes cannot reconstruct that history safely.");
         }

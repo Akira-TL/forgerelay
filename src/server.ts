@@ -1300,7 +1300,7 @@ function createMcpServer(
             .string()
             .describe("Workspace identifier returned by open_workspace."),
           since: z
-            .enum(["last_shown", "last_review", "workspace_open"])
+            .enum(["last_shown", "workspace_open"])
             .optional()
             .describe("Checkpoint to compare from. Defaults to last_shown."),
         },
