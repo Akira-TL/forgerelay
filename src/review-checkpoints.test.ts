@@ -82,13 +82,46 @@ try {
   await git(root, ["update-ref", "-d", "refs/devspace/review/ws_review/baseline"]);
   const partiallyRestoredManager = createReviewCheckpointManager();
   await partiallyRestoredManager.initializeWorkspace({ workspaceId: "ws_review", root });
-  const afterPartialRestore = await partiallyRestoredManager.reviewChanges({
+  await assert.rejects(
+    () => partiallyRestoredManager.reviewChanges({
+      workspaceId: "ws_review",
+      root,
+      markReviewed: false,
+    }),
+    /last-shown review checkpoint is missing/,
+  );
+  const afterPartialRestoreSinceOpen = await partiallyRestoredManager.reviewChanges({
     workspaceId: "ws_review",
+    root,
+    since: "workspace_open",
+    markReviewed: false,
+  });
+  assert.equal(afterPartialRestoreSinceOpen.summary.files, 2);
+  assert.match(afterPartialRestoreSinceOpen.patch, /later/);
+
+  const openMissingSetupManager = createReviewCheckpointManager();
+  await openMissingSetupManager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
+  await writeFile(join(root, "open-missing.txt"), "still visible from baseline\n");
+  await git(root, ["update-ref", "-d", "refs/devspace/review/ws_open_missing/open"]);
+
+  const openMissingManager = createReviewCheckpointManager();
+  await openMissingManager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
+  const afterOpenRefLoss = await openMissingManager.reviewChanges({
+    workspaceId: "ws_open_missing",
     root,
     markReviewed: false,
   });
-  assert.equal(afterPartialRestore.summary.files, 2);
-  assert.match(afterPartialRestore.patch, /later/);
+  assert.equal(afterOpenRefLoss.summary.files, 1);
+  assert.match(afterOpenRefLoss.patch, /still visible from baseline/);
+  await assert.rejects(
+    () => openMissingManager.reviewChanges({
+      workspaceId: "ws_open_missing",
+      root,
+      since: "workspace_open",
+      markReviewed: false,
+    }),
+    /workspace-open review checkpoint is missing/,
+  );
 } finally {
   await rm(root, { recursive: true, force: true });
 }

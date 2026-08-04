@@ -31,6 +31,8 @@ interface WorkspaceReviewState {
   gitRoot?: string;
   openRef: string;
   baselineRef: string;
+  openRefAvailable: boolean;
+  baselineRefAvailable: boolean;
   diagnostic?: string;
 }
 
@@ -88,6 +90,17 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         throw new Error(state?.diagnostic ?? "show_changes requires a Git workspace in this version.");
       }
 
+      const baselineAvailable = since === "workspace_open"
+        ? state.openRefAvailable
+        : state.baselineRefAvailable;
+      if (!baselineAvailable) {
+        throw new Error(
+          since === "workspace_open"
+            ? "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"last_shown\" if that checkpoint is available."
+            : "The last-shown review checkpoint is missing; show_changes cannot reconstruct that history safely. Use since=\"workspace_open\" if that checkpoint is available.",
+        );
+      }
+
       const baselineRef = since === "workspace_open" ? state.openRef : state.baselineRef;
       const baseline = (await git(state.gitRoot, ["rev-parse", "--verify", `${baselineRef}^{commit}`])).stdout.trim();
       const current = await createWorkingTreeSnapshot(state.gitRoot);
@@ -123,7 +136,12 @@ async function initializeWorkspaceState(
   root: string,
 ): Promise<void> {
   const refs = reviewRefs(workspaceId);
-  const state: WorkspaceReviewState = { root, ...refs };
+  const state: WorkspaceReviewState = {
+    root,
+    ...refs,
+    openRefAvailable: false,
+    baselineRefAvailable: false,
+  };
 
   try {
     const eligibility = await getGitEligibility(root);
@@ -141,10 +159,11 @@ async function initializeWorkspaceState(
       const initialCommit = await createWorkingTreeSnapshot(eligibility.gitRoot);
       await git(eligibility.gitRoot, ["update-ref", state.openRef, initialCommit]);
       await git(eligibility.gitRoot, ["update-ref", state.baselineRef, initialCommit]);
-    } else if (openCommit && !baselineCommit) {
-      await git(eligibility.gitRoot, ["update-ref", state.baselineRef, openCommit]);
-    } else if (!openCommit && baselineCommit) {
-      await git(eligibility.gitRoot, ["update-ref", state.openRef, baselineCommit]);
+      state.openRefAvailable = true;
+      state.baselineRefAvailable = true;
+    } else {
+      state.openRefAvailable = openCommit !== undefined;
+      state.baselineRefAvailable = baselineCommit !== undefined;
     }
 
     state.gitRoot = eligibility.gitRoot;
