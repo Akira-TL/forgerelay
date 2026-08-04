@@ -25,10 +25,9 @@ test("a conversation reuses its checkout and receives bootstrap once", async (t)
   assert.equal(second.workspace.id, first.workspace.id);
   assert.deepEqual(second.agentsFiles, first.agentsFiles);
   assert.deepEqual(second.availableAgentsFiles, first.availableAgentsFiles);
-  assert.deepEqual(
-    second.workspace.agentProfiles.map((profile) => profile.name),
-    first.workspace.agentProfiles.map((profile) => profile.name),
-  );
+  assert.deepEqual(second.workspace.skills, first.workspace.skills);
+  assert.deepEqual(second.workspace.skillDiagnostics, first.workspace.skillDiagnostics);
+  assert.deepEqual(second.workspace.agentProfiles, first.workspace.agentProfiles);
 });
 
 test("different conversations receive separate checkout workspaces", async (t) => {
@@ -42,6 +41,62 @@ test("different conversations receive separate checkout workspaces", async (t) =
   assert.equal(second.includeBootstrapContext, true);
   assert.equal(first.workspaceReused, false);
   assert.equal(second.workspaceReused, false);
+});
+
+test("a conversation can bootstrap each canonical project once", async (t) => {
+  const { root, project, registry } = await fixture(t);
+  const otherProject = join(root, "other-project");
+  await mkdir(otherProject);
+  await writeFile(join(otherProject, "AGENTS.md"), "other project instructions\n");
+
+  const firstProjectOpen = await registry.openWorkspace(project, {
+    conversationScopeId: "chat-1",
+  });
+  const otherProjectOpen = await registry.openWorkspace(otherProject, {
+    conversationScopeId: "chat-1",
+  });
+  const repeatedProjectOpen = await registry.openWorkspace(project, {
+    conversationScopeId: "chat-1",
+  });
+  const repeatedOtherProjectOpen = await registry.openWorkspace(otherProject, {
+    conversationScopeId: "chat-1",
+  });
+
+  assert.equal(firstProjectOpen.includeBootstrapContext, true);
+  assert.equal(otherProjectOpen.includeBootstrapContext, true);
+  assert.equal(repeatedProjectOpen.includeBootstrapContext, false);
+  assert.equal(repeatedOtherProjectOpen.includeBootstrapContext, false);
+  assert.equal(repeatedProjectOpen.workspace.id, firstProjectOpen.workspace.id);
+  assert.equal(repeatedOtherProjectOpen.workspace.id, otherProjectOpen.workspace.id);
+  assert.notEqual(otherProjectOpen.workspace.id, firstProjectOpen.workspace.id);
+});
+
+test("concurrent checkout opens reuse one workspace and claim bootstrap once", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const opens = await Promise.all([
+    registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
+    registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
+  ]);
+
+  assert.equal(new Set(opens.map((open) => open.workspace.id)).size, 1);
+  assert.equal(opens.filter((open) => open.workspaceReused).length, 1);
+  assert.equal(opens.filter((open) => open.includeBootstrapContext).length, 1);
+  assert.deepEqual(opens[0].agentsFiles, opens[1].agentsFiles);
+  assert.deepEqual(opens[0].availableAgentsFiles, opens[1].availableAgentsFiles);
+});
+
+test("a checkout without a conversation scope does not use conversation reuse", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const first = await registry.openWorkspace(project);
+  const second = await registry.openWorkspace(project);
+
+  assert.notEqual(second.workspace.id, first.workspace.id);
+  assert.equal(first.workspaceReused, false);
+  assert.equal(second.workspaceReused, false);
+  assert.equal(first.includeBootstrapContext, true);
+  assert.equal(second.includeBootstrapContext, true);
 });
 
 test("worktree requests remain fresh without replacing the reusable checkout", async (t) => {
@@ -214,6 +269,55 @@ test("canonical checkout identity survives symlink aliases", { skip: platform() 
   assert.equal(aliased.includeBootstrapContext, false);
 });
 
+test("canonical checkout identity survives macOS var path aliases", { skip: platform() !== "darwin" }, async (t) => {
+  const context = await fixture(t);
+  const macAlias = context.root.startsWith("/private/var/")
+    ? `/var/${context.root.slice("/private/var/".length)}`
+    : context.root.startsWith("/var/")
+      ? `/private/var/${context.root.slice("/var/".length)}`
+      : undefined;
+  if (!macAlias) {
+    t.skip("temporary directory is not under /var");
+    return;
+  }
+
+  const aliasConfig = loadConfig({
+    DEVSPACE_CONFIG_DIR: join(context.root, ".alias-config"),
+    DEVSPACE_ALLOWED_ROOTS: `${context.root},${macAlias}`,
+    DEVSPACE_WORKTREE_ROOT: join(context.root, ".worktrees"),
+    DEVSPACE_AGENT_DIR: join(context.root, "agent"),
+    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    PORT: "1",
+  });
+  const aliasRegistry = new WorkspaceRegistry(aliasConfig, context.store);
+
+  const direct = await context.registry.openWorkspace(context.project, {
+    conversationScopeId: "chat-1",
+  });
+  const aliased = await aliasRegistry.openWorkspace(
+    `${macAlias}/${context.project.slice(context.root.length + 1)}`,
+    { conversationScopeId: "chat-1" },
+  );
+
+  assert.equal(aliased.workspace.id, direct.workspace.id);
+  assert.equal(aliased.workspaceReused, true);
+  assert.equal(aliased.includeBootstrapContext, false);
+});
+
+test("canonical checkout identity survives equivalent path spellings", async (t) => {
+  const { project, registry } = await fixture(t);
+  const equivalentPath = join(project, "..", "project");
+
+  const direct = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  const equivalent = await registry.openWorkspace(equivalentPath, {
+    conversationScopeId: "chat-1",
+  });
+
+  assert.equal(equivalent.workspace.id, direct.workspace.id);
+  assert.equal(equivalent.workspaceReused, true);
+  assert.equal(equivalent.includeBootstrapContext, false);
+});
+
 test("an invalid persisted checkout binding is not reused", async (t) => {
   const context = await fixture(t);
   const first = await context.registry.openWorkspace(context.project, {
@@ -241,6 +345,54 @@ test("an invalid persisted checkout binding is not reused", async (t) => {
   assert.equal(replacement.includeBootstrapContext, false);
 });
 
+test("an inactive persisted checkout binding is not reused", async (t) => {
+  const context = await fixture(t);
+  const first = await context.registry.openWorkspace(context.project, {
+    conversationScopeId: "chat-1",
+  });
+  context.closeStore(context.store);
+
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite
+      .prepare("update workspace_sessions set status = 'inactive' where id = ?")
+      .run(first.workspace.id);
+  } finally {
+    database.close();
+  }
+
+  const restoredRegistry = new WorkspaceRegistry(context.config, context.openStore());
+  const replacement = await restoredRegistry.openWorkspace(context.project, {
+    conversationScopeId: "chat-1",
+  });
+
+  assert.notEqual(replacement.workspace.id, first.workspace.id);
+  assert.equal(replacement.workspaceReused, false);
+  assert.equal(replacement.includeBootstrapContext, false);
+});
+
+test("a project outside the allowed roots is rejected", async (t) => {
+  const { outsideRoot, registry } = await fixture(t);
+
+  await assert.rejects(
+    () => registry.openWorkspace(outsideRoot, { conversationScopeId: "chat-1" }),
+    /outside allowed roots/,
+  );
+});
+
+test("a checkout replaced by a file reports the filesystem error", async (t) => {
+  const context = await fixture(t);
+  const target = join(context.root, "file-target");
+  await context.registry.openWorkspace(target, { conversationScopeId: "chat-1" });
+  await rm(target, { recursive: true, force: true });
+  await writeFile(target, "not a directory\n");
+
+  await assert.rejects(
+    () => context.registry.openWorkspace(target, { conversationScopeId: "chat-1" }),
+    /Workspace root must be a directory/,
+  );
+});
+
 test("unexpected storage errors are not mistaken for stale bindings", async (t) => {
   const context = await fixture(t);
   await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" });
@@ -254,6 +406,7 @@ test("unexpected storage errors are not mistaken for stale bindings", async (t) 
 
 interface WorkspaceFixture {
   root: string;
+  outsideRoot: string;
   project: string;
   stateDir: string;
   config: ServerConfig;
@@ -268,6 +421,7 @@ async function fixture(
   options: { git?: boolean } = {},
 ): Promise<WorkspaceFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-workspace-conversation-test-"));
+  const outsideRoot = await mkdtemp(join(tmpdir(), "devspace-workspace-conversation-outside-test-"));
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
@@ -310,10 +464,12 @@ async function fixture(
   t.after(async () => {
     for (const openStore of stores) openStore.close();
     await rm(root, { recursive: true, force: true });
+    await rm(outsideRoot, { recursive: true, force: true });
   });
 
   return {
     root,
+    outsideRoot,
     project,
     stateDir,
     config,
