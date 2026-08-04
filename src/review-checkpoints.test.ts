@@ -106,6 +106,27 @@ try {
   });
   assert.equal(afterBaselineReestablished.summary.files, 0);
 
+  const inProcessPartialManager = createReviewCheckpointManager();
+  await inProcessPartialManager.initializeWorkspace({ workspaceId: "ws_in_process_partial", root });
+  await writeFile(join(root, "in-process-partial.txt"), "visible after ref loss\n");
+  await git(root, ["update-ref", "-d", "refs/devspace/review/ws_in_process_partial/baseline"]);
+  const inProcessPartialReview = await inProcessPartialManager.reviewChanges({
+    workspaceId: "ws_in_process_partial",
+    root,
+    markReviewed: false,
+  });
+  assert.equal(inProcessPartialReview.summary.files, 1);
+  assert.match(inProcessPartialReview.result, /compared from workspace open/);
+
+  await git(root, ["update-ref", "-d", "refs/devspace/review/ws_review/open"]);
+  await git(root, ["update-ref", "-d", "refs/devspace/review/ws_review/baseline"]);
+  const bothMissingManager = createReviewCheckpointManager();
+  await bothMissingManager.initializeWorkspace({ workspaceId: "ws_review", root });
+  await assert.rejects(
+    () => bothMissingManager.reviewChanges({ workspaceId: "ws_review", root }),
+    /Review checkpoints are missing|cannot reconstruct that history safely/,
+  );
+
   const openMissingSetupManager = createReviewCheckpointManager();
   await openMissingSetupManager.initializeWorkspace({ workspaceId: "ws_open_missing", root });
   await writeFile(join(root, "open-missing.txt"), "still visible from baseline\n");
