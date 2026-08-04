@@ -517,7 +517,7 @@ function formatDiagnostic(diagnostic: unknown): string {
   if (typeof diagnostic === "string") return diagnostic;
   if (diagnostic instanceof Error) return diagnostic.message;
   try {
-    return JSON.stringify(diagnostic);
+    return JSON.stringify(diagnostic) ?? String(diagnostic);
   } catch {
     return String(diagnostic);
   }
