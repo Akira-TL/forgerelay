@@ -197,7 +197,7 @@ function serverInstructions(config: ServerConfig): string {
       : "";
 
   if (config.toolMode === "codex") {
-    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
+    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed. Checkout mode can reuse the conversation-scoped workspace; each worktree-mode open creates a new isolated worktree. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
   }
 
   const inspection = config.toolMode !== "full"
@@ -774,6 +774,8 @@ function createMcpServer(
         workspaceId: z.string(),
         root: z.string(),
         mode: z.enum(["checkout", "worktree"]),
+        workspaceReused: z.boolean(),
+        includeBootstrapContext: z.boolean(),
         sourceRoot: z.string().optional(),
         worktree: z
           .object({
@@ -901,6 +903,8 @@ function createMcpServer(
             root: workspace.root,
             path: workspace.root,
             mode: workspace.mode,
+            workspaceReused,
+            includeBootstrapContext,
             sourceRoot: workspace.sourceRoot,
             worktree: workspace.worktree,
             agentsFiles: cardAgentsFiles,
@@ -925,6 +929,8 @@ function createMcpServer(
           workspaceId: workspace.id,
           root: workspace.root,
           mode: workspace.mode,
+          workspaceReused,
+          includeBootstrapContext,
           sourceRoot: workspace.sourceRoot,
           worktree: workspace.worktree,
           ...(includeBootstrapContext
@@ -1288,23 +1294,27 @@ function createMcpServer(
       {
         title: "Show changes",
         description:
-          "Show aggregate file changes for an open workspace. If the current turn successfully modified files, call this exactly once after the final related file change and before your final response so the user can inspect the combined diff for the turn. Do not call it after every individual file change, and do not skip it because prior file-change tools already displayed per-tool diffs.",
+          "Show aggregate file changes for an open workspace. If the current turn successfully modified files, call this exactly once after the final related file change and before your final response so the user can inspect the combined diff for the turn. Do not call it after every individual file change, and do not skip it because prior file-change tools already displayed per-tool diffs. By default, compare from the last shown checkpoint; pass since=\"workspace_open\" only when an explicit comparison from workspace open is required.",
         inputSchema: {
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          since: z
+            .enum(["last_shown", "last_review", "workspace_open"])
+            .optional()
+            .describe("Checkpoint to compare from. Defaults to last_shown."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "show_changes"),
         annotations: { readOnlyHint: true },
       },
-      async ({ workspaceId }) => {
+      async ({ workspaceId, since }) => {
         const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
         const review = await reviewCheckpoints.reviewChanges({
           workspaceId,
           root: workspace.root,
-          since: "last_shown",
+          since,
           markReviewed: true,
         });
 

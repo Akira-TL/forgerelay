@@ -23,6 +23,8 @@ export interface ToolResultCard {
   workspaceId?: string;
   path?: string;
   root?: string;
+  workspaceReused?: boolean;
+  includeBootstrapContext?: boolean;
   mode?: "checkout" | "worktree";
   sourceRoot?: string;
   worktree?: {

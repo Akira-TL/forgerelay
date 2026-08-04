@@ -136,8 +136,10 @@ npx @waishnav/devspace init --force
 client receives an unknown workspace error, call `open_workspace` again for that
 project.
 
-Workspace session metadata is persisted, but clients should still treat
-`open_workspace` as the way to begin a fresh working session.
+Workspace session metadata is persisted. In a ChatGPT conversation, calling
+`open_workspace` again for the same checkout project can return the existing
+conversation-scoped workspace; worktree mode always creates a new isolated
+workspace.
 
 ## Workspace Path Rejected
 
