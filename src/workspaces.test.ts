@@ -353,6 +353,22 @@ try {
       aliasedConversationWorkspace.workspace.id,
       directConversationWorkspace.workspace.id,
     );
+
+    const aliasedStaleRoot = join(aliasRoot, "stale-alias-workspace");
+    await mkdir(aliasedStaleRoot);
+    const aliasedStaleWorkspace = await aliasRegistry.openWorkspace(aliasedStaleRoot, {
+      conversationScopeId: "chat-alias-stale",
+    });
+    await rm(aliasedStaleRoot, { recursive: true, force: true });
+    const aliasedReplacementWorkspace = await aliasRegistry.openWorkspace(aliasedStaleRoot, {
+      conversationScopeId: "chat-alias-stale",
+    });
+    assert.equal(aliasedReplacementWorkspace.includeBootstrapContext, false);
+    assert.equal(aliasedReplacementWorkspace.workspaceReused, false);
+    assert.notEqual(
+      aliasedReplacementWorkspace.workspace.id,
+      aliasedStaleWorkspace.workspace.id,
+    );
     aliasStore.close();
 
     const aliasConfig = loadConfig({

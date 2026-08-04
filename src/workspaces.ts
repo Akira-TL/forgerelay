@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import type { WorkspaceMode, WorkspaceStore } from "./workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import { createManagedWorktree } from "./git-worktrees.js";
@@ -196,7 +196,7 @@ export class WorkspaceRegistry {
 
   private async conversationProjectKey(input: OpenWorkspaceInput): Promise<string> {
     const path = assertAllowedPath(input.path, this.config.allowedRoots);
-    return await realpath(path).catch(() => path);
+    return canonicalPath(path);
   }
 
   private conversationCheckoutTargetKey(projectKey: string): string {
@@ -434,6 +434,22 @@ export class WorkspaceRegistry {
     });
 
     return discovered.sort((a, b) => a.path.localeCompare(b.path));
+  }
+}
+
+async function canonicalPath(path: string): Promise<string> {
+  const missingSegments: string[] = [];
+  let candidate = path;
+
+  while (true) {
+    try {
+      return resolve(await realpath(candidate), ...missingSegments.reverse());
+    } catch {
+      const parent = dirname(candidate);
+      if (parent === candidate) return path;
+      missingSegments.push(basename(candidate));
+      candidate = parent;
+    }
   }
 }
 
