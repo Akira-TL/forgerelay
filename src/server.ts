@@ -197,7 +197,7 @@ function serverInstructions(config: ServerConfig): string {
       : "";
 
   if (config.toolMode === "codex") {
-    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed. Checkout mode can reuse the conversation-scoped workspace when the host provides that optional context; otherwise continue using the returned workspaceId. Each worktree-mode open creates a new isolated worktree. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
+    return `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed. Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes. Follow instructions returned by ${toolNames.openWorkspace}; read applicable instruction and skill files before working in their scope.${artifactInstruction}${showChangesInstruction}`;
   }
 
   const inspection = config.toolMode !== "full"
@@ -694,7 +694,7 @@ function registerCodexProcessTools(
   );
 }
 
-function createMcpServer(
+export function createMcpServer(
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
   reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>,
@@ -774,8 +774,6 @@ function createMcpServer(
         workspaceId: z.string(),
         root: z.string(),
         mode: z.enum(["checkout", "worktree"]),
-        workspaceReused: z.boolean(),
-        includeBootstrapContext: z.boolean(),
         sourceRoot: z.string().optional(),
         worktree: z
           .object({
@@ -810,7 +808,6 @@ function createMcpServer(
         { path, mode, baseRef },
         { conversationScopeId: openAiConversationScopeId(_meta) },
       );
-      const bootstrapOmitted = !includeBootstrapContext;
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -849,21 +846,26 @@ function createMcpServer(
       const cardInstruction = config.skillsEnabled
         ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, you switch to a different project folder or checkout/worktree mode, or the user requests a new isolated worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
         : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, you switch to a different project folder or checkout/worktree mode, or the user requests a new isolated worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
-      const instruction = includeBootstrapContext
-        ? cardInstruction
-        : workspaceReused
-          ? "Reuse this workspaceId for subsequent tool calls. Project instructions, nested instruction paths, skills, subagent metadata, and diagnostics for this project were already returned earlier in this ChatGPT conversation and are intentionally omitted here."
-          : "Use this new workspaceId for subsequent tool calls. Project instructions, nested instruction paths, skills, subagent metadata, and diagnostics for this project were already returned earlier in this ChatGPT conversation and are intentionally omitted here.";
+      const instruction = workspaceReused
+        ? [
+            `Workspace already open as ${workspace.id}.`,
+            "Reuse this workspaceId for subsequent tool calls. This is the same checkout previously opened for this project in this conversation.",
+            "Continue following the project instructions, nested instruction files, skills, agent profiles, and diagnostics previously provided for this workspace. They remain the active workspace context and are not repeated here.",
+          ].join("\n\n")
+        : workspace.mode === "worktree"
+          ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
+          : cardInstruction;
       const resultContent: ToolContent[] = [
         {
           type: "text" as const,
           text: [
-            `${workspaceReused ? "Workspace already open as" : "Opened workspace"} ${workspace.id}`,
+            workspaceReused
+              ? `Workspace already open as ${workspace.id}.`
+              : workspace.mode === "worktree"
+                ? `Opened isolated worktree workspace ${workspace.id}.`
+                : `Opened workspace ${workspace.id}.`,
             `Root: ${workspace.root}`,
             `Mode: ${workspace.mode}`,
-            bootstrapOmitted
-              ? "Project bootstrap details omitted because they were already returned for this project in this ChatGPT conversation."
-              : undefined,
             loadedAgentsFiles.length > 0
               ? `Loaded project instructions: ${loadedAgentsFiles.map((file) => file.path).join(", ")}`
               : undefined,
@@ -929,8 +931,6 @@ function createMcpServer(
           workspaceId: workspace.id,
           root: workspace.root,
           mode: workspace.mode,
-          workspaceReused,
-          includeBootstrapContext,
           sourceRoot: workspace.sourceRoot,
           worktree: workspace.worktree,
           ...(includeBootstrapContext

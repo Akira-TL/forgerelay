@@ -27,7 +27,11 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
     case "open_workspace":
       return {
         icon: toolIcons.folderOpen,
-        title: "Opened workspace",
+        title: card.workspaceReused
+          ? "Reused workspace"
+          : card.mode === "worktree"
+            ? "Opened worktree"
+            : "Opened workspace",
         label: card.root ?? card.path,
         tone: "workspace",
       };
@@ -197,4 +201,3 @@ function durationLabel(durationMs: number | undefined): string | undefined {
   if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
   return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
 }
-
