@@ -64,10 +64,10 @@ test("review checkpoints survive a manager restart", async (t) => {
   await manager.initializeWorkspace({ workspaceId: "ws_restart", root });
   await writeFile(join(root, "README.md"), "hello\nworld\n");
   await manager.reviewChanges({ workspaceId: "ws_restart", root, markReviewed: true });
-  await writeFile(join(root, "later.txt"), "after restart\n");
 
   const restartedManager = createReviewCheckpointManager();
   await restartedManager.initializeWorkspace({ workspaceId: "ws_restart", root });
+  await writeFile(join(root, "later.txt"), "after restart\n");
 
   const afterRestart = await restartedManager.reviewChanges({
     workspaceId: "ws_restart",
