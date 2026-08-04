@@ -26,6 +26,8 @@ The portable workflow remains the same: keep using the `workspaceId` returned by
 `open_workspace` for later operations. Hosts without supported conversation
 context receive a normal new workspace and continue with that explicit
 `workspaceId` workflow.
+The model receives actionable workspace instructions; automatic-reuse bookkeeping
+is not a model-facing choice.
 
 Worktree mode is deliberately different: every call creates a new managed
 worktree and a new workspace session, even for the same path and base ref.
