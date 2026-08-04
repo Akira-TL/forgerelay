@@ -180,19 +180,26 @@ try {
     persistentWorkspace.availableAgentsFiles,
   );
 
+  const checkoutTargetKey = JSON.stringify(["checkout", await realpath(root), null]);
+  firstStore.setConversationBinding({
+    conversationScopeId: "chat-context-failure",
+    targetKey: checkoutTargetKey,
+    workspaceSessionId: persistentWorkspace.workspace.id,
+  });
+
   const projectAgentsDir = join(root, ".devspace", "agents");
   const projectAgentsBackup = join(root, ".devspace", "agents-backup");
   await rename(projectAgentsDir, projectAgentsBackup);
   await writeFile(projectAgentsDir, "not a directory\n");
   try {
     await assert.rejects(
-      () => persistentRegistry.openWorkspace(root, { conversationScopeId: "chat-checkout" }),
+      () => persistentRegistry.openWorkspace(root, { conversationScopeId: "chat-context-failure" }),
       /directory|ENOTDIR/i,
     );
     assert.equal(
       firstStore.getConversationBinding(
-        "chat-checkout",
-        JSON.stringify(["checkout", await realpath(root), null]),
+        "chat-context-failure",
+        checkoutTargetKey,
       )?.workspaceSessionId,
       persistentWorkspace.workspace.id,
     );
@@ -200,6 +207,13 @@ try {
     await rm(projectAgentsDir, { force: true });
     await rename(projectAgentsBackup, projectAgentsDir);
   }
+
+  const recoveredContextWorkspace = await persistentRegistry.openWorkspace(root, {
+    conversationScopeId: "chat-context-failure",
+  });
+  assert.equal(recoveredContextWorkspace.workspace.id, persistentWorkspace.workspace.id);
+  assert.equal(recoveredContextWorkspace.workspaceReused, true);
+  assert.equal(recoveredContextWorkspace.includeBootstrapContext, true);
 
   const otherConversationWorkspace = await persistentRegistry.openWorkspace(root, {
     conversationScopeId: "chat-checkout-other",

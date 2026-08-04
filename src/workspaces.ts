@@ -171,10 +171,12 @@ export class WorkspaceRegistry {
 
       if (reusableWorkspace) {
         this.store?.touchConversationBinding(conversationScopeId, targetKey);
-        return await this.reusedWorkspaceContext(
-          reusableWorkspace,
-          this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
-        );
+        const context = await this.reusedWorkspaceContext(reusableWorkspace);
+        return {
+          ...context,
+          includeBootstrapContext:
+            this.store?.claimConversationBootstrap(conversationScopeId, projectKey) ?? true,
+        };
       }
 
       this.workspaces.delete(binding.workspaceSessionId);
@@ -203,10 +205,7 @@ export class WorkspaceRegistry {
     return JSON.stringify(["checkout", projectKey, null]);
   }
 
-  private async reusedWorkspaceContext(
-    workspace: Workspace,
-    includeBootstrapContext: boolean,
-  ): Promise<WorkspaceContext> {
+  private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
@@ -216,7 +215,7 @@ export class WorkspaceRegistry {
       agentsFiles,
       availableAgentsFiles,
       workspaceReused: true,
-      includeBootstrapContext,
+      includeBootstrapContext: true,
     };
   }
 
