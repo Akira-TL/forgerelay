@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type ServerConfig } from "./config.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { ProcessSessionManager } from "./process-sessions.js";
 import { createMcpServer } from "./server.js";
@@ -135,9 +135,43 @@ test("a host without conversation metadata receives normal explicit-workspace be
   assert.doesNotMatch(responseText(second), /conversation metadata/i);
 });
 
+test("checkout reuse and context suppression survive a registry restart", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-1");
+  const firstWorkspaceId = structuredContent(first).workspaceId;
+
+  const restoredStore = new SqliteWorkspaceStore(context.stateDir);
+  const restoredServer = createMcpServer(
+    context.config,
+    new WorkspaceRegistry(context.config, restoredStore),
+    createReviewCheckpointManager(),
+    new ProcessSessionManager(),
+    [],
+    [],
+  );
+  const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
+  const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
+  await Promise.all([
+    restoredClient.connect(restoredClientTransport),
+    restoredServer.connect(restoredServerTransport),
+  ]);
+  t.after(async () => {
+    await restoredClient.close();
+    await restoredServer.close();
+    restoredStore.close();
+  });
+
+  const restored = await callOpen(restoredClient, context.project, "chat-1");
+  assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
+  assert.equal(structuredContent(restored).agentsFiles, undefined);
+  assert.match(responseText(restored), /same checkout previously opened/);
+});
+
 interface ServerFixture {
   client: Client;
   project: string;
+  config: ServerConfig;
+  stateDir: string;
 }
 
 async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise<ServerFixture> {
@@ -202,7 +236,7 @@ async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project };
+  return { client, project, config, stateDir };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
