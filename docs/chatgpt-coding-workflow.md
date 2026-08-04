@@ -33,10 +33,10 @@ reconnects and DevSpace restarts. The workspace card still receives the complete
 hidden display payload, so every call renders full workspace details without
 adding the bootstrap fields to the model transcript again.
 
-Do not reopen the same checkout folder unless:
+Do not call `open_workspace` again for the same checkout folder unless:
 
 - the `workspaceId` is rejected as unknown
-- the user switches to another folder
+- work moves to a different project folder
 - the user asks for a new isolated worktree
 
 ## Checkout Mode
