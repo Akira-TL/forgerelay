@@ -2,11 +2,45 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { openDatabase } from "./db/client.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 
-test("migration backfills a deterministic bootstrap row from historical target keys", async (t) => {
+test("migrated bootstrap history suppresses repeats without blocking another project", async (t) => {
+  const stateDir = await createLegacyBindingState(t);
+  const store = new SqliteWorkspaceStore(stateDir);
+
+  try {
+    assert.equal(store.claimConversationBootstrap("chat-existing", "/tmp/project"), false);
+    assert.equal(store.claimConversationBootstrap("chat-existing", "/tmp/other-project"), true);
+  } finally {
+    store.close();
+  }
+});
+
+test("migration preserves its deterministic timestamp choice for duplicate historical targets", async (t) => {
+  const stateDir = await createLegacyBindingState(t);
+  const migrated = openDatabase(stateDir);
+
+  try {
+    assert.deepEqual(
+      migrated.sqlite.prepare(`
+        select conversation_scope_id, project_key, created_at, last_used_at
+        from workspace_conversation_bootstraps
+      `).all(),
+      [{
+        conversation_scope_id: "chat-existing",
+        project_key: "/tmp/project",
+        created_at: "2026-01-01T00:00:00.000Z",
+        last_used_at: "2026-01-03T00:00:00.000Z",
+      }],
+    );
+  } finally {
+    migrated.close();
+  }
+});
+
+async function createLegacyBindingState(t: TestContext): Promise<string> {
   const stateDir = await mkdtemp(join(tmpdir(), "devspace-workspace-store-test-"));
   t.after(() => rm(stateDir, { recursive: true, force: true }));
 
@@ -52,28 +86,5 @@ test("migration backfills a deterministic bootstrap row from historical target k
     initial.close();
   }
 
-  const migrated = openDatabase(stateDir);
-  try {
-    assert.deepEqual(
-      migrated.sqlite.prepare(`
-        select conversation_scope_id, project_key, created_at, last_used_at
-        from workspace_conversation_bootstraps
-      `).all(),
-      [{
-        conversation_scope_id: "chat-existing",
-        project_key: "/tmp/project",
-        created_at: "2026-01-01T00:00:00.000Z",
-        last_used_at: "2026-01-03T00:00:00.000Z",
-      }],
-    );
-  } finally {
-    migrated.close();
-  }
-
-  const migratedStore = new SqliteWorkspaceStore(stateDir);
-  try {
-    assert.equal(migratedStore.claimConversationBootstrap("chat-existing", "/tmp/project"), false);
-  } finally {
-    migratedStore.close();
-  }
-});
+  return stateDir;
+}
