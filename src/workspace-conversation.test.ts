@@ -382,12 +382,18 @@ test("a checkout replaced by a file reports the filesystem error", async (t) => 
 
 test("unexpected storage errors are not mistaken for stale bindings", async (t) => {
   const context = await fixture(t);
-  await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" });
+  const first = await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" });
+  const targetKey = checkoutTargetKey(await realpath(context.project));
   context.closeStore(context.store);
 
   await assert.rejects(
     () => context.registry.openWorkspace(context.project, { conversationScopeId: "chat-1" }),
-    (error: unknown) => error instanceof Error && /database connection is not open/i.test(error.message),
+  );
+
+  const restoredStore = context.openStore();
+  assert.equal(
+    restoredStore.getConversationBinding("chat-1", targetKey)?.workspaceSessionId,
+    first.workspace.id,
   );
 });
 
