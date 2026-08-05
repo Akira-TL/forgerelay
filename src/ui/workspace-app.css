@@ -332,6 +332,33 @@ body {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
 }
 
+.workspace-base-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.workspace-base-value .workspace-value {
+  flex: 0 1 auto;
+}
+
+.workspace-base-warning {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-warning-text, #e6b566);
+  cursor: help;
+}
+
+.workspace-base-warning-svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
+}
+
 .workspace-chip-list {
   display: flex;
   min-width: 0;

@@ -2,6 +2,7 @@ import {
   Blocks,
   Bot,
   ChevronDown,
+  CircleAlert,
   Cpu,
   FileDiff,
   FileCheck2,
@@ -45,6 +46,7 @@ export const toolIcons = {
   sourceCheckout: FolderGit2,
   terminal: Terminal,
   terminalSquare: SquareTerminal,
+  warning: CircleAlert,
   writeFile: FilePlus,
 } as const satisfies Record<string, IconNode>;
 

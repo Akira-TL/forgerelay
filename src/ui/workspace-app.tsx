@@ -481,17 +481,25 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
       worktree.baseRef,
       worktree.baseSha?.slice(0, 8),
     ].filter((value): value is string => Boolean(value));
-    const flags = [
-      worktree.detached ? "detached" : undefined,
-      worktree.managed ? "managed" : undefined,
-      worktree.dirtySource ? "dirty source" : undefined,
-    ].filter((value): value is string => Boolean(value));
-    appendWorkspaceTextRow(
-      rows,
-      "Base",
-      [...base, ...flags].join(" · ") || "Worktree",
-      toolIcons.base,
-    );
+    const baseLabel = base.join(" · ") || "Worktree";
+    const baseContent = element("span", { className: "workspace-base-value" });
+    baseContent.append(element("span", {
+      className: "workspace-value",
+      text: baseLabel,
+      title: baseLabel,
+    }));
+
+    if (worktree.dirtySource) {
+      const warning = element("span", {
+        className: "workspace-base-warning",
+        title: "The source checkout had uncommitted changes when this worktree was created. Those changes are not included here.",
+        ariaLabel: "Source checkout changes are not included in this worktree",
+      });
+      warning.append(renderIcon(toolIcons.warning, "workspace-base-warning-svg"));
+      baseContent.append(warning);
+    }
+
+    appendWorkspaceRow(rows, "Base", baseContent, toolIcons.base);
   }
 
   if (card.sourceRoot && card.sourceRoot !== card.root) {
