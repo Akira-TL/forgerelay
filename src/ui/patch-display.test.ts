@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { getPatchDisplayParts, getRenderedFileChangeKind } from "./patch-display.js";
+import {
+  getFileChangePathDisplay,
+  getPatchDisplayParts,
+  getRenderedFileChangeKind,
+  getRenderedFileChangePathDisplay,
+} from "./patch-display.js";
 
 assert.deepEqual(getPatchDisplayParts({}), {
   title: "Applied patch",
@@ -26,6 +31,43 @@ assert.deepEqual(
     title: "Added 2 files",
     iconKind: "added",
     tone: "write",
+  },
+);
+
+assert.deepEqual(
+  getFileChangePathDisplay({
+    path: "src/new-name.ts",
+    previousPath: "src/old-name.ts",
+  }),
+  {
+    current: "new-name.ts",
+    previous: "old-name.ts",
+    title: "src/old-name.ts → src/new-name.ts",
+  },
+);
+
+assert.deepEqual(
+  getFileChangePathDisplay({
+    path: "packages/new/file.ts",
+    previousPath: "src/old/file.ts",
+  }),
+  {
+    current: "packages/new/file.ts",
+    previous: "src/old/file.ts",
+    title: "src/old/file.ts → packages/new/file.ts",
+  },
+);
+
+assert.deepEqual(
+  getRenderedFileChangePathDisplay(
+    [{ path: "src/new-name.ts", previousPath: "src/old-name.ts", operation: "move" }],
+    { path: "src/new-name.ts" },
+    0,
+  ),
+  {
+    current: "new-name.ts",
+    previous: "old-name.ts",
+    title: "src/old-name.ts → src/new-name.ts",
   },
 );
 

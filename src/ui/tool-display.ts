@@ -8,7 +8,10 @@ import {
   type ToolResultCard,
 } from "./card-types.js";
 import { toolIcons, type ToolIcon } from "./icons.js";
-import { getPatchDisplayParts } from "./patch-display.js";
+import {
+  getFileChangePathDisplay,
+  getPatchDisplayParts,
+} from "./patch-display.js";
 
 export interface ToolDisplay {
   icon: ToolIcon;
@@ -165,7 +168,9 @@ function workspaceTitle(card: ToolResultCard): string {
 }
 
 function singleFilePath(card: ToolResultCard): string | undefined {
-  if (card.files?.length === 1) return card.files[0]?.path ?? card.path;
+  if (card.files?.length === 1) {
+    return getFileChangePathDisplay(card.files[0])?.title ?? card.path;
+  }
   return undefined;
 }
 

@@ -41,6 +41,18 @@ assert.equal(
   "needle in src",
 );
 
+assert.equal(
+  getToolDisplay({
+    tool: "apply_patch",
+    files: [{
+      path: "src/new-name.ts",
+      previousPath: "src/old-name.ts",
+      operation: "move",
+    }],
+  }).label,
+  "src/old-name.ts → src/new-name.ts",
+);
+
 assert.deepEqual(
   pickDisplay(getToolDisplay({
     tool: "show_changes",

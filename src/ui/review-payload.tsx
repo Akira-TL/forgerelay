@@ -5,6 +5,7 @@ import { FileDiff } from "@pierre/diffs/react";
 import type { HostContext, ToolResultCard } from "./card-types.js";
 import {
   fileChangeKindLabel,
+  getRenderedFileChangePathDisplay,
   getRenderedFileChangeKind,
   type FileChangeKind,
 } from "./patch-display.js";
@@ -89,6 +90,14 @@ function ReviewPayload({
             },
             index,
           );
+          const pathDisplay = getRenderedFileChangePathDisplay(
+            card.files ?? [],
+            {
+              path: fileDiff.name,
+              previousPath: fileDiff.prevName,
+            },
+            index,
+          );
 
           return (
             <div className="review-diff-file" key={key}>
@@ -113,7 +122,25 @@ function ReviewPayload({
                 >
                   {fileChangeSymbol(changeKind)}
                 </span>
-                <span className="review-diff-file-name">{fileDiff.name}</span>
+                {pathDisplay?.previous ? (
+                  <span
+                    className="review-diff-file-name renamed"
+                    title={pathDisplay.title}
+                    aria-label={pathDisplay.title}
+                  >
+                    <span className="review-diff-file-path previous" aria-hidden="true">
+                      {pathDisplay.previous}
+                    </span>
+                    <span className="review-diff-file-arrow" aria-hidden="true">→</span>
+                    <span className="review-diff-file-path current" aria-hidden="true">
+                      {pathDisplay.current}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="review-diff-file-name" title={pathDisplay?.title ?? fileDiff.name}>
+                    {pathDisplay?.current ?? fileDiff.name}
+                  </span>
+                )}
                 <span className="review-diff-file-stats">
                   <span className="add">+{stats.additions}</span>
                   <span className="remove">-{stats.removals}</span>

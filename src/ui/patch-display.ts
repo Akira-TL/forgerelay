@@ -16,6 +16,12 @@ export interface PatchDisplayParts {
   tone: "edit" | "write" | "delete";
 }
 
+export interface FileChangePathDisplay {
+  current: string;
+  previous?: string;
+  title: string;
+}
+
 const fileChangeLabels: Record<Exclude<FileChangeKind, "unknown">, string> = {
   added: "Added",
   edited: "Edited",
@@ -111,6 +117,43 @@ export function getRenderedFileChangeKind(
   return indexedFile ? getFileChangeKind(indexedFile) : "unknown";
 }
 
+export function getFileChangePathDisplay(
+  file: Pick<ToolResultFile, "path" | "previousPath">,
+): FileChangePathDisplay | undefined {
+  const current = file.path ?? file.previousPath;
+  if (!current) return undefined;
+
+  const previous = file.previousPath;
+  if (!previous || previous === current) {
+    return { current, title: current };
+  }
+
+  const sameDirectory = pathDirectory(previous) === pathDirectory(current);
+  return {
+    current: sameDirectory ? pathBasename(current) : current,
+    previous: sameDirectory ? pathBasename(previous) : previous,
+    title: `${previous} → ${current}`,
+  };
+}
+
+export function getRenderedFileChangePathDisplay(
+  files: NonNullable<ToolResultCard["files"]>,
+  parsedFile: Pick<ToolResultFile, "path" | "previousPath">,
+  index: number,
+): FileChangePathDisplay | undefined {
+  const indexedFile = files[index];
+  const matchedFile = files.find((file) => (
+    file.path === parsedFile.path &&
+    (!parsedFile.previousPath || !file.previousPath || file.previousPath === parsedFile.previousPath)
+  ));
+  const cardFile = matchedFile ?? indexedFile;
+
+  return getFileChangePathDisplay({
+    path: parsedFile.path ?? cardFile?.path,
+    previousPath: parsedFile.previousPath ?? cardFile?.previousPath,
+  });
+}
+
 export function fileChangeKindLabel(kind: FileChangeKind): string {
   return kind === "unknown" ? "Changed" : fileChangeLabels[kind];
 }
@@ -147,4 +190,14 @@ function changeTone(kind: FileChangeKind | undefined): PatchDisplayParts["tone"]
 
 function fileNoun(fileCount: number): "file" | "files" {
   return fileCount === 1 ? "file" : "files";
+}
+
+function pathDirectory(path: string): string {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separatorIndex === -1 ? "" : path.slice(0, separatorIndex);
+}
+
+function pathBasename(path: string): string {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separatorIndex === -1 ? path : path.slice(separatorIndex + 1);
 }

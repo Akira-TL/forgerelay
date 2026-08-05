@@ -757,6 +757,36 @@ body {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
 }
 
+.review-diff-file-name.renamed {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  text-overflow: clip;
+}
+
+.review-diff-file-path {
+  min-width: 0;
+  max-width: calc(50% - 10px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-diff-file-path.previous {
+  color: var(--color-text-tertiary, #a3a3aa);
+}
+
+.review-diff-file-path.current {
+  color: var(--color-text-primary, #f5f5f6);
+}
+
+.review-diff-file-arrow {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary, #a3a3aa);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+}
+
 .review-diff-file-stats {
   justify-content: flex-end;
   overflow: visible;
