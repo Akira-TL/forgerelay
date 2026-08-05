@@ -531,6 +531,7 @@ body {
 .review-diff-file-header {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 10px;
   width: 100%;
   min-height: 42px;
@@ -547,6 +548,7 @@ body {
   display: grid;
   width: 20px;
   height: 20px;
+  align-self: center;
   place-items: center;
   border-radius: 6px;
   background: color-mix(in srgb, var(--color-text-tertiary, #a3a3aa) 10%, transparent);
@@ -585,6 +587,7 @@ body {
 .review-diff-file-stats {
   overflow: hidden;
   font-size: var(--font-text-sm-size, 13px);
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
