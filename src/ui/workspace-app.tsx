@@ -161,7 +161,9 @@ function render(): void {
 
   const expandable = isExpandableCard(card);
   const main = element("main", { className: "shell" });
-  const section = element("section", { className: `tool-card ${display.tone}` });
+  const section = element("section", {
+    className: toolCardClassName(display),
+  });
   const button = element("button", {
     className: "tool-header",
     type: "button",
@@ -359,7 +361,7 @@ function renderReviewCard(card: ToolResultCard, display: ToolDisplay): void {
   const hiddenCount = Math.max(0, files.length - visibleFiles.length);
   const expandable = isExpandableCard(card);
   const main = element("main", { className: "shell" });
-  const section = element("section", { className: "tool-card review" });
+  const section = element("section", { className: toolCardClassName(display) });
   const header = element("button", {
     className: "tool-header review-header",
     type: "button",
@@ -432,6 +434,12 @@ function renderChevron(isExpanded: boolean, visible: boolean): HTMLElement {
   }
 
   return chevron;
+}
+
+function toolCardClassName(display: ToolDisplay): string {
+  return ["tool-card", display.tone, display.state ? `state-${display.state}` : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function setPayloadLoading(container: HTMLElement, loading: boolean): void {

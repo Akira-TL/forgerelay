@@ -3,12 +3,13 @@
   font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
   background: transparent;
   color: var(--color-text-primary, #f5f5f6);
-  --tool-card-border: color-mix(in srgb, var(--color-border-primary, #414141) 92%, transparent);
-  --tool-card-header-bg: color-mix(in srgb, var(--color-background-secondary, #272727) 96%, transparent);
-  --tool-card-body-bg: color-mix(in srgb, var(--color-background-primary, #181818) 98%, transparent);
-  --tool-card-hover-bg: color-mix(in srgb, var(--color-background-tertiary, #343434) 62%, transparent);
-  --tool-card-icon-bg: color-mix(in srgb, var(--color-background-primary, #0d0d0d) 98%, transparent);
-  --tool-card-divider: color-mix(in srgb, var(--color-border-primary, #414141) 82%, transparent);
+  --tool-card-border: color-mix(in srgb, var(--color-border-primary, #414141) 74%, transparent);
+  --tool-card-header-bg: color-mix(in srgb, var(--color-background-secondary, #272727) 88%, transparent);
+  --tool-card-body-bg: color-mix(in srgb, var(--color-background-primary, #181818) 94%, transparent);
+  --tool-card-hover-bg: color-mix(in srgb, var(--color-background-tertiary, #343434) 46%, transparent);
+  --tool-card-divider: color-mix(in srgb, var(--color-border-primary, #414141) 66%, transparent);
+  --tool-accent: var(--color-text-secondary, #b6b6bd);
+  --tool-accent-soft: color-mix(in srgb, var(--tool-accent) 12%, transparent);
   --scrollbar-thumb: rgb(100 116 139 / 55%);
   --scrollbar-thumb-hover: rgb(71 85 105 / 85%);
 }
@@ -35,10 +36,43 @@ body {
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--tool-card-border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--tool-card-header-bg);
   box-shadow: none;
   color: var(--color-text-primary, #f5f5f6);
+}
+
+.tool-card.workspace,
+.tool-card.directory {
+  --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 34%, #3b82f6 66%);
+}
+
+.tool-card.read,
+.tool-card.search {
+  --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 32%, #06b6d4 68%);
+}
+
+.tool-card.write,
+.tool-card.state-success {
+  --tool-accent: var(--color-success-text, #6fda83);
+}
+
+.tool-card.edit,
+.tool-card.review {
+  --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #d99742 72%);
+}
+
+.tool-card.delete,
+.tool-card.state-error {
+  --tool-accent: var(--color-danger-text, #ee7676);
+}
+
+.tool-card.shell {
+  --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 42%, #64748b 58%);
+}
+
+.tool-card.state-running {
+  --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 30%, #38bdf8 70%);
 }
 
 .pretty-scrollbar::-webkit-scrollbar {
@@ -89,18 +123,25 @@ body {
 
 .tool-header {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) auto 24px;
+  grid-template-columns: 40px minmax(0, 1fr) auto 20px;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
-  min-height: 82px;
-  padding: 12px 16px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 13px;
+  border-radius: 11px;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.tool-header:focus-visible,
+.review-diff-file-header:focus-visible,
+.review-more:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
+  outline-offset: -2px;
 }
 
 .tool-header:hover:not(:disabled) {
@@ -113,18 +154,18 @@ body {
 
 .tool-icon {
   display: grid;
-  width: 54px;
-  height: 54px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--tool-card-border) 72%, transparent);
-  border-radius: 13px;
-  background: var(--tool-card-icon-bg);
-  color: var(--color-text-primary, #f5f5f6);
+  border: 1px solid color-mix(in srgb, var(--tool-accent) 18%, transparent);
+  border-radius: 10px;
+  background: var(--tool-accent-soft);
+  color: var(--tool-accent);
 }
 
 .icon-svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: block;
   stroke-width: 1.8;
 }
@@ -132,39 +173,39 @@ body {
 .tool-main {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tool-title {
   color: var(--color-text-primary, #f5f5f6);
-  font-size: var(--font-text-md-size, 16px);
-  font-weight: 500;
-  line-height: 1.25;
+  font-size: var(--font-text-sm-size, 14px);
+  font-weight: 550;
+  line-height: 1.3;
 }
 
 .tool-label {
   overflow: hidden;
-  color: var(--color-text-secondary, #d6d6dc);
+  color: var(--color-text-tertiary, #a3a3aa);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 13px);
-  line-height: 1.35;
+  font-size: var(--font-text-sm-size, 12px);
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stats {
   display: inline-flex;
-  gap: 6px;
+  gap: 5px;
   align-items: center;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 13px);
+  font-size: var(--font-text-sm-size, 12px);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .header-meta {
-  color: var(--color-text-secondary, #d6d6dc);
-  font-size: var(--font-text-sm-size, 13px);
+  color: var(--color-text-tertiary, #a3a3aa);
+  font-size: var(--font-text-sm-size, 12px);
   line-height: 1.35;
   text-align: right;
   white-space: nowrap;
@@ -184,8 +225,8 @@ body {
 
 .chevron {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   place-items: center;
   border-radius: 7px;
   color: var(--color-text-tertiary, #a3a3aa);
@@ -200,8 +241,8 @@ body {
 }
 
 .chevron .icon-svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .chevron.expanded {
@@ -237,7 +278,7 @@ body {
 }
 
 .review-header {
-  grid-template-columns: 54px minmax(0, 1fr) auto 24px;
+  grid-template-columns: 40px minmax(0, 1fr) auto 20px;
 }
 
 .review-title-group {
@@ -265,15 +306,15 @@ body {
 
 .review-more {
   width: 100%;
-  min-height: 44px;
-  padding: 0 16px;
+  min-height: 40px;
+  padding: 0 12px;
   border: 0;
   border-top: 1px solid var(--tool-card-divider);
   background: transparent;
-  color: var(--color-text-secondary, #d6d6dc);
+  color: var(--color-text-tertiary, #a3a3aa);
   cursor: pointer;
   font: inherit;
-  font-size: var(--font-text-sm-size, 13px);
+  font-size: var(--font-text-sm-size, 12px);
   text-align: left;
 }
 
@@ -285,7 +326,8 @@ body {
 .review-diff {
   display: grid;
   max-height: 520px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .review-diff-files {
@@ -307,10 +349,10 @@ body {
 .review-diff-file-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  min-height: 50px;
-  padding: 0 16px;
+  min-height: 42px;
+  padding: 0 12px;
   border: 0;
   background: transparent;
   color: var(--color-text-primary, #f5f5f6);
@@ -326,26 +368,26 @@ body {
 .review-diff-file-name,
 .review-diff-file-stats {
   overflow: hidden;
-  font-size: var(--font-text-sm-size, 14px);
+  font-size: var(--font-text-sm-size, 13px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .review-diff-file-name {
-  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
 }
 
 .review-diff-file-stats {
   justify-content: flex-end;
   overflow: visible;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 13px);
+  font-size: var(--font-text-sm-size, 12px);
   font-variant-numeric: tabular-nums;
 }
 
 .status {
-  padding: 12px 14px;
-  font-size: var(--font-text-sm-size, 13px);
+  padding: 10px 12px;
+  font-size: var(--font-text-sm-size, 12px);
 }
 
 .status.muted {
@@ -376,8 +418,8 @@ body {
   max-height: 420px;
   margin: 0;
   overflow: auto;
-  padding: 12px 14px;
-  color: var(--color-text-secondary, #d6d6dc);
+  padding: 10px 12px;
+  color: var(--color-text-secondary, #c7c7ce);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   font-size: var(--font-text-sm-size, 12px);
   line-height: 1.55;
@@ -392,16 +434,16 @@ body {
 
 @media (max-width: 520px) {
   .tool-header {
-    grid-template-columns: 42px minmax(0, 1fr) auto 18px;
-    gap: 10px;
-    min-height: 68px;
-    padding: 10px 12px;
+    grid-template-columns: 36px minmax(0, 1fr) auto 18px;
+    gap: 9px;
+    min-height: 58px;
+    padding: 9px 10px;
   }
 
   .tool-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 10px;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
   }
 
   .chevron {
@@ -410,6 +452,6 @@ body {
   }
 
   .review-header {
-    grid-template-columns: 42px minmax(0, 1fr) auto 18px;
+    grid-template-columns: 36px minmax(0, 1fr) auto 18px;
   }
 }

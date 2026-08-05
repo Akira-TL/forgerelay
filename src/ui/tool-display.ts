@@ -15,6 +15,7 @@ export interface ToolDisplay {
   title: string;
   label?: string;
   tone: string;
+  state?: "running" | "success" | "error";
 }
 
 export type ToolHeaderSummary =
@@ -90,6 +91,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         title: processTitle(card, "command"),
         label: processLabel(card),
         tone: "shell",
+        state: processState(card),
       };
     case "write_stdin":
       return {
@@ -97,6 +99,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         title: processTitle(card, "process"),
         label: processLabel(card),
         tone: "shell",
+        state: processState(card),
       };
     case "show_changes": {
       const display = getPatchDisplayParts(card, { emptyTitle: "Changes ready" });
@@ -186,6 +189,13 @@ function processTitle(card: ToolResultCard, subject: "command" | "process"): str
   }
 
   return subject === "command" ? "Ran command" : "Process finished";
+}
+
+function processState(card: ToolResultCard): ToolDisplay["state"] {
+  if (card.summary?.running === true) return "running";
+  const exitCode = summaryNumber(card.summary, "exitCode");
+  if (exitCode !== undefined && exitCode !== 0) return "error";
+  return exitCode === 0 ? "success" : undefined;
 }
 
 function processLabel(card: ToolResultCard): string | undefined {
