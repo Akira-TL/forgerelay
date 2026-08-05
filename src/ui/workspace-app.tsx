@@ -8,6 +8,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   isEditTool,
   isExpandableCard,
+  isInitiallyExpandedCard,
   isPatchTool,
   isReadTool,
   isReviewTool,
@@ -91,7 +92,7 @@ async function boot(): Promise<void> {
 
     const nextCard = { ...structured, tool };
     card = nextCard;
-    expanded = isReviewTool(tool) && isExpandableCard(nextCard);
+    expanded = isInitiallyExpandedCard(nextCard);
     reviewFilesExpanded = false;
     expandedWorkspaceDisclosures.clear();
     openWorkspaceInstructionPath = null;

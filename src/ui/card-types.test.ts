@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isEditTool,
   isExpandableCard,
+  isInitiallyExpandedCard,
   isPatchTool,
   isShellTool,
   isToolName,
@@ -29,6 +30,42 @@ test("a patch card expands only when it contains patch content", () => {
     true,
   );
   assert.equal(isExpandableCard({ tool: "apply_patch" }), false);
+});
+
+test("a single-file patch opens immediately", () => {
+  assert.equal(
+    isInitiallyExpandedCard({
+      tool: "apply_patch",
+      files: [{ path: "src/a.ts", operation: "update" }],
+      payload: { patch: "diff --git a/src/a.ts b/src/a.ts" },
+    }),
+    true,
+  );
+});
+
+test("a multi-file patch stays collapsed", () => {
+  assert.equal(
+    isInitiallyExpandedCard({
+      tool: "apply_patch",
+      files: [
+        { path: "src/a.ts", operation: "update" },
+        { path: "src/b.ts", operation: "add" },
+      ],
+      payload: { patch: "diff --git a/src/a.ts b/src/a.ts" },
+    }),
+    false,
+  );
+});
+
+test("show changes still opens immediately", () => {
+  assert.equal(
+    isInitiallyExpandedCard({
+      tool: "show_changes",
+      files: [{ path: "src/a.ts", type: "change" }],
+      payload: { patch: "diff --git a/src/a.ts b/src/a.ts" },
+    }),
+    true,
+  );
 });
 
 test("a workspace card expands when it contains provider metadata", () => {
