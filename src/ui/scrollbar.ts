@@ -24,7 +24,7 @@ export const pierrePrettyScrollbarCss = `
   }
 
   [data-code]::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb, rgb(100 116 139 / 55%));
+    background-color: var(--scrollbar-thumb, rgb(128 128 128 / 55%));
     background-clip: content-box;
     border: 4px solid transparent;
     border-radius: 9999px;
@@ -32,7 +32,7 @@ export const pierrePrettyScrollbarCss = `
 
   [data-code]::-webkit-scrollbar-thumb:hover,
   [data-code]::-webkit-scrollbar-thumb:active {
-    background-color: var(--scrollbar-thumb-hover, rgb(71 85 105 / 85%));
+    background-color: var(--scrollbar-thumb-hover, rgb(112 112 112 / 85%));
   }
 
   [data-code]::-webkit-scrollbar-corner {

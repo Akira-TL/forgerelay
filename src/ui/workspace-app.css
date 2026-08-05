@@ -10,8 +10,8 @@
   --tool-card-divider: color-mix(in srgb, var(--color-border-primary, #414141) 66%, transparent);
   --tool-accent: var(--color-text-secondary, #b6b6bd);
   --tool-accent-soft: color-mix(in srgb, var(--tool-accent) 12%, transparent);
-  --scrollbar-thumb: rgb(100 116 139 / 55%);
-  --scrollbar-thumb-hover: rgb(71 85 105 / 85%);
+  --scrollbar-thumb: color-mix(in srgb, var(--color-text-tertiary, #8a8a8a) 56%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--color-text-secondary, #a8a8a8) 82%, transparent);
 }
 
 * {
