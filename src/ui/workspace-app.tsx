@@ -19,7 +19,7 @@ import {
   type ToolName,
   type ToolResultCard,
 } from "./card-types.js";
-import { renderIcon, toolIcons } from "./icons.js";
+import { renderIcon, toolIcons, type ToolIcon } from "./icons.js";
 import {
   getToolDisplay,
   getToolHeaderSummary,
@@ -475,11 +475,22 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
       worktree.managed ? "managed" : undefined,
       worktree.dirtySource ? "dirty source" : undefined,
     ].filter((value): value is string => Boolean(value));
-    appendWorkspaceRow(rows, "Base", [...base, ...flags].join(" · ") || "Worktree");
+    appendWorkspaceTextRow(
+      rows,
+      "Base",
+      [...base, ...flags].join(" · ") || "Worktree",
+      toolIcons.base,
+    );
   }
 
   if (card.sourceRoot && card.sourceRoot !== card.root) {
-    appendWorkspaceRow(rows, "Source checkout", card.sourceRoot, true);
+    appendWorkspaceTextRow(
+      rows,
+      "Source checkout",
+      card.sourceRoot,
+      toolIcons.sourceCheckout,
+      true,
+    );
   }
 
   const instructionPaths = [
@@ -487,28 +498,32 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     ...(card.availableAgentsFiles ?? []).map((file) => file.path ?? "Nested instructions"),
   ];
   if (instructionPaths.length > 0) {
-    appendWorkspaceRow(rows, "Instructions", compactList(instructionPaths), true);
+    appendWorkspaceTextRow(
+      rows,
+      "Instructions",
+      compactList(instructionPaths),
+      toolIcons.instructions,
+      true,
+    );
   }
 
-  const skillNames = (card.skills ?? []).map((skill) => skill.name ?? skill.path ?? "Unnamed skill");
-  if (skillNames.length > 0) {
-    appendWorkspaceRow(rows, "Skills", compactList(skillNames));
+  const skills = card.skills ?? [];
+  if (skills.length > 0) {
+    appendWorkspaceSkills(rows, skills);
   }
 
   const providers = card.agentProviders ?? [];
   if (providers.length > 0) {
-    const available: string[] = [];
+    const providerChips: WorkspaceChip[] = [];
     for (const provider of providers) {
-      if (provider.available !== false) {
-        available.push(provider.name ?? "Unknown provider");
-      }
+      const unavailable = provider.available === false;
+      providerChips.push({
+        label: provider.name ?? "Unknown provider",
+        tone: unavailable ? "muted" : undefined,
+        title: unavailable ? provider.reason ?? "Provider unavailable" : undefined,
+      });
     }
-    const unavailableCount = providers.length - available.length;
-    const providerSummary = [
-      compactList(available),
-      unavailableCount > 0 ? `${unavailableCount} unavailable` : undefined,
-    ].filter((value): value is string => Boolean(value));
-    appendWorkspaceRow(rows, "Providers", providerSummary.join(" · "));
+    appendWorkspaceChipRow(rows, "Providers", providerChips, toolIcons.providers);
   }
 
   const agentNames = (card.agents ?? []).map((agent) => {
@@ -516,38 +531,15 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     return agent.provider ? `${name} · ${agent.provider}` : name;
   });
   if (agentNames.length > 0) {
-    appendWorkspaceRow(rows, "Agents", compactList(agentNames));
+    appendWorkspaceTextRow(
+      rows,
+      "Agents",
+      compactList(agentNames),
+      toolIcons.agents,
+    );
   }
 
   if (rows.childElementCount > 0) details.append(rows);
-
-  const diagnostics = card.skillDiagnostics ?? [];
-  if (diagnostics.length > 0) {
-    const diagnosticList = element("div", { className: "workspace-diagnostics" });
-    diagnosticList.append(element("div", {
-      className: "workspace-diagnostics-title",
-      text: `${diagnostics.length} skill ${diagnostics.length === 1 ? "diagnostic" : "diagnostics"}`,
-    }));
-
-    for (const diagnostic of diagnostics) {
-      const view = diagnosticView(diagnostic);
-      const item = element("div", { className: "workspace-diagnostic" });
-      item.append(element("span", {
-        className: "workspace-diagnostic-marker",
-        text: "!",
-        ariaHidden: "true",
-      }));
-      const copy = element("span", { className: "workspace-diagnostic-copy" });
-      copy.append(element("span", { className: "workspace-diagnostic-message", text: view.message }));
-      if (view.detail) {
-        copy.append(element("span", { className: "workspace-diagnostic-detail", text: view.detail }));
-      }
-      item.append(copy);
-      diagnosticList.append(item);
-    }
-
-    details.append(diagnosticList);
-  }
 
   if (details.childElementCount === 0) {
     details.append(element("div", { className: "status muted", text: "No workspace details available." }));
@@ -556,22 +548,109 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
   container.replaceChildren(details);
 }
 
-function appendWorkspaceRow(
+interface WorkspaceChip {
+  label: string;
+  title?: string;
+  tone?: "muted";
+}
+
+function appendWorkspaceTextRow(
   container: HTMLElement,
   label: string,
   value: string,
+  icon: ToolIcon,
   mono = false,
+): void {
+  const content = element("span", {
+    className: `workspace-value${mono ? " mono" : ""}`,
+    text: value,
+    title: value,
+  });
+  appendWorkspaceRow(container, label, content, icon);
+}
+
+function appendWorkspaceChipRow(
+  container: HTMLElement,
+  label: string,
+  chips: WorkspaceChip[],
+  icon: ToolIcon,
+): void {
+  appendWorkspaceRow(container, label, renderWorkspaceChips(chips), icon);
+}
+
+function appendWorkspaceRow(
+  container: HTMLElement,
+  label: string,
+  content: HTMLElement,
+  icon: ToolIcon,
 ): void {
   const row = element("div", { className: "workspace-row" });
   row.append(
+    renderWorkspaceRowIcon(icon),
     element("span", { className: "workspace-key", text: label }),
-    element("span", {
-      className: `workspace-value${mono ? " mono" : ""}`,
-      text: value,
-      title: value,
-    }),
+    content,
   );
   container.append(row);
+}
+
+function appendWorkspaceSkills(
+  container: HTMLElement,
+  skills: NonNullable<ToolResultCard["skills"]>,
+): void {
+  const details = element("details", { className: "workspace-skills" });
+  const summary = element("summary", { className: "workspace-skills-summary" });
+  const action = element("span", { className: "workspace-disclosure-action" });
+  action.append(
+    element("span", {
+      className: "workspace-disclosure-closed",
+      text: `View all ${skills.length}`,
+    }),
+    element("span", {
+      className: "workspace-disclosure-open",
+      text: "Hide skills",
+    }),
+  );
+  const chevron = element("span", {
+    className: "workspace-disclosure-chevron",
+    ariaHidden: "true",
+  });
+  chevron.append(renderIcon(toolIcons.chevronDown));
+  summary.append(
+    renderWorkspaceRowIcon(toolIcons.skills),
+    element("span", { className: "workspace-key", text: "Skills" }),
+    action,
+    chevron,
+  );
+
+  const chips = skills.map((skill) => ({
+    label: skill.name ?? skill.path ?? "Unnamed skill",
+    title: skill.path,
+  }));
+  const chipList = renderWorkspaceChips(chips);
+  chipList.classList.add("workspace-skills-list");
+  details.append(summary, chipList);
+  container.append(details);
+}
+
+function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {
+  const wrapper = element("span", {
+    className: "workspace-row-icon",
+    ariaHidden: "true",
+  });
+  wrapper.append(renderIcon(icon, "workspace-row-icon-svg"));
+  return wrapper;
+}
+
+function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
+  const list = element("span", { className: "workspace-chip-list" });
+  for (const chip of chips) {
+    list.append(element("span", {
+      className: `workspace-chip${chip.tone ? ` ${chip.tone}` : ""}`,
+      text: chip.label,
+      title: chip.title,
+    }));
+  }
+  return list;
 }
 
 function compactList(values: string[], visibleCount = 5): string {
@@ -580,27 +659,6 @@ function compactList(values: string[], visibleCount = 5): string {
   return hiddenCount > 0
     ? `${visible.join(" · ")} · +${hiddenCount} more`
     : visible.join(" · ");
-}
-
-function diagnosticView(diagnostic: unknown): { message: string; detail?: string } {
-  if (typeof diagnostic === "string") return { message: diagnostic };
-  if (diagnostic instanceof Error) return { message: diagnostic.message };
-  if (!diagnostic || typeof diagnostic !== "object") return { message: String(diagnostic) };
-
-  const record = diagnostic as Record<string, unknown>;
-  const message = typeof record.message === "string" ? record.message : "Skill diagnostic";
-  const collision = record.collision;
-  if (!collision || typeof collision !== "object") return { message };
-
-  const collisionRecord = collision as Record<string, unknown>;
-  const winnerPath = collisionRecord.winnerPath;
-  const loserPath = collisionRecord.loserPath;
-  const detail = [
-    typeof winnerPath === "string" ? `Using ${winnerPath}` : undefined,
-    typeof loserPath === "string" ? `Ignoring ${loserPath}` : undefined,
-  ].filter((value): value is string => Boolean(value));
-
-  return detail.length > 0 ? { message, detail: detail.join(" · ") } : { message };
 }
 
 function toolNameFromMeta(result: CallToolResult): ToolName | undefined {
