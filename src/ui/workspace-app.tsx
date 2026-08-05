@@ -498,10 +498,10 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     ...(card.availableAgentsFiles ?? []).map((file) => file.path ?? "Nested instructions"),
   ];
   if (instructionPaths.length > 0) {
-    appendWorkspaceTextRow(
+    appendWorkspaceTextListRow(
       rows,
       "Instructions",
-      compactList(instructionPaths),
+      instructionPaths,
       toolIcons.instructions,
       true,
     );
@@ -531,10 +531,10 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     return agent.provider ? `${name} · ${agent.provider}` : name;
   });
   if (agentNames.length > 0) {
-    appendWorkspaceTextRow(
+    appendWorkspaceTextListRow(
       rows,
       "Agents",
-      compactList(agentNames),
+      agentNames,
       toolIcons.agents,
     );
   }
@@ -569,6 +569,44 @@ function appendWorkspaceTextRow(
   appendWorkspaceRow(container, label, content, icon);
 }
 
+function appendWorkspaceTextListRow(
+  container: HTMLElement,
+  label: string,
+  values: string[],
+  icon: ToolIcon,
+  mono = false,
+): void {
+  if (values.length === 1) {
+    appendWorkspaceTextRow(container, label, values[0], icon, mono);
+    return;
+  }
+
+  const row = element("div", { className: "workspace-row workspace-row-disclosure" });
+  const disclosure = element("span", { className: "workspace-disclosure" });
+  const list = element("span", {
+    className: `workspace-value-list${mono ? " mono" : ""}`,
+  });
+  for (const value of values) {
+    list.append(element("span", {
+      className: "workspace-value-item",
+      text: value,
+      title: value,
+    }));
+  }
+
+  const toggle = renderWorkspaceDisclosureToggle(values.length, (nextExpanded) => {
+    disclosure.classList.toggle("expanded", nextExpanded);
+    row.classList.toggle("expanded", nextExpanded);
+  });
+  disclosure.append(list, toggle);
+  row.append(
+    renderWorkspaceRowIcon(icon),
+    element("span", { className: "workspace-key", text: label }),
+    disclosure,
+  );
+  container.append(row);
+}
+
 function appendWorkspaceChipRow(
   container: HTMLElement,
   label: string,
@@ -597,46 +635,51 @@ function appendWorkspaceSkills(
   container: HTMLElement,
   skills: NonNullable<ToolResultCard["skills"]>,
 ): void {
-  const visibleCount = 5;
-  const row = element("div", { className: "workspace-row workspace-skills-row" });
-  const chipList = element("span", { className: "workspace-chip-list workspace-skills-list" });
-  const hiddenChips: HTMLElement[] = [];
-
-  for (const [index, skill] of skills.entries()) {
-    const chip = element("span", {
-      className: `workspace-chip${index >= visibleCount ? " workspace-skill-extra" : ""}`,
-      text: skill.name ?? skill.path ?? "Unnamed skill",
-      title: skill.path,
-    });
-    if (index >= visibleCount) {
-      chip.hidden = true;
-      hiddenChips.push(chip);
-    }
-    chipList.append(chip);
+  const skillChips = skills.map((skill) => ({
+    label: skill.name ?? skill.path ?? "Unnamed skill",
+    title: skill.path,
+  }));
+  if (skillChips.length === 1) {
+    appendWorkspaceChipRow(container, "Skills", skillChips, toolIcons.skills);
+    return;
   }
 
-  if (hiddenChips.length > 0) {
-    const toggle = element("button", {
-      className: "workspace-skills-toggle",
-      type: "button",
-      text: `View all ${skills.length}`,
-      ariaExpanded: "false",
-    });
-    toggle.addEventListener("click", () => {
-      const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
-      toggle.setAttribute("aria-expanded", String(nextExpanded));
-      toggle.textContent = nextExpanded ? "Show less" : `View all ${skills.length}`;
-      for (const chip of hiddenChips) chip.hidden = !nextExpanded;
-    });
-    chipList.append(toggle);
-  }
+  const row = element("div", { className: "workspace-row workspace-row-disclosure" });
+  const disclosure = element("span", { className: "workspace-disclosure workspace-skills-disclosure" });
+  const chipList = renderWorkspaceChips(skillChips);
+  chipList.classList.add("workspace-skills-list");
+
+  const toggle = renderWorkspaceDisclosureToggle(skills.length, (nextExpanded) => {
+    disclosure.classList.toggle("expanded", nextExpanded);
+    row.classList.toggle("expanded", nextExpanded);
+  });
+  disclosure.append(chipList, toggle);
 
   row.append(
     renderWorkspaceRowIcon(toolIcons.skills),
     element("span", { className: "workspace-key", text: "Skills" }),
-    chipList,
+    disclosure,
   );
   container.append(row);
+}
+
+function renderWorkspaceDisclosureToggle(
+  total: number,
+  onToggle: (expanded: boolean) => void,
+): HTMLButtonElement {
+  const toggle = element("button", {
+    className: "workspace-disclosure-toggle",
+    type: "button",
+    text: `View all ${total}`,
+    ariaExpanded: "false",
+  });
+  toggle.addEventListener("click", () => {
+    const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", String(nextExpanded));
+    toggle.textContent = nextExpanded ? "Show less" : `View all ${total}`;
+    onToggle(nextExpanded);
+  });
+  return toggle;
 }
 
 function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {
@@ -658,14 +701,6 @@ function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
     }));
   }
   return list;
-}
-
-function compactList(values: string[], visibleCount = 5): string {
-  const visible = values.slice(0, visibleCount);
-  const hiddenCount = values.length - visible.length;
-  return hiddenCount > 0
-    ? `${visible.join(" · ")} · +${hiddenCount} more`
-    : visible.join(" · ");
 }
 
 function toolNameFromMeta(result: CallToolResult): ToolName | undefined {

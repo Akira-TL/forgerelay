@@ -349,13 +349,15 @@ body {
 .workspace-chip-list {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
 
 .workspace-chip {
   display: inline-flex;
+  flex: 0 0 auto;
   max-width: 100%;
   min-height: 24px;
   align-items: center;
@@ -377,11 +379,33 @@ body {
   opacity: 0.72;
 }
 
-.workspace-skills-list {
-  align-items: center;
+.workspace-row-disclosure {
+  align-items: start;
 }
 
-.workspace-skills-toggle {
+.workspace-disclosure {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.workspace-skills-list {
+  max-height: 24px;
+}
+
+.workspace-disclosure.expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-skills-disclosure.expanded .workspace-skills-list {
+  max-height: none;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.workspace-disclosure-toggle {
   min-height: 24px;
   padding: 3px 9px;
   border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, var(--tool-card-divider));
@@ -395,13 +419,44 @@ body {
   white-space: nowrap;
 }
 
-.workspace-skills-toggle:hover {
+.workspace-disclosure-toggle:hover {
   background: color-mix(in srgb, var(--tool-accent) 10%, transparent);
 }
 
-.workspace-skills-toggle:focus-visible {
+.workspace-disclosure-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
   outline-offset: 2px;
+}
+
+.workspace-disclosure.expanded .workspace-disclosure-toggle {
+  justify-self: start;
+}
+
+.workspace-value-list {
+  display: grid;
+  min-width: 0;
+  max-height: calc(1.45em);
+  overflow: hidden;
+  color: var(--color-text-secondary, #c7c7ce);
+  font-size: var(--font-text-sm-size, 12px);
+  line-height: 1.45;
+}
+
+.workspace-value-list.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+}
+
+.workspace-value-item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-disclosure.expanded .workspace-value-list {
+  max-height: none;
+  gap: 5px;
+  overflow: visible;
 }
 
 .review-header {
@@ -629,11 +684,8 @@ body {
 
   .workspace-row > .workspace-key,
   .workspace-row > .workspace-value,
-  .workspace-row > .workspace-chip-list {
-    grid-column: 2;
-  }
-
-  .workspace-skills-list {
+  .workspace-row > .workspace-chip-list,
+  .workspace-row > .workspace-disclosure {
     grid-column: 2;
   }
 }
