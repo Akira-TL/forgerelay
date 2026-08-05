@@ -324,7 +324,10 @@ function renderPrePayload(
   tool: string,
 ): void {
   unmountCurrentPayload();
-  container.replaceChildren(element("pre", { className: `text-payload ${tool}`, text }));
+  container.replaceChildren(element("pre", {
+    className: `text-payload pretty-scrollbar ${tool}`,
+    text,
+  }));
 }
 
 function renderHeaderSummary(card: ToolResultCard): HTMLElement {

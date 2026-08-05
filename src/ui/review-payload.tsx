@@ -56,7 +56,7 @@ function ReviewPayload({
   const options = diffOptions(themeType);
 
   return (
-    <div className="review-diff">
+    <div className="review-diff pretty-scrollbar">
       <div className="review-diff-files">
         {visibleFiles.map((fileDiff, index) => {
           const key = fileDiff.cacheKey ?? `${fileDiff.prevName ?? ""}->${fileDiff.name}-${index}`;
@@ -86,7 +86,11 @@ function ReviewPayload({
                 </span>
               </button>
               {isOpen ? (
-                <FileDiff fileDiff={fileDiff} options={options} className="pierre-diff" />
+                <FileDiff
+                  fileDiff={fileDiff}
+                  options={options}
+                  className="pierre-diff pretty-scrollbar"
+                />
               ) : null}
             </div>
           );

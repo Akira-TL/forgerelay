@@ -77,7 +77,7 @@ function HeavyPayload({
     );
   }
 
-  return <pre className={`text-payload ${card.tool}`}>{text}</pre>;
+  return <pre className={`text-payload pretty-scrollbar ${card.tool}`}>{text}</pre>;
 }
 
 function FilePayload({
@@ -134,7 +134,7 @@ function FilePayload({
     };
   }, [fileOptions, path, startLine, text]);
 
-  return <div ref={wrapperRef} className="pierre-file" />;
+  return <div ref={wrapperRef} className="pierre-file pretty-scrollbar" />;
 }
 
 function DiffPayload({
@@ -163,7 +163,7 @@ function DiffPayload({
         stickyHeader: true,
         disableFileHeader: true,
       }}
-      className="pierre-diff"
+      className="pierre-diff pretty-scrollbar"
     />
   );
 }
