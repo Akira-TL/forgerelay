@@ -8,6 +8,7 @@ import {
   getFileChangeKind,
   type FileChangeKind,
 } from "./patch-display.js";
+import { pierrePrettyScrollbarCss } from "./scrollbar.js";
 
 type ThemeType = "light" | "dark";
 
@@ -180,6 +181,7 @@ function diffOptions(themeType: ThemeType): FileDiffOptions<undefined> {
     hunkSeparators: "line-info",
     lineDiffType: "word-alt",
     overflow: "scroll",
+    unsafeCSS: pierrePrettyScrollbarCss,
     collapsedContextThreshold: 4,
     expansionLineCount: 20,
     stickyHeader: false,

@@ -12,6 +12,7 @@ import {
   type HostContext,
   type ToolResultCard,
 } from "./card-types.js";
+import { pierrePrettyScrollbarCss } from "./scrollbar.js";
 
 type ThemeType = "light" | "dark";
 
@@ -100,6 +101,7 @@ function FilePayload({
       },
       themeType,
       overflow: "scroll",
+      unsafeCSS: pierrePrettyScrollbarCss,
     }),
     [themeType],
   );
@@ -158,6 +160,7 @@ function DiffPayload({
         hunkSeparators: "line-info",
         lineDiffType: "word-alt",
         overflow: "scroll",
+        unsafeCSS: pierrePrettyScrollbarCss,
         collapsedContextThreshold: 4,
         expansionLineCount: 20,
         stickyHeader: true,
