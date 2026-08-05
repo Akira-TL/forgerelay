@@ -597,39 +597,46 @@ function appendWorkspaceSkills(
   container: HTMLElement,
   skills: NonNullable<ToolResultCard["skills"]>,
 ): void {
-  const details = element("details", { className: "workspace-skills" });
-  const summary = element("summary", { className: "workspace-skills-summary" });
-  const action = element("span", { className: "workspace-disclosure-action" });
-  action.append(
-    element("span", {
-      className: "workspace-disclosure-closed",
+  const visibleCount = 5;
+  const row = element("div", { className: "workspace-row workspace-skills-row" });
+  const chipList = element("span", { className: "workspace-chip-list workspace-skills-list" });
+  const hiddenChips: HTMLElement[] = [];
+
+  for (const [index, skill] of skills.entries()) {
+    const chip = element("span", {
+      className: `workspace-chip${index >= visibleCount ? " workspace-skill-extra" : ""}`,
+      text: skill.name ?? skill.path ?? "Unnamed skill",
+      title: skill.path,
+    });
+    if (index >= visibleCount) {
+      chip.hidden = true;
+      hiddenChips.push(chip);
+    }
+    chipList.append(chip);
+  }
+
+  if (hiddenChips.length > 0) {
+    const toggle = element("button", {
+      className: "workspace-skills-toggle",
+      type: "button",
       text: `View all ${skills.length}`,
-    }),
-    element("span", {
-      className: "workspace-disclosure-open",
-      text: "Hide skills",
-    }),
-  );
-  const chevron = element("span", {
-    className: "workspace-disclosure-chevron",
-    ariaHidden: "true",
-  });
-  chevron.append(renderIcon(toolIcons.chevronDown));
-  summary.append(
+      ariaExpanded: "false",
+    });
+    toggle.addEventListener("click", () => {
+      const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(nextExpanded));
+      toggle.textContent = nextExpanded ? "Show less" : `View all ${skills.length}`;
+      for (const chip of hiddenChips) chip.hidden = !nextExpanded;
+    });
+    chipList.append(toggle);
+  }
+
+  row.append(
     renderWorkspaceRowIcon(toolIcons.skills),
     element("span", { className: "workspace-key", text: "Skills" }),
-    action,
-    chevron,
+    chipList,
   );
-
-  const chips = skills.map((skill) => ({
-    label: skill.name ?? skill.path ?? "Unnamed skill",
-    title: skill.path,
-  }));
-  const chipList = renderWorkspaceChips(chips);
-  chipList.classList.add("workspace-skills-list");
-  details.append(summary, chipList);
-  container.append(details);
+  container.append(row);
 }
 
 function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {

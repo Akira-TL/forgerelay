@@ -131,7 +131,6 @@ export function getToolHeaderSummary(card: ToolResultCard): ToolHeaderSummary {
 
   if (card.tool === "open_workspace") {
     const parts = [
-      typeof summary.mode === "string" ? summary.mode : undefined,
       countLabel(summaryNumber(summary, "agentsFiles"), "instruction"),
       countLabel(summaryNumber(summary, "skills"), "skill"),
     ].filter((part): part is string => Boolean(part));
@@ -162,8 +161,7 @@ function patchIcon(kind: ReturnType<typeof getPatchDisplayParts>["iconKind"]): T
 }
 
 function workspaceTitle(card: ToolResultCard): string {
-  const mode = card.mode === "worktree" ? "worktree" : "checkout";
-  return `${card.workspaceReused ? "Reused" : "Opened"} ${mode}`;
+  return `${card.workspaceReused ? "Reused" : "Opened"} workspace`;
 }
 
 function singleFilePath(card: ToolResultCard): string | undefined {

@@ -377,71 +377,31 @@ body {
   opacity: 0.72;
 }
 
-.workspace-skills {
-  display: grid;
-}
-
-.workspace-skills-summary {
-  display: grid;
-  grid-template-columns: 22px minmax(116px, 0.24fr) minmax(0, 1fr) 18px;
-  gap: 10px;
-  min-height: 40px;
-  align-items: center;
-  padding: 7px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.workspace-skills-summary::-webkit-details-marker {
-  display: none;
-}
-
-.workspace-skills-summary:hover {
-  background: var(--tool-card-hover-bg);
-}
-
-.workspace-skills-summary:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
-  outline-offset: -2px;
-}
-
-.workspace-disclosure-action {
-  color: var(--color-text-secondary, #c7c7ce);
-  font-size: var(--font-text-sm-size, 12px);
-}
-
-.workspace-disclosure-open {
-  display: none;
-}
-
-.workspace-skills[open] .workspace-disclosure-closed {
-  display: none;
-}
-
-.workspace-skills[open] .workspace-disclosure-open {
-  display: inline;
-}
-
-.workspace-disclosure-chevron {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  color: var(--color-text-tertiary, #a3a3aa);
-  transition: transform 140ms ease;
-}
-
-.workspace-disclosure-chevron .icon-svg {
-  width: 14px;
-  height: 14px;
-}
-
-.workspace-skills[open] .workspace-disclosure-chevron {
-  transform: rotate(180deg);
-}
-
 .workspace-skills-list {
-  padding: 1px 12px 12px 44px;
+  align-items: center;
+}
+
+.workspace-skills-toggle {
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, var(--tool-card-divider));
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--tool-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-text-sm-size, 11px);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.workspace-skills-toggle:hover {
+  background: color-mix(in srgb, var(--tool-accent) 10%, transparent);
+}
+
+.workspace-skills-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
+  outline-offset: 2px;
 }
 
 .review-header {
@@ -673,27 +633,7 @@ body {
     grid-column: 2;
   }
 
-  .workspace-skills-summary {
-    grid-template-columns: 22px minmax(0, 1fr) 18px;
-    gap: 2px 8px;
-    padding-block: 8px;
-  }
-
-  .workspace-skills-summary .workspace-row-icon {
-    grid-row: 1 / span 2;
-  }
-
-  .workspace-skills-summary .workspace-key,
-  .workspace-disclosure-action {
-    grid-column: 2;
-  }
-
-  .workspace-disclosure-chevron {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-  }
-
   .workspace-skills-list {
-    padding-left: 42px;
+    grid-column: 2;
   }
 }
