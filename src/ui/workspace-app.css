@@ -52,8 +52,7 @@ body {
   --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 32%, #06b6d4 68%);
 }
 
-.tool-card.write,
-.tool-card.state-success {
+.tool-card.write {
   --tool-accent: var(--color-success-text, #6fda83);
 }
 
@@ -62,13 +61,20 @@ body {
   --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #d99742 72%);
 }
 
-.tool-card.delete,
-.tool-card.state-error {
+.tool-card.delete {
   --tool-accent: var(--color-danger-text, #ee7676);
 }
 
 .tool-card.shell {
   --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 42%, #64748b 58%);
+}
+
+.tool-card.state-success {
+  --tool-accent: var(--color-success-text, #6fda83);
+}
+
+.tool-card.state-error {
+  --tool-accent: var(--color-danger-text, #ee7676);
 }
 
 .tool-card.state-running {

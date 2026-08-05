@@ -29,6 +29,14 @@ for (const [card, expected] of displayCases) {
 
 assert.equal(getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).label, "/tmp/project");
 assert.equal(
+  getToolDisplay({ tool: "open_workspace", root: "/tmp/project" }).icon,
+  toolIcons.folderOpen,
+);
+assert.equal(
+  getToolDisplay({ tool: "open_workspace", root: "/tmp/project", mode: "worktree" }).icon,
+  toolIcons.gitBranch,
+);
+assert.equal(
   getToolDisplay({ tool: "grep", summary: { pattern: "needle", scope: "src" } }).label,
   "needle in src",
 );
@@ -81,6 +89,18 @@ assert.equal(
 assert.equal(
   getToolDisplay({ tool: "write_stdin", summary: { running: false, exitCode: 0 } }).title,
   "Process finished",
+);
+assert.equal(
+  getToolDisplay({ tool: "exec_command", summary: { running: true } }).state,
+  "running",
+);
+assert.equal(
+  getToolDisplay({ tool: "exec_command", summary: { running: false, exitCode: 0 } }).state,
+  "success",
+);
+assert.equal(
+  getToolDisplay({ tool: "exec_command", summary: { running: false, exitCode: 1 } }).state,
+  "error",
 );
 
 assert.deepEqual(
