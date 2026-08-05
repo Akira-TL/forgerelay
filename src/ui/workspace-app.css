@@ -81,50 +81,36 @@ body {
   --tool-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 30%, #38bdf8 70%);
 }
 
-.pretty-scrollbar::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
+@supports selector(::-webkit-scrollbar) {
+  .pretty-scrollbar::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
 
-.pretty-scrollbar::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
+  .pretty-scrollbar::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
 
-.pretty-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
+  .pretty-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-.pretty-scrollbar::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  background-clip: content-box;
-  border: 3px solid transparent;
-  border-radius: 9999px;
-}
-
-.pretty-scrollbar:hover::-webkit-scrollbar-thumb,
-.pretty-scrollbar:focus::-webkit-scrollbar-thumb,
-.pretty-scrollbar:focus-within::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb);
-}
-
-.pretty-scrollbar::-webkit-scrollbar-thumb:hover,
-.pretty-scrollbar::-webkit-scrollbar-thumb:active {
-  background-color: var(--scrollbar-thumb-hover);
-}
-
-.pretty-scrollbar::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-.pretty-scrollbar:hover {
-  --scrollbar-hover-repaint: ;
-}
-
-@media (hover: none) {
   .pretty-scrollbar::-webkit-scrollbar-thumb {
     background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+    border: 4px solid transparent;
+    border-radius: 9999px;
+  }
+
+  .pretty-scrollbar::-webkit-scrollbar-thumb:hover,
+  .pretty-scrollbar::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  .pretty-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
 
