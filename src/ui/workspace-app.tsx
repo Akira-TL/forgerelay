@@ -48,6 +48,9 @@ let errorMessage: string | null = null;
 let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
 
+type WorkspaceDisclosureKey = "instructions" | "skills" | "agents";
+const expandedWorkspaceDisclosures = new Set<WorkspaceDisclosureKey>();
+
 const maybeAppRoot = document.querySelector<HTMLElement>("#app");
 
 if (!maybeAppRoot) {
@@ -78,6 +81,7 @@ async function boot(): Promise<void> {
       card = null;
       expanded = false;
       reviewFilesExpanded = false;
+      expandedWorkspaceDisclosures.clear();
       errorMessage = "No result card is available for this tool result.";
       render();
       return;
@@ -87,6 +91,7 @@ async function boot(): Promise<void> {
     card = nextCard;
     expanded = isReviewTool(tool) && isExpandableCard(nextCard);
     reviewFilesExpanded = false;
+    expandedWorkspaceDisclosures.clear();
     errorMessage = null;
     render();
   };
@@ -97,7 +102,9 @@ async function boot(): Promise<void> {
       ...ctx,
     };
     applyHostContext();
-    renderPayloadIfNeeded();
+    // Workspace details inherit host variables directly. Rebuilding their DOM on
+    // iframe resize would reset an in-progress disclosure interaction.
+    if (card?.tool !== "open_workspace") renderPayloadIfNeeded();
   };
 
   app.onteardown = async () => {
@@ -503,6 +510,7 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
       "Instructions",
       instructionPaths,
       toolIcons.instructions,
+      "instructions",
       true,
     );
   }
@@ -536,6 +544,7 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
       "Agents",
       agentNames,
       toolIcons.agents,
+      "agents",
     );
   }
 
@@ -574,6 +583,7 @@ function appendWorkspaceTextListRow(
   label: string,
   values: string[],
   icon: ToolIcon,
+  disclosureKey: WorkspaceDisclosureKey,
   mono = false,
 ): void {
   if (values.length === 1) {
@@ -581,8 +591,13 @@ function appendWorkspaceTextListRow(
     return;
   }
 
-  const row = element("div", { className: "workspace-row workspace-row-disclosure" });
-  const disclosure = element("span", { className: "workspace-disclosure" });
+  const initiallyExpanded = expandedWorkspaceDisclosures.has(disclosureKey);
+  const row = element("div", {
+    className: `workspace-row workspace-row-disclosure${initiallyExpanded ? " expanded" : ""}`,
+  });
+  const disclosure = element("span", {
+    className: `workspace-disclosure${initiallyExpanded ? " expanded" : ""}`,
+  });
   const list = element("span", {
     className: `workspace-value-list${mono ? " mono" : ""}`,
   });
@@ -594,9 +609,14 @@ function appendWorkspaceTextListRow(
     }));
   }
 
-  const toggle = renderWorkspaceDisclosureToggle(values.length, (nextExpanded) => {
+  const toggle = renderWorkspaceDisclosureToggle(values.length, initiallyExpanded, (nextExpanded) => {
     disclosure.classList.toggle("expanded", nextExpanded);
     row.classList.toggle("expanded", nextExpanded);
+    if (nextExpanded) {
+      expandedWorkspaceDisclosures.add(disclosureKey);
+    } else {
+      expandedWorkspaceDisclosures.delete(disclosureKey);
+    }
   });
   disclosure.append(list, toggle);
   row.append(
@@ -644,14 +664,24 @@ function appendWorkspaceSkills(
     return;
   }
 
-  const row = element("div", { className: "workspace-row workspace-row-disclosure" });
-  const disclosure = element("span", { className: "workspace-disclosure workspace-skills-disclosure" });
+  const initiallyExpanded = expandedWorkspaceDisclosures.has("skills");
+  const row = element("div", {
+    className: `workspace-row workspace-row-disclosure${initiallyExpanded ? " expanded" : ""}`,
+  });
+  const disclosure = element("span", {
+    className: `workspace-disclosure workspace-skills-disclosure${initiallyExpanded ? " expanded" : ""}`,
+  });
   const chipList = renderWorkspaceChips(skillChips);
   chipList.classList.add("workspace-skills-list");
 
-  const toggle = renderWorkspaceDisclosureToggle(skills.length, (nextExpanded) => {
+  const toggle = renderWorkspaceDisclosureToggle(skills.length, initiallyExpanded, (nextExpanded) => {
     disclosure.classList.toggle("expanded", nextExpanded);
     row.classList.toggle("expanded", nextExpanded);
+    if (nextExpanded) {
+      expandedWorkspaceDisclosures.add("skills");
+    } else {
+      expandedWorkspaceDisclosures.delete("skills");
+    }
   });
   disclosure.append(chipList, toggle);
 
@@ -665,13 +695,14 @@ function appendWorkspaceSkills(
 
 function renderWorkspaceDisclosureToggle(
   total: number,
+  expanded: boolean,
   onToggle: (expanded: boolean) => void,
 ): HTMLButtonElement {
   const toggle = element("button", {
     className: "workspace-disclosure-toggle",
     type: "button",
-    text: `View all ${total}`,
-    ariaExpanded: "false",
+    text: expanded ? "Show less" : `View all ${total}`,
+    ariaExpanded: String(expanded),
   });
   toggle.addEventListener("click", () => {
     const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
