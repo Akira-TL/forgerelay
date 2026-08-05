@@ -4,9 +4,10 @@ import { toolIcons } from "./icons.js";
 import { getToolDisplay, getToolHeaderSummary } from "./tool-display.js";
 
 const displayCases: Array<[ToolResultCard, { title: string; tone: string }]> = [
-  [{ tool: "open_workspace", root: "/tmp/project" }, { title: "Opened workspace", tone: "workspace" }],
-  [{ tool: "open_workspace", root: "/tmp/project", workspaceReused: true }, { title: "Reused workspace", tone: "workspace" }],
+  [{ tool: "open_workspace", root: "/tmp/project" }, { title: "Opened checkout", tone: "workspace" }],
+  [{ tool: "open_workspace", root: "/tmp/project", workspaceReused: true }, { title: "Reused checkout", tone: "workspace" }],
   [{ tool: "open_workspace", root: "/tmp/project", mode: "worktree" }, { title: "Opened worktree", tone: "workspace" }],
+  [{ tool: "open_workspace", root: "/tmp/project", mode: "worktree", workspaceReused: true }, { title: "Reused worktree", tone: "workspace" }],
   [{ tool: "read", path: "src/read.ts" }, { title: "Read file", tone: "read" }],
   [{ tool: "write", path: "src/write.ts" }, { title: "Wrote file", tone: "write" }],
   [{ tool: "edit", path: "src/edit.ts" }, { title: "Edited file", tone: "edit" }],
@@ -36,8 +37,8 @@ assert.deepEqual(
   pickDisplay(getToolDisplay({
     tool: "show_changes",
     files: [
-      { path: "src/a.ts", operation: "update" },
-      { path: "src/b.ts", operation: "update" },
+      { path: "src/a.ts", type: "change" },
+      { path: "src/b.ts", type: "change" },
     ],
   })),
   { title: "Edited 2 files", tone: "review" },
@@ -47,12 +48,27 @@ assert.deepEqual(
   pickDisplay(getToolDisplay({
     tool: "show_changes",
     files: [
-      { path: "src/a.ts", operation: "add" },
-      { path: "src/b.ts", operation: "update" },
+      { path: "src/a.ts", type: "new" },
+      { path: "src/b.ts", type: "change" },
     ],
   })),
   { title: "Changed 2 files", tone: "review" },
 );
+
+assert.deepEqual(
+  pickDisplay(getToolDisplay({
+    tool: "show_changes",
+    files: [{ path: "src/old.ts", type: "deleted" }],
+  })),
+  { title: "Deleted 1 file", tone: "review" },
+);
+
+assert.equal(
+  getToolDisplay({ tool: "show_changes", payload: { patch: "diff --git a/a b/a" } }).title,
+  "Changes ready",
+);
+
+assert.equal(getToolDisplay({ tool: "show_changes" }).title, "No changes");
 
 assert.equal(
   getToolDisplay({ tool: "exec_command", summary: { running: true, command: "npm test" } }).title,

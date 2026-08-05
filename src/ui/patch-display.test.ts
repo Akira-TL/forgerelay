@@ -10,7 +10,7 @@ assert.deepEqual(
   getPatchDisplayParts({ files: [{ path: "created.ts", operation: "add" }] }),
   {
     title: "Added 1 file",
-    iconOperation: "add",
+    iconKind: "added",
     tone: "write",
   },
 );
@@ -24,8 +24,43 @@ assert.deepEqual(
   }),
   {
     title: "Added 2 files",
-    iconOperation: "add",
+    iconKind: "added",
     tone: "write",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "created.ts", type: "new" }] }),
+  {
+    title: "Added 1 file",
+    iconKind: "added",
+    tone: "write",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "renamed.ts", type: "rename-changed" }] }),
+  {
+    title: "Renamed and edited 1 file",
+    iconKind: "renamed-edited",
+    tone: "edit",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "removed.ts", type: "deleted" }] }),
+  {
+    title: "Deleted 1 file",
+    iconKind: "deleted",
+    tone: "delete",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "unknown.ts" }] }),
+  {
+    title: "Changed 1 file",
+    tone: "edit",
   },
 );
 

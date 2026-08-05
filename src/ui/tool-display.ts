@@ -26,12 +26,8 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
   switch (card.tool) {
     case "open_workspace":
       return {
-        icon: toolIcons.folderOpen,
-        title: card.workspaceReused
-          ? "Reused workspace"
-          : card.mode === "worktree"
-            ? "Opened worktree"
-            : "Opened workspace",
+        icon: card.mode === "worktree" ? toolIcons.gitBranch : toolIcons.folderOpen,
+        title: workspaceTitle(card),
         label: card.root ?? card.path,
         tone: "workspace",
       };
@@ -59,7 +55,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
     case "apply_patch": {
       const display = getPatchDisplayParts(card);
       return {
-        icon: patchIcon(display.iconOperation),
+        icon: patchIcon(display.iconKind),
         title: display.title,
         label: singleFilePath(card),
         tone: display.tone,
@@ -103,10 +99,16 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         tone: "shell",
       };
     case "show_changes": {
-      const display = getPatchDisplayParts(card);
+      const display = getPatchDisplayParts(card, { emptyTitle: "Changes ready" });
+      const fileCount = card.files?.length ?? 0;
       return {
         icon: toolIcons.diff,
-        title: (card.files?.length ?? 0) > 0 ? display.title : "No changes",
+        title: fileCount > 0
+          ? display.title
+          : card.payload?.patch
+            ? display.title
+            : "No changes",
+        label: singleFilePath(card),
         tone: "review",
       };
     }
@@ -149,11 +151,16 @@ export function getToolHeaderSummary(card: ToolResultCard): ToolHeaderSummary {
   return { kind: "empty" };
 }
 
-function patchIcon(operation: ReturnType<typeof getPatchDisplayParts>["iconOperation"]): ToolIcon {
-  if (operation === "add") return toolIcons.writeFile;
-  if (operation === "delete") return toolIcons.deleteFile;
-  if (operation === "move") return toolIcons.files;
+function patchIcon(kind: ReturnType<typeof getPatchDisplayParts>["iconKind"]): ToolIcon {
+  if (kind === "added") return toolIcons.writeFile;
+  if (kind === "deleted") return toolIcons.deleteFile;
+  if (kind === "renamed" || kind === "renamed-edited") return toolIcons.files;
   return toolIcons.editFile;
+}
+
+function workspaceTitle(card: ToolResultCard): string {
+  const mode = card.mode === "worktree" ? "worktree" : "checkout";
+  return `${card.workspaceReused ? "Reused" : "Opened"} ${mode}`;
 }
 
 function singleFilePath(card: ToolResultCard): string | undefined {

@@ -17,6 +17,12 @@ export type ToolName =
 export type HostContext = NonNullable<ReturnType<App["getHostContext"]>>;
 
 export type PatchOperation = "add" | "update" | "delete" | "move";
+export type ReviewFileType =
+  | "change"
+  | "rename-pure"
+  | "rename-changed"
+  | "new"
+  | "deleted";
 
 export interface ToolResultCard {
   tool: ToolName;
@@ -41,7 +47,7 @@ export interface ToolResultCard {
     path?: string;
     previousPath?: string;
     operation?: PatchOperation;
-    type?: string;
+    type?: ReviewFileType;
     additions?: number;
     removals?: number;
   }>;
