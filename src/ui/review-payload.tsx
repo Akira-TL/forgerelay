@@ -3,6 +3,11 @@ import { createRoot } from "react-dom/client";
 import { parsePatchFiles, type FileDiffMetadata, type FileDiffOptions } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { HostContext, ToolResultCard } from "./card-types.js";
+import {
+  fileChangeKindLabel,
+  getFileChangeKind,
+  type FileChangeKind,
+} from "./patch-display.js";
 
 type ThemeType = "light" | "dark";
 
@@ -55,6 +60,18 @@ function ReviewPayload({
 
   const options = diffOptions(themeType);
 
+  if (files.length === 1) {
+    return (
+      <div className="review-single-file">
+        <FileDiff
+          fileDiff={files[0]}
+          options={options}
+          className="pierre-diff pretty-scrollbar"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="review-diff pretty-scrollbar">
       <div className="review-diff-files">
@@ -62,6 +79,7 @@ function ReviewPayload({
           const key = fileDiff.cacheKey ?? `${fileDiff.prevName ?? ""}->${fileDiff.name}-${index}`;
           const stats = diffStats(fileDiff);
           const isOpen = openFiles.has(key);
+          const changeKind = fileChangeKind(card.files ?? [], fileDiff);
 
           return (
             <div className="review-diff-file" key={key}>
@@ -79,6 +97,13 @@ function ReviewPayload({
                   setOpenFiles(next);
                 }}
               >
+                <span
+                  className={`review-file-kind ${changeKind}`}
+                  title={fileChangeKindLabel(changeKind)}
+                  aria-label={fileChangeKindLabel(changeKind)}
+                >
+                  {fileChangeSymbol(changeKind)}
+                </span>
                 <span className="review-diff-file-name">{fileDiff.name}</span>
                 <span className="review-diff-file-stats">
                   <span className="add">+{stats.additions}</span>
@@ -98,6 +123,34 @@ function ReviewPayload({
       </div>
     </div>
   );
+}
+
+function fileChangeKind(
+  files: NonNullable<ToolResultCard["files"]>,
+  fileDiff: FileDiffMetadata,
+): FileChangeKind {
+  const cardFile = files.find((file) => (
+    file.path === fileDiff.name ||
+    file.previousPath === fileDiff.prevName ||
+    file.path === fileDiff.prevName
+  ));
+  return cardFile ? getFileChangeKind(cardFile) : "unknown";
+}
+
+function fileChangeSymbol(kind: FileChangeKind): string {
+  switch (kind) {
+    case "added":
+      return "A";
+    case "edited":
+      return "M";
+    case "deleted":
+      return "D";
+    case "renamed":
+    case "renamed-edited":
+      return "R";
+    case "unknown":
+      return "•";
+  }
 }
 
 function parseFiles(patch: string | undefined): FileDiffMetadata[] {

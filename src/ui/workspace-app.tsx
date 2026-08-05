@@ -228,7 +228,7 @@ async function renderPayloadIfNeeded(): Promise<void> {
   }
 
   if (card.tool === "open_workspace") {
-    renderPrePayload(target, workspacePayloadText(card), "open_workspace");
+    renderWorkspacePayload(target, card);
     return;
   }
 
@@ -456,94 +456,151 @@ function setPayloadLoading(container: HTMLElement, loading: boolean): void {
   if (button) button.setAttribute("aria-busy", String(loading));
 }
 
-function workspacePayloadText(card: ToolResultCard): string {
-  const agentsFiles = card.agentsFiles ?? [];
-  const availableAgentsFiles = card.availableAgentsFiles ?? [];
-  const skills = card.skills ?? [];
-  const agentProviders = card.agentProviders ?? [];
-  const agents = card.agents ?? [];
-  const diagnostics = card.skillDiagnostics ?? [];
-  const lines = [
-    card.workspaceId ? `Workspace: ${card.workspaceId}` : undefined,
-    card.root ? `Root: ${card.root}` : undefined,
-    card.mode ? `Mode: ${card.mode}` : undefined,
-    card.sourceRoot ? `Source root: ${card.sourceRoot}` : undefined,
-    card.worktree ? formatWorktree(card.worktree) : undefined,
-    skills.length > 0
-      ? `Skills: ${skills.map((skill) => skill.name ?? skill.path ?? "unnamed").join(", ")}`
-      : "Skills: none",
-    agentProviders.length > 0
-      ? `Agent providers: ${agentProviders.map(formatAgentProvider).join(", ")}`
-      : undefined,
-    agents.length > 0
-      ? `Agents: ${agents.map(formatAgent).join(", ")}`
-      : undefined,
-    diagnostics.length > 0
-      ? `Skill diagnostics: ${diagnostics.map(formatDiagnostic).join("; ")}`
-      : undefined,
-    availableAgentsFiles.length > 0
-      ? `Nested instructions: ${availableAgentsFiles.map((file) => file.path ?? "unknown").join(", ")}`
-      : undefined,
-    agentsFiles.length > 0
-      ? `\n${formatAgentsFilesForPayload(agentsFiles)}`
-      : "\nAGENTS.md: none loaded",
-    card.instruction ? `\nInstruction: ${card.instruction}` : undefined,
-  ].filter((line): line is string => typeof line === "string");
+function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): void {
+  unmountCurrentPayload();
 
-  return lines.join("\n");
-}
+  const details = element("div", {
+    className: "workspace-details pretty-scrollbar",
+  });
+  const rows = element("div", { className: "workspace-rows" });
+  const worktree = card.worktree;
 
-function formatWorktree(worktree: NonNullable<ToolResultCard["worktree"]>): string {
-  const details = [
-    worktree.baseRef ? `base ${worktree.baseRef}` : undefined,
-    worktree.baseSha ? `at ${worktree.baseSha.slice(0, 12)}` : undefined,
-    worktree.managed === true ? "managed" : undefined,
-    worktree.detached === true ? "detached" : undefined,
-    worktree.dirtySource === true ? "dirty source" : undefined,
-  ].filter((detail): detail is string => Boolean(detail));
-  return `Worktree: ${worktree.path ?? "unknown"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
-}
-
-function formatAgentProvider(
-  provider: NonNullable<ToolResultCard["agentProviders"]>[number],
-): string {
-  const name = provider.name ?? "unknown";
-  if (provider.available !== false) return name;
-  return provider.reason ? `${name} unavailable: ${provider.reason}` : `${name} unavailable`;
-}
-
-function formatAgent(agent: NonNullable<ToolResultCard["agents"]>[number]): string {
-  const details = [
-    agent.provider,
-    agent.model,
-    agent.thinking ? `thinking ${agent.thinking}` : undefined,
-    agent.providerAvailable === false
-      ? agent.providerUnavailableReason ?? "provider unavailable"
-      : undefined,
-  ].filter((detail): detail is string => Boolean(detail));
-  return `${agent.name ?? "unnamed"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
-}
-
-function formatDiagnostic(diagnostic: unknown): string {
-  if (typeof diagnostic === "string") return diagnostic;
-  if (diagnostic instanceof Error) return diagnostic.message;
-  try {
-    return JSON.stringify(diagnostic) ?? String(diagnostic);
-  } catch {
-    return String(diagnostic);
+  if (worktree) {
+    const base = [
+      worktree.baseRef,
+      worktree.baseSha?.slice(0, 8),
+    ].filter((value): value is string => Boolean(value));
+    const flags = [
+      worktree.detached ? "detached" : undefined,
+      worktree.managed ? "managed" : undefined,
+      worktree.dirtySource ? "dirty source" : undefined,
+    ].filter((value): value is string => Boolean(value));
+    appendWorkspaceRow(rows, "Base", [...base, ...flags].join(" · ") || "Worktree");
   }
+
+  if (card.sourceRoot && card.sourceRoot !== card.root) {
+    appendWorkspaceRow(rows, "Source checkout", card.sourceRoot, true);
+  }
+
+  const instructionPaths = [
+    ...(card.agentsFiles ?? []).map((file) => file.path ?? "AGENTS.md"),
+    ...(card.availableAgentsFiles ?? []).map((file) => file.path ?? "Nested instructions"),
+  ];
+  if (instructionPaths.length > 0) {
+    appendWorkspaceRow(rows, "Instructions", compactList(instructionPaths), true);
+  }
+
+  const skillNames = (card.skills ?? []).map((skill) => skill.name ?? skill.path ?? "Unnamed skill");
+  if (skillNames.length > 0) {
+    appendWorkspaceRow(rows, "Skills", compactList(skillNames));
+  }
+
+  const providers = card.agentProviders ?? [];
+  if (providers.length > 0) {
+    const available: string[] = [];
+    for (const provider of providers) {
+      if (provider.available !== false) {
+        available.push(provider.name ?? "Unknown provider");
+      }
+    }
+    const unavailableCount = providers.length - available.length;
+    const providerSummary = [
+      compactList(available),
+      unavailableCount > 0 ? `${unavailableCount} unavailable` : undefined,
+    ].filter((value): value is string => Boolean(value));
+    appendWorkspaceRow(rows, "Providers", providerSummary.join(" · "));
+  }
+
+  const agentNames = (card.agents ?? []).map((agent) => {
+    const name = agent.name ?? "Unnamed agent";
+    return agent.provider ? `${name} · ${agent.provider}` : name;
+  });
+  if (agentNames.length > 0) {
+    appendWorkspaceRow(rows, "Agents", compactList(agentNames));
+  }
+
+  if (rows.childElementCount > 0) details.append(rows);
+
+  const diagnostics = card.skillDiagnostics ?? [];
+  if (diagnostics.length > 0) {
+    const diagnosticList = element("div", { className: "workspace-diagnostics" });
+    diagnosticList.append(element("div", {
+      className: "workspace-diagnostics-title",
+      text: `${diagnostics.length} skill ${diagnostics.length === 1 ? "diagnostic" : "diagnostics"}`,
+    }));
+
+    for (const diagnostic of diagnostics) {
+      const view = diagnosticView(diagnostic);
+      const item = element("div", { className: "workspace-diagnostic" });
+      item.append(element("span", {
+        className: "workspace-diagnostic-marker",
+        text: "!",
+        ariaHidden: "true",
+      }));
+      const copy = element("span", { className: "workspace-diagnostic-copy" });
+      copy.append(element("span", { className: "workspace-diagnostic-message", text: view.message }));
+      if (view.detail) {
+        copy.append(element("span", { className: "workspace-diagnostic-detail", text: view.detail }));
+      }
+      item.append(copy);
+      diagnosticList.append(item);
+    }
+
+    details.append(diagnosticList);
+  }
+
+  if (details.childElementCount === 0) {
+    details.append(element("div", { className: "status muted", text: "No workspace details available." }));
+  }
+
+  container.replaceChildren(details);
 }
 
-function formatAgentsFilesForPayload(
-  agentsFiles: NonNullable<ToolResultCard["agentsFiles"]>,
-): string {
-  return agentsFiles
-    .map((file) => {
-      const path = file.path ?? "AGENTS.md";
-      const content = file.content?.trim();
-      return content ? `${path}\n\n${content}` : `${path}\n\nNo content loaded.`;
-    })
-    .join("\n\n");
+function appendWorkspaceRow(
+  container: HTMLElement,
+  label: string,
+  value: string,
+  mono = false,
+): void {
+  const row = element("div", { className: "workspace-row" });
+  row.append(
+    element("span", { className: "workspace-key", text: label }),
+    element("span", {
+      className: `workspace-value${mono ? " mono" : ""}`,
+      text: value,
+      title: value,
+    }),
+  );
+  container.append(row);
+}
+
+function compactList(values: string[], visibleCount = 5): string {
+  const visible = values.slice(0, visibleCount);
+  const hiddenCount = values.length - visible.length;
+  return hiddenCount > 0
+    ? `${visible.join(" · ")} · +${hiddenCount} more`
+    : visible.join(" · ");
+}
+
+function diagnosticView(diagnostic: unknown): { message: string; detail?: string } {
+  if (typeof diagnostic === "string") return { message: diagnostic };
+  if (diagnostic instanceof Error) return { message: diagnostic.message };
+  if (!diagnostic || typeof diagnostic !== "object") return { message: String(diagnostic) };
+
+  const record = diagnostic as Record<string, unknown>;
+  const message = typeof record.message === "string" ? record.message : "Skill diagnostic";
+  const collision = record.collision;
+  if (!collision || typeof collision !== "object") return { message };
+
+  const collisionRecord = collision as Record<string, unknown>;
+  const winnerPath = collisionRecord.winnerPath;
+  const loserPath = collisionRecord.loserPath;
+  const detail = [
+    typeof winnerPath === "string" ? `Using ${winnerPath}` : undefined,
+    typeof loserPath === "string" ? `Ignoring ${loserPath}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return detail.length > 0 ? { message, detail: detail.join(" · ") } : { message };
 }
 
 function toolNameFromMeta(result: CallToolResult): ToolName | undefined {
