@@ -74,6 +74,43 @@ export function getFileChangeKind(file: ToolResultFile): FileChangeKind {
   }
 }
 
+export function getRenderedFileChangeKind(
+  files: NonNullable<ToolResultCard["files"]>,
+  parsedFile: Pick<ToolResultFile, "path" | "previousPath" | "type">,
+  index: number,
+): FileChangeKind {
+  const parsedKind = getFileChangeKind(parsedFile);
+
+  // The diff parser is authoritative for additions, deletions, and native Git
+  // rename metadata. This also keeps repeated operations on the same path from
+  // reusing the first matching card entry.
+  if (parsedKind !== "edited" && parsedKind !== "unknown") return parsedKind;
+
+  // apply_patch emits one card file per generated diff in the same order. Its
+  // move patch currently lacks Git rename metadata, so preserve the explicit
+  // move operation when the destination lines up with the parsed diff.
+  const indexedFile = files[index];
+  if (
+    indexedFile?.operation === "move" &&
+    (!parsedFile.path || indexedFile.path === parsedFile.path)
+  ) {
+    return "renamed";
+  }
+
+  const movedFile = files.find((file) => (
+    file.operation === "move" &&
+    file.path === parsedFile.path &&
+    (!parsedFile.previousPath || file.previousPath === parsedFile.previousPath)
+  ));
+  if (movedFile) return "renamed";
+
+  // A parsed content change is more accurate than an "add" directive that
+  // overwrote an existing file.
+  if (parsedKind === "edited") return "edited";
+
+  return indexedFile ? getFileChangeKind(indexedFile) : "unknown";
+}
+
 export function fileChangeKindLabel(kind: FileChangeKind): string {
   return kind === "unknown" ? "Changed" : fileChangeLabels[kind];
 }

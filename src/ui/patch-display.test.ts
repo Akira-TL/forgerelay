@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { getPatchDisplayParts } from "./patch-display.js";
+import { getPatchDisplayParts, getRenderedFileChangeKind } from "./patch-display.js";
 
 assert.deepEqual(getPatchDisplayParts({}), {
   title: "Applied patch",
@@ -27,6 +27,48 @@ assert.deepEqual(
     iconKind: "added",
     tone: "write",
   },
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [
+      { path: "same.tmp", operation: "add" },
+      { path: "same.tmp", operation: "delete" },
+    ],
+    { path: "same.tmp", type: "new" },
+    0,
+  ),
+  "added",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [
+      { path: "same.tmp", operation: "add" },
+      { path: "same.tmp", operation: "delete" },
+    ],
+    { path: "same.tmp", type: "deleted" },
+    1,
+  ),
+  "deleted",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [{ path: "report.md", operation: "add" }],
+    { path: "report.md", type: "change" },
+    0,
+  ),
+  "edited",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [{ path: "renamed.md", previousPath: "old.md", operation: "move" }],
+    { path: "renamed.md", type: "change" },
+    0,
+  ),
+  "renamed",
 );
 
 assert.deepEqual(

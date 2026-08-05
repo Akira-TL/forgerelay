@@ -5,7 +5,7 @@ import { FileDiff } from "@pierre/diffs/react";
 import type { HostContext, ToolResultCard } from "./card-types.js";
 import {
   fileChangeKindLabel,
-  getFileChangeKind,
+  getRenderedFileChangeKind,
   type FileChangeKind,
 } from "./patch-display.js";
 import { pierrePrettyScrollbarCss } from "./scrollbar.js";
@@ -80,7 +80,15 @@ function ReviewPayload({
           const key = fileDiff.cacheKey ?? `${fileDiff.prevName ?? ""}->${fileDiff.name}-${index}`;
           const stats = diffStats(fileDiff);
           const isOpen = openFiles.has(key);
-          const changeKind = fileChangeKind(card.files ?? [], fileDiff);
+          const changeKind = getRenderedFileChangeKind(
+            card.files ?? [],
+            {
+              path: fileDiff.name,
+              previousPath: fileDiff.prevName,
+              type: fileDiff.type,
+            },
+            index,
+          );
 
           return (
             <div className="review-diff-file" key={key}>
@@ -124,18 +132,6 @@ function ReviewPayload({
       </div>
     </div>
   );
-}
-
-function fileChangeKind(
-  files: NonNullable<ToolResultCard["files"]>,
-  fileDiff: FileDiffMetadata,
-): FileChangeKind {
-  const cardFile = files.find((file) => (
-    file.path === fileDiff.name ||
-    file.previousPath === fileDiff.prevName ||
-    file.path === fileDiff.prevName
-  ));
-  return cardFile ? getFileChangeKind(cardFile) : "unknown";
 }
 
 function fileChangeSymbol(kind: FileChangeKind): string {
