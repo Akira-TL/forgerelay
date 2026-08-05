@@ -47,6 +47,7 @@ let reviewFilesExpanded = false;
 let errorMessage: string | null = null;
 let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
+let openWorkspaceInstructionPath: string | null = null;
 
 type WorkspaceDisclosureKey = "instructions" | "skills" | "agents";
 const expandedWorkspaceDisclosures = new Set<WorkspaceDisclosureKey>();
@@ -82,6 +83,7 @@ async function boot(): Promise<void> {
       expanded = false;
       reviewFilesExpanded = false;
       expandedWorkspaceDisclosures.clear();
+      openWorkspaceInstructionPath = null;
       errorMessage = "No result card is available for this tool result.";
       render();
       return;
@@ -92,6 +94,7 @@ async function boot(): Promise<void> {
     expanded = isReviewTool(tool) && isExpandableCard(nextCard);
     reviewFilesExpanded = false;
     expandedWorkspaceDisclosures.clear();
+    openWorkspaceInstructionPath = null;
     errorMessage = null;
     render();
   };
@@ -500,20 +503,11 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     );
   }
 
-  const instructionPaths = [
-    ...(card.agentsFiles ?? []).map((file) => file.path ?? "AGENTS.md"),
-    ...(card.availableAgentsFiles ?? []).map((file) => file.path ?? "Nested instructions"),
-  ];
-  if (instructionPaths.length > 0) {
-    appendWorkspaceTextListRow(
-      rows,
-      "Instructions",
-      instructionPaths,
-      toolIcons.instructions,
-      "instructions",
-      true,
-    );
-  }
+  appendWorkspaceInstructions(
+    rows,
+    card.agentsFiles ?? [],
+    card.availableAgentsFiles ?? [],
+  );
 
   const skills = card.skills ?? [];
   if (skills.length > 0) {
@@ -561,6 +555,219 @@ interface WorkspaceChip {
   label: string;
   title?: string;
   tone?: "muted";
+}
+
+interface WorkspaceInstruction {
+  path: string;
+  content?: string;
+  status: "loaded" | "available";
+}
+
+function appendWorkspaceInstructions(
+  container: HTMLElement,
+  loadedFiles: NonNullable<ToolResultCard["agentsFiles"]>,
+  availableFiles: NonNullable<ToolResultCard["availableAgentsFiles"]>,
+): void {
+  const loaded: WorkspaceInstruction[] = [];
+  const loadedPaths = new Set<string>();
+  for (const file of loadedFiles) {
+    const path = file.path ?? "AGENTS.md";
+    loaded.push({
+      path,
+      content: file.content,
+      status: "loaded",
+    });
+    loadedPaths.add(path);
+  }
+
+  const available: WorkspaceInstruction[] = [];
+  for (const file of availableFiles) {
+    const path = file.path ?? "Nested instructions";
+    if (!loadedPaths.has(path)) available.push({ path, status: "available" });
+  }
+  const instructions: WorkspaceInstruction[] = [...loaded, ...available];
+
+  if (instructions.length === 0) return;
+
+  const canPreview = loaded.some((file) => file.content !== undefined);
+  const canExpand = instructions.length > 1 || canPreview;
+  const initiallyExpanded = canExpand && expandedWorkspaceDisclosures.has("instructions");
+  const row = element("div", {
+    className: `workspace-row workspace-row-disclosure workspace-instructions-row${initiallyExpanded ? " expanded" : ""}`,
+  });
+  const disclosure = element("span", {
+    className: `workspace-disclosure workspace-instructions-disclosure${initiallyExpanded ? " expanded" : ""}`,
+  });
+  const summary = renderWorkspaceInstructionSummary(instructions);
+  disclosure.append(summary);
+
+  if (canExpand) {
+    const list = renderWorkspaceInstructionList(instructions);
+    disclosure.append(list);
+    const toggle = renderWorkspaceDisclosureToggle(
+      instructions.length,
+      initiallyExpanded,
+      (nextExpanded) => {
+        disclosure.classList.toggle("expanded", nextExpanded);
+        row.classList.toggle("expanded", nextExpanded);
+        if (nextExpanded) {
+          expandedWorkspaceDisclosures.add("instructions");
+        } else {
+          expandedWorkspaceDisclosures.delete("instructions");
+          openWorkspaceInstructionPath = null;
+          syncWorkspaceInstructionPreviews(list);
+        }
+      },
+      instructions.length === 1 ? "View" : undefined,
+    );
+    disclosure.append(toggle);
+  }
+
+  row.append(
+    renderWorkspaceRowIcon(toolIcons.instructions),
+    element("span", { className: "workspace-key", text: "Instructions" }),
+    disclosure,
+  );
+  container.append(row);
+}
+
+function renderWorkspaceInstructionSummary(
+  instructions: WorkspaceInstruction[],
+): HTMLElement {
+  const summary = element("span", { className: "workspace-instruction-summary" });
+  const basenameCounts = new Map<string, number>();
+  for (const instruction of instructions) {
+    const basename = workspacePathBasename(instruction.path);
+    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  }
+
+  for (const instruction of instructions) {
+    const basename = workspacePathBasename(instruction.path);
+    const item = element("span", {
+      className: `workspace-instruction-summary-item ${instruction.status}`,
+      title: `${instructionStatusLabel(instruction.status)}: ${instruction.path}`,
+    });
+    item.append(
+      renderWorkspaceInstructionStatus(instruction.status),
+      element("span", {
+        className: "workspace-instruction-summary-name",
+        text: basenameCounts.get(basename) === 1
+          ? basename
+          : workspaceCompactPath(instruction.path),
+      }),
+    );
+    summary.append(item);
+  }
+  return summary;
+}
+
+function renderWorkspaceInstructionList(
+  instructions: WorkspaceInstruction[],
+): HTMLElement {
+  const list = element("span", { className: "workspace-instruction-list" });
+
+  for (const instruction of instructions) {
+    const item = element("span", { className: "workspace-instruction-item" });
+    item.dataset.instructionPath = instruction.path;
+    const hasContent = instruction.status === "loaded" && instruction.content !== undefined;
+    const header = element(hasContent ? "button" : "span", {
+      className: `workspace-instruction-header${hasContent ? " interactive" : ""}`,
+      type: hasContent ? "button" : undefined,
+      ariaLabel: hasContent ? `View loaded instruction ${instruction.path}` : undefined,
+      ariaExpanded: hasContent ? "false" : undefined,
+    });
+    const text = element("span", { className: "workspace-instruction-text" });
+    const basename = workspacePathBasename(instruction.path);
+    text.append(element("span", {
+      className: "workspace-instruction-name",
+      text: basename,
+    }));
+    if (instruction.path !== basename) {
+      text.append(element("span", {
+        className: "workspace-instruction-path",
+        text: instruction.path,
+        title: instruction.path,
+      }));
+    }
+
+    header.append(
+      renderWorkspaceInstructionStatus(instruction.status),
+      text,
+    );
+
+    if (hasContent) {
+      const chevron = element("span", {
+        className: "workspace-instruction-chevron",
+        ariaHidden: "true",
+      });
+      chevron.append(renderIcon(toolIcons.chevronDown, "workspace-instruction-chevron-svg"));
+      header.append(chevron);
+      header.addEventListener("click", () => {
+        openWorkspaceInstructionPath = openWorkspaceInstructionPath === instruction.path
+          ? null
+          : instruction.path;
+        syncWorkspaceInstructionPreviews(list);
+      });
+
+      const preview = element("pre", {
+        className: "workspace-instruction-preview pretty-scrollbar",
+        text: instruction.content,
+      });
+      preview.hidden = true;
+      item.append(header, preview);
+    } else {
+      item.append(header);
+    }
+
+    list.append(item);
+  }
+
+  syncWorkspaceInstructionPreviews(list);
+  return list;
+}
+
+function syncWorkspaceInstructionPreviews(list: HTMLElement): void {
+  for (const item of list.querySelectorAll<HTMLElement>(".workspace-instruction-item")) {
+    const isOpen = item.dataset.instructionPath === openWorkspaceInstructionPath;
+    item.classList.toggle("expanded", isOpen);
+    const header = item.querySelector<HTMLElement>(".workspace-instruction-header.interactive");
+    header?.setAttribute("aria-expanded", String(isOpen));
+    const preview = item.querySelector<HTMLElement>(".workspace-instruction-preview");
+    if (preview) preview.hidden = !isOpen;
+  }
+}
+
+function renderWorkspaceInstructionStatus(
+  status: WorkspaceInstruction["status"],
+): HTMLElement {
+  const label = instructionStatusLabel(status);
+  const wrapper = element("span", {
+    className: `workspace-instruction-status ${status}`,
+    title: label,
+    ariaLabel: label,
+  });
+  wrapper.setAttribute("role", "img");
+  wrapper.append(renderIcon(
+    status === "loaded" ? toolIcons.instructionLoaded : toolIcons.instructionAvailable,
+    "workspace-instruction-status-svg",
+  ));
+  return wrapper;
+}
+
+function instructionStatusLabel(status: WorkspaceInstruction["status"]): string {
+  return status === "loaded"
+    ? "Loaded into the current workspace context"
+    : "Available for a nested directory";
+}
+
+function workspacePathBasename(path: string): string {
+  const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.at(-1) ?? path;
+}
+
+function workspaceCompactPath(path: string): string {
+  const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.slice(-2).join("/") || path;
 }
 
 function appendWorkspaceTextRow(
@@ -697,17 +904,18 @@ function renderWorkspaceDisclosureToggle(
   total: number,
   expanded: boolean,
   onToggle: (expanded: boolean) => void,
+  collapsedLabel = `View all ${total}`,
 ): HTMLButtonElement {
   const toggle = element("button", {
     className: "workspace-disclosure-toggle",
     type: "button",
-    text: expanded ? "Show less" : `View all ${total}`,
+    text: expanded ? "Show less" : collapsedLabel,
     ariaExpanded: String(expanded),
   });
   toggle.addEventListener("click", () => {
     const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
     toggle.setAttribute("aria-expanded", String(nextExpanded));
-    toggle.textContent = nextExpanded ? "Show less" : `View all ${total}`;
+    toggle.textContent = nextExpanded ? "Show less" : collapsedLabel;
     onToggle(nextExpanded);
   });
   return toggle;
@@ -758,6 +966,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
     type?: string;
     title?: string;
     ariaHidden?: string;
+    ariaLabel?: string;
     ariaExpanded?: string;
     disabled?: boolean;
   } = {},
@@ -768,6 +977,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
   if (options.type !== undefined && "type" in node) node.setAttribute("type", options.type);
   if (options.title !== undefined) node.title = options.title;
   if (options.ariaHidden !== undefined) node.setAttribute("aria-hidden", options.ariaHidden);
+  if (options.ariaLabel !== undefined) node.setAttribute("aria-label", options.ariaLabel);
   if (options.ariaExpanded !== undefined) node.setAttribute("aria-expanded", options.ariaExpanded);
   if (options.disabled !== undefined && "disabled" in node) {
     (node as HTMLButtonElement).disabled = options.disabled;
