@@ -634,24 +634,29 @@ function appendWorkspaceInstructions(
   const instructions = showAvailableWorkspaceInstructions
     ? [...loaded, ...available]
     : loaded;
-  const content = element("div", { className: "workspace-instructions-content" });
-  if (instructions.length > 0) {
-    content.append(renderWorkspaceInstructionList(instructions));
-  }
+  const list = renderWorkspaceInstructionList(instructions);
 
-  if (available.length > 0 && !showAvailableWorkspaceInstructions) {
-    const viewAll = element("button", {
-      className: "workspace-instructions-view-all",
+  if (available.length > 0) {
+    const showAll = showAvailableWorkspaceInstructions;
+    const toggle = element("button", {
+      className: "workspace-instructions-toggle",
       type: "button",
-      text: "View all",
-      ariaLabel: `View all ${available.length} available instruction files`,
+      text: showAll ? "Show less" : "View all",
+      ariaLabel: showAll
+        ? "Show only loaded instruction files"
+        : `View all ${available.length} available instruction files`,
+      ariaExpanded: String(showAll),
     });
-    viewAll.addEventListener("click", () => {
-      showAvailableWorkspaceInstructions = true;
+    toggle.addEventListener("click", () => {
+      showAvailableWorkspaceInstructions = !showAvailableWorkspaceInstructions;
+      if (!showAvailableWorkspaceInstructions) openWorkspaceInstructionKey = null;
       render();
     });
-    content.append(viewAll);
+    list.append(toggle);
   }
+
+  const content = element("div", { className: "workspace-instructions-content" });
+  content.append(list);
 
   appendWorkspaceRow(
     container,

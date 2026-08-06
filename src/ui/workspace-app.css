@@ -479,31 +479,35 @@ body {
 }
 
 .workspace-instructions-content {
-  display: grid;
+  display: block;
   min-width: 0;
-  gap: 6px;
 }
 
-.workspace-instructions-view-all {
-  justify-self: start;
-  min-height: 24px;
-  padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, var(--tool-card-divider));
-  border-radius: 9999px;
-  background: transparent;
+.workspace-instructions-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 0;
+  border-top: 1px solid var(--tool-card-divider);
+  border-radius: 0 0 9px 9px;
+  background: color-mix(in srgb, var(--tool-card-body-bg) 72%, transparent);
   color: var(--tool-accent);
   cursor: pointer;
   font: inherit;
   font-size: var(--font-text-sm-size, 11px);
+  font-weight: 550;
   line-height: 1.25;
   white-space: nowrap;
 }
 
-.workspace-instructions-view-all:hover {
-  background: color-mix(in srgb, var(--tool-accent) 10%, transparent);
+.workspace-instructions-toggle:hover {
+  background: var(--tool-card-hover-bg);
 }
 
-.workspace-instructions-view-all:focus-visible {
+.workspace-instructions-toggle:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
   outline-offset: 2px;
 }
