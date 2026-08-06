@@ -406,11 +406,21 @@ body {
 }
 
 .workspace-agent-profile {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
   padding: 3px 2px 4px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--tool-accent) 34%, var(--tool-card-divider));
   border-radius: 0;
   background: transparent;
+  color: var(--color-text-secondary, #c7c7ce);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .workspace-agent-profile-logo {
