@@ -575,6 +575,18 @@ interface WorkspaceInstruction {
   status: "loaded" | "available";
 }
 
+interface WorkspaceDisclosureRowOptions {
+  label: string;
+  icon: ToolIcon;
+  disclosureKey: WorkspaceDisclosureKey;
+  content: HTMLElement[];
+  expandable?: boolean;
+  rowClassName?: string;
+  disclosureClassName?: string;
+  collapsedLabel?: string;
+  onCollapse?: () => void;
+}
+
 function appendWorkspaceInstructions(
   container: HTMLElement,
   loadedFiles: NonNullable<ToolResultCard["agentsFiles"]>,
@@ -609,43 +621,24 @@ function appendWorkspaceInstructions(
 
   const canPreview = loaded.some((file) => file.content !== undefined);
   const canExpand = instructions.length > 1 || canPreview;
-  const initiallyExpanded = canExpand && expandedWorkspaceDisclosures.has("instructions");
-  const row = element("div", {
-    className: `workspace-row workspace-row-disclosure workspace-instructions-row${initiallyExpanded ? " expanded" : ""}`,
-  });
-  const disclosure = element("span", {
-    className: `workspace-disclosure workspace-instructions-disclosure${initiallyExpanded ? " expanded" : ""}`,
-  });
   const summary = renderWorkspaceInstructionSummary(instructions);
-  disclosure.append(summary);
-
-  if (canExpand) {
-    const list = renderWorkspaceInstructionList(instructions);
-    disclosure.append(list);
-    const toggle = renderWorkspaceDisclosureToggle(
-      initiallyExpanded,
-      (nextExpanded) => {
-        disclosure.classList.toggle("expanded", nextExpanded);
-        row.classList.toggle("expanded", nextExpanded);
-        if (nextExpanded) {
-          expandedWorkspaceDisclosures.add("instructions");
-        } else {
-          expandedWorkspaceDisclosures.delete("instructions");
-          openWorkspaceInstructionKey = null;
-          syncWorkspaceInstructionPreviews(list);
-        }
-      },
-      instructions.length === 1 ? "View" : undefined,
-    );
-    disclosure.append(toggle);
-  }
-
-  row.append(
-    renderWorkspaceRowIcon(toolIcons.instructions),
-    element("span", { className: "workspace-key", text: "Instructions" }),
-    disclosure,
-  );
-  container.append(row);
+  const list = canExpand ? renderWorkspaceInstructionList(instructions) : undefined;
+  appendWorkspaceDisclosureRow(container, {
+    label: "Instructions",
+    icon: toolIcons.instructions,
+    disclosureKey: "instructions",
+    content: list ? [summary, list] : [summary],
+    expandable: canExpand,
+    rowClassName: "workspace-instructions-row",
+    disclosureClassName: "workspace-instructions-disclosure",
+    collapsedLabel: instructions.length === 1 ? "View" : undefined,
+    onCollapse: list
+      ? () => {
+        openWorkspaceInstructionKey = null;
+        syncWorkspaceInstructionPreviews(list);
+      }
+      : undefined,
+  });
 }
 
 function renderWorkspaceInstructionSummary(
@@ -817,13 +810,6 @@ function appendWorkspaceTextListRow(
     return;
   }
 
-  const initiallyExpanded = expandedWorkspaceDisclosures.has(disclosureKey);
-  const row = element("div", {
-    className: `workspace-row workspace-row-disclosure${initiallyExpanded ? " expanded" : ""}`,
-  });
-  const disclosure = element("span", {
-    className: `workspace-disclosure${initiallyExpanded ? " expanded" : ""}`,
-  });
   const list = element("span", {
     className: `workspace-value-list${mono ? " mono" : ""}`,
   });
@@ -834,23 +820,12 @@ function appendWorkspaceTextListRow(
       title: value,
     }));
   }
-
-  const toggle = renderWorkspaceDisclosureToggle(initiallyExpanded, (nextExpanded) => {
-    disclosure.classList.toggle("expanded", nextExpanded);
-    row.classList.toggle("expanded", nextExpanded);
-    if (nextExpanded) {
-      expandedWorkspaceDisclosures.add(disclosureKey);
-    } else {
-      expandedWorkspaceDisclosures.delete(disclosureKey);
-    }
+  appendWorkspaceDisclosureRow(container, {
+    label,
+    icon,
+    disclosureKey,
+    content: [list],
   });
-  disclosure.append(list, toggle);
-  row.append(
-    renderWorkspaceRowIcon(icon),
-    element("span", { className: "workspace-key", text: label }),
-    disclosure,
-  );
-  container.append(row);
 }
 
 function appendWorkspaceChipRow(
@@ -890,30 +865,61 @@ function appendWorkspaceSkills(
     return;
   }
 
-  const initiallyExpanded = expandedWorkspaceDisclosures.has("skills");
-  const row = element("div", {
-    className: `workspace-row workspace-row-disclosure${initiallyExpanded ? " expanded" : ""}`,
-  });
-  const disclosure = element("span", {
-    className: `workspace-disclosure workspace-skills-disclosure${initiallyExpanded ? " expanded" : ""}`,
-  });
   const chipList = renderWorkspaceChips(skillChips);
   chipList.classList.add("workspace-skills-list");
-
-  const toggle = renderWorkspaceDisclosureToggle(initiallyExpanded, (nextExpanded) => {
-    disclosure.classList.toggle("expanded", nextExpanded);
-    row.classList.toggle("expanded", nextExpanded);
-    if (nextExpanded) {
-      expandedWorkspaceDisclosures.add("skills");
-    } else {
-      expandedWorkspaceDisclosures.delete("skills");
-    }
+  appendWorkspaceDisclosureRow(container, {
+    label: "Skills",
+    icon: toolIcons.skills,
+    disclosureKey: "skills",
+    content: [chipList],
+    disclosureClassName: "workspace-skills-disclosure",
   });
-  disclosure.append(chipList, toggle);
+}
+
+function appendWorkspaceDisclosureRow(
+  container: HTMLElement,
+  options: WorkspaceDisclosureRowOptions,
+): void {
+  const expandable = options.expandable ?? true;
+  const initiallyExpanded = expandable && expandedWorkspaceDisclosures.has(options.disclosureKey);
+  const row = element("div", {
+    className: [
+      "workspace-row",
+      "workspace-row-disclosure",
+      options.rowClassName,
+      initiallyExpanded ? "expanded" : undefined,
+    ].filter(Boolean).join(" "),
+  });
+  const disclosure = element("span", {
+    className: [
+      "workspace-disclosure",
+      options.disclosureClassName,
+      initiallyExpanded ? "expanded" : undefined,
+    ].filter(Boolean).join(" "),
+  });
+  disclosure.append(...options.content);
+
+  if (expandable) {
+    const toggle = renderWorkspaceDisclosureToggle(
+      initiallyExpanded,
+      (nextExpanded) => {
+        disclosure.classList.toggle("expanded", nextExpanded);
+        row.classList.toggle("expanded", nextExpanded);
+        if (nextExpanded) {
+          expandedWorkspaceDisclosures.add(options.disclosureKey);
+        } else {
+          expandedWorkspaceDisclosures.delete(options.disclosureKey);
+          options.onCollapse?.();
+        }
+      },
+      options.collapsedLabel,
+    );
+    disclosure.append(toggle);
+  }
 
   row.append(
-    renderWorkspaceRowIcon(toolIcons.skills),
-    element("span", { className: "workspace-key", text: "Skills" }),
+    renderWorkspaceRowIcon(options.icon),
+    element("span", { className: "workspace-key", text: options.label }),
     disclosure,
   );
   container.append(row);
