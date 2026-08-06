@@ -313,6 +313,9 @@ body {
 }
 
 .workspace-key {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
   color: var(--color-text-tertiary, #a3a3aa);
   font-size: var(--font-text-sm-size, 12px);
   font-weight: 500;
