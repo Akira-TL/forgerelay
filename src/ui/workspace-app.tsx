@@ -49,9 +49,7 @@ let errorMessage: string | null = null;
 let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
 let openWorkspaceInstructionKey: string | null = null;
-
-type WorkspaceDisclosureKey = "instructions" | "skills" | "agents";
-const expandedWorkspaceDisclosures = new Set<WorkspaceDisclosureKey>();
+let showAvailableWorkspaceInstructions = false;
 
 const maybeAppRoot = document.querySelector<HTMLElement>("#app");
 
@@ -83,8 +81,8 @@ async function boot(): Promise<void> {
       card = null;
       expanded = false;
       reviewFilesExpanded = false;
-      expandedWorkspaceDisclosures.clear();
       openWorkspaceInstructionKey = null;
+      showAvailableWorkspaceInstructions = false;
       errorMessage = "No result card is available for this tool result.";
       render();
       return;
@@ -94,8 +92,8 @@ async function boot(): Promise<void> {
     card = nextCard;
     expanded = isInitiallyExpandedCard(nextCard);
     reviewFilesExpanded = false;
-    expandedWorkspaceDisclosures.clear();
     openWorkspaceInstructionKey = null;
+    showAvailableWorkspaceInstructions = false;
     errorMessage = null;
     render();
   };
@@ -107,7 +105,7 @@ async function boot(): Promise<void> {
     };
     applyHostContext();
     // Workspace details inherit host variables directly. Rebuilding their DOM on
-    // iframe resize would reset an in-progress disclosure interaction.
+    // iframe resize would reset an in-progress instruction preview interaction.
     if (card?.tool !== "open_workspace") renderPayloadIfNeeded();
   };
 
@@ -563,6 +561,9 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
 
 interface WorkspaceChip {
   label: string;
+  logo?: string;
+  bareLogo?: boolean;
+  ariaLabel?: string;
   title?: string;
   tone?: "muted";
 }
@@ -573,18 +574,6 @@ interface WorkspaceInstruction {
   label: string;
   content?: string;
   status: "loaded" | "available";
-}
-
-interface WorkspaceDisclosureRowOptions {
-  label: string;
-  icon: ToolIcon;
-  disclosureKey: WorkspaceDisclosureKey;
-  content: HTMLElement[];
-  expandable?: boolean;
-  rowClassName?: string;
-  disclosureClassName?: string;
-  collapsedLabel?: string;
-  onCollapse?: () => void;
 }
 
 function appendWorkspaceInstructions(
@@ -615,62 +604,37 @@ function appendWorkspaceInstructions(
       status: "available",
     });
   }
-  const instructions: WorkspaceInstruction[] = [...loaded, ...available];
+  if (loaded.length === 0 && available.length === 0) return;
 
-  if (instructions.length === 0) return;
-
-  const canPreview = loaded.some((file) => file.content !== undefined);
-  const canExpand = instructions.length > 1 || canPreview;
-  const summary = renderWorkspaceInstructionSummary(instructions);
-  const list = canExpand ? renderWorkspaceInstructionList(instructions) : undefined;
-  appendWorkspaceDisclosureRow(container, {
-    label: "Instructions",
-    icon: toolIcons.instructions,
-    disclosureKey: "instructions",
-    content: list ? [summary, list] : [summary],
-    expandable: canExpand,
-    rowClassName: "workspace-instructions-row",
-    disclosureClassName: "workspace-instructions-disclosure",
-    collapsedLabel: instructions.length === 1 ? "View" : undefined,
-    onCollapse: list
-      ? () => {
-        openWorkspaceInstructionKey = null;
-        syncWorkspaceInstructionPreviews(list);
-      }
-      : undefined,
-  });
-}
-
-function renderWorkspaceInstructionSummary(
-  instructions: WorkspaceInstruction[],
-): HTMLElement {
-  const summary = element("span", { className: "workspace-instruction-summary" });
-  const basenameCounts = new Map<string, number>();
-  for (const instruction of instructions) {
-    const basename = workspacePathBasename(instruction.label);
-    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  const instructions = showAvailableWorkspaceInstructions
+    ? [...loaded, ...available]
+    : loaded;
+  const content = element("div", { className: "workspace-instructions-content" });
+  if (instructions.length > 0) {
+    content.append(renderWorkspaceInstructionList(instructions));
   }
 
-  for (const instruction of instructions) {
-    const basename = workspacePathBasename(instruction.label);
-    const item = element("span", {
-      className: `workspace-instruction-summary-item ${instruction.status}`,
-      title: instruction.path
-        ? `${instructionStatusLabel(instruction.status)}: ${instruction.path}`
-        : instructionStatusLabel(instruction.status),
+  if (available.length > 0 && !showAvailableWorkspaceInstructions) {
+    const viewAll = element("button", {
+      className: "workspace-instructions-view-all",
+      type: "button",
+      text: "View all",
+      ariaLabel: `View all ${available.length} available instruction files`,
     });
-    item.append(
-      renderWorkspaceInstructionStatus(instruction.status),
-      element("span", {
-        className: "workspace-instruction-summary-name",
-        text: basenameCounts.get(basename) === 1
-          ? basename
-          : workspaceCompactPath(instruction.label),
-      }),
-    );
-    summary.append(item);
+    viewAll.addEventListener("click", () => {
+      showAvailableWorkspaceInstructions = true;
+      render();
+    });
+    content.append(viewAll);
   }
-  return summary;
+
+  appendWorkspaceRow(
+    container,
+    "Instructions",
+    content,
+    toolIcons.instructions,
+    "workspace-instructions-row",
+  );
 }
 
 function renderWorkspaceInstructionList(
@@ -777,9 +741,9 @@ function workspacePathBasename(path: string): string {
   return parts.at(-1) ?? path;
 }
 
-function workspaceCompactPath(path: string): string {
-  const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
-  return parts.slice(-2).join("/") || path;
+function normalizeProviderName(name: string | undefined): string | undefined {
+  const normalized = name?.trim().toLowerCase();
+  return normalized || undefined;
 }
 
 function appendWorkspaceTextRow(
@@ -797,37 +761,6 @@ function appendWorkspaceTextRow(
   appendWorkspaceRow(container, label, content, icon);
 }
 
-function appendWorkspaceTextListRow(
-  container: HTMLElement,
-  label: string,
-  values: string[],
-  icon: ToolIcon,
-  disclosureKey: WorkspaceDisclosureKey,
-  mono = false,
-): void {
-  if (values.length === 1) {
-    appendWorkspaceTextRow(container, label, values[0], icon, mono);
-    return;
-  }
-
-  const list = element("span", {
-    className: `workspace-value-list${mono ? " mono" : ""}`,
-  });
-  for (const value of values) {
-    list.append(element("span", {
-      className: "workspace-value-item",
-      text: value,
-      title: value,
-    }));
-  }
-  appendWorkspaceDisclosureRow(container, {
-    label,
-    icon,
-    disclosureKey,
-    content: [list],
-  });
-}
-
 function appendWorkspaceChipRow(
   container: HTMLElement,
   label: string,
@@ -842,8 +775,11 @@ function appendWorkspaceRow(
   label: string,
   content: HTMLElement,
   icon: ToolIcon,
+  rowClassName?: string,
 ): void {
-  const row = element("div", { className: "workspace-row" });
+  const row = element("div", {
+    className: ["workspace-row", rowClassName].filter(Boolean).join(" "),
+  });
   row.append(
     renderWorkspaceRowIcon(icon),
     element("span", { className: "workspace-key", text: label }),
@@ -858,91 +794,12 @@ function appendWorkspaceSkills(
 ): void {
   const skillChips = skills.map((skill) => ({
     label: skill.name ?? skill.path ?? "Unnamed skill",
-    title: skill.path,
+    title: [skill.path, skill.description].filter(Boolean).join("\n\n") || undefined,
   }));
-  if (skillChips.length === 1) {
-    appendWorkspaceChipRow(container, "Skills", skillChips, toolIcons.skills);
-    return;
-  }
 
   const chipList = renderWorkspaceChips(skillChips);
   chipList.classList.add("workspace-skills-list");
-  appendWorkspaceDisclosureRow(container, {
-    label: "Skills",
-    icon: toolIcons.skills,
-    disclosureKey: "skills",
-    content: [chipList],
-    disclosureClassName: "workspace-skills-disclosure",
-  });
-}
-
-function appendWorkspaceDisclosureRow(
-  container: HTMLElement,
-  options: WorkspaceDisclosureRowOptions,
-): void {
-  const expandable = options.expandable ?? true;
-  const initiallyExpanded = expandable && expandedWorkspaceDisclosures.has(options.disclosureKey);
-  const row = element("div", {
-    className: [
-      "workspace-row",
-      "workspace-row-disclosure",
-      options.rowClassName,
-      initiallyExpanded ? "expanded" : undefined,
-    ].filter(Boolean).join(" "),
-  });
-  const disclosure = element("span", {
-    className: [
-      "workspace-disclosure",
-      options.disclosureClassName,
-      initiallyExpanded ? "expanded" : undefined,
-    ].filter(Boolean).join(" "),
-  });
-  disclosure.append(...options.content);
-
-  if (expandable) {
-    const toggle = renderWorkspaceDisclosureToggle(
-      initiallyExpanded,
-      (nextExpanded) => {
-        disclosure.classList.toggle("expanded", nextExpanded);
-        row.classList.toggle("expanded", nextExpanded);
-        if (nextExpanded) {
-          expandedWorkspaceDisclosures.add(options.disclosureKey);
-        } else {
-          expandedWorkspaceDisclosures.delete(options.disclosureKey);
-          options.onCollapse?.();
-        }
-      },
-      options.collapsedLabel,
-    );
-    disclosure.append(toggle);
-  }
-
-  row.append(
-    renderWorkspaceRowIcon(options.icon),
-    element("span", { className: "workspace-key", text: options.label }),
-    disclosure,
-  );
-  container.append(row);
-}
-
-function renderWorkspaceDisclosureToggle(
-  expanded: boolean,
-  onToggle: (expanded: boolean) => void,
-  collapsedLabel = "View all",
-): HTMLButtonElement {
-  const toggle = element("button", {
-    className: "workspace-disclosure-toggle",
-    type: "button",
-    text: expanded ? "Show less" : collapsedLabel,
-    ariaExpanded: String(expanded),
-  });
-  toggle.addEventListener("click", () => {
-    const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
-    toggle.setAttribute("aria-expanded", String(nextExpanded));
-    toggle.textContent = nextExpanded ? "Show less" : collapsedLabel;
-    onToggle(nextExpanded);
-  });
-  return toggle;
+  appendWorkspaceRow(container, "Skills", chipList, toolIcons.skills, "workspace-skills-row");
 }
 
 function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {
@@ -957,11 +814,30 @@ function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {
 function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
   const list = element("span", { className: "workspace-chip-list" });
   for (const chip of chips) {
-    list.append(element("span", {
-      className: `workspace-chip${chip.tone ? ` ${chip.tone}` : ""}`,
-      text: chip.label,
+    const bareLogo = Boolean(chip.bareLogo && chip.logo);
+    const item = element("span", {
+      className: [
+        bareLogo ? "workspace-provider-logo" : "workspace-chip",
+        chip.tone,
+      ].filter(Boolean).join(" "),
       title: chip.title,
-    }));
+    });
+    if (bareLogo) {
+      item.setAttribute("role", "img");
+      item.setAttribute("aria-label", chip.ariaLabel ?? chip.label);
+    }
+    if (chip.logo) {
+      const logo = document.createElement("img");
+      logo.className = bareLogo ? "workspace-provider-logo-image" : "workspace-chip-logo";
+      logo.src = chip.logo;
+      logo.alt = "";
+      logo.setAttribute("aria-hidden", "true");
+      item.append(logo);
+    }
+    if (!bareLogo) {
+      item.append(element("span", { className: "workspace-chip-label", text: chip.label }));
+    }
+    list.append(item);
   }
   return list;
 }
