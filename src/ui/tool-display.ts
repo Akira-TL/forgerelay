@@ -109,11 +109,9 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
       const fileCount = card.files?.length ?? 0;
       return {
         icon: toolIcons.diff,
-        title: fileCount > 0
+        title: fileCount > 0 || card.payload?.patch
           ? display.title
-          : card.payload?.patch
-            ? display.title
-            : "No changes",
+          : "No changes",
         label: singleFilePath(card),
         tone: "review",
       };

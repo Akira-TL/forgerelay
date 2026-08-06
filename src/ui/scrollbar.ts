@@ -5,6 +5,8 @@ export const pierrePrettyScrollbarCss = `
 
 [data-code] {
   scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgb(128 128 128 / 55%)) transparent;
 }
 
 @supports selector(::-webkit-scrollbar) {

@@ -9,7 +9,6 @@
   --tool-card-hover-bg: color-mix(in srgb, var(--color-background-tertiary, #343434) 46%, transparent);
   --tool-card-divider: color-mix(in srgb, var(--color-border-primary, #414141) 66%, transparent);
   --tool-accent: var(--color-text-secondary, #b6b6bd);
-  --tool-accent-soft: color-mix(in srgb, var(--tool-accent) 12%, transparent);
   --scrollbar-thumb: color-mix(in srgb, var(--color-text-tertiary, #8a8a8a) 56%, transparent);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--color-text-secondary, #a8a8a8) 82%, transparent);
 }
@@ -33,6 +32,7 @@ body {
 
 .empty,
 .tool-card {
+  --tool-accent-soft: color-mix(in srgb, var(--tool-accent) 12%, transparent);
   width: 100%;
   overflow: hidden;
   border: 1px solid var(--tool-card-border);
@@ -186,7 +186,7 @@ body {
   overflow: hidden;
   color: var(--color-text-tertiary, #a3a3aa);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 12px);
+  font-size: var(--font-text-xs-size, 12px);
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -197,7 +197,7 @@ body {
   gap: 5px;
   align-items: center;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 12px);
+  font-size: var(--font-text-xs-size, 12px);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -380,7 +380,7 @@ body {
   border-radius: 9999px;
   background: color-mix(in srgb, var(--tool-accent) 7%, transparent);
   color: var(--color-text-secondary, #c7c7ce);
-  font-size: var(--font-text-sm-size, 11px);
+  font-size: 11px;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -604,7 +604,7 @@ body {
   overflow: hidden;
   color: var(--color-text-tertiary, #a3a3aa);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 10px);
+  font-size: 10px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -637,10 +637,10 @@ body {
   background: color-mix(in srgb, var(--color-background-primary, #101114) 92%, transparent);
   color: var(--color-text-secondary, #c7c7ce);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: var(--font-text-sm-size, 11px);
+  font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .workspace-instruction-preview[hidden] {
@@ -774,7 +774,7 @@ body {
 .review-diff-file-name,
 .review-diff-file-stats {
   overflow: hidden;
-  font-size: var(--font-text-sm-size, 13px);
+  font-size: 13px;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -861,7 +861,7 @@ body {
   font-size: var(--font-text-sm-size, 12px);
   line-height: 1.55;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .text-payload.bash {
