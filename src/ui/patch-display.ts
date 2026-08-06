@@ -142,10 +142,12 @@ export function getRenderedFileChangePathDisplay(
   index: number,
 ): FileChangePathDisplay | undefined {
   const indexedFile = files[index];
-  const matchedFile = files.find((file) => (
-    file.path === parsedFile.path &&
-    (!parsedFile.previousPath || !file.previousPath || file.previousPath === parsedFile.previousPath)
-  ));
+  const matchedFile = indexedFile?.path === parsedFile.path
+    ? indexedFile
+    : files.find((file) => (
+      file.path === parsedFile.path &&
+      (!parsedFile.previousPath || !file.previousPath || file.previousPath === parsedFile.previousPath)
+    ));
   const cardFile = matchedFile ?? indexedFile;
 
   return getFileChangePathDisplay({

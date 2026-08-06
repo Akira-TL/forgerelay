@@ -117,6 +117,7 @@ function ReviewPayload({
               >
                 <span
                   className={`review-file-kind ${changeKind}`}
+                  role="img"
                   title={fileChangeKindLabel(changeKind)}
                   aria-label={fileChangeKindLabel(changeKind)}
                 >
@@ -126,13 +127,12 @@ function ReviewPayload({
                   <span
                     className="review-diff-file-name renamed"
                     title={pathDisplay.title}
-                    aria-label={pathDisplay.title}
                   >
-                    <span className="review-diff-file-path previous" aria-hidden="true">
+                    <span className="review-diff-file-path previous">
                       {pathDisplay.previous}
                     </span>
-                    <span className="review-diff-file-arrow" aria-hidden="true">→</span>
-                    <span className="review-diff-file-path current" aria-hidden="true">
+                    <span className="review-diff-file-arrow">→</span>
+                    <span className="review-diff-file-path current">
                       {pathDisplay.current}
                     </span>
                   </span>

@@ -48,7 +48,7 @@ let reviewFilesExpanded = false;
 let errorMessage: string | null = null;
 let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
-let openWorkspaceInstructionPath: string | null = null;
+let openWorkspaceInstructionKey: string | null = null;
 
 type WorkspaceDisclosureKey = "instructions" | "skills" | "agents";
 const expandedWorkspaceDisclosures = new Set<WorkspaceDisclosureKey>();
@@ -84,7 +84,7 @@ async function boot(): Promise<void> {
       expanded = false;
       reviewFilesExpanded = false;
       expandedWorkspaceDisclosures.clear();
-      openWorkspaceInstructionPath = null;
+      openWorkspaceInstructionKey = null;
       errorMessage = "No result card is available for this tool result.";
       render();
       return;
@@ -95,7 +95,7 @@ async function boot(): Promise<void> {
     expanded = isInitiallyExpandedCard(nextCard);
     reviewFilesExpanded = false;
     expandedWorkspaceDisclosures.clear();
-    openWorkspaceInstructionPath = null;
+    openWorkspaceInstructionKey = null;
     errorMessage = null;
     render();
   };
@@ -537,18 +537,19 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     appendWorkspaceChipRow(rows, "Providers", providerChips, toolIcons.providers);
   }
 
-  const agentNames = (card.agents ?? []).map((agent) => {
+  const agentChips = (card.agents ?? []).map((agent) => {
     const name = agent.name ?? "Unnamed agent";
-    return agent.provider ? `${name} · ${agent.provider}` : name;
+    const unavailable = agent.providerAvailable === false;
+    return {
+      label: agent.provider ? `${name} · ${agent.provider}` : name,
+      tone: unavailable ? "muted" as const : undefined,
+      title: unavailable
+        ? agent.providerUnavailableReason ?? "Provider unavailable"
+        : undefined,
+    };
   });
-  if (agentNames.length > 0) {
-    appendWorkspaceTextListRow(
-      rows,
-      "Agents",
-      agentNames,
-      toolIcons.agents,
-      "agents",
-    );
+  if (agentChips.length > 0) {
+    appendWorkspaceChipRow(rows, "Agents", agentChips, toolIcons.agents);
   }
 
   if (rows.childElementCount > 0) details.append(rows);
@@ -567,7 +568,9 @@ interface WorkspaceChip {
 }
 
 interface WorkspaceInstruction {
-  path: string;
+  key: string;
+  path?: string;
+  label: string;
   content?: string;
   status: "loaded" | "available";
 }
@@ -579,20 +582,26 @@ function appendWorkspaceInstructions(
 ): void {
   const loaded: WorkspaceInstruction[] = [];
   const loadedPaths = new Set<string>();
-  for (const file of loadedFiles) {
-    const path = file.path ?? "AGENTS.md";
+  for (const [index, file] of loadedFiles.entries()) {
     loaded.push({
-      path,
+      key: `loaded:${index}`,
+      path: file.path,
+      label: file.path ?? "Loaded instructions",
       content: file.content,
       status: "loaded",
     });
-    loadedPaths.add(path);
+    if (file.path) loadedPaths.add(file.path);
   }
 
   const available: WorkspaceInstruction[] = [];
-  for (const file of availableFiles) {
-    const path = file.path ?? "Nested instructions";
-    if (!loadedPaths.has(path)) available.push({ path, status: "available" });
+  for (const [index, file] of availableFiles.entries()) {
+    if (file.path && loadedPaths.has(file.path)) continue;
+    available.push({
+      key: `available:${index}`,
+      path: file.path,
+      label: file.path ?? "Nested instructions",
+      status: "available",
+    });
   }
   const instructions: WorkspaceInstruction[] = [...loaded, ...available];
 
@@ -623,7 +632,7 @@ function appendWorkspaceInstructions(
           expandedWorkspaceDisclosures.add("instructions");
         } else {
           expandedWorkspaceDisclosures.delete("instructions");
-          openWorkspaceInstructionPath = null;
+          openWorkspaceInstructionKey = null;
           syncWorkspaceInstructionPreviews(list);
         }
       },
@@ -646,15 +655,17 @@ function renderWorkspaceInstructionSummary(
   const summary = element("span", { className: "workspace-instruction-summary" });
   const basenameCounts = new Map<string, number>();
   for (const instruction of instructions) {
-    const basename = workspacePathBasename(instruction.path);
+    const basename = workspacePathBasename(instruction.label);
     basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
   }
 
   for (const instruction of instructions) {
-    const basename = workspacePathBasename(instruction.path);
+    const basename = workspacePathBasename(instruction.label);
     const item = element("span", {
       className: `workspace-instruction-summary-item ${instruction.status}`,
-      title: `${instructionStatusLabel(instruction.status)}: ${instruction.path}`,
+      title: instruction.path
+        ? `${instructionStatusLabel(instruction.status)}: ${instruction.path}`
+        : instructionStatusLabel(instruction.status),
     });
     item.append(
       renderWorkspaceInstructionStatus(instruction.status),
@@ -662,7 +673,7 @@ function renderWorkspaceInstructionSummary(
         className: "workspace-instruction-summary-name",
         text: basenameCounts.get(basename) === 1
           ? basename
-          : workspaceCompactPath(instruction.path),
+          : workspaceCompactPath(instruction.label),
       }),
     );
     summary.append(item);
@@ -677,21 +688,21 @@ function renderWorkspaceInstructionList(
 
   for (const instruction of instructions) {
     const item = element("span", { className: "workspace-instruction-item" });
-    item.dataset.instructionPath = instruction.path;
+    item.dataset.instructionKey = instruction.key;
     const hasContent = instruction.status === "loaded" && instruction.content !== undefined;
     const header = element(hasContent ? "button" : "span", {
       className: `workspace-instruction-header${hasContent ? " interactive" : ""}`,
       type: hasContent ? "button" : undefined,
-      ariaLabel: hasContent ? `View loaded instruction ${instruction.path}` : undefined,
+      ariaLabel: hasContent ? `View ${instruction.label}` : undefined,
       ariaExpanded: hasContent ? "false" : undefined,
     });
     const text = element("span", { className: "workspace-instruction-text" });
-    const basename = workspacePathBasename(instruction.path);
+    const basename = workspacePathBasename(instruction.label);
     text.append(element("span", {
       className: "workspace-instruction-name",
       text: basename,
     }));
-    if (instruction.path !== basename) {
+    if (instruction.path && instruction.path !== basename) {
       text.append(element("span", {
         className: "workspace-instruction-path",
         text: instruction.path,
@@ -712,9 +723,9 @@ function renderWorkspaceInstructionList(
       chevron.append(renderIcon(toolIcons.chevronDown, "workspace-instruction-chevron-svg"));
       header.append(chevron);
       header.addEventListener("click", () => {
-        openWorkspaceInstructionPath = openWorkspaceInstructionPath === instruction.path
+        openWorkspaceInstructionKey = openWorkspaceInstructionKey === instruction.key
           ? null
-          : instruction.path;
+          : instruction.key;
         syncWorkspaceInstructionPreviews(list);
       });
 
@@ -737,7 +748,7 @@ function renderWorkspaceInstructionList(
 
 function syncWorkspaceInstructionPreviews(list: HTMLElement): void {
   for (const item of list.querySelectorAll<HTMLElement>(".workspace-instruction-item")) {
-    const isOpen = item.dataset.instructionPath === openWorkspaceInstructionPath;
+    const isOpen = item.dataset.instructionKey === openWorkspaceInstructionKey;
     item.classList.toggle("expanded", isOpen);
     const header = item.querySelector<HTMLElement>(".workspace-instruction-header.interactive");
     header?.setAttribute("aria-expanded", String(isOpen));

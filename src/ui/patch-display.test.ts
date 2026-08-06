@@ -71,6 +71,22 @@ assert.deepEqual(
   },
 );
 
+assert.deepEqual(
+  getRenderedFileChangePathDisplay(
+    [
+      { path: "shared.ts", previousPath: "first.ts", operation: "move" },
+      { path: "shared.ts", previousPath: "second.ts", operation: "move" },
+    ],
+    { path: "shared.ts" },
+    1,
+  ),
+  {
+    current: "shared.ts",
+    previous: "second.ts",
+    title: "second.ts → shared.ts",
+  },
+);
+
 assert.equal(
   getRenderedFileChangeKind(
     [
