@@ -313,6 +313,9 @@ body {
 }
 
 .workspace-key {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
   color: var(--color-text-tertiary, #a3a3aa);
   font-size: var(--font-text-sm-size, 12px);
   font-weight: 500;
@@ -374,6 +377,7 @@ body {
   max-width: 100%;
   min-height: 24px;
   align-items: center;
+  gap: 5px;
   overflow: hidden;
   padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--tool-accent) 16%, var(--tool-card-divider));
@@ -386,127 +390,98 @@ body {
   white-space: nowrap;
 }
 
+.workspace-chip-logo {
+  display: block;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workspace-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-agent-profile {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  padding: 3px 2px 4px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--tool-accent) 34%, var(--tool-card-divider));
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary, #c7c7ce);
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.workspace-agent-profile-logo {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workspace-agent-profile:hover {
+  border-bottom-color: var(--tool-accent);
+  color: var(--color-text-primary, #f5f5f6);
+}
+
+.workspace-agent-profile.muted {
+  border-bottom-style: dashed;
+  color: var(--color-text-tertiary, #a3a3aa);
+  opacity: 0.72;
+}
+
+.workspace-provider-logo {
+  display: inline-grid;
+  width: 20px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  cursor: help;
+}
+
+.workspace-provider-logo-image {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.workspace-provider-logo.muted {
+  opacity: 0.62;
+}
+
 .workspace-chip.muted {
   border-style: dashed;
   color: var(--color-text-tertiary, #a3a3aa);
   opacity: 0.72;
 }
 
-.workspace-row-disclosure {
-  align-items: start;
-}
-
-.workspace-disclosure {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+.workspace-skills-row,
+.workspace-instructions-row,
+.workspace-agents-row {
   align-items: start;
 }
 
 .workspace-skills-list {
-  max-height: 24px;
-}
-
-.workspace-disclosure.expanded {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workspace-skills-disclosure.expanded .workspace-skills-list {
-  max-height: none;
   flex-wrap: wrap;
   overflow: visible;
 }
 
-.workspace-disclosure-toggle {
-  min-height: 24px;
-  padding: 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--tool-accent) 28%, var(--tool-card-divider));
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--tool-accent);
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--font-text-sm-size, 11px);
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.workspace-disclosure-toggle:hover {
-  background: color-mix(in srgb, var(--tool-accent) 10%, transparent);
-}
-
-.workspace-disclosure-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
-  outline-offset: 2px;
-}
-
-.workspace-disclosure.expanded .workspace-disclosure-toggle {
-  justify-self: start;
-}
-
-.workspace-value-list {
-  display: grid;
-  min-width: 0;
-  max-height: calc(1.45em);
-  overflow: hidden;
-  color: var(--color-text-secondary, #c7c7ce);
-  font-size: var(--font-text-sm-size, 12px);
-  line-height: 1.45;
-}
-
-.workspace-value-list.mono {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-}
-
-.workspace-value-item {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-disclosure.expanded .workspace-value-list {
-  max-height: none;
-  gap: 5px;
+.workspace-agents-list {
+  flex-wrap: wrap;
   overflow: visible;
-}
-
-.workspace-instruction-summary {
-  display: flex;
-  min-width: 0;
-  height: 24px;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-}
-
-.workspace-instruction-summary-item {
-  display: inline-flex;
-  min-width: 0;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 5px;
-  overflow: hidden;
-  padding: 2px 7px 2px 5px;
-  border: 1px solid color-mix(in srgb, var(--tool-accent) 14%, var(--tool-card-divider));
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--tool-accent) 6%, transparent);
-  color: var(--color-text-secondary, #c7c7ce);
-  font-size: var(--font-text-sm-size, 11px);
-  line-height: 1.25;
-}
-
-.workspace-instruction-summary-item.available {
-  border-style: dashed;
-  color: var(--color-text-tertiary, #a3a3aa);
-}
-
-.workspace-instruction-summary-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .workspace-instruction-status {
@@ -535,7 +510,7 @@ body {
 }
 
 .workspace-instruction-list {
-  display: none;
+  display: grid;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--tool-card-divider);
@@ -543,12 +518,38 @@ body {
   background: color-mix(in srgb, var(--tool-card-body-bg) 88%, transparent);
 }
 
-.workspace-instructions-disclosure.expanded .workspace-instruction-summary {
-  display: none;
+.workspace-instructions-content {
+  display: block;
+  min-width: 0;
 }
 
-.workspace-instructions-disclosure.expanded .workspace-instruction-list {
-  display: grid;
+.workspace-instructions-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 0;
+  border-top: 1px solid var(--tool-card-divider);
+  border-radius: 0 0 9px 9px;
+  background: color-mix(in srgb, var(--tool-card-body-bg) 72%, transparent);
+  color: var(--tool-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-text-sm-size, 11px);
+  font-weight: 550;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.workspace-instructions-toggle:hover {
+  background: var(--tool-card-hover-bg);
+}
+
+.workspace-instructions-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--tool-accent) 72%, transparent);
+  outline-offset: 2px;
 }
 
 .workspace-instruction-item + .workspace-instruction-item {
@@ -906,7 +907,7 @@ body {
   .workspace-row > .workspace-key,
   .workspace-row > .workspace-value,
   .workspace-row > .workspace-chip-list,
-  .workspace-row > .workspace-disclosure {
+  .workspace-row > .workspace-instructions-content {
     grid-column: 2;
   }
 }

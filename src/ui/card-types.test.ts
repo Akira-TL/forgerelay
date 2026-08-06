@@ -78,6 +78,16 @@ test("a workspace card expands when it contains provider metadata", () => {
   );
 });
 
+test("a workspace card with details opens immediately", () => {
+  assert.equal(
+    isInitiallyExpandedCard({
+      tool: "open_workspace",
+      skills: [{ name: "research" }],
+    }),
+    true,
+  );
+});
+
 test("a workspace card expands when it contains agent metadata", () => {
   assert.equal(
     isExpandableCard({
