@@ -187,6 +187,7 @@ export function isExpandableCard(card: ToolResultCard): boolean {
 }
 
 export function isInitiallyExpandedCard(card: ToolResultCard): boolean {
+  if (card.tool === "open_workspace") return isExpandableCard(card);
   if (isReviewTool(card.tool)) return isExpandableCard(card);
   if (isPatchTool(card.tool)) {
     return card.files?.length === 1 && isExpandableCard(card);
