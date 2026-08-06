@@ -20,7 +20,7 @@ import {
   type ToolName,
   type ToolResultCard,
 } from "./card-types.js";
-import { renderIcon, toolIcons, type ToolIcon } from "./icons.js";
+import { getProviderLogo, renderIcon, toolIcons, type ToolIcon } from "./icons.js";
 import {
   getToolDisplay,
   getToolHeaderSummary,
@@ -522,32 +522,57 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
   }
 
   const providers = card.agentProviders ?? [];
-  if (providers.length > 0) {
-    const providerChips: WorkspaceChip[] = [];
-    for (const provider of providers) {
-      const unavailable = provider.available === false;
-      providerChips.push({
-        label: provider.name ?? "Unknown provider",
-        tone: unavailable ? "muted" : undefined,
-        title: unavailable ? provider.reason ?? "Provider unavailable" : undefined,
-      });
-    }
-    appendWorkspaceChipRow(rows, "Providers", providerChips, toolIcons.providers);
-  }
-
-  const agentChips = (card.agents ?? []).map((agent) => {
+  const agents = card.agents ?? [];
+  const representedProviderNames = new Set(
+    agents
+      .map((agent) => normalizeProviderName(agent.provider))
+      .filter((name): name is string => Boolean(name)),
+  );
+  const agentChips: WorkspaceChip[] = agents.map((agent) => {
     const name = agent.name ?? "Unnamed agent";
+    const providerName = agent.provider?.trim();
     const unavailable = agent.providerAvailable === false;
-    return {
-      label: agent.provider ? `${name} · ${agent.provider}` : name,
-      tone: unavailable ? "muted" as const : undefined,
-      title: unavailable
+    const title = [
+      agent.description,
+      providerName ? `Provider: ${providerName}` : undefined,
+      agent.model ? `Model: ${agent.model}` : undefined,
+      agent.thinking ? `Thinking: ${agent.thinking}` : undefined,
+      unavailable
         ? agent.providerUnavailableReason ?? "Provider unavailable"
         : undefined,
+    ].filter((value): value is string => Boolean(value)).join("\n");
+    return {
+      label: name,
+      logo: providerName ? getProviderLogo(providerName) : undefined,
+      tone: unavailable ? "muted" as const : undefined,
+      title: title || undefined,
     };
   });
+  const providerOnlyChips: WorkspaceChip[] = providers
+    .filter((provider) => {
+      const name = normalizeProviderName(provider.name);
+      return name === undefined || !representedProviderNames.has(name);
+    })
+    .map((provider) => {
+      const name = provider.name?.trim() || "Unknown provider";
+      const unavailable = provider.available === false;
+      const logo = getProviderLogo(name);
+      return {
+        label: name,
+        logo,
+        bareLogo: Boolean(logo),
+        ariaLabel: name,
+        tone: unavailable ? "muted" as const : undefined,
+        title: unavailable ? provider.reason ?? "Provider unavailable" : name,
+      };
+    });
+
   if (agentChips.length > 0) {
-    appendWorkspaceChipRow(rows, "Agents", agentChips, toolIcons.agents);
+    const chipList = renderWorkspaceChips([...agentChips, ...providerOnlyChips]);
+    chipList.classList.add("workspace-agents-list");
+    appendWorkspaceRow(rows, "Agents", chipList, toolIcons.agents, "workspace-agents-row");
+  } else if (providerOnlyChips.length > 0) {
+    appendWorkspaceChipRow(rows, "Providers", providerOnlyChips, toolIcons.providers);
   }
 
   if (rows.childElementCount > 0) details.append(rows);
@@ -884,4 +909,3 @@ function element<K extends keyof HTMLElementTagNameMap>(
   }
   return node;
 }
-
