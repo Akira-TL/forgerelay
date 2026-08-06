@@ -523,11 +523,6 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
 
   const providers = card.agentProviders ?? [];
   const agents = card.agents ?? [];
-  const representedProviderNames = new Set(
-    agents
-      .map((agent) => normalizeProviderName(agent.provider))
-      .filter((name): name is string => Boolean(name)),
-  );
   const agentChips: WorkspaceChip[] = agents.map((agent) => {
     const name = agent.name ?? "Unnamed agent";
     const providerName = agent.provider?.trim();
@@ -544,35 +539,31 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     return {
       label: name,
       logo: providerName ? getProviderLogo(providerName) : undefined,
+      profile: true,
       tone: unavailable ? "muted" as const : undefined,
       title: title || undefined,
     };
   });
-  const providerOnlyChips: WorkspaceChip[] = providers
-    .filter((provider) => {
-      const name = normalizeProviderName(provider.name);
-      return name === undefined || !representedProviderNames.has(name);
-    })
-    .map((provider) => {
-      const name = provider.name?.trim() || "Unknown provider";
-      const unavailable = provider.available === false;
-      const logo = getProviderLogo(name);
-      return {
-        label: name,
-        logo,
-        bareLogo: Boolean(logo),
-        ariaLabel: name,
-        tone: unavailable ? "muted" as const : undefined,
-        title: unavailable ? provider.reason ?? "Provider unavailable" : name,
-      };
-    });
+  const providerChips: WorkspaceChip[] = providers.map((provider) => {
+    const name = provider.name?.trim() || "Unknown provider";
+    const unavailable = provider.available === false;
+    const logo = getProviderLogo(name);
+    return {
+      label: name,
+      logo,
+      bareLogo: Boolean(logo),
+      ariaLabel: name,
+      tone: unavailable ? "muted" as const : undefined,
+      title: unavailable ? provider.reason ?? "Provider unavailable" : name,
+    };
+  });
 
   if (agentChips.length > 0) {
-    const chipList = renderWorkspaceChips([...agentChips, ...providerOnlyChips]);
+    const chipList = renderWorkspaceChips([...agentChips, ...providerChips]);
     chipList.classList.add("workspace-agents-list");
     appendWorkspaceRow(rows, "Agents", chipList, toolIcons.agents, "workspace-agents-row");
-  } else if (providerOnlyChips.length > 0) {
-    appendWorkspaceChipRow(rows, "Providers", providerOnlyChips, toolIcons.providers);
+  } else if (providerChips.length > 0) {
+    appendWorkspaceChipRow(rows, "Providers", providerChips, toolIcons.providers);
   }
 
   if (rows.childElementCount > 0) details.append(rows);
@@ -587,6 +578,7 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
 interface WorkspaceChip {
   label: string;
   logo?: string;
+  profile?: boolean;
   bareLogo?: boolean;
   ariaLabel?: string;
   title?: string;
@@ -771,11 +763,6 @@ function workspacePathBasename(path: string): string {
   return parts.at(-1) ?? path;
 }
 
-function normalizeProviderName(name: string | undefined): string | undefined {
-  const normalized = name?.trim().toLowerCase();
-  return normalized || undefined;
-}
-
 function appendWorkspaceTextRow(
   container: HTMLElement,
   label: string,
@@ -847,7 +834,11 @@ function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
     const bareLogo = Boolean(chip.bareLogo && chip.logo);
     const item = element("span", {
       className: [
-        bareLogo ? "workspace-provider-logo" : "workspace-chip",
+        bareLogo
+          ? "workspace-provider-logo"
+          : chip.profile
+          ? "workspace-agent-profile"
+          : "workspace-chip",
         chip.tone,
       ].filter(Boolean).join(" "),
       title: chip.title,
@@ -858,7 +849,11 @@ function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
     }
     if (chip.logo) {
       const logo = document.createElement("img");
-      logo.className = bareLogo ? "workspace-provider-logo-image" : "workspace-chip-logo";
+      logo.className = bareLogo
+        ? "workspace-provider-logo-image"
+        : chip.profile
+        ? "workspace-agent-profile-logo"
+        : "workspace-chip-logo";
       logo.src = chip.logo;
       logo.alt = "";
       logo.setAttribute("aria-hidden", "true");

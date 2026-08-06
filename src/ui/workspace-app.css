@@ -402,6 +402,33 @@ body {
   white-space: nowrap;
 }
 
+.workspace-agent-profile {
+  padding: 3px 2px 4px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--tool-accent) 34%, var(--tool-card-divider));
+  border-radius: 0;
+  background: transparent;
+}
+
+.workspace-agent-profile-logo {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workspace-agent-profile:hover {
+  border-bottom-color: var(--tool-accent);
+  color: var(--color-text-primary, #f5f5f6);
+}
+
+.workspace-agent-profile.muted {
+  border-bottom-style: dashed;
+  color: var(--color-text-tertiary, #a3a3aa);
+  opacity: 0.72;
+}
+
 .workspace-provider-logo {
   display: inline-grid;
   width: 20px;
