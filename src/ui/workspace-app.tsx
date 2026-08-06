@@ -623,7 +623,6 @@ function appendWorkspaceInstructions(
     const list = renderWorkspaceInstructionList(instructions);
     disclosure.append(list);
     const toggle = renderWorkspaceDisclosureToggle(
-      instructions.length,
       initiallyExpanded,
       (nextExpanded) => {
         disclosure.classList.toggle("expanded", nextExpanded);
@@ -836,7 +835,7 @@ function appendWorkspaceTextListRow(
     }));
   }
 
-  const toggle = renderWorkspaceDisclosureToggle(values.length, initiallyExpanded, (nextExpanded) => {
+  const toggle = renderWorkspaceDisclosureToggle(initiallyExpanded, (nextExpanded) => {
     disclosure.classList.toggle("expanded", nextExpanded);
     row.classList.toggle("expanded", nextExpanded);
     if (nextExpanded) {
@@ -901,7 +900,7 @@ function appendWorkspaceSkills(
   const chipList = renderWorkspaceChips(skillChips);
   chipList.classList.add("workspace-skills-list");
 
-  const toggle = renderWorkspaceDisclosureToggle(skills.length, initiallyExpanded, (nextExpanded) => {
+  const toggle = renderWorkspaceDisclosureToggle(initiallyExpanded, (nextExpanded) => {
     disclosure.classList.toggle("expanded", nextExpanded);
     row.classList.toggle("expanded", nextExpanded);
     if (nextExpanded) {
@@ -921,10 +920,9 @@ function appendWorkspaceSkills(
 }
 
 function renderWorkspaceDisclosureToggle(
-  total: number,
   expanded: boolean,
   onToggle: (expanded: boolean) => void,
-  collapsedLabel = `View all ${total}`,
+  collapsedLabel = "View all",
 ): HTMLButtonElement {
   const toggle = element("button", {
     className: "workspace-disclosure-toggle",
