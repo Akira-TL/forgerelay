@@ -101,3 +101,20 @@ test("a workspace card expands when it contains available instruction files", ()
 test("an empty workspace card stays collapsed", () => {
   assert.equal(isExpandableCard({ tool: "open_workspace" }), false);
 });
+
+test("workspace diagnostics do not make an internal-only card expandable", () => {
+  assert.equal(
+    isExpandableCard({
+      tool: "open_workspace",
+      skillDiagnostics: [{ type: "collision" }],
+    }),
+    false,
+  );
+  assert.equal(
+    isExpandableCard({
+      tool: "open_workspace",
+      summary: { skillDiagnostics: 1 },
+    }),
+    false,
+  );
+});
