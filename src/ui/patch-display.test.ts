@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { getPatchDisplayParts } from "./patch-display.js";
+import {
+  getFileChangePathDisplay,
+  getPatchDisplayParts,
+  getRenderedFileChangeKind,
+  getRenderedFileChangePathDisplay,
+} from "./patch-display.js";
 
 assert.deepEqual(getPatchDisplayParts({}), {
   title: "Applied patch",
@@ -10,7 +15,7 @@ assert.deepEqual(
   getPatchDisplayParts({ files: [{ path: "created.ts", operation: "add" }] }),
   {
     title: "Added 1 file",
-    iconOperation: "add",
+    iconKind: "added",
     tone: "write",
   },
 );
@@ -24,8 +29,138 @@ assert.deepEqual(
   }),
   {
     title: "Added 2 files",
-    iconOperation: "add",
+    iconKind: "added",
     tone: "write",
+  },
+);
+
+assert.deepEqual(
+  getFileChangePathDisplay({
+    path: "src/new-name.ts",
+    previousPath: "src/old-name.ts",
+  }),
+  {
+    current: "new-name.ts",
+    previous: "old-name.ts",
+    title: "src/old-name.ts → src/new-name.ts",
+  },
+);
+
+assert.deepEqual(
+  getFileChangePathDisplay({
+    path: "packages/new/file.ts",
+    previousPath: "src/old/file.ts",
+  }),
+  {
+    current: "packages/new/file.ts",
+    previous: "src/old/file.ts",
+    title: "src/old/file.ts → packages/new/file.ts",
+  },
+);
+
+assert.deepEqual(
+  getRenderedFileChangePathDisplay(
+    [{ path: "src/new-name.ts", previousPath: "src/old-name.ts", operation: "move" }],
+    { path: "src/new-name.ts" },
+    0,
+  ),
+  {
+    current: "new-name.ts",
+    previous: "old-name.ts",
+    title: "src/old-name.ts → src/new-name.ts",
+  },
+);
+
+assert.deepEqual(
+  getRenderedFileChangePathDisplay(
+    [
+      { path: "shared.ts", previousPath: "first.ts", operation: "move" },
+      { path: "shared.ts", previousPath: "second.ts", operation: "move" },
+    ],
+    { path: "shared.ts" },
+    1,
+  ),
+  {
+    current: "shared.ts",
+    previous: "second.ts",
+    title: "second.ts → shared.ts",
+  },
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [
+      { path: "same.tmp", operation: "add" },
+      { path: "same.tmp", operation: "delete" },
+    ],
+    { path: "same.tmp", type: "new" },
+    0,
+  ),
+  "added",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [
+      { path: "same.tmp", operation: "add" },
+      { path: "same.tmp", operation: "delete" },
+    ],
+    { path: "same.tmp", type: "deleted" },
+    1,
+  ),
+  "deleted",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [{ path: "report.md", operation: "add" }],
+    { path: "report.md", type: "change" },
+    0,
+  ),
+  "edited",
+);
+
+assert.equal(
+  getRenderedFileChangeKind(
+    [{ path: "renamed.md", previousPath: "old.md", operation: "move" }],
+    { path: "renamed.md", type: "change" },
+    0,
+  ),
+  "renamed",
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "created.ts", type: "new" }] }),
+  {
+    title: "Added 1 file",
+    iconKind: "added",
+    tone: "write",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "renamed.ts", type: "rename-changed" }] }),
+  {
+    title: "Renamed and edited 1 file",
+    iconKind: "renamed-edited",
+    tone: "edit",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "removed.ts", type: "deleted" }] }),
+  {
+    title: "Deleted 1 file",
+    iconKind: "deleted",
+    tone: "delete",
+  },
+);
+
+assert.deepEqual(
+  getPatchDisplayParts({ files: [{ path: "unknown.ts" }] }),
+  {
+    title: "Changed 1 file",
+    tone: "edit",
   },
 );
 

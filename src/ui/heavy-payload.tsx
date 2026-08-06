@@ -12,6 +12,7 @@ import {
   type HostContext,
   type ToolResultCard,
 } from "./card-types.js";
+import { pierrePrettyScrollbarCss } from "./scrollbar.js";
 
 type ThemeType = "light" | "dark";
 
@@ -77,7 +78,7 @@ function HeavyPayload({
     );
   }
 
-  return <pre className={`text-payload ${card.tool}`}>{text}</pre>;
+  return <pre className={`text-payload pretty-scrollbar ${card.tool}`}>{text}</pre>;
 }
 
 function FilePayload({
@@ -100,6 +101,7 @@ function FilePayload({
       },
       themeType,
       overflow: "scroll",
+      unsafeCSS: pierrePrettyScrollbarCss,
     }),
     [themeType],
   );
@@ -134,7 +136,7 @@ function FilePayload({
     };
   }, [fileOptions, path, startLine, text]);
 
-  return <div ref={wrapperRef} className="pierre-file" />;
+  return <div ref={wrapperRef} className="pierre-file pretty-scrollbar" />;
 }
 
 function DiffPayload({
@@ -158,12 +160,13 @@ function DiffPayload({
         hunkSeparators: "line-info",
         lineDiffType: "word-alt",
         overflow: "scroll",
+        unsafeCSS: pierrePrettyScrollbarCss,
         collapsedContextThreshold: 4,
         expansionLineCount: 20,
         stickyHeader: true,
         disableFileHeader: true,
       }}
-      className="pierre-diff"
+      className="pierre-diff pretty-scrollbar"
     />
   );
 }

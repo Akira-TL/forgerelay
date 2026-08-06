@@ -17,6 +17,12 @@ export type ToolName =
 export type HostContext = NonNullable<ReturnType<App["getHostContext"]>>;
 
 export type PatchOperation = "add" | "update" | "delete" | "move";
+export type ReviewFileType =
+  | "change"
+  | "rename-pure"
+  | "rename-changed"
+  | "new"
+  | "deleted";
 
 export interface ToolResultCard {
   tool: ToolName;
@@ -41,7 +47,7 @@ export interface ToolResultCard {
     path?: string;
     previousPath?: string;
     operation?: PatchOperation;
-    type?: string;
+    type?: ReviewFileType;
     additions?: number;
     removals?: number;
   }>;
@@ -72,7 +78,6 @@ export interface ToolResultCard {
     providerAvailable?: boolean;
     providerUnavailableReason?: string;
   }>;
-  skillDiagnostics?: unknown[];
   instruction?: string;
 }
 
@@ -165,15 +170,13 @@ export function isExpandableCard(card: ToolResultCard): boolean {
       Number(card.summary?.skills ?? 0) > 0 ||
       Number(card.summary?.agentProviders ?? 0) > 0 ||
       Number(card.summary?.agents ?? 0) > 0 ||
-      Number(card.summary?.skillDiagnostics ?? 0) > 0 ||
       Boolean(card.agentsFiles?.length) ||
       Boolean(card.availableAgentsFiles?.length) ||
       Boolean(card.skills?.length) ||
       Boolean(card.agentProviders?.length) ||
       Boolean(card.agents?.length) ||
       Boolean(card.worktree) ||
-      Boolean(card.instruction) ||
-      Boolean(card.skillDiagnostics?.length)
+      Boolean(card.instruction)
     );
   }
 
@@ -181,4 +184,12 @@ export function isExpandableCard(card: ToolResultCard): boolean {
   if (isPatchTool(card.tool)) return Boolean(card.payload?.patch);
 
   return Boolean(card.payload);
+}
+
+export function isInitiallyExpandedCard(card: ToolResultCard): boolean {
+  if (isReviewTool(card.tool)) return isExpandableCard(card);
+  if (isPatchTool(card.tool)) {
+    return card.files?.length === 1 && isExpandableCard(card);
+  }
+  return false;
 }

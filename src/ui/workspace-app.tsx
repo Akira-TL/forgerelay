@@ -8,6 +8,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   isEditTool,
   isExpandableCard,
+  isInitiallyExpandedCard,
   isPatchTool,
   isReadTool,
   isReviewTool,
@@ -19,7 +20,7 @@ import {
   type ToolName,
   type ToolResultCard,
 } from "./card-types.js";
-import { renderIcon, toolIcons } from "./icons.js";
+import { renderIcon, toolIcons, type ToolIcon } from "./icons.js";
 import {
   getToolDisplay,
   getToolHeaderSummary,
@@ -47,6 +48,10 @@ let reviewFilesExpanded = false;
 let errorMessage: string | null = null;
 let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
+let openWorkspaceInstructionKey: string | null = null;
+
+type WorkspaceDisclosureKey = "instructions" | "skills" | "agents";
+const expandedWorkspaceDisclosures = new Set<WorkspaceDisclosureKey>();
 
 const maybeAppRoot = document.querySelector<HTMLElement>("#app");
 
@@ -78,6 +83,8 @@ async function boot(): Promise<void> {
       card = null;
       expanded = false;
       reviewFilesExpanded = false;
+      expandedWorkspaceDisclosures.clear();
+      openWorkspaceInstructionKey = null;
       errorMessage = "No result card is available for this tool result.";
       render();
       return;
@@ -85,8 +92,10 @@ async function boot(): Promise<void> {
 
     const nextCard = { ...structured, tool };
     card = nextCard;
-    expanded = isReviewTool(tool) && isExpandableCard(nextCard);
+    expanded = isInitiallyExpandedCard(nextCard);
     reviewFilesExpanded = false;
+    expandedWorkspaceDisclosures.clear();
+    openWorkspaceInstructionKey = null;
     errorMessage = null;
     render();
   };
@@ -97,7 +106,9 @@ async function boot(): Promise<void> {
       ...ctx,
     };
     applyHostContext();
-    renderPayloadIfNeeded();
+    // Workspace details inherit host variables directly. Rebuilding their DOM on
+    // iframe resize would reset an in-progress disclosure interaction.
+    if (card?.tool !== "open_workspace") renderPayloadIfNeeded();
   };
 
   app.onteardown = async () => {
@@ -161,7 +172,9 @@ function render(): void {
 
   const expandable = isExpandableCard(card);
   const main = element("main", { className: "shell" });
-  const section = element("section", { className: `tool-card ${display.tone}` });
+  const section = element("section", {
+    className: toolCardClassName(display),
+  });
   const button = element("button", {
     className: "tool-header",
     type: "button",
@@ -226,7 +239,7 @@ async function renderPayloadIfNeeded(): Promise<void> {
   }
 
   if (card.tool === "open_workspace") {
-    renderPrePayload(target, workspacePayloadText(card), "open_workspace");
+    renderWorkspacePayload(target, card);
     return;
   }
 
@@ -324,7 +337,10 @@ function renderPrePayload(
   tool: string,
 ): void {
   unmountCurrentPayload();
-  container.replaceChildren(element("pre", { className: `text-payload ${tool}`, text }));
+  container.replaceChildren(element("pre", {
+    className: `text-payload pretty-scrollbar ${tool}`,
+    text,
+  }));
 }
 
 function renderHeaderSummary(card: ToolResultCard): HTMLElement {
@@ -356,7 +372,7 @@ function renderReviewCard(card: ToolResultCard, display: ToolDisplay): void {
   const hiddenCount = Math.max(0, files.length - visibleFiles.length);
   const expandable = isExpandableCard(card);
   const main = element("main", { className: "shell" });
-  const section = element("section", { className: "tool-card review" });
+  const section = element("section", { className: toolCardClassName(display) });
   const header = element("button", {
     className: "tool-header review-header",
     type: "button",
@@ -431,6 +447,12 @@ function renderChevron(isExpanded: boolean, visible: boolean): HTMLElement {
   return chevron;
 }
 
+function toolCardClassName(display: ToolDisplay): string {
+  return ["tool-card", display.tone, display.state ? `state-${display.state}` : undefined]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function setPayloadLoading(container: HTMLElement, loading: boolean): void {
   const header = container.previousElementSibling;
   const chevron = header?.querySelector<HTMLElement>(".chevron");
@@ -445,94 +467,503 @@ function setPayloadLoading(container: HTMLElement, loading: boolean): void {
   if (button) button.setAttribute("aria-busy", String(loading));
 }
 
-function workspacePayloadText(card: ToolResultCard): string {
-  const agentsFiles = card.agentsFiles ?? [];
-  const availableAgentsFiles = card.availableAgentsFiles ?? [];
+function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): void {
+  unmountCurrentPayload();
+
+  const details = element("div", {
+    className: "workspace-details pretty-scrollbar",
+  });
+  const rows = element("div", { className: "workspace-rows" });
+  const worktree = card.worktree;
+
+  if (worktree) {
+    const base = [
+      worktree.baseRef,
+      worktree.baseSha?.slice(0, 8),
+    ].filter((value): value is string => Boolean(value));
+    const baseLabel = base.join(" · ") || "Worktree";
+    const baseContent = element("span", { className: "workspace-base-value" });
+    baseContent.append(element("span", {
+      className: "workspace-value",
+      text: baseLabel,
+      title: baseLabel,
+    }));
+
+    if (worktree.dirtySource) {
+      const warning = element("span", {
+        className: "workspace-base-warning",
+        title: "The source checkout had uncommitted changes when this worktree was created. Those changes are not included here.",
+        ariaLabel: "Source checkout changes are not included in this worktree",
+      });
+      warning.append(renderIcon(toolIcons.warning, "workspace-base-warning-svg"));
+      baseContent.append(warning);
+    }
+
+    appendWorkspaceRow(rows, "Base", baseContent, toolIcons.base);
+  }
+
+  if (card.sourceRoot && card.sourceRoot !== card.root) {
+    appendWorkspaceTextRow(
+      rows,
+      "Source checkout",
+      card.sourceRoot,
+      toolIcons.sourceCheckout,
+      true,
+    );
+  }
+
+  appendWorkspaceInstructions(
+    rows,
+    card.agentsFiles ?? [],
+    card.availableAgentsFiles ?? [],
+  );
+
   const skills = card.skills ?? [];
-  const agentProviders = card.agentProviders ?? [];
-  const agents = card.agents ?? [];
-  const diagnostics = card.skillDiagnostics ?? [];
-  const lines = [
-    card.workspaceId ? `Workspace: ${card.workspaceId}` : undefined,
-    card.root ? `Root: ${card.root}` : undefined,
-    card.mode ? `Mode: ${card.mode}` : undefined,
-    card.sourceRoot ? `Source root: ${card.sourceRoot}` : undefined,
-    card.worktree ? formatWorktree(card.worktree) : undefined,
-    skills.length > 0
-      ? `Skills: ${skills.map((skill) => skill.name ?? skill.path ?? "unnamed").join(", ")}`
-      : "Skills: none",
-    agentProviders.length > 0
-      ? `Agent providers: ${agentProviders.map(formatAgentProvider).join(", ")}`
-      : undefined,
-    agents.length > 0
-      ? `Agents: ${agents.map(formatAgent).join(", ")}`
-      : undefined,
-    diagnostics.length > 0
-      ? `Skill diagnostics: ${diagnostics.map(formatDiagnostic).join("; ")}`
-      : undefined,
-    availableAgentsFiles.length > 0
-      ? `Nested instructions: ${availableAgentsFiles.map((file) => file.path ?? "unknown").join(", ")}`
-      : undefined,
-    agentsFiles.length > 0
-      ? `\n${formatAgentsFilesForPayload(agentsFiles)}`
-      : "\nAGENTS.md: none loaded",
-    card.instruction ? `\nInstruction: ${card.instruction}` : undefined,
-  ].filter((line): line is string => typeof line === "string");
+  if (skills.length > 0) {
+    appendWorkspaceSkills(rows, skills);
+  }
 
-  return lines.join("\n");
+  const providers = card.agentProviders ?? [];
+  if (providers.length > 0) {
+    const providerChips: WorkspaceChip[] = [];
+    for (const provider of providers) {
+      const unavailable = provider.available === false;
+      providerChips.push({
+        label: provider.name ?? "Unknown provider",
+        tone: unavailable ? "muted" : undefined,
+        title: unavailable ? provider.reason ?? "Provider unavailable" : undefined,
+      });
+    }
+    appendWorkspaceChipRow(rows, "Providers", providerChips, toolIcons.providers);
+  }
+
+  const agentChips = (card.agents ?? []).map((agent) => {
+    const name = agent.name ?? "Unnamed agent";
+    const unavailable = agent.providerAvailable === false;
+    return {
+      label: agent.provider ? `${name} · ${agent.provider}` : name,
+      tone: unavailable ? "muted" as const : undefined,
+      title: unavailable
+        ? agent.providerUnavailableReason ?? "Provider unavailable"
+        : undefined,
+    };
+  });
+  if (agentChips.length > 0) {
+    appendWorkspaceChipRow(rows, "Agents", agentChips, toolIcons.agents);
+  }
+
+  if (rows.childElementCount > 0) details.append(rows);
+
+  if (details.childElementCount === 0) {
+    details.append(element("div", { className: "status muted", text: "No workspace details available." }));
+  }
+
+  container.replaceChildren(details);
 }
 
-function formatWorktree(worktree: NonNullable<ToolResultCard["worktree"]>): string {
-  const details = [
-    worktree.baseRef ? `base ${worktree.baseRef}` : undefined,
-    worktree.baseSha ? `at ${worktree.baseSha.slice(0, 12)}` : undefined,
-    worktree.managed === true ? "managed" : undefined,
-    worktree.detached === true ? "detached" : undefined,
-    worktree.dirtySource === true ? "dirty source" : undefined,
-  ].filter((detail): detail is string => Boolean(detail));
-  return `Worktree: ${worktree.path ?? "unknown"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+interface WorkspaceChip {
+  label: string;
+  title?: string;
+  tone?: "muted";
 }
 
-function formatAgentProvider(
-  provider: NonNullable<ToolResultCard["agentProviders"]>[number],
-): string {
-  const name = provider.name ?? "unknown";
-  if (provider.available !== false) return name;
-  return provider.reason ? `${name} unavailable: ${provider.reason}` : `${name} unavailable`;
+interface WorkspaceInstruction {
+  key: string;
+  path?: string;
+  label: string;
+  content?: string;
+  status: "loaded" | "available";
 }
 
-function formatAgent(agent: NonNullable<ToolResultCard["agents"]>[number]): string {
-  const details = [
-    agent.provider,
-    agent.model,
-    agent.thinking ? `thinking ${agent.thinking}` : undefined,
-    agent.providerAvailable === false
-      ? agent.providerUnavailableReason ?? "provider unavailable"
+interface WorkspaceDisclosureRowOptions {
+  label: string;
+  icon: ToolIcon;
+  disclosureKey: WorkspaceDisclosureKey;
+  content: HTMLElement[];
+  expandable?: boolean;
+  rowClassName?: string;
+  disclosureClassName?: string;
+  collapsedLabel?: string;
+  onCollapse?: () => void;
+}
+
+function appendWorkspaceInstructions(
+  container: HTMLElement,
+  loadedFiles: NonNullable<ToolResultCard["agentsFiles"]>,
+  availableFiles: NonNullable<ToolResultCard["availableAgentsFiles"]>,
+): void {
+  const loaded: WorkspaceInstruction[] = [];
+  const loadedPaths = new Set<string>();
+  for (const [index, file] of loadedFiles.entries()) {
+    loaded.push({
+      key: `loaded:${index}`,
+      path: file.path,
+      label: file.path ?? "Loaded instructions",
+      content: file.content,
+      status: "loaded",
+    });
+    if (file.path) loadedPaths.add(file.path);
+  }
+
+  const available: WorkspaceInstruction[] = [];
+  for (const [index, file] of availableFiles.entries()) {
+    if (file.path && loadedPaths.has(file.path)) continue;
+    available.push({
+      key: `available:${index}`,
+      path: file.path,
+      label: file.path ?? "Nested instructions",
+      status: "available",
+    });
+  }
+  const instructions: WorkspaceInstruction[] = [...loaded, ...available];
+
+  if (instructions.length === 0) return;
+
+  const canPreview = loaded.some((file) => file.content !== undefined);
+  const canExpand = instructions.length > 1 || canPreview;
+  const summary = renderWorkspaceInstructionSummary(instructions);
+  const list = canExpand ? renderWorkspaceInstructionList(instructions) : undefined;
+  appendWorkspaceDisclosureRow(container, {
+    label: "Instructions",
+    icon: toolIcons.instructions,
+    disclosureKey: "instructions",
+    content: list ? [summary, list] : [summary],
+    expandable: canExpand,
+    rowClassName: "workspace-instructions-row",
+    disclosureClassName: "workspace-instructions-disclosure",
+    collapsedLabel: instructions.length === 1 ? "View" : undefined,
+    onCollapse: list
+      ? () => {
+        openWorkspaceInstructionKey = null;
+        syncWorkspaceInstructionPreviews(list);
+      }
       : undefined,
-  ].filter((detail): detail is string => Boolean(detail));
-  return `${agent.name ?? "unnamed"}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+  });
 }
 
-function formatDiagnostic(diagnostic: unknown): string {
-  if (typeof diagnostic === "string") return diagnostic;
-  if (diagnostic instanceof Error) return diagnostic.message;
-  try {
-    return JSON.stringify(diagnostic) ?? String(diagnostic);
-  } catch {
-    return String(diagnostic);
+function renderWorkspaceInstructionSummary(
+  instructions: WorkspaceInstruction[],
+): HTMLElement {
+  const summary = element("span", { className: "workspace-instruction-summary" });
+  const basenameCounts = new Map<string, number>();
+  for (const instruction of instructions) {
+    const basename = workspacePathBasename(instruction.label);
+    basenameCounts.set(basename, (basenameCounts.get(basename) ?? 0) + 1);
+  }
+
+  for (const instruction of instructions) {
+    const basename = workspacePathBasename(instruction.label);
+    const item = element("span", {
+      className: `workspace-instruction-summary-item ${instruction.status}`,
+      title: instruction.path
+        ? `${instructionStatusLabel(instruction.status)}: ${instruction.path}`
+        : instructionStatusLabel(instruction.status),
+    });
+    item.append(
+      renderWorkspaceInstructionStatus(instruction.status),
+      element("span", {
+        className: "workspace-instruction-summary-name",
+        text: basenameCounts.get(basename) === 1
+          ? basename
+          : workspaceCompactPath(instruction.label),
+      }),
+    );
+    summary.append(item);
+  }
+  return summary;
+}
+
+function renderWorkspaceInstructionList(
+  instructions: WorkspaceInstruction[],
+): HTMLElement {
+  const list = element("span", { className: "workspace-instruction-list" });
+
+  for (const instruction of instructions) {
+    const item = element("span", { className: "workspace-instruction-item" });
+    item.dataset.instructionKey = instruction.key;
+    const hasContent = instruction.status === "loaded" && instruction.content !== undefined;
+    const header = element(hasContent ? "button" : "span", {
+      className: `workspace-instruction-header${hasContent ? " interactive" : ""}`,
+      type: hasContent ? "button" : undefined,
+      ariaLabel: hasContent ? `View ${instruction.label}` : undefined,
+      ariaExpanded: hasContent ? "false" : undefined,
+    });
+    const text = element("span", { className: "workspace-instruction-text" });
+    const basename = workspacePathBasename(instruction.label);
+    text.append(element("span", {
+      className: "workspace-instruction-name",
+      text: basename,
+    }));
+    if (instruction.path && instruction.path !== basename) {
+      text.append(element("span", {
+        className: "workspace-instruction-path",
+        text: instruction.path,
+        title: instruction.path,
+      }));
+    }
+
+    header.append(
+      renderWorkspaceInstructionStatus(instruction.status),
+      text,
+    );
+
+    if (hasContent) {
+      const chevron = element("span", {
+        className: "workspace-instruction-chevron",
+        ariaHidden: "true",
+      });
+      chevron.append(renderIcon(toolIcons.chevronDown, "workspace-instruction-chevron-svg"));
+      header.append(chevron);
+      header.addEventListener("click", () => {
+        openWorkspaceInstructionKey = openWorkspaceInstructionKey === instruction.key
+          ? null
+          : instruction.key;
+        syncWorkspaceInstructionPreviews(list);
+      });
+
+      const preview = element("pre", {
+        className: "workspace-instruction-preview pretty-scrollbar",
+        text: instruction.content,
+      });
+      preview.hidden = true;
+      item.append(header, preview);
+    } else {
+      item.append(header);
+    }
+
+    list.append(item);
+  }
+
+  syncWorkspaceInstructionPreviews(list);
+  return list;
+}
+
+function syncWorkspaceInstructionPreviews(list: HTMLElement): void {
+  for (const item of list.querySelectorAll<HTMLElement>(".workspace-instruction-item")) {
+    const isOpen = item.dataset.instructionKey === openWorkspaceInstructionKey;
+    item.classList.toggle("expanded", isOpen);
+    const header = item.querySelector<HTMLElement>(".workspace-instruction-header.interactive");
+    header?.setAttribute("aria-expanded", String(isOpen));
+    const preview = item.querySelector<HTMLElement>(".workspace-instruction-preview");
+    if (preview) preview.hidden = !isOpen;
   }
 }
 
-function formatAgentsFilesForPayload(
-  agentsFiles: NonNullable<ToolResultCard["agentsFiles"]>,
-): string {
-  return agentsFiles
-    .map((file) => {
-      const path = file.path ?? "AGENTS.md";
-      const content = file.content?.trim();
-      return content ? `${path}\n\n${content}` : `${path}\n\nNo content loaded.`;
-    })
-    .join("\n\n");
+function renderWorkspaceInstructionStatus(
+  status: WorkspaceInstruction["status"],
+): HTMLElement {
+  const label = instructionStatusLabel(status);
+  const wrapper = element("span", {
+    className: `workspace-instruction-status ${status}`,
+    title: label,
+    ariaLabel: label,
+  });
+  wrapper.setAttribute("role", "img");
+  wrapper.append(renderIcon(
+    status === "loaded" ? toolIcons.instructionLoaded : toolIcons.instructionAvailable,
+    "workspace-instruction-status-svg",
+  ));
+  return wrapper;
+}
+
+function instructionStatusLabel(status: WorkspaceInstruction["status"]): string {
+  return status === "loaded"
+    ? "Loaded into the current workspace context"
+    : "Available for a nested directory";
+}
+
+function workspacePathBasename(path: string): string {
+  const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.at(-1) ?? path;
+}
+
+function workspaceCompactPath(path: string): string {
+  const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.slice(-2).join("/") || path;
+}
+
+function appendWorkspaceTextRow(
+  container: HTMLElement,
+  label: string,
+  value: string,
+  icon: ToolIcon,
+  mono = false,
+): void {
+  const content = element("span", {
+    className: `workspace-value${mono ? " mono" : ""}`,
+    text: value,
+    title: value,
+  });
+  appendWorkspaceRow(container, label, content, icon);
+}
+
+function appendWorkspaceTextListRow(
+  container: HTMLElement,
+  label: string,
+  values: string[],
+  icon: ToolIcon,
+  disclosureKey: WorkspaceDisclosureKey,
+  mono = false,
+): void {
+  if (values.length === 1) {
+    appendWorkspaceTextRow(container, label, values[0], icon, mono);
+    return;
+  }
+
+  const list = element("span", {
+    className: `workspace-value-list${mono ? " mono" : ""}`,
+  });
+  for (const value of values) {
+    list.append(element("span", {
+      className: "workspace-value-item",
+      text: value,
+      title: value,
+    }));
+  }
+  appendWorkspaceDisclosureRow(container, {
+    label,
+    icon,
+    disclosureKey,
+    content: [list],
+  });
+}
+
+function appendWorkspaceChipRow(
+  container: HTMLElement,
+  label: string,
+  chips: WorkspaceChip[],
+  icon: ToolIcon,
+): void {
+  appendWorkspaceRow(container, label, renderWorkspaceChips(chips), icon);
+}
+
+function appendWorkspaceRow(
+  container: HTMLElement,
+  label: string,
+  content: HTMLElement,
+  icon: ToolIcon,
+): void {
+  const row = element("div", { className: "workspace-row" });
+  row.append(
+    renderWorkspaceRowIcon(icon),
+    element("span", { className: "workspace-key", text: label }),
+    content,
+  );
+  container.append(row);
+}
+
+function appendWorkspaceSkills(
+  container: HTMLElement,
+  skills: NonNullable<ToolResultCard["skills"]>,
+): void {
+  const skillChips = skills.map((skill) => ({
+    label: skill.name ?? skill.path ?? "Unnamed skill",
+    title: skill.path,
+  }));
+  if (skillChips.length === 1) {
+    appendWorkspaceChipRow(container, "Skills", skillChips, toolIcons.skills);
+    return;
+  }
+
+  const chipList = renderWorkspaceChips(skillChips);
+  chipList.classList.add("workspace-skills-list");
+  appendWorkspaceDisclosureRow(container, {
+    label: "Skills",
+    icon: toolIcons.skills,
+    disclosureKey: "skills",
+    content: [chipList],
+    disclosureClassName: "workspace-skills-disclosure",
+  });
+}
+
+function appendWorkspaceDisclosureRow(
+  container: HTMLElement,
+  options: WorkspaceDisclosureRowOptions,
+): void {
+  const expandable = options.expandable ?? true;
+  const initiallyExpanded = expandable && expandedWorkspaceDisclosures.has(options.disclosureKey);
+  const row = element("div", {
+    className: [
+      "workspace-row",
+      "workspace-row-disclosure",
+      options.rowClassName,
+      initiallyExpanded ? "expanded" : undefined,
+    ].filter(Boolean).join(" "),
+  });
+  const disclosure = element("span", {
+    className: [
+      "workspace-disclosure",
+      options.disclosureClassName,
+      initiallyExpanded ? "expanded" : undefined,
+    ].filter(Boolean).join(" "),
+  });
+  disclosure.append(...options.content);
+
+  if (expandable) {
+    const toggle = renderWorkspaceDisclosureToggle(
+      initiallyExpanded,
+      (nextExpanded) => {
+        disclosure.classList.toggle("expanded", nextExpanded);
+        row.classList.toggle("expanded", nextExpanded);
+        if (nextExpanded) {
+          expandedWorkspaceDisclosures.add(options.disclosureKey);
+        } else {
+          expandedWorkspaceDisclosures.delete(options.disclosureKey);
+          options.onCollapse?.();
+        }
+      },
+      options.collapsedLabel,
+    );
+    disclosure.append(toggle);
+  }
+
+  row.append(
+    renderWorkspaceRowIcon(options.icon),
+    element("span", { className: "workspace-key", text: options.label }),
+    disclosure,
+  );
+  container.append(row);
+}
+
+function renderWorkspaceDisclosureToggle(
+  expanded: boolean,
+  onToggle: (expanded: boolean) => void,
+  collapsedLabel = "View all",
+): HTMLButtonElement {
+  const toggle = element("button", {
+    className: "workspace-disclosure-toggle",
+    type: "button",
+    text: expanded ? "Show less" : collapsedLabel,
+    ariaExpanded: String(expanded),
+  });
+  toggle.addEventListener("click", () => {
+    const nextExpanded = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", String(nextExpanded));
+    toggle.textContent = nextExpanded ? "Show less" : collapsedLabel;
+    onToggle(nextExpanded);
+  });
+  return toggle;
+}
+
+function renderWorkspaceRowIcon(icon: ToolIcon): HTMLElement {
+  const wrapper = element("span", {
+    className: "workspace-row-icon",
+    ariaHidden: "true",
+  });
+  wrapper.append(renderIcon(icon, "workspace-row-icon-svg"));
+  return wrapper;
+}
+
+function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
+  const list = element("span", { className: "workspace-chip-list" });
+  for (const chip of chips) {
+    list.append(element("span", {
+      className: `workspace-chip${chip.tone ? ` ${chip.tone}` : ""}`,
+      text: chip.label,
+      title: chip.title,
+    }));
+  }
+  return list;
 }
 
 function toolNameFromMeta(result: CallToolResult): ToolName | undefined {
@@ -559,6 +990,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
     type?: string;
     title?: string;
     ariaHidden?: string;
+    ariaLabel?: string;
     ariaExpanded?: string;
     disabled?: boolean;
   } = {},
@@ -569,6 +1001,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
   if (options.type !== undefined && "type" in node) node.setAttribute("type", options.type);
   if (options.title !== undefined) node.title = options.title;
   if (options.ariaHidden !== undefined) node.setAttribute("aria-hidden", options.ariaHidden);
+  if (options.ariaLabel !== undefined) node.setAttribute("aria-label", options.ariaLabel);
   if (options.ariaExpanded !== undefined) node.setAttribute("aria-expanded", options.ariaExpanded);
   if (options.disabled !== undefined && "disabled" in node) {
     (node as HTMLButtonElement).disabled = options.disabled;

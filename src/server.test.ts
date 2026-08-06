@@ -63,7 +63,6 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.skills));
   assert.ok(Array.isArray(card.agentProviders));
   assert.ok(Array.isArray(card.agents));
-  assert.ok(Array.isArray(card.skillDiagnostics));
 });
 
 test("concurrent checkout opens return one full context and one reuse instruction", async (t) => {
