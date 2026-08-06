@@ -78,7 +78,6 @@ export interface ToolResultCard {
     providerAvailable?: boolean;
     providerUnavailableReason?: string;
   }>;
-  skillDiagnostics?: unknown[];
   instruction?: string;
 }
 
