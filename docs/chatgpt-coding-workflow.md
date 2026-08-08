@@ -1,206 +1,183 @@
 # ChatGPT Coding Workflow
 
-DevSpace brings a Codex-style coding-agent loop to ChatGPT and other MCP hosts:
-inspect the repo, follow local instructions, make scoped edits, run
-verification, and show the user what changed.
+ForgeRelay gives ChatGPT and other MCP hosts a local coding workspace with an
+explicit lifecycle instead of treating every request as a fresh temporary
+checkout.
 
-## Open One Workspace
+## Workspace identity
 
-ChatGPT should call `open_workspace` once for a project folder:
+`open_workspace` returns a `workspaceId`. Continue using that ID for later tools
+in the same directory.
 
-```json
-{
-  "path": "~/work/my-project"
-}
-```
+Workspace identity follows the canonical opened directory rather than the
+conversation/request identity. Reopening the same checkout reuses the same
+active workspace even from another conversation. Conversation metadata is used
+only to decide whether bootstrap context such as project instructions should be
+repeated to that conversation.
 
-The result includes a `workspaceId`. All later file, search, edit, show-changes,
-and shell calls should reuse that same `workspaceId`.
+A Git worktree directory is a separate workspace identity from its source
+checkout.
 
-ChatGPT may support automatic checkout recovery through optional host
-conversation metadata. This is an OpenAI-host adapter detail, not a standard MCP
-conversation field. When that optional context is available, opening the same
-checkout project again in the same conversation can continue in the existing
-workspace, and the context already provided for that reused checkout is not
-repeated. The portable workflow remains the same: keep using the `workspaceId`
-returned by `open_workspace` for later operations. Hosts without supported
-conversation context receive a normal new workspace and continue with that
-explicit `workspaceId` workflow.
-The model receives actionable workspace instructions; automatic-reuse
-bookkeeping is not a model-facing choice.
+## Checkout-first behavior
 
-Worktree mode is deliberately different: every call creates a new managed
-worktree and a new workspace session with complete context, even for the same
-path and base ref.
-
-The first successful open of a checkout provides complete instructions and
-coding context. A repeated open that reuses the same checkout workspace does
-not repeat the model-visible context, but the workspace UI continues to show the
-complete details. Every new worktree establishes and returns its own complete
-context, even when the same project was already opened in checkout or another
-worktree. Opening checkout after a worktree therefore provides the checkout's
-own context.
-
-Do not call `open_workspace` again for the same checkout folder unless:
-
-- the `workspaceId` is rejected as unknown
-- work moves to a different project folder
-- work switches between checkout and worktree mode
-- the user asks for a new isolated worktree
-
-## Checkout Mode
-
-Checkout mode is the default. DevSpace opens the actual directory:
-
-```json
-{
-  "path": "~/work/my-project"
-}
-```
-
-Use this when the user wants ChatGPT to work in the current checkout.
-
-## Worktree Mode
-
-Use worktree mode for isolated parallel work:
-
-```json
-{
-  "path": "~/work/my-project",
-  "mode": "worktree"
-}
-```
-
-Managed worktrees are created under:
+Checkout mode is the default:
 
 ```text
-~/.devspace/worktrees
+open_workspace(path="~/project")
 ```
 
-Worktree mode requires a Git repository with at least one commit. It starts from
-`HEAD` unless `baseRef` is provided.
+ForgeRelay works directly in that directory. It does not silently create an
+isolated checkout.
 
-Each worktree-mode call creates a new managed worktree and returns a new
-`workspaceId`. Reuse that ID for work inside that worktree; call
-`open_workspace` in worktree mode again only when another isolated worktree is
-actually required.
+Use worktree mode only when the user explicitly requests isolated or parallel
+work:
 
-Uncommitted source checkout changes are not copied into the managed worktree.
-DevSpace reports when the source checkout was dirty so the model can decide how
-to proceed with the user.
+```text
+open_workspace(path="~/project", mode="worktree")
+```
 
-## Project Instructions
+## Managed worktrees
 
-When a workspace opens, DevSpace loads root-level instruction files:
+New ForgeRelay worktrees are branch-backed, not detached. A managed branch looks
+like:
 
-- `AGENTS.md`
-- `AGENTS.MD`
-- `CLAUDE.md`
-- `CLAUDE.MD`
+```text
+forgerelay/<repo>-<id>
+```
 
-Nested instruction files are returned as `availableAgentsFiles`. The model
-should read the relevant nested file before working under that directory.
+The worktree normally lives under:
 
-This keeps instructions explicit and inspectable instead of silently injecting
-new context during later tool calls.
+```text
+~/.forgerelay/worktrees
+```
 
-## Skills
+Existing configured/legacy roots remain supported.
 
-Skills are enabled by default for coding-agent workflows.
+The recorded target branch is the local branch that should receive completed
+work. An explicit `baseRef` must identify a local branch.
 
-DevSpace discovers standard Agent Skills from:
+By default, a repeated worktree request for the same source/target reuses the
+existing managed worktree. An explicit new-worktree request creates another
+parallel branch/worktree.
+
+`open_workspace` also returns known managed worktree paths and branch metadata
+so a specific existing worktree can be reopened directly.
+
+## Closing a managed worktree
+
+After the task is complete and verified, call `close_worktree` with the managed
+workspace ID and a commit message.
+
+ForgeRelay:
+
+1. verifies the source checkout remains on the expected target branch;
+2. requires the source checkout to be clean;
+3. verifies the managed worktree is on its recorded branch;
+4. commits remaining worktree changes when needed;
+5. rechecks cleanliness and source state;
+6. requires the source HEAD to be an ancestor of the managed worktree commit;
+7. fast-forwards the target branch;
+8. removes the managed worktree;
+9. deletes the already-merged managed branch.
+
+If histories diverge, close is refused and the worktree is preserved. Rebase and
+verify inside the worktree, then retry. The source checkout is not intentionally
+placed into a merge-conflict state.
+
+Legacy `devspace/*` managed branches remain closable when they are already stored
+in workspace metadata; only new managed branches use `forgerelay/*`.
+
+## Project instructions
+
+When a workspace opens, ForgeRelay loads root-level instruction files when they
+exist:
+
+```text
+AGENTS.md
+AGENTS.MD
+CLAUDE.md
+CLAUDE.MD
+```
+
+Nested instruction files are returned as available paths rather than all being
+injected eagerly. Read the relevant nested file before working under that path.
+
+## Agent Skills
+
+ForgeRelay discovers standard Agent Skills from:
 
 - `~/.agents/skills`
 - project `.agents/skills`
-- `~/.devspace/skills`
+- the active ForgeRelay config directory's `skills` folder
+- `FORGERELAY_AGENT_DIR/skills` (defaults to `~/.codex/skills`)
+- paths from `FORGERELAY_SKILL_PATHS`
 
-It also keeps compatibility with:
+When a task matches an advertised skill, read its `SKILL.md` before using other
+files in the skill directory.
 
-- the bundled `subagent-delegation` skill when `DEVSPACE_SUBAGENTS=1`, unless `~/.devspace/skills/subagent-delegation/SKILL.md` exists
-- `DEVSPACE_AGENT_DIR/skills`, defaulting to `~/.codex/skills`
-- additional paths from `DEVSPACE_SKILL_PATHS`
+`FORGERELAY_SKILLS=0` hides skills.
 
-When Subagents are enabled, DevSpace discovers agent profiles
-from `~/.devspace/agents/*.md` and project `.devspace/agents/*.md`.
-`open_workspace` exposes a compact catalog with profile names, descriptions,
-providers, and optional models/thinking levels so the model can choose a configured agent
-without seeing provider-specific launch details.
+## Local subagent profiles
 
-Example profiles are packaged under `examples/agents/` for users who want
-starter templates. Copy or adapt them into one of the active profile directories
-before use.
+With `FORGERELAY_SUBAGENTS=1`, profiles are discovered from the active global
+config directory plus:
 
-Legacy project paths such as `.pi/skills` can be added through `DEVSPACE_SKILL_PATHS` when needed.
+```text
+.forgerelay/agents/*.md
+.devspace/agents/*.md   # migration compatibility
+```
 
-When `open_workspace` returns matching skills, the model should read the
-advertised `SKILL.md` before following that skill.
+The workspace result exposes only compact profile metadata so the host can
+choose a provider/profile without loading full provider launch details.
 
-Skill paths may be outside the workspace. DevSpace only permits reading:
+The current model-facing delegation workflow is:
 
-- advertised `SKILL.md` files
-- files under a skill directory after that skill's `SKILL.md` has been read
+```bash
+forgerelay agents ls
+forgerelay agents run <profile-or-provider-or-id> "<prompt>"
+forgerelay agents show <id>
+```
 
-Set `DEVSPACE_SKILLS=0` to hide skills from workspace output. Set
-`DEVSPACE_SUBAGENTS=1` to expose the experimental subagent catalog and
-`subagent-delegation` skill. That skill teaches the minimal
-`devspace agents ls`, `devspace agents run`, and `devspace agents show`
-workflow. The catalog comes from `open_workspace`; `devspace agents ls` lists
-existing subagent sessions for that workspace.
+A first-class MCP subagent interface is planned so this CLI indirection can be
+removed.
 
-## Tool Names
+## Tool modes
 
-DevSpace exposes these tool names:
+Default `FORGERELAY_TOOL_MODE=minimal` exposes:
 
-- `open_workspace`
-- `read`
-- `write`
-- `edit`
-- `bash`
+```text
+open_workspace
+read
+write
+edit
+bash
+close_worktree
+```
 
-By default, DevSpace also runs in `DEVSPACE_TOOL_MODE=minimal`, so dedicated
-`grep`, `glob`, and `ls` tools are hidden. Use `bash` with command-line tools
-such as `rg`, `find`, and `ls` for search and directory inspection.
+The exact lifecycle tools available depend on the active server configuration.
+In minimal mode, normal shell inspection commands such as `rg`, `find`, and `ls`
+can be used rather than dedicated MCP search tools.
 
-Use `DEVSPACE_TOOL_MODE=full` to restore dedicated search and directory tools.
+`FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
 
-The experimental Codex-style surface is enabled with
-`DEVSPACE_TOOL_MODE=codex`. It exposes:
+Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
+surface including `apply_patch`, `exec_command`, and `write_stdin`.
 
-- `open_workspace`
-- `read`
-- `apply_patch`
-- `exec_command`
-- `write_stdin`
+## Change review UI
 
-In this mode, `write`, `edit`, `bash`, `grep`, `glob`, and `ls` are not
-registered. `exec_command` returns a process session ID when a command is still
-running after its yield window. Use `write_stdin` to poll it, send input, resize
-a PTY, or send Ctrl-C. Set `tty: true` only for commands that need a terminal.
+By default `FORGERELAY_WIDGETS=full` attaches ChatGPT Apps-compatible UI to the
+normal workspace/file/edit/shell tools.
 
-## Show Changes
+`FORGERELAY_WIDGETS=changes` exposes aggregate `show_changes` behavior and keeps
+widget usage focused on workspace/change review.
 
-By default, `DEVSPACE_WIDGETS=full`.
+`FORGERELAY_WIDGETS=off` disables widget UI.
 
-In that mode, DevSpace attaches widget UI to the exposed workspace, file, edit,
-and shell tools. The aggregate `show_changes` tool is not exposed by default.
+## Legacy configuration
 
-Use `DEVSPACE_WIDGETS=off` to disable widget UI, or `DEVSPACE_WIDGETS=changes`
-to expose the aggregate show-changes flow.
+`FORGERELAY_*` is the canonical environment-variable prefix. Equivalent
+`DEVSPACE_*` variables remain accepted as fallbacks during migration.
 
-When `show_changes` is exposed, call it exactly once after the final file
-modification in any turn that changes files. It shows the combined changes for
-that turn and advances the review point automatically. Reusing a workspace does
-not change this workflow.
-
-## Shell Use
-
-The shell tool is for commands that belong in a terminal:
-
-- tests
-- builds
-- git inspection
-- package scripts
-- environment checks
-
-File writes should go through the edit/write tools rather than shell
-redirection, heredocs, `tee`, `sed -i`, or generated scripts.
+Likewise, an existing `~/.devspace` configuration/state setup is reused when the
+new ForgeRelay location does not yet exist. See
+[Configuration Reference](configuration.md) for the compatibility rules.

@@ -1,108 +1,107 @@
 # Troubleshooting Gotchas
 
-This page collects the setup issues users are most likely to hit.
-
-## `devspace` Command Not Found
+## `forgerelay` command not found
 
 Use `npx`:
 
 ```bash
-npx @waishnav/devspace init
-npx @waishnav/devspace serve
+npx @akira-tl/forgerelay init
+npx @akira-tl/forgerelay serve
 ```
 
-If you installed globally, confirm npm's global bin directory is on `PATH`.
+If installed globally, confirm npm's global bin directory is on `PATH`.
 
-## Unsupported Node Version
+## Unsupported Node version
 
-DevSpace requires Node `>=22.19 <27`.
-
-Check:
+ForgeRelay requires Node `>=22.19 <27`.
 
 ```bash
 node --version
 ```
 
-Install Node 22 LTS with your preferred version manager such as `nvm`, `fnm`, or
-`mise`.
+## `better-sqlite3` could not load
 
-## `better-sqlite3` Could Not Load
-
-This usually means native dependencies were installed under a different Node
-runtime.
-
-Try:
+Native dependencies may have been installed under a different Node runtime.
 
 ```bash
 npm rebuild better-sqlite3
+npx @akira-tl/forgerelay doctor
 ```
 
-Then run:
+## Existing DevSpace config is still being used
+
+This is intentional migration behavior. If `~/.forgerelay` does not exist but
+`~/.devspace` does, ForgeRelay reuses the legacy config directory so existing
+OAuth/state configuration is not silently abandoned.
+
+Check the resolved directory:
 
 ```bash
-npx @waishnav/devspace doctor
+forgerelay doctor
 ```
 
-Release starts run a native dependency check before launching.
+To force a new location, set:
 
-## Public URL Includes `/mcp`
+```bash
+FORGERELAY_CONFIG_DIR="$HOME/.forgerelay" forgerelay init
+```
 
-Use the origin for setup:
+Do not delete the old directory until you have confirmed which persisted state,
+worktrees, skills, and profiles you still need.
+
+## Public URL includes `/mcp`
+
+Store the public **origin**:
 
 ```text
 https://your-tunnel-host.example.com
 ```
 
-Use the MCP endpoint in the client:
+The MCP client uses:
 
 ```text
 https://your-tunnel-host.example.com/mcp
 ```
 
-If you saved the wrong value:
+Fix a persisted URL with:
 
 ```bash
-npx @waishnav/devspace config set publicBaseUrl https://your-tunnel-host.example.com
+forgerelay config set publicBaseUrl https://your-tunnel-host.example.com
 ```
 
-## Tunnel URL Changed
+## Tunnel URL changed
 
-Temporary tunnels often change URLs between runs.
-
-For a one-off run:
+For one run:
 
 ```bash
-DEVSPACE_PUBLIC_BASE_URL="https://new-tunnel.example.com" npx @waishnav/devspace serve
+FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com" forgerelay serve
 ```
 
 For a stable URL:
 
 ```bash
-npx @waishnav/devspace config set publicBaseUrl https://devspace.example.com
+forgerelay config set publicBaseUrl https://forge.example.com
 ```
 
-## Host Header Or 403 Problems
-
-DevSpace derives allowed hosts from the configured public URL.
+## Host-header or 403 problems
 
 Run:
 
 ```bash
-npx @waishnav/devspace doctor
+forgerelay doctor
 ```
 
-Confirm the public URL hostname appears in allowed hosts. If you changed tunnel
-URLs, update `publicBaseUrl`.
+Confirm the public hostname appears in the resolved allowed hosts.
 
-Use this only for intentional local debugging:
+For intentional local debugging only:
 
 ```bash
-DEVSPACE_ALLOWED_HOSTS="*" npx @waishnav/devspace serve
+FORGERELAY_ALLOWED_HOSTS="*" forgerelay serve
 ```
 
-## OAuth Redirect Host Rejected
+## OAuth redirect host rejected
 
-By default, DevSpace allows redirects for:
+The default allowed redirect hosts are:
 
 ```text
 chatgpt.com
@@ -110,140 +109,135 @@ localhost
 127.0.0.1
 ```
 
-If another MCP client uses a different redirect host, configure:
+For another MCP client:
 
 ```bash
-DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" npx @waishnav/devspace serve
+FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay serve
 ```
 
-## Owner Password Not Accepted
+## Owner password not accepted
 
-Make sure you are entering the Owner password from:
+Check the auth file reported by:
+
+```bash
+forgerelay doctor
+```
+
+New installs normally use:
 
 ```text
-~/.devspace/auth.json
+~/.forgerelay/auth.json
 ```
 
-To regenerate setup:
+A migrated install may still use `~/.devspace/auth.json`.
+
+Regenerate setup intentionally with:
 
 ```bash
-npx @waishnav/devspace init --force
+forgerelay init --force
 ```
 
 ## Unknown `workspaceId`
 
-`workspaceId` values are session identifiers. If the server restarts and the
-client receives an unknown workspace error, call `open_workspace` again for that
-project.
+Reopen the project with `open_workspace` and use the returned ID. Active
+workspace identity is directory-based; reopening the same canonical checkout
+reuses its workspace ID when the stored session remains valid.
 
-Workspace session metadata is persisted. ChatGPT may provide optional
-conversation metadata that lets DevSpace resume the same checkout workspace for
-the same project in that conversation; repeated opens reuse the `workspaceId`
-and do not repeat context already provided for that reused checkout. Worktree
-mode always creates a new isolated workspace with its own complete context.
-Hosts without supported conversation metadata receive a normal new workspace.
-In all cases, continue passing the `workspaceId` returned by `open_workspace` to
-later tools. Other MCP hosts use this explicit workspace workflow as well.
+Worktree directories have their own workspace identities.
 
-To review work, call `show_changes` once after the final related file change. It
-shows the combined changes and advances the review point automatically.
+## Worktree mode fails
 
-## Data Retention
+Managed worktrees require:
 
-DevSpace does not currently prune workspace sessions, conversation bindings,
-or review refs. A future product retention policy will define safe cleanup for
-these records; no automatic deletion is performed today.
+- Git;
+- a repository with at least one commit;
+- an attached local source branch;
+- a local `baseRef` when one is explicitly supplied.
 
-## Workspace Path Rejected
+New managed branches use:
 
-The path must be inside one of the allowed roots configured during setup.
-
-Run:
-
-```bash
-npx @waishnav/devspace config get
+```text
+forgerelay/*
 ```
 
-Then either open a project under an allowed root or rerun setup:
+Legacy persisted `devspace/*` branches remain valid and closable.
+
+Uncommitted source-checkout changes are not automatically copied into a newly
+created worktree.
+
+## `close_worktree` refuses to finish
+
+Close is deliberately refused when:
+
+- the source checkout is dirty;
+- the source checkout is no longer on the recorded target branch;
+- the managed worktree is on the wrong branch;
+- source and managed histories diverged.
+
+Integration is fast-forward-only. If histories diverge, rebase and verify inside
+the managed worktree, then retry. ForgeRelay does not intentionally leave the
+source checkout in a merge-conflict state.
+
+## Windows shell commands fail
+
+ForgeRelay shell execution requires Bash. Native PowerShell and `cmd.exe` command
+execution are not currently supported by the shell runtime.
+
+Use Git Bash, WSL, MSYS2, or Cygwin Bash, then run:
 
 ```bash
-npx @waishnav/devspace init --force
+forgerelay doctor
 ```
 
-## Worktree Mode Fails
-
-Worktree mode requires:
-
-- Git installed
-- the path is inside a Git repository
-- the repository has at least one commit
-- the requested `baseRef` resolves to a commit
-
-For a new repository, create the first commit or use checkout mode.
-
-Uncommitted source checkout changes are not copied into the managed worktree.
-Commit, stash, or ask the model to work in checkout mode if those changes are
-needed.
-
-## Windows Shell Commands Fail
-
-DevSpace shell execution requires Bash. Native PowerShell and `cmd.exe` command
-execution are not supported yet.
-
-Install Git for Windows and use Git Bash, or use WSL, MSYS2, or Cygwin Bash.
-
-Run:
-
-```bash
-npx @waishnav/devspace doctor
-```
-
-Confirm Bash is detected.
-
-## Skills Do Not Appear
+## Skills do not appear
 
 Skills are enabled by default. Check:
 
 ```bash
-DEVSPACE_SKILLS=1 npx @waishnav/devspace serve
+FORGERELAY_SKILLS=1 forgerelay serve
 ```
 
-DevSpace looks in standard Agent Skills locations:
+Standard paths include:
 
 - `~/.agents/skills`
 - project `.agents/skills`
-- `~/.devspace/skills`
+- active ForgeRelay config `skills` directory
+- `FORGERELAY_AGENT_DIR/skills`
+- additional `FORGERELAY_SKILL_PATHS`
 
-It also checks compatibility and custom paths:
+## Subagent profiles do not appear
 
-- the bundled `subagent-delegation` skill when `DEVSPACE_SUBAGENTS=1`, unless `~/.devspace/skills/subagent-delegation/SKILL.md` exists
-- `DEVSPACE_AGENT_DIR/skills`, defaulting to `~/.codex/skills`
-- additional paths from `DEVSPACE_SKILL_PATHS`
-
-When `DEVSPACE_SUBAGENTS=1`, DevSpace loads agent profiles from
-`~/.devspace/agents/*.md` and project `.devspace/agents/*.md`, then exposes a
-compact profile catalog through `open_workspace`. The bundled
-`subagent-delegation` skill keeps the model-facing workflow to
-`devspace agents ls`, `devspace agents run`, and `devspace agents show`.
-`devspace agents ls` lists existing subagent sessions, not profile
-definitions.
-
-Packaged agent profile examples under `examples/agents/` are starter templates.
-Copy or adapt them into one of the active profile directories before use.
-
-Legacy project paths such as `.pi/skills` can be added through `DEVSPACE_SKILL_PATHS` when needed.
-
-If a skill appears in `open_workspace`, the model must read that skill's
-`SKILL.md` before reading other files inside the skill directory.
-
-## Review Card Does Not Appear
-
-Per-tool widget cards are enabled by default with:
+Enable subagents:
 
 ```bash
-DEVSPACE_WIDGETS=full
+FORGERELAY_SUBAGENTS=1 forgerelay serve
 ```
 
-The aggregate `show_changes` tool is only exposed with
-`DEVSPACE_WIDGETS=changes`. Plain MCP clients may ignore ChatGPT Apps widget
-metadata and only show text results.
+New profile locations include:
+
+```text
+~/.forgerelay/agents/*.md
+.forgerelay/agents/*.md
+```
+
+Legacy `.devspace/agents` paths remain supported.
+
+`forgerelay agents ls` lists sessions, not profile definitions. The compact
+profile catalog is returned through `open_workspace`.
+
+## Review/change card does not appear
+
+Per-tool widgets default to:
+
+```bash
+FORGERELAY_WIDGETS=full
+```
+
+Use `FORGERELAY_WIDGETS=changes` for aggregate `show_changes`, or `off` to
+disable UI. Plain MCP clients may ignore ChatGPT Apps widget metadata.
+
+## Data retention
+
+ForgeRelay does not yet automatically prune all persisted workspace sessions,
+conversation bindings, or review refs. Retention/GC remains roadmap work; do not
+assume inactive records are deleted automatically.

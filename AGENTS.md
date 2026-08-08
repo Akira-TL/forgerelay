@@ -1,18 +1,18 @@
-# DevSpace
+# ForgeRelay
 
-DevSpace is a local development execution layer for MCP hosts such as ChatGPT and Claude. It gives a remote host workspace-scoped tools for reading, editing, searching, running commands, managing Git worktrees, reviewing changes, and coordinating bounded subagents on the user's machine.
+ForgeRelay is a local development execution layer for MCP hosts such as ChatGPT and Claude. It gives a remote host workspace-scoped tools for reading, editing, searching, running commands, managing Git worktrees, reviewing changes, and coordinating bounded subagents on the user's machine.
 
-Pi's SDK currently provides mature local coding primitives. DevSpace wraps those primitives in a Streamable HTTP MCP server and adds the product-specific boundaries around them: approved roots, workspace state, instructions, process sessions, worktrees, artifacts, review checkpoints, widgets, and subagent execution.
+Pi's SDK currently provides mature local coding primitives. ForgeRelay wraps those primitives in a Streamable HTTP MCP server and adds the product-specific boundaries around them: approved roots, workspace state, instructions, process sessions, worktrees, artifacts, review checkpoints, widgets, and subagent execution.
 
-DevSpace owns tooling mechanics. The model receives only meaningful and actionable choices. The user sees outcomes. Tool defination should not leak internal implementation or it shoudn't be giving unwanted options to model to choose from if tooling can handle this.
+ForgeRelay owns tooling mechanics. The model receives only meaningful and actionable choices. The user sees outcomes. Tool definitions should not leak internal implementation or expose choices the tooling can resolve itself.
 
 ## Product model
 
 These ideas should stay true as the project evolves:
 
-1. **The host is the orchestrator.** DevSpace exposes clear capabilities and execution state. It should not hide the workflow inside an opaque, uninspectable agent loop.
+1. **The host is the orchestrator.** ForgeRelay exposes clear capabilities and execution state. It should not hide the workflow inside an opaque, uninspectable agent loop.
 2. **Everything happens in a workspace.** A workspace represents one local project directory or worktree plus the instructions and state accumulated while operating in it.
-3. **Local authority stays explicit.** DevSpace runs with access to the user's machine. Roots, paths, commands, processes, credentials, and destructive operations must be treated as product boundaries.
+3. **Local authority stays explicit.** ForgeRelay runs with access to the user's machine. Roots, paths, commands, processes, credentials, and destructive operations must be treated as product boundaries.
 4. **Subagents are bounded workers.** A subagent should have an explicit task, profile, working context, lifecycle, and result that the host can inspect and coordinate.
 5. **Adapters stay at the edges.** Pi, MCP hosts, and model providers each have their own terminology and capabilities. Provider-specific behavior should not become the core domain model.
 6. **Prefer composable primitives.** Build a small set of reliable operations that can be combined into larger workflows instead of baking every workflow into the server.
@@ -20,7 +20,7 @@ These ideas should stay true as the project evolves:
 ## Glossary
 
 - **Host** — the MCP client presenting the agent experience and coordinating work.
-- **Server** — the local DevSpace MCP server.
+- **Server** — the local ForgeRelay MCP server.
 - **Workspace** — one opened directory or worktree and its accumulated instruction context.
 - **`workspaceId`** — the opaque handle returned by `open_workspace` and reused for calls in that workspace.
 - **Allowed root** — a configured filesystem boundary within which a workspace may be opened. It is not itself necessarily a workspace.
@@ -43,15 +43,15 @@ Filesystem tools enforce approved-root containment. Shell commands run with the 
 
 Resolve and validate paths before destructive actions. Do not broaden an allowed root, delete application state, expose a credential, or replace an existing process as a convenient fix.
 
-Keep tunnel ownership and credentials with the user. DevSpace may operate through a user-controlled tunnel, but it does not own tunnel lifecycle or configuration.
+Keep tunnel ownership and credentials with the user. ForgeRelay may operate through a user-controlled tunnel, but it does not own tunnel lifecycle or configuration.
 
 ## Diagnose the correct layer
 
-A failure may belong to the host, MCP transport, DevSpace, a Pi adapter, a provider, a model, a tool implementation, or the target project. Preserve the original error and identify the failing boundary before changing code.
+A failure may belong to the host, MCP transport, ForgeRelay, a Pi adapter, a provider, a model, a tool implementation, or the target project. Preserve the original error and identify the failing boundary before changing code.
 
 An adapter exception is not evidence that a model failed. A successful command is not evidence that a GUI opened, a host refreshed, or a user-visible workflow succeeded.
 
-Do not expand DevSpace's responsibility while fixing a local symptom. Host UI, provider model naming, tunnel management, and duplicated review experiences require an explicit product decision.
+Do not expand ForgeRelay's responsibility while fixing a local symptom. Host UI, provider model naming, tunnel management, and duplicated review experiences require an explicit product decision.
 
 ## Verify the real path
 
@@ -105,14 +105,14 @@ For UI changes, include before/after images and a short interaction video when b
 - `src/db/` — persisted local state and migrations.
 - `test/` — behavior and regression tests.
 
-Start at the boundary named by the problem and follow the data. Keep policy in DevSpace, provider translation in adapters, and important behavior in schemas, types, checks, or explicit tool results rather than hidden prompt conventions.
+Start at the boundary named by the problem and follow the data. Keep policy in ForgeRelay, provider translation in adapters, and important behavior in schemas, types, checks, or explicit tool results rather than hidden prompt conventions.
 
 ## Project taste
 
 - Prefer explicit lifecycle and state over hidden autonomy.
 - Make tasks, inputs, outputs, failures, and ownership inspectable.
 - Keep subagent execution composable and independently testable.
-- Preserve host and provider data unless DevSpace has a concrete reason to normalize it.
+- Preserve host and provider data unless ForgeRelay has a concrete reason to normalize it.
 - Add compatibility behavior only for an identified consumer with a real upgrade path.
 - Reuse glossary terms in schemas, types, documentation, and errors.
 - Keep the execution layer small, reliable, and unsurprising.

@@ -1,7 +1,7 @@
 # Setup Guide
 
 This guide is for users who want ChatGPT or another MCP host to work in local
-projects through DevSpace.
+projects through ForgeRelay.
 
 ## Requirements
 
@@ -9,25 +9,25 @@ projects through DevSpace.
 - npm
 - Git
 - Bash, including Git Bash or WSL on Windows
-- a public HTTPS URL that forwards to the local DevSpace server
+- a public HTTPS URL when the MCP host cannot connect directly to localhost
 
-DevSpace does not create the public tunnel for you. Use Cloudflare Tunnel,
+ForgeRelay does not create the public tunnel for you. Use Cloudflare Tunnel,
 ngrok, Pinggy, Tailscale Funnel, or your own HTTPS reverse proxy.
 
-## Install And Configure
+## Install and configure
 
 Run:
 
 ```bash
-npx @waishnav/devspace init
+npx @akira-tl/forgerelay init
 ```
 
-The setup flow asks one question at a time.
+The setup flow asks for the allowed project roots, local port, and public base
+URL.
 
-### Project Roots
+### Project roots
 
-Choose the folders ChatGPT is allowed to open through DevSpace. Keep this
-narrow.
+Choose only the folders the connected MCP host should be able to open.
 
 Examples:
 
@@ -43,20 +43,17 @@ Examples:
 C:\Users\alice\dev,C:\Users\alice\work
 ```
 
-### Local Port
+### Local port
 
 The default is `7676`.
-
-The local MCP URL is:
 
 ```text
 http://127.0.0.1:7676/mcp
 ```
 
-### Public Base URL
+### Public base URL
 
-Start your tunnel or reverse proxy before entering this value. Point the tunnel
-at:
+Point your tunnel or reverse proxy at:
 
 ```text
 http://127.0.0.1:7676
@@ -68,65 +65,68 @@ Enter the public origin without `/mcp`:
 https://your-tunnel-host.example.com
 ```
 
-Configure the MCP client with the full MCP endpoint:
+Configure the MCP client with:
 
 ```text
 https://your-tunnel-host.example.com/mcp
 ```
 
-## Start The Server
-
-Run:
+## Start the server
 
 ```bash
-npx @waishnav/devspace serve
+npx @akira-tl/forgerelay serve
 ```
 
-If your tunnel URL changes for one run, override it without rewriting config:
+For a one-run public URL override:
 
 ```bash
-DEVSPACE_PUBLIC_BASE_URL="https://new-tunnel.example.com" npx @waishnav/devspace serve
+FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com" \
+npx @akira-tl/forgerelay serve
 ```
 
-For a stable public URL, persist it:
+For a stable public URL:
 
 ```bash
-npx @waishnav/devspace config set publicBaseUrl https://devspace.example.com
-npx @waishnav/devspace serve
+npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com
+npx @akira-tl/forgerelay serve
 ```
 
-## Approve The Client
+## Approve the client
 
-When ChatGPT, Claude, or another MCP client connects, DevSpace shows an Owner
-password approval page. Enter the Owner password printed during setup.
+When ChatGPT, Claude, or another MCP client connects, ForgeRelay displays an
+Owner-password approval page. Enter the Owner password printed during setup.
 
-The default config files are:
+New installations use:
 
 ```text
-~/.devspace/config.json
-~/.devspace/auth.json
+~/.forgerelay/config.json
+~/.forgerelay/auth.json
 ```
 
 Keep `auth.json` private.
 
-## Check Your Setup
+### Existing DevSpace configuration
 
-Run:
+During migration, if `~/.forgerelay` does not exist but `~/.devspace` does,
+ForgeRelay reuses the legacy directory automatically. `FORGERELAY_CONFIG_DIR`
+takes precedence over the legacy `DEVSPACE_CONFIG_DIR` environment variable.
+
+You do not need to move a working legacy config before starting ForgeRelay.
+
+## Check the setup
 
 ```bash
-npx @waishnav/devspace doctor
+npx @akira-tl/forgerelay doctor
 ```
 
-The doctor command reports the resolved config, Node version, Node ABI, platform,
-Git, Bash, public URL, allowed hosts, and SQLite native dependency status.
+The doctor command reports the resolved config, Node runtime, platform, Git,
+Bash, public URL, allowed hosts, and native SQLite dependency status.
 
-## Running From A Local Checkout
+## Running from a local checkout
 
-If you are developing DevSpace itself instead of using the published package:
+For ForgeRelay development itself:
 
 ```bash
 npm install --include=dev
 npm run dev
 ```
-
-The same setup rules apply.

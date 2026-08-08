@@ -1,245 +1,265 @@
-<p align="center">
-  <picture>
-    <img src="https://raw.githubusercontent.com/Waishnav/devspace/main/docs/assets/devspace-logo-light.png" alt="DevSpace logo" width="140">
-  </picture>
-</p>
+# ForgeRelay
 
-<h1 align="center">DevSpace</h1>
+**Give MCP coding agents a real local workspace.**
 
-<p align="center">Bring a Codex-style coding workflow to ChatGPT.</p>
+[![npm](https://img.shields.io/npm/v/%40akira-tl%2Fforgerelay?style=flat-square)](https://www.npmjs.com/package/@akira-tl/forgerelay)
+[![CI](https://img.shields.io/github/actions/workflow/status/Akira-TL/forgerelay/ci.yml?style=flat-square&branch=main)](https://github.com/Akira-TL/forgerelay/actions/workflows/ci.yml)
+[![License](https://img.shields.io/npm/l/%40akira-tl%2Fforgerelay?style=flat-square)](LICENSE)
 
-<p align="center">
-  <a href="https://www.npmjs.com/package/@waishnav/devspace"><img alt="npm" src="https://img.shields.io/npm/v/%40waishnav%2Fdevspace?style=flat-square" /></a>
-  <a href="https://github.com/Waishnav/devspace/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Waishnav/devspace/ci.yml?style=flat-square&branch=main" /></a>
-  <a href="https://github.com/Waishnav/devspace/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/npm/l/%40waishnav%2Fdevspace?style=flat-square" /></a>
-</p>
+ForgeRelay is a self-hosted MCP server that lets ChatGPT and other MCP-capable
+hosts work on the repositories already on your machine. The host gets explicit
+tools for files, shell commands, Git, managed worktrees, change review, and
+optional local-agent delegation. Your project stays in your normal development
+environment, with the same compilers, package managers, credentials, and Git
+installation you already use.
 
-[![DevSpace connected to ChatGPT](https://raw.githubusercontent.com/Waishnav/devspace/main/docs/assets/devspace-screenshot.png)](https://raw.githubusercontent.com/Waishnav/devspace/main/docs/assets/devspace-screenshot.png)
+It is not a model and it is not another coding-agent UI. ForgeRelay sits between
+the host and your local development tools and handles the parts that need to run
+on your machine.
 
-**Give ChatGPT a secure connection to your own machine and Turn ChatGPT into Codex**
+> [!NOTE]
+> ForgeRelay is an independently maintained derivative of the MIT-licensed
+> [Waishnav/devspace](https://github.com/Waishnav/devspace) project. It is not an
+> official DevSpace release. The original copyright notice and license are kept
+> in [LICENSE](LICENSE), with additional provenance in [NOTICE.md](NOTICE.md).
 
-DevSpace is a self-hosted MCP server that lets ChatGPT read, edit, search, and run code in your real local projects — your files, your tools, your terminal — without uploading anything to a third party. You run it on your machine, expose it through a tunnel you control, and approve the connection with a password only you have.
+## Quick start
 
-## Sponsors and Special Thanks
+ForgeRelay requires Node `>=22.19 <27`, npm, Git, and a Bash-compatible shell.
 
-<table>
-  <thead>
-    <tr>
-      <th>Sponsor</th>
-      <th>About</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center" width="220">
-        <a href="https://rebates.ai/">
-          <img
-            src="https://app.rebates.ai/brand/rebates-lockup.svg"
-            alt="Rebates"
-            width="170"
-          >
-        </a>
-      </td>
-      <td>
-        <strong>The ads in your terminal pay you.</strong><br><br>
-        <a href="https://rebates.ai/">Rebates</a> adds one optional
-        sponsored footer to your coding agent and pays you cash back for every
-        session in which it is shown. Turn it off at any time.
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-<p>
-  DevSpace is open to new sponsors.
-  <a href="https://x.com/wshxnv">Get in touch to become one.</a>
-</p>
-
-## Installation
-
-DevSpace requires Node `>=22.19 <27`.
-
-Install the DevSpace CLI:
+Install it globally:
 
 ```bash
-npm install -g @waishnav/devspace
+npm install -g @akira-tl/forgerelay
 ```
 
-Then initialize and start the server:
+Then configure and start it:
 
 ```bash
-devspace init
-devspace serve
+forgerelay init
+forgerelay serve
 ```
 
-Or run it without a global install:
+Or run it directly with `npx`:
 
 ```bash
-npx @waishnav/devspace init
-npx @waishnav/devspace serve
+npx @akira-tl/forgerelay init
+npx @akira-tl/forgerelay serve
 ```
 
-During setup, DevSpace asks for:
-
-- the local project folders ChatGPT is allowed to open through DevSpace
-- the local port, usually `7676`
-- your public HTTPS base URL from Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or
-  another reverse proxy
-
-Use the public origin without `/mcp` during setup:
-
-```text
-https://your-tunnel-host.example.com
-```
-
-You will configure your MCP client with the public `/mcp` URL after setup.
-
-When the client connects, DevSpace opens an Owner password approval page. Enter
-the Owner password printed by `devspace init`. It is also stored in:
-
-```text
-~/.devspace/auth.json
-```
-
-Keep that password private.
-
-## Connect Your MCP Client
-
-The default local endpoint is:
+The default local MCP endpoint is:
 
 ```text
 http://127.0.0.1:7676/mcp
 ```
 
-Most users should connect through a public HTTPS tunnel:
+If the MCP host cannot reach localhost, put ForgeRelay behind a public HTTPS
+tunnel or reverse proxy such as Cloudflare Tunnel, ngrok, Pinggy, Tailscale
+Funnel, or your own proxy. During setup, enter the public origin without `/mcp`:
+
+```text
+https://your-tunnel-host.example.com
+```
+
+The client then connects to:
 
 ```text
 https://your-tunnel-host.example.com/mcp
 ```
 
-> [!NOTE]
-> Using DevSpace as an MCP connector isn't against OpenAI's Usage Policies — it's
-> a standard custom App/connector setup, and writing or running code isn't a
-> restricted use case. But your account is governed by your usage, not by
-> DevSpace. Don't point it at anything that would violate your provider's terms.
-> Used normally, you're fine. (Based on OpenAI's Usage Policies and Service Terms
-> as of June 2026.)
+ForgeRelay uses an Owner-password OAuth approval flow. `forgerelay init` prints
+the password and stores it in the active config directory. New installations use:
 
-## What ChatGPT Can Do
+```text
+~/.forgerelay/config.json
+~/.forgerelay/auth.json
+```
 
-Once connected, ChatGPT can open one of your approved project folders as a
-workspace. From there, it can inspect the repo, make scoped edits, run commands,
-and show you what changed.
+Keep `auth.json` private.
 
-DevSpace gives ChatGPT tools to:
+## What it gives an MCP host
 
-- read, write, and edit files inside the opened workspace
-- search code and inspect directories
-- run shell commands for tests, builds, git, and package scripts
-- use isolated Git worktrees for parallel coding sessions
-- follow project instructions from `AGENTS.md` and `CLAUDE.md`
-- discover local agent skills from your skill folders
-- show tool cards and optional change summaries in ChatGPT Apps-compatible hosts
+Once a workspace is open, the host can:
 
-## Mental Model
+- read, create, edit, and search files inside that workspace;
+- run your local tests, builds, package scripts, Git commands, and shell tools;
+- reuse the same workspace when the same checkout is opened again;
+- follow repository instructions from `AGENTS.md` and `CLAUDE.md`;
+- discover Agent Skills and configured local subagent profiles;
+- create a branch-backed Git worktree when you explicitly ask for isolated or
+  parallel work;
+- close a managed worktree by committing its remaining changes and
+  fast-forwarding the target branch when that can be done safely;
+- show aggregate changes through optional ChatGPT Apps-compatible UI cards.
 
-DevSpace is remote access to selected local folders.
+Normal work happens in your existing checkout. ForgeRelay does not silently move
+every task into a worktree.
 
-You decide which roots are allowed. The MCP client still has powerful local
-capabilities inside an opened workspace, including shell execution. Treat a
-connected client like a trusted coding partner with access to your machine.
+## Worktrees without the usual cleanup mess
 
-For a normal ChatGPT coding session:
-
-1. Start your tunnel.
-2. Run `devspace serve`.
-3. Connect the MCP client to your public `/mcp` URL.
-4. Approve the connection with the Owner password.
-5. Ask ChatGPT to open a project inside one of your allowed roots.
-
-## Platform Support
-
-DevSpace supports Linux, macOS, and Windows environments with a Bash-compatible
-shell.
-
-| Platform                                          | Status            | Notes                                          |
-| ------------------------------------------------- | ----------------- | ---------------------------------------------- |
-| Linux                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| macOS                                             | Supported         | Requires Node, npm, Git, and Bash.             |
-| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported         | Git Bash is the simplest native Windows setup. |
-| Windows PowerShell or `cmd.exe` only              | Not supported yet | Install Git Bash or use WSL.                   |
-
-Run this to inspect your local setup:
+A new managed worktree gets its own `forgerelay/*` branch instead of a detached
+HEAD. It remains visible from the source repository with ordinary Git commands:
 
 ```bash
-devspace doctor
+git worktree list
+git branch
 ```
+
+When `close_worktree` succeeds, ForgeRelay:
+
+1. checks that the source checkout is clean and still on the expected target branch;
+2. commits any remaining worktree changes;
+3. checks that the target can advance without a merge commit or conflict;
+4. fast-forwards the target branch;
+5. removes the worktree and the already-merged managed branch.
+
+If the histories have diverged, the close is refused and the worktree is left in
+place. ForgeRelay does not put the source checkout into a merge-conflict state.
+You can rebase and verify inside the worktree, then retry the close.
+
+## Local coding agents
+
+ForgeRelay can delegate work to local coding runtimes through user-defined
+profiles. The current adapter layer supports Codex, Claude, OpenCode, Pi,
+Cursor, and Copilot where the corresponding local integration is available.
+
+Profiles can live in:
+
+```text
+~/.forgerelay/agents/*.md
+.forgerelay/agents/*.md
+```
+
+The current CLI workflow is:
+
+```bash
+forgerelay agents ls
+forgerelay agents run <profile-or-provider-or-id> "<prompt>"
+forgerelay agents show <id>
+```
+
+A first-class MCP subagent interface is planned so a parent agent can use the
+same runtime without going through the CLI.
+
+See [Agent Profile Schema](docs/agent-profile-schema.md) for the profile format.
+
+## Configuration and upgrades from DevSpace
+
+New configuration uses the `FORGERELAY_*` prefix. For example:
+
+```bash
+FORGERELAY_ALLOWED_ROOTS="$HOME/projects" \
+FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com" \
+forgerelay serve
+```
+
+Existing `DEVSPACE_*` variables are still accepted as fallbacks during the
+rename transition. When both names are present, `FORGERELAY_*` wins.
+
+The same rule applies to persisted configuration. ForgeRelay prefers
+`~/.forgerelay`, but if that directory does not exist and an existing
+`~/.devspace` setup does, ForgeRelay keeps using the legacy directory rather
+than orphaning OAuth credentials, workspace state, or managed worktrees.
+
+Project-level `.devspace/agents` profiles are also still readable for migration
+compatibility. New project configuration should use `.forgerelay`.
+
+See [Configuration Reference](docs/configuration.md) for all supported options.
+
+## Security model
+
+A connected MCP host can make real changes to local projects through ForgeRelay,
+using the same local account that runs the server. That trust boundary matters.
+
+Filesystem tools enforce configured workspace and allowed-root boundaries. Shell
+commands are different: they run with the authority of your local user and are
+**not** contained by an operating-system sandbox added by ForgeRelay.
+
+Only connect hosts you trust, keep the Owner password private, and expose only
+the project roots you actually want the host to use.
+
+See [Security Model](docs/security.md) for the full boundary and threat model.
+
+## Platform support
+
+| Platform | Status | Notes |
+| --- | --- | --- |
+| Linux | Supported | Requires Node, npm, Git, and Bash. |
+| macOS | Supported | Requires Node, npm, Git, and Bash. |
+| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Git Bash is the simplest native Windows setup. |
+| Windows PowerShell or `cmd.exe` only | Not supported yet | Install Git Bash or use WSL. |
+
+You can check the local runtime with:
+
+```bash
+forgerelay doctor
+```
+
+## Where ForgeRelay is going
+
+The next additions are focused on making the local execution layer more useful,
+not on turning ForgeRelay into another all-in-one agent framework:
+
+1. lifecycle hooks;
+2. LSP-backed code intelligence;
+3. first-class MCP subagent delegation;
+4. stronger worktree verification and recovery;
+5. checkpoint/rewind and retention improvements.
+
+ForgeRelay does not plan to add its own shell sandbox, long-term memory system,
+or plugin marketplace. Conversation, planning, web access, and other host-native
+capabilities stay with the MCP host. Long-term context can be provided by a
+separate service instead of being mixed into the workspace runtime.
+
+See [Roadmap](docs/roadmap.md) for the current plan.
+
+## Releases
+
+ForgeRelay uses standard SemVer, starting at `0.1.0`.
+
+Prepare a release with:
+
+```bash
+npm run release:check
+npm run release:patch
+npm run release:minor
+npm run release:major
+npm run release:verify
+```
+
+Pushing a matching `vX.Y.Z` tag to `Akira-TL/forgerelay` is the publish action.
+GitHub Actions verifies the tagged commit, publishes `@akira-tl/forgerelay` to
+npm, and creates the matching GitHub Release.
+
+See [Versioning and Release Management](docs/versioning.md) for the bootstrap and
+Trusted Publishing setup.
 
 ## Documentation
 
-- [Setup Guide](https://github.com/Waishnav/devspace/blob/main/docs/setup.md)
-- [ChatGPT Coding Workflow](https://github.com/Waishnav/devspace/blob/main/docs/chatgpt-coding-workflow.md)
-- [Configuration Reference](https://github.com/Waishnav/devspace/blob/main/docs/configuration.md)
-- [Native File Download](https://github.com/Waishnav/devspace/blob/main/docs/artifact-exchange.md)
-- [Security Model](https://github.com/Waishnav/devspace/blob/main/docs/security.md)
-- [Troubleshooting Gotchas](https://github.com/Waishnav/devspace/blob/main/docs/gotchas.md)
+- [Setup Guide](docs/setup.md)
+- [ChatGPT Coding Workflow](docs/chatgpt-coding-workflow.md)
+- [Configuration Reference](docs/configuration.md)
+- [Agent Profile Schema](docs/agent-profile-schema.md)
+- [Native File Download](docs/artifact-exchange.md)
+- [Security Model](docs/security.md)
+- [Troubleshooting](docs/gotchas.md)
+- [Roadmap](docs/roadmap.md)
+- [Versioning and Release Management](docs/versioning.md)
+- [Changelog](CHANGELOG.md)
+- [Attribution Notice](NOTICE.md)
 
-## Philosophy
+## Upstream and attribution
 
-Every piece of software is becoming conversational. Natural language is
-redefining how we interact with tools, workflows, and systems.
+ForgeRelay is based on the original
+[Waishnav/devspace](https://github.com/Waishnav/devspace) project by Waishnav,
+released under the MIT License. ForgeRelay has its own name, package, release
+stream, runtime changes, and roadmap, but the upstream provenance remains part of
+the project.
 
-My bet is that ChatGPT becomes the operating system for everything. Once we
-reach AGI, we will simply talk to ChatGPT, and it will prompt, coordinate, and
-orchestrate sub-agents that set up the right loops for us.
+The original copyright notice remains in [LICENSE](LICENSE). See
+[NOTICE.md](NOTICE.md) for the attribution and modification notice.
 
-We are not there yet.
-
-DevSpace is one attempt to fast-forward that future: a way for MCP-capable
-hosts like ChatGPT and Claude to work directly with local project files through
-explicit, inspectable tools.
-
-## Built by Waishnav
-
-I'm Waishnav. I like building opinionated products and tools, and Artifacts is one example.
-
-This year, I began my journey to build a one-person, multi-agent company capable of generating millions in revenue. If you want to follow the failures, wins, lessons, and everything in between, come hang out with me on [X](https://x.com/wshxnv).
-
-
-## More from me
-
-<table>
-  <thead>
-    <tr>
-      <th>Project</th>
-      <th>About</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center" width="220">
-        <a href="https://gitcms.dev/">
-          <img
-            src="https://gitcms.dev/brand/gitcms-logo.svg"
-            alt="GitCMS"
-            width="48"
-          /><br />
-          <strong>GitCMS</strong>
-        </a>
-      </td>
-      <td>
-        <strong>Modern CMS and tooling for markdown based content sites — built for agents and humans.</strong><br><br>
-        Visual editing, editorial workflow, and ChatGPT/Claude content agents, with
-        every post and page stored as files in your repo.
-        <a href="https://gitcms.dev/">Learn more</a>.
-      </td>
-    </tr>
-  </tbody>
-</table>
-
-## Local Development
-
-For working on DevSpace itself:
+## Local development
 
 ```bash
 npm install --include=dev
@@ -247,5 +267,4 @@ npm run dev
 npm run typecheck
 npm test
 npm run build
-npm run start
 ```

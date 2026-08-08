@@ -1,165 +1,119 @@
-# Subagent profile schema
+# ForgeRelay Agent Profile Schema
 
-DevSpace agent profiles are user-owned markdown files with YAML
-frontmatter. They describe roles such as reviewer, explorer, or implementer.
-DevSpace owns provider invocation.
+ForgeRelay agent profiles are user-owned Markdown files with YAML frontmatter.
+ForgeRelay owns provider invocation; the profile describes which local coding
+runtime to use and what prompt prefix/configuration to apply.
 
-Profiles are discovered from:
+## Locations
 
-- `~/.devspace/agents/*.md`
-- `.devspace/agents/*.md`
+New locations:
 
-Packaged files under `examples/agents/` are starter templates only.
+```text
+~/.forgerelay/agents/*.md
+.forgerelay/agents/*.md
+```
 
-## Minimal shape
+Migration compatibility:
 
-```md
+```text
+~/.devspace/agents/*.md
+.devspace/agents/*.md
+```
+
+When an existing legacy config directory is reused, its global `agents` folder
+remains active automatically.
+
+## Example
+
+```markdown
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: reviewer
-description: Read-only reviewer for bugs, security risks, and missing tests.
+description: Review changes for correctness and regressions.
 provider: codex
-model: gpt-5.4
+model: gpt-5.6-codex
 thinking: high
-disabled: false
 ---
 
-You are a read-only reviewer. Do not edit files.
-Focus on correctness, security, test gaps, and maintainability.
-Cite files and return concise findings.
+Review the requested implementation. Focus on correctness, regression risk,
+and missing tests. Return concrete findings before optional suggestions.
 ```
 
-## Frontmatter fields
+The `schema` field is descriptive/versioning metadata for profile authors. The
+current parser focuses on the supported operational fields below.
 
-### `schema`
-
-Optional schema identifier:
-
-```yaml
-schema: devspace-agent/v1
-```
+## Fields
 
 ### `name`
 
-Stable profile identifier shown to the model and accepted by:
-
-```bash
-devspace agents run <name> "<prompt>"
-```
-
-Use lowercase kebab-case names. If omitted, DevSpace uses the filename without
-`.md`.
+Optional. Use lowercase kebab-case when practical. If omitted, ForgeRelay uses
+the filename without `.md`.
 
 ### `description`
 
-Required short purpose. This is exposed by `open_workspace` so the supervising
-model can choose the right profile.
+Optional but recommended. This is shown in the compact profile catalog returned
+to the MCP host.
 
 ### `provider`
 
-Required built-in provider id:
+Required. Currently supported provider identifiers are:
 
-```yaml
-provider: codex
-provider: claude
-provider: opencode
-provider: pi
-provider: cursor
-provider: copilot
+```text
+codex
+claude
+opencode
+pi
+cursor
+copilot
 ```
 
-Unsupported or custom providers are rejected. DevSpace maps providers to their
-native integration:
-
-- `codex`: Codex SDK
-- `claude`: Claude Code SDK
-- `opencode`: OpenCode SDK
-- `pi`: Pi RPC mode
-- `cursor`: ACP
-- `copilot`: ACP
+Custom provider strings are rejected. ForgeRelay maps these identifiers through
+its local provider adapter registry.
 
 ### `model`
 
-Optional provider model id or alias.
-
-```yaml
-model: gpt-5.4
-model: sonnet
-```
+Optional provider-specific model value. If omitted, the provider default
+applies.
 
 ### `thinking`
 
-Optional provider reasoning effort, thinking level, or model variant. If omitted,
-DevSpace lets the provider default apply. Values are provider-specific
-passthrough strings; DevSpace does not translate names between harnesses.
-
-```yaml
-thinking: low
-thinking: high
-thinking: xhigh
-```
-
-DevSpace passes this through to providers that expose a matching control:
-
-- `claude`: SDK effort with adaptive thinking.
-- `codex`: SDK model reasoning effort.
-- `pi`: `--thinking`.
-- `opencode`: model variant.
-- `cursor` and `copilot`: ACP thought-level config when supported.
+Optional provider-specific reasoning/thinking control. ForgeRelay passes through
+supported values rather than translating names between providers.
 
 ### `disabled`
 
-Optional boolean. Disabled profiles are not exposed.
+Optional boolean. `true` excludes the profile from the active catalog.
 
-```yaml
-disabled: true
-```
+## Prompt body
 
-## Markdown body
+The Markdown body after frontmatter is the profile prompt prefix ForgeRelay
+prepends when launching the provider-backed worker.
 
-The body is the profile prompt prefix DevSpace prepends when launching that
-profile. It is not included in `open_workspace` by default.
+Keep reusable worker policy here; keep task-specific instructions in the prompt
+supplied to the `run` command/tool.
 
-Recommended body content:
-
-- When to use this profile.
-- Whether the worker should act read-only or may make changes.
-- Output format.
-- Review or testing expectations.
-
-## Model-facing workflow
-
-The Subagent skill teaches only:
+## Current CLI workflow
 
 ```bash
-devspace agents ls
-devspace agents run <profile-or-id> "<prompt>"
-devspace agents show <id>
+forgerelay agents ls
+forgerelay agents run <profile-or-provider-or-id> "<prompt>"
+forgerelay agents show <id>
 ```
 
-`open_workspace` exposes compact profile metadata:
+Optional provider overrides include:
 
-```json
-{
-  "name": "reviewer",
-  "description": "Read-only reviewer for bugs, security risks, and missing tests.",
-  "provider": "codex",
-  "model": "gpt-5.4",
-  "thinking": "high"
-}
+```bash
+forgerelay agents run <profile> --model <model> "<prompt>"
+forgerelay agents run <profile> --thinking <level> "<prompt>"
 ```
 
-`devspace agents ls` lists existing subagent sessions for the current workspace;
-it does not list profile definitions.
+`agents ls` lists existing subagent sessions for the current workspace; it is
+not the profile-definition catalog. The compact profile catalog is returned by
+`open_workspace` when subagents are enabled.
 
-The full profile body stays out of the model context until DevSpace launches the
-profile.
+## MCP direction
 
-## Current non-goals
-
-- Custom or arbitrary CLI-backed agents.
-- Inferring changed files, tests, or diffs from worker output.
-- Exposing raw provider transcripts by default.
-- Teaching the model provider-specific CLIs.
-- First-class MCP agent tools. Future tools should wrap the same provider
-  adapter registry used by `devspace agents`.
+Profiles and provider execution are intentionally independent of the current
+CLI transport. A planned first-class MCP subagent tool will wrap the same
+provider adapter/session registry rather than introducing a second agent
+runtime.

@@ -1,124 +1,142 @@
 # Security Model
 
-DevSpace exposes local coding capabilities over MCP. Treat it as remote access
-to your development machine.
+ForgeRelay exposes local coding capabilities over MCP. Treat a connected client
+as a trusted coding operator with access to the capabilities you expose.
 
-The security model is simple:
+## Allowed workspace roots
 
-- you choose a narrow filesystem allowlist
-- the MCP endpoint requires OAuth approval with your Owner password
-- Host headers are allowlisted from the configured public URL
-- every coding action happens through explicit MCP tool calls
+ForgeRelay only opens workspaces under configured roots. Keep the root list as
+narrow as practical.
 
-## Filesystem Allowlist
-
-DevSpace only opens workspaces under configured roots.
-
-Good examples:
+Example:
 
 ```text
-~/work
-~/personal/open-source
+~/personal,~/work
 ```
 
-Avoid broad roots:
+Do not use your entire home directory unless that is intentionally the access
+boundary you want.
+
+Filesystem-oriented tools validate workspace-relative paths and reject paths
+that escape the opened workspace or configured roots.
+
+## Owner-password OAuth
+
+New installations store local configuration in:
 
 ```text
-~
-/
-C:\
+~/.forgerelay/config.json
+~/.forgerelay/auth.json
 ```
 
-The narrower the root, the easier it is to reason about what the MCP client can
-reach.
+`auth.json` contains the Owner password and should remain private. When a client
+connects, ForgeRelay presents an approval page where that password authorizes
+the connection.
 
-## Owner Password
-
-`devspace init` generates an Owner password and stores it in:
-
-```text
-~/.devspace/auth.json
-```
-
-When an MCP client connects, DevSpace shows an approval page. Enter the Owner
-password only when you intentionally want that client to access this server.
-
-For env-driven deployments, set a long random value:
+For environment-only deployments:
 
 ```bash
-DEVSPACE_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)"
+FORGERELAY_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)"
 ```
 
-## Public URL And Host Allowlist
+The token must be at least 16 characters.
 
-DevSpace needs `DEVSPACE_PUBLIC_BASE_URL` so MCP clients can discover OAuth
-metadata and connect to the correct resource.
+Existing `~/.devspace` configuration and `DEVSPACE_*` variables remain readable
+for migration compatibility when the new ForgeRelay equivalents are absent.
 
-The value should be the origin only:
+## Public URL and tunnels
+
+ForgeRelay needs `FORGERELAY_PUBLIC_BASE_URL` when an MCP client reaches it
+through a public HTTPS origin.
+
+Use the origin without `/mcp`:
 
 ```text
-https://your-tunnel-host.example.com
+https://forge.example.com
 ```
 
-Do not include `/mcp` in `DEVSPACE_PUBLIC_BASE_URL`.
+The client connects to:
 
-By default, DevSpace derives allowed Host headers from the local host and public
-URL. Use `DEVSPACE_ALLOWED_HOSTS=*` only for intentional local debugging.
+```text
+https://forge.example.com/mcp
+```
 
-## Tunnels
-
-DevSpace does not manage tunnels. Your tunnel or reverse proxy should point to:
+ForgeRelay does not manage the tunnel. Your tunnel or reverse proxy should point
+to the local server, normally:
 
 ```text
 http://127.0.0.1:7676
 ```
 
-Prefer adding Cloudflare Access, Tailscale identity controls, or equivalent
-protection in front of public tunnels. DevSpace OAuth still protects the MCP
-endpoint, but the tunnel URL should not be treated as a secret.
+By default, ForgeRelay derives allowed Host headers from the local host and
+configured public URL. `FORGERELAY_ALLOWED_HOSTS=*` disables that allowlist and
+should only be used intentionally.
 
-## Shell Access
+## Shell execution is not sandboxed
 
-The shell tool is powerful by design. It is meant for tests, builds, git, and
-package scripts.
+This boundary is important:
 
-Filesystem path containment applies to DevSpace file tools. Shell commands run
-as local commands and can do what your user account can do. This is why the MCP
-client must be trusted and the Owner password must stay private.
+**Filesystem path containment is not a shell sandbox.**
 
-## Worktrees
+ForgeRelay's file tools are scoped to the opened workspace, but shell commands
+run with the authority of the local operating-system user that started
+ForgeRelay. A shell command can therefore access resources that the local user
+can access, including paths outside the workspace.
 
-Managed worktrees reduce accidental edits to your active checkout, but they are
-not a security boundary. They are a workflow boundary for isolated coding
-sessions.
+ForgeRelay intentionally does not add its own OS sandbox. Many development
+workflows need compilers, package managers, system tools, credentials, external
+repositories, local services, and other resources outside a narrow workspace
+sandbox, and MCP currently does not provide a clean universal interaction model
+for dynamically crossing such a boundary.
 
-## Native File Download
+The security model is therefore based on:
 
-Native file download is an opt-in, one-shot transfer into an already-open
-workspace. `download_artifact` accepts the MCP host's native file value, the
-`workspaceId` returned by `open_workspace`, and an unused relative destination
-path. It returns only the workspace-relative path and does not create a
-persistent artifact service or reusable artifact ID.
+- strong authentication;
+- narrow allowed project roots for filesystem tools;
+- a trusted MCP client/model relationship;
+- explicit tool calls and observable local execution;
+- the user's existing OS/account permissions.
 
-DevSpace accepts only the documented native-file object and trusted OpenAI
-download hosts and redirects. Arbitrary URL strings, local source paths,
-credentials, malformed references, and unknown object fields are rejected.
+Do not describe ForgeRelay as a sandboxed coding environment.
 
-Absolute paths, traversal, symlinked parents, and existing destinations also
-fail closed. Downloads stream under the configured per-file limit and are
-published without overwrite as owner-only files. DevSpace does not extract or
-execute transferred content.
+## Git and managed worktrees
 
-## Logs
+Managed worktrees are branch-backed and visible in the source repository.
+ForgeRelay refuses unsafe close operations when:
 
-By default, DevSpace logs requests and tool calls. Shell command previews are
-disabled unless `DEVSPACE_LOG_SHELL_COMMANDS=1`.
+- the source checkout is dirty;
+- the source checkout left the recorded target branch;
+- source and worktree histories diverged;
+- the managed worktree is on the wrong branch.
 
-Do not enable shell command logging if commands may contain secrets.
+Integration is fast-forward-only, so a failed close does not intentionally put
+the source checkout into a merge-conflict state.
 
-Artifact tool logs contain bounded workspace ID, validated hostname,
-workspace-relative output path, byte count, hash, duration, and status metadata.
-`download_artifact` does not log the opaque file value. Raw content, connector
-references, native file IDs, bearer credentials, presigned URLs, host paths,
-temporary paths, and base64 chunks are never included in tool logs or tool
-results.
+## Native artifact download
+
+When enabled, `download_artifact` accepts only the supported native file value
+provided by the MCP host. It does not accept arbitrary signed URLs, local paths,
+embedded credentials, or base64 strings as substitutes.
+
+Downloads are streamed, size-limited, created without overwrite, and published
+as owner-only files. See [Native File Download](artifact-exchange.md).
+
+## Logging
+
+ForgeRelay logs requests/tool calls by default. Shell command previews are off
+unless explicitly enabled:
+
+```bash
+FORGERELAY_LOG_SHELL_COMMANDS=1
+```
+
+Command arguments can contain secrets, so only enable command-preview logging
+when necessary.
+
+## Package provenance
+
+ForgeRelay is derived from the MIT-licensed DevSpace project. Public releases
+preserve the upstream copyright/license and include `NOTICE.md`. The release
+check fails if required attribution is removed.
+
+See [NOTICE.md](../NOTICE.md) and [LICENSE](../LICENSE).
