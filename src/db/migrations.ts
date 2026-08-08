@@ -27,6 +27,11 @@ const migrations: Migration[] = [
     name: "workspace-conversation-bindings",
     up: migrateWorkspaceConversationBindings,
   },
+  {
+    version: 5,
+    name: "workspace-worktree-branches",
+    up: migrateWorkspaceWorktreeBranches,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -196,6 +201,11 @@ function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
     create index if not exists workspace_conversation_bindings_workspace_idx
       on workspace_conversation_bindings(workspace_session_id);
   `);
+}
+
+function migrateWorkspaceWorktreeBranches(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "workspace_sessions", "branch", "text");
+  addColumnIfMissing(sqlite, "workspace_sessions", "target_branch", "text");
 }
 
 function addColumnIfMissing(

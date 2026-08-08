@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
   workspaceConversationBindings,
@@ -17,6 +17,8 @@ export interface WorkspaceSession {
   sourceRoot?: string;
   baseRef?: string;
   baseSha?: string;
+  branch?: string;
+  targetBranch?: string;
   managed: boolean;
   createdAt: string;
   lastUsedAt: string;
@@ -38,10 +40,14 @@ export interface WorkspaceStore {
     sourceRoot?: string;
     baseRef?: string;
     baseSha?: string;
+    branch?: string;
+    targetBranch?: string;
     managed?: boolean;
   }): WorkspaceSession;
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
+  setSessionStatus(id: string, status: string): void;
+  listSessions(input?: { status?: string; mode?: WorkspaceMode }): WorkspaceSession[];
   getConversationBinding(
     conversationScopeId: string,
     targetKey: string,
@@ -70,6 +76,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     sourceRoot?: string;
     baseRef?: string;
     baseSha?: string;
+    branch?: string;
+    targetBranch?: string;
     managed?: boolean;
   }): WorkspaceSession {
     const now = new Date().toISOString();
@@ -81,6 +89,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       sourceRoot: input.sourceRoot,
       baseRef: input.baseRef,
       baseSha: input.baseSha,
+      branch: input.branch,
+      targetBranch: input.targetBranch,
       managed: input.managed ?? false,
       createdAt: now,
       lastUsedAt: now,
@@ -96,6 +106,8 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         sourceRoot: session.sourceRoot ?? null,
         baseRef: session.baseRef ?? null,
         baseSha: session.baseSha ?? null,
+        branch: session.branch ?? null,
+        targetBranch: session.targetBranch ?? null,
         managed: String(session.managed),
         createdAt: session.createdAt,
         lastUsedAt: session.lastUsedAt,
@@ -121,6 +133,33 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .set({ lastUsedAt: new Date().toISOString() })
       .where(eq(workspaceSessions.id, id))
       .run();
+  }
+
+  setSessionStatus(id: string, status: string): void {
+    this.database.db
+      .update(workspaceSessions)
+      .set({ status, lastUsedAt: new Date().toISOString() })
+      .where(eq(workspaceSessions.id, id))
+      .run();
+  }
+
+  listSessions(input: { status?: string; mode?: WorkspaceMode } = {}): WorkspaceSession[] {
+    const conditions = [
+      input.status ? eq(workspaceSessions.status, input.status) : undefined,
+      input.mode ? eq(workspaceSessions.mode, input.mode) : undefined,
+    ].filter((condition): condition is NonNullable<typeof condition> => condition !== undefined);
+
+    const query = this.database.db
+      .select()
+      .from(workspaceSessions)
+      .orderBy(desc(workspaceSessions.lastUsedAt));
+    const rows = conditions.length === 0
+      ? query.all()
+      : conditions.length === 1
+        ? query.where(conditions[0]).all()
+        : query.where(and(...conditions)).all();
+
+    return rows.map(rowToWorkspaceSession);
   }
 
   getConversationBinding(
@@ -220,6 +259,8 @@ function rowToWorkspaceSession(row: WorkspaceSessionRow): WorkspaceSession {
     sourceRoot: row.sourceRoot ?? undefined,
     baseRef: row.baseRef ?? undefined,
     baseSha: row.baseSha ?? undefined,
+    branch: row.branch ?? undefined,
+    targetBranch: row.targetBranch ?? undefined,
     managed: row.managed === "true",
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,

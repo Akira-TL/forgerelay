@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -93,12 +93,91 @@ test("worktree opens require Git and create an isolated managed workspace", asyn
   assert.equal(opened.workspace.worktree?.baseRef, "HEAD");
   assert.equal(opened.workspace.worktree?.dirtySource, true);
   assert.equal(opened.workspace.worktree?.managed, true);
+  assert.equal(opened.workspace.worktree?.detached, false);
+  assert.match(opened.workspace.worktree?.branch ?? "", /^forgerelay\//);
+  assert.equal(
+    opened.workspace.worktree?.targetBranch,
+    (await gitOutput(gitRoot, ["branch", "--show-current"])).trim(),
+  );
+  assert.equal(
+    (await gitOutput(opened.workspace.root, ["branch", "--show-current"])).trim(),
+    opened.workspace.worktree?.branch,
+  );
+  assert.match(
+    await gitOutput(gitRoot, ["worktree", "list", "--porcelain"]),
+    new RegExp(`branch refs/heads/${opened.workspace.worktree?.branch}`),
+  );
   assert.equal((await stat(opened.workspace.root)).isDirectory(), true);
   assert.match(opened.agentsFiles.map((file) => file.content).join("\n"), /global instructions/);
   assert.match(opened.agentsFiles.map((file) => file.content).join("\n"), /git root instructions/);
 
   const resolvedReadme = context.registry.resolvePath(opened.workspace, "README.md");
   assert.equal(resolvedReadme.startsWith(opened.workspace.root), true);
+});
+
+test("closing a managed worktree commits, fast-forwards the target branch, and cleans up", async (t) => {
+  const context = await fixture(t);
+  const gitRoot = await createGitProject(context.root);
+  const opened = await context.registry.openWorkspace({ path: gitRoot, mode: "worktree" });
+  const worktreePath = opened.workspace.root;
+  const branch = opened.workspace.worktree?.branch;
+  const targetBranch = opened.workspace.worktree?.targetBranch;
+  assert.ok(branch);
+  assert.ok(targetBranch);
+
+  await writeFile(join(worktreePath, "feature.txt"), "finished\n");
+  const closed = await context.registry.closeWorktree(opened.workspace.id, "feat: finish managed worktree");
+
+  assert.equal(closed.branch, branch);
+  assert.equal(closed.targetBranch, targetBranch);
+  assert.equal(closed.committed, true);
+  assert.equal((await readFile(join(gitRoot, "feature.txt"), "utf8")), "finished\n");
+  assert.equal((await gitOutput(gitRoot, ["rev-parse", "HEAD"])).trim(), closed.mergedSha);
+  assert.equal((await gitOutput(gitRoot, ["log", "-1", "--pretty=%s"])).trim(), "feat: finish managed worktree");
+  await assert.rejects(() => stat(worktreePath), /ENOENT/);
+  assert.equal((await gitOutput(gitRoot, ["branch", "--list", branch])).trim(), "");
+  assert.throws(() => context.registry.getWorkspace(opened.workspace.id), /Unknown workspaceId/);
+});
+
+test("closing a managed worktree refuses a dirty source checkout and preserves the worktree", async (t) => {
+  const context = await fixture(t);
+  const gitRoot = await createGitProject(context.root);
+  const opened = await context.registry.openWorkspace({ path: gitRoot, mode: "worktree" });
+  await writeFile(join(opened.workspace.root, "feature.txt"), "finished\n");
+  await writeFile(join(gitRoot, "local.txt"), "user work\n");
+
+  await assert.rejects(
+    () => context.registry.closeWorktree(opened.workspace.id, "feat: should not merge"),
+    (error: unknown) =>
+      error instanceof GitWorktreeError && error.code === "GIT_WORKTREE_SOURCE_DIRTY",
+  );
+
+  assert.equal((await stat(opened.workspace.root)).isDirectory(), true);
+  assert.equal((await readFile(join(opened.workspace.root, "feature.txt"), "utf8")), "finished\n");
+  assert.equal((await gitOutput(gitRoot, ["status", "--porcelain=v1"])).includes("local.txt"), true);
+});
+
+test("closing a diverged worktree never puts the source checkout into a merge conflict", async (t) => {
+  const context = await fixture(t);
+  const gitRoot = await createGitProject(context.root);
+  const opened = await context.registry.openWorkspace({ path: gitRoot, mode: "worktree" });
+  await writeFile(join(opened.workspace.root, "worktree.txt"), "worktree change\n");
+
+  await writeFile(join(gitRoot, "source.txt"), "source change\n");
+  await git(gitRoot, ["add", "."]);
+  await git(gitRoot, ["commit", "-m", "source advances"]);
+  const sourceHead = (await gitOutput(gitRoot, ["rev-parse", "HEAD"])).trim();
+
+  await assert.rejects(
+    () => context.registry.closeWorktree(opened.workspace.id, "feat: worktree change"),
+    (error: unknown) =>
+      error instanceof GitWorktreeError && error.code === "GIT_WORKTREE_DIVERGED",
+  );
+
+  assert.equal((await gitOutput(gitRoot, ["rev-parse", "HEAD"])).trim(), sourceHead);
+  assert.equal((await gitOutput(gitRoot, ["status", "--porcelain=v1"])).trim(), "");
+  assert.equal((await stat(opened.workspace.root)).isDirectory(), true);
+  assert.equal((await gitOutput(opened.workspace.root, ["log", "-1", "--pretty=%s"])).trim(), "feat: worktree change");
 });
 
 test("persisted checkout and worktree sessions restore after recreating the registry", async (t) => {
@@ -124,6 +203,9 @@ test("persisted checkout and worktree sessions restore after recreating the regi
     assert.equal(restoredWorktree.mode, "worktree");
     assert.equal(restoredWorktree.sourceRoot, gitRoot);
     assert.equal(restoredWorktree.worktree?.managed, true);
+    assert.equal(restoredWorktree.worktree?.detached, false);
+    assert.equal(restoredWorktree.worktree?.branch, worktree.workspace.worktree?.branch);
+    assert.equal(restoredWorktree.worktree?.targetBranch, worktree.workspace.worktree?.targetBranch);
   } finally {
     secondStore.close();
   }
@@ -246,4 +328,9 @@ async function createGitProject(parent: string): Promise<string> {
 
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout;
 }

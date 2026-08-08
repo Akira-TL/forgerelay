@@ -2,6 +2,7 @@ import type { ServerConfig } from "../config.js";
 
 export const toolNames = {
   openWorkspace: "open_workspace",
+  closeWorktree: "close_worktree",
   read: "read",
   write: "write",
   edit: "edit",
@@ -48,7 +49,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     write: `Create or completely overwrite a file inside an open workspace. The path is resolved within the workspace filesystem boundary. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     edit: `Edit one file inside an open workspace by replacing exact text blocks. Each oldText must match a unique, non-overlapping region of the original file. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Paths must be relative to the workspace. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
+    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. Do not use ${toolNames.shell} to create or modify project files; use ${toolNames.edit} or ${toolNames.write} for file changes. Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -58,8 +59,8 @@ function capabilityContractInstructions(
   context: ServerInstructionContext,
 ): string {
   const workspaceLifecycle = config.toolMode === "codex"
-    ? `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree and reuse its workspaceId. Open it again when the workspaceId is invalid, the project changes, checkout/worktree mode changes, or another isolated worktree is needed.`
-    : `Use DevSpace as a local coding workspace. Call ${toolNames.openWorkspace} once per project folder or worktree to obtain a workspaceId. Reuse that same workspaceId for all later file, search, edit, write, show-changes, and shell tools in that folder; do not call ${toolNames.openWorkspace} again unless switching to a different project folder, changing checkout/worktree mode, the workspaceId is rejected as unknown, or a new isolated worktree is requested.`;
+    ? `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`
+    : `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId for later file, search, edit, write, show-changes, and shell tools. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it.`;
   const skills = config.skillsEnabled
@@ -67,7 +68,7 @@ function capabilityContractInstructions(
     : "";
   const toolSurface = toolSurfaceInstructions(config);
   const artifact = config.artifactsEnabled && context.artifactDownloadSupported
-    ? "When the user supplies or generates a file that is not present on the DevSpace host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs."
+    ? "When the user supplies or generates a file that is not present on the ForgeRelay host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs."
     : "";
   const showChanges = config.widgets === "changes"
     ? "If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change; do not skip it because individual file-change tools already returned diffs."

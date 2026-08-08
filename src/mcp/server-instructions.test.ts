@@ -23,7 +23,9 @@ function instructions(env: NodeJS.ProcessEnv = {}): string {
 test("default instructions keep capability contract and built-in workflow preference", () => {
   const result = instructions();
 
-  assert.match(result, /Call open_workspace once per project folder or worktree/);
+  assert.match(result, /Default to the user's existing checkout/);
+  assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted modifications/);
   assert.match(result, /Do not create or modify files with bash/);
@@ -34,7 +36,9 @@ test("workflow override replaces built-in workflow without replacing the capabil
     DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined development and Git workflows.",
   });
 
-  assert.match(result, /Call open_workspace once per project folder or worktree/);
+  assert.match(result, /Default to the user's existing checkout/);
+  assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Use repository-defined development and Git workflows\./);
   assert.doesNotMatch(result, /Prefer edit for targeted modifications/);
@@ -44,7 +48,9 @@ test("workflow override replaces built-in workflow without replacing the capabil
 test("empty workflow override emits capability-only instructions", () => {
   const result = instructions({ DEVSPACE_WORKFLOW_INSTRUCTIONS: "" });
 
-  assert.match(result, /Call open_workspace once per project folder or worktree/);
+  assert.match(result, /Default to the user's existing checkout/);
+  assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.doesNotMatch(result, /Prefer edit for targeted modifications/);
   assert.doesNotMatch(result, /Do not create or modify files with bash/);
@@ -78,8 +84,8 @@ test("tool descriptions expose capabilities without embedding workflow policy", 
 
   assert.match(descriptions.shell, /local user's authority/);
   assert.match(descriptions.shell, /does not make shell execution a sandbox/);
+  assert.match(descriptions.shell, /Do not use bash to create or modify project files/);
   assert.doesNotMatch(descriptions.shell, /Use only for/);
-  assert.doesNotMatch(descriptions.shell, /Do not use bash to create or modify files/);
   assert.equal(descriptions.shellCommand, "Shell command to run with the local user's authority.");
   assert.doesNotMatch(descriptions.read, /instead of shell commands/);
   assert.doesNotMatch(descriptions.write, /Prefer edit/);

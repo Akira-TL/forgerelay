@@ -15,7 +15,12 @@ export class GitWorktreeError extends Error {
       | "GIT_REPOSITORY_NOT_FOUND"
       | "GIT_REPOSITORY_HAS_NO_COMMITS"
       | "GIT_INVALID_BASE_REF"
-      | "GIT_WORKTREE_CREATE_FAILED",
+      | "GIT_WORKTREE_SOURCE_DETACHED"
+      | "GIT_WORKTREE_CREATE_FAILED"
+      | "GIT_WORKTREE_CLOSE_FAILED"
+      | "GIT_WORKTREE_SOURCE_DIRTY"
+      | "GIT_WORKTREE_SOURCE_BRANCH_CHANGED"
+      | "GIT_WORKTREE_DIVERGED",
     message: string,
   ) {
     super(message);
@@ -28,9 +33,22 @@ export interface ManagedWorktree {
   path: string;
   baseRef: string;
   baseSha: string;
+  branch: string;
+  targetBranch: string;
   dirtySource: boolean;
-  detached: boolean;
-  managed: boolean;
+  detached: false;
+  managed: true;
+}
+
+export interface ClosedManagedWorktree {
+  sourceRoot: string;
+  path: string;
+  branch: string;
+  targetBranch: string;
+  commitSha: string;
+  mergedSha: string;
+  committed: boolean;
+  cleanupWarning?: string;
 }
 
 export async function createManagedWorktree(input: {
@@ -56,20 +74,21 @@ export async function createManagedWorktree(input: {
     );
   }
 
-  const sourceRoot = await resolveGitRoot(sourcePath, input.config.allowedRoots);
-  const baseRef = input.baseRef ?? "HEAD";
-  const baseSha = await resolveBaseCommit(sourceRoot, baseRef);
+  const { sourceRoot, baseRef, baseSha, targetBranch } = await resolveManagedWorktreeBase(input);
   const dirtySource = (await git(["status", "--porcelain=v1"], sourceRoot)).trim().length > 0;
+  const worktreeId = randomBytes(4).toString("hex");
   const worktreePath = managedWorktreePath({
     worktreeRoot: input.config.worktreeRoot,
     repoRoot: sourceRoot,
+    worktreeId,
   });
+  const branch = managedWorktreeBranch({ repoRoot: sourceRoot, worktreeId });
 
   await mkdir(input.config.worktreeRoot, { recursive: true });
   assertAllowedPath(worktreePath, [input.config.worktreeRoot]);
 
   try {
-    await git(["worktree", "add", "--detach", worktreePath, baseSha], sourceRoot);
+    await git(["worktree", "add", "-b", branch, worktreePath, baseSha], sourceRoot);
   } catch (error) {
     await rm(worktreePath, { recursive: true, force: true });
     const message = error instanceof Error ? error.message : String(error);
@@ -84,10 +103,137 @@ export async function createManagedWorktree(input: {
     path: worktreePath,
     baseRef,
     baseSha,
+    branch,
+    targetBranch,
     dirtySource,
-    detached: true,
+    detached: false,
     managed: true,
   };
+}
+
+export async function closeManagedWorktree(input: {
+  worktree: ManagedWorktree;
+  commitMessage: string;
+  config: ServerConfig;
+}): Promise<ClosedManagedWorktree> {
+  const sourceRoot = assertAllowedPath(input.worktree.sourceRoot, input.config.allowedRoots);
+  const worktreePath = assertAllowedPath(input.worktree.path, [input.config.worktreeRoot]);
+  const sourceBranch = await currentBranch(sourceRoot);
+  if (sourceBranch !== input.worktree.targetBranch) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_SOURCE_BRANCH_CHANGED",
+      `Cannot close worktree because the source checkout is on branch ${JSON.stringify(sourceBranch)} instead of target branch ${JSON.stringify(input.worktree.targetBranch)}. Switch the source checkout back to the target branch and retry.`,
+    );
+  }
+
+  const sourceDirty = (await git(["status", "--porcelain=v1"], sourceRoot)).trim().length > 0;
+  if (sourceDirty) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_SOURCE_DIRTY",
+      "Cannot close worktree because the source checkout has uncommitted changes. Commit or stash them first; the managed worktree is unchanged.",
+    );
+  }
+
+  const worktreeBranch = await currentBranch(worktreePath);
+  if (worktreeBranch !== input.worktree.branch) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      `Cannot close worktree because it is on branch ${JSON.stringify(worktreeBranch)} instead of its managed branch ${JSON.stringify(input.worktree.branch)}.`,
+    );
+  }
+
+  let committed = false;
+  if ((await git(["status", "--porcelain=v1"], worktreePath)).trim().length > 0) {
+    await git(["add", "-A"], worktreePath);
+    try {
+      await git(["commit", "-m", input.commitMessage], worktreePath);
+      committed = true;
+    } catch (error) {
+      throw new GitWorktreeError(
+        "GIT_WORKTREE_CLOSE_FAILED",
+        `Git failed to commit the managed worktree before closing it. ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  if ((await git(["status", "--porcelain=v1"], worktreePath)).trim().length > 0) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      "Cannot close worktree because it still has uncommitted changes after the close commit. A Git hook may have modified files; inspect and verify the worktree, then retry.",
+    );
+  }
+
+  const sourceBranchBeforeMerge = await currentBranch(sourceRoot);
+  if (sourceBranchBeforeMerge !== input.worktree.targetBranch) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_SOURCE_BRANCH_CHANGED",
+      `Cannot close worktree because the source checkout changed to branch ${JSON.stringify(sourceBranchBeforeMerge)} while the worktree was being finalized. The source checkout was not merged.`,
+    );
+  }
+  if ((await git(["status", "--porcelain=v1"], sourceRoot)).trim().length > 0) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_SOURCE_DIRTY",
+      "Cannot close worktree because the source checkout changed while the worktree was being finalized. The source checkout was not merged; commit or stash those changes and retry.",
+    );
+  }
+
+  const sourceHead = (await git(["rev-parse", "HEAD"], sourceRoot)).trim();
+  const commitSha = (await git(["rev-parse", "HEAD"], worktreePath)).trim();
+  if (!(await isAncestor(sourceHead, commitSha, sourceRoot))) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_DIVERGED",
+      `Cannot close worktree because ${input.worktree.targetBranch} advanced independently of ${input.worktree.branch}. Rebase the worktree branch onto ${input.worktree.targetBranch} inside the worktree, resolve and verify there, then retry. The source checkout was not modified.`,
+    );
+  }
+
+  try {
+    await git(["merge", "--ff-only", input.worktree.branch], sourceRoot);
+  } catch (error) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_DIVERGED",
+      `Git could not fast-forward ${input.worktree.targetBranch} to ${input.worktree.branch}. The source checkout was not put into a merge-conflict state. ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const mergedSha = (await git(["rev-parse", "HEAD"], sourceRoot)).trim();
+
+  try {
+    await git(["worktree", "remove", worktreePath], sourceRoot);
+  } catch (error) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      `Changes were merged into ${input.worktree.targetBranch}, but ForgeRelay could not remove the managed worktree. The branch and workspace are preserved so cleanup can be retried. ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  let cleanupWarning: string | undefined;
+  try {
+    await git(["branch", "-d", input.worktree.branch], sourceRoot);
+  } catch (error) {
+    cleanupWarning = `The worktree was removed and its changes were merged, but Git could not delete branch ${input.worktree.branch}. Delete that already-merged branch manually if desired. ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  return {
+    sourceRoot,
+    path: worktreePath,
+    branch: input.worktree.branch,
+    targetBranch: input.worktree.targetBranch,
+    commitSha,
+    mergedSha,
+    committed,
+    cleanupWarning,
+  };
+}
+
+export async function resolveManagedWorktreeBase(input: {
+  sourcePath: string;
+  baseRef?: string;
+  config: ServerConfig;
+}): Promise<{ sourceRoot: string; baseRef: string; baseSha: string; targetBranch: string }> {
+  const sourcePath = assertAllowedPath(input.sourcePath, input.config.allowedRoots);
+  const sourceRoot = await resolveGitRoot(sourcePath, input.config.allowedRoots);
+  const resolved = await resolveWorktreeBase(sourceRoot, input.baseRef);
+  return { sourceRoot, ...resolved };
 }
 
 async function resolveGitRoot(path: string, allowedRoots: string[]): Promise<string> {
@@ -128,28 +274,83 @@ async function assertGitRootAllowed(gitRoot: string, allowedRoots: string[]): Pr
   }
 }
 
-async function resolveBaseCommit(sourceRoot: string, baseRef: string): Promise<string> {
+async function resolveWorktreeBase(
+  sourceRoot: string,
+  requestedBaseRef: string | undefined,
+): Promise<{ baseRef: string; baseSha: string; targetBranch: string }> {
+  const targetBranch = requestedBaseRef && requestedBaseRef !== "HEAD"
+    ? normalizeLocalBranchName(requestedBaseRef)
+    : await currentBranch(sourceRoot);
+
+  if (!targetBranch) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_SOURCE_DETACHED",
+      "Cannot create a managed worktree from a detached source checkout. Switch the source checkout to the branch that should receive the finished work first.",
+    );
+  }
+
   try {
-    return (await git(["rev-parse", "--verify", `${baseRef}^{commit}`], sourceRoot)).trim();
-  } catch (error) {
-    if (baseRef === "HEAD") {
+    const baseSha = (await git(["rev-parse", "--verify", `refs/heads/${targetBranch}^{commit}`], sourceRoot)).trim();
+    return {
+      baseRef: requestedBaseRef ?? "HEAD",
+      baseSha,
+      targetBranch,
+    };
+  } catch {
+    if (!requestedBaseRef || requestedBaseRef === "HEAD") {
       throw new GitWorktreeError(
         "GIT_REPOSITORY_HAS_NO_COMMITS",
-        "Cannot open workspace in worktree mode because the repository has no commits yet. Create an initial commit first, or use mode=\"checkout\".",
+        "Cannot open workspace in worktree mode because the current branch has no commits yet. Create an initial commit first, or use checkout mode.",
       );
     }
 
     throw new GitWorktreeError(
       "GIT_INVALID_BASE_REF",
-      `Cannot open workspace in worktree mode because baseRef ${JSON.stringify(baseRef)} does not resolve to a commit.`,
+      `Cannot create a managed worktree because baseRef ${JSON.stringify(requestedBaseRef)} is not a local branch. Managed worktrees must start from the local branch they will eventually merge back into.`,
     );
   }
 }
 
-function managedWorktreePath(input: { worktreeRoot: string; repoRoot: string }): string {
+async function currentBranch(cwd: string): Promise<string> {
+  try {
+    return (await git(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd)).trim();
+  } catch {
+    return "";
+  }
+}
+
+function normalizeLocalBranchName(value: string): string {
+  return value.startsWith("refs/heads/") ? value.slice("refs/heads/".length) : value;
+}
+
+async function isAncestor(ancestor: string, descendant: string, cwd: string): Promise<boolean> {
+  try {
+    await git(["merge-base", "--is-ancestor", ancestor, descendant], cwd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function managedWorktreePath(input: {
+  worktreeRoot: string;
+  repoRoot: string;
+  worktreeId: string;
+}): string {
   const repoName = sanitizePathSegment(basename(input.repoRoot)) || "repo";
-  const worktreeId = randomBytes(4).toString("hex");
-  return join(input.worktreeRoot, `${repoName}-${worktreeId}`);
+  return join(input.worktreeRoot, `${repoName}-${input.worktreeId}`);
+}
+
+function managedWorktreeBranch(input: { repoRoot: string; worktreeId: string }): string {
+  const repoName = sanitizeGitBranchSegment(basename(input.repoRoot)) || "repo";
+  return `forgerelay/${repoName}-${input.worktreeId}`;
+}
+
+function sanitizeGitBranchSegment(value: string): string {
+  return value
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .slice(0, 80);
 }
 
 function sanitizePathSegment(value: string): string {

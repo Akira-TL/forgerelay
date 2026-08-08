@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -21,14 +21,20 @@ test("MCP instructions separate capability contract from configurable workflow p
   const defaultInstructions = defaultContext.client.getInstructions() ?? "";
   const defaultTools = await defaultContext.client.listTools();
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
+  const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
   const shellInputProperties = (shellTool?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   } | undefined)?.properties;
 
-  assert.match(defaultInstructions, /Call open_workspace once per project folder or worktree/);
+  assert.match(defaultInstructions, /Default to the user's existing checkout/);
+  assert.match(defaultInstructions, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(defaultInstructions, /close_worktree/);
   assert.match(defaultInstructions, /Do not create or modify files with bash/);
+  assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
+  assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
   assert.match(shellTool?.description ?? "", /local user's authority/);
-  assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create or modify files/);
+  assert.match(shellTool?.description ?? "", /Do not use bash to create or modify project files/);
+  assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
   assert.equal(
     shellInputProperties?.command?.description,
     "Shell command to run with the local user's authority.",
@@ -42,7 +48,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   });
   const overrideInstructions = overrideContext.client.getInstructions() ?? "";
 
-  assert.match(overrideInstructions, /Call open_workspace once per project folder or worktree/);
+  assert.match(overrideInstructions, /Default to the user's existing checkout/);
+  assert.match(overrideInstructions, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(overrideInstructions, /close_worktree/);
   assert.match(overrideInstructions, /Follow instructions returned by open_workspace/);
   assert.match(overrideInstructions, /Follow repository-defined development and Git workflows\./);
   assert.match(overrideInstructions, /Preserve the capability contract\./);
@@ -83,7 +91,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
 
   const repeatedText = responseText(repeated);
   assert.match(repeatedText, /Workspace already open as/);
-  assert.match(repeatedText, /same checkout previously opened/);
+  assert.match(repeatedText, /same directory previously opened/);
   assert.match(repeatedText, /Reuse this workspaceId for subsequent tool calls/);
   assert.match(repeatedText, /previously provided for this workspace/);
   assert.match(repeatedText, /not repeated here/);
@@ -116,28 +124,69 @@ test("concurrent checkout opens return one full context and one reuse instructio
   );
 });
 
-test("new worktrees always receive a fresh workspace and complete worktree context", async (t) => {
+test("worktree mode reuses by default and only creates another worktree explicitly", async (t) => {
   const context = await fixture(t, { git: true });
   const checkout = await callOpen(context.client, context.project, "chat-1");
   const firstWorktree = await callOpen(context.client, context.project, "chat-1", "worktree");
-  const secondWorktree = await callOpen(context.client, context.project, "chat-1", "worktree");
+  const repeatedWorktree = await callOpen(context.client, context.project, "chat-1", "worktree");
+  const freshWorktree = await callOpen(context.client, context.project, "chat-1", "worktree", true);
   const checkoutAgain = await callOpen(context.client, context.project, "chat-1");
 
-  assert.notEqual(structuredContent(firstWorktree).workspaceId, structuredContent(secondWorktree).workspaceId);
+  assert.equal(structuredContent(firstWorktree).workspaceId, structuredContent(repeatedWorktree).workspaceId);
+  assert.notEqual(structuredContent(firstWorktree).workspaceId, structuredContent(freshWorktree).workspaceId);
   assert.equal(structuredContent(checkoutAgain).workspaceId, structuredContent(checkout).workspaceId);
-  for (const result of [firstWorktree, secondWorktree]) {
-    const structured = structuredContent(result);
-    assert.equal(structured.mode, "worktree");
-    assert.ok(Array.isArray(structured.agentsFiles));
-    assert.ok(Array.isArray(structured.availableAgentsFiles));
-    assert.ok(Array.isArray(structured.skills));
-    assert.ok(Array.isArray(structured.agentProviders));
-    assert.ok(Array.isArray(structured.agents));
-    assert.ok(Array.isArray(structured.skillDiagnostics));
-    assert.match(responseText(result), /Opened isolated worktree workspace/);
-  }
+
+  const firstStructured = structuredContent(firstWorktree);
+  assert.equal(firstStructured.mode, "worktree");
+  assert.ok(Array.isArray(firstStructured.agentsFiles));
+  assert.match(responseText(firstWorktree), /Opened isolated worktree workspace/);
+
+  const repeatedStructured = structuredContent(repeatedWorktree);
+  assert.equal(repeatedStructured.agentsFiles, undefined);
+  assert.match(responseText(repeatedWorktree), /Workspace already open as/);
+
+  const freshStructured = structuredContent(freshWorktree);
+  assert.ok(Array.isArray(freshStructured.agentsFiles));
+  assert.ok(Array.isArray(freshStructured.worktrees));
+  assert.equal((freshStructured.worktrees as unknown[]).length, 2);
+
   assert.equal(structuredContent(checkoutAgain).agentsFiles, undefined);
-  assert.match(responseText(checkoutAgain), /same checkout previously opened/);
+  assert.match(responseText(checkoutAgain), /same directory previously opened/);
+});
+
+test("close_worktree commits and fast-forwards a managed worktree through the MCP surface", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-1", "worktree");
+  const workspaceId = structuredContent(opened).workspaceId;
+  assert.equal(typeof workspaceId, "string");
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  assert.equal(worktree.detached, false);
+  assert.match(String(worktree.branch), /^forgerelay\//);
+  assert.equal(typeof worktree.targetBranch, "string");
+
+  await context.client.callTool({
+    name: "write",
+    arguments: {
+      workspaceId,
+      path: "feature.txt",
+      content: "finished\n",
+    },
+  });
+  const closed = await context.client.callTool({
+    name: "close_worktree",
+    arguments: {
+      workspaceId,
+      commitMessage: "feat: finish isolated work",
+    },
+  });
+  const structured = structuredContent(closed);
+
+  assert.equal(structured.workspaceId, workspaceId);
+  assert.equal(structured.committed, true);
+  assert.equal(structured.branch, worktree.branch);
+  assert.equal(structured.targetBranch, worktree.targetBranch);
+  assert.equal(await readFile(join(context.project, "feature.txt"), "utf8"), "finished\n");
+  assert.match(responseText(closed), /fast-forward/);
 });
 
 test("checkout opened after a worktree receives its own complete context", async (t) => {
@@ -152,17 +201,18 @@ test("checkout opened after a worktree receives its own complete context", async
   assert.ok(Array.isArray(structuredContent(checkout).agentsFiles));
   assert.equal(structuredContent(checkoutAgain).workspaceId, structuredContent(checkout).workspaceId);
   assert.equal(structuredContent(checkoutAgain).agentsFiles, undefined);
-  assert.match(responseText(checkoutAgain), /same checkout previously opened/);
+  assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
-test("a host without conversation metadata receives normal explicit-workspace behavior", async (t) => {
+test("a host without conversation metadata reuses the directory workspace and still receives full context", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project);
   const second = await callOpen(context.client, context.project);
 
-  assert.notEqual(structuredContent(first).workspaceId, structuredContent(second).workspaceId);
+  assert.equal(structuredContent(first).workspaceId, structuredContent(second).workspaceId);
   assert.ok(Array.isArray(structuredContent(first).agentsFiles));
   assert.ok(Array.isArray(structuredContent(second).agentsFiles));
+  assert.match(responseText(second), /complete project context is included/i);
   assert.doesNotMatch(responseText(first), /conversation metadata/i);
   assert.doesNotMatch(responseText(second), /conversation metadata/i);
 });
@@ -204,7 +254,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     const restored = await callOpen(restoredClient, context.project, "chat-1");
     assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
     assert.equal(structuredContent(restored).agentsFiles, undefined);
-    assert.match(responseText(restored), /same checkout previously opened/);
+    assert.match(responseText(restored), /same directory previously opened/);
   } finally {
     await closeRestored();
   }
@@ -303,12 +353,14 @@ async function callOpen(
   path: string,
   conversationScopeId?: string,
   mode?: "checkout" | "worktree",
+  newWorktree?: boolean,
 ): Promise<Awaited<ReturnType<Client["callTool"]>>> {
   const params = {
     name: "open_workspace",
     arguments: {
       path,
       ...(mode ? { mode } : {}),
+      ...(newWorktree ? { newWorktree: true } : {}),
     },
     ...(conversationScopeId
       ? { _meta: { "openai/session": conversationScopeId } }

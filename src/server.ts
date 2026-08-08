@@ -72,7 +72,7 @@ type Transport = StreamableHTTPServerTransport;
 // session retention so abandoned MCP servers do not accumulate for the life of the process.
 const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
-const WORKSPACE_APP_URI = "ui://devspace/workspace-app.html";
+const WORKSPACE_APP_URI = "ui://forgerelay/workspace-app.html";
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
@@ -422,7 +422,7 @@ function workspaceAppHtml(config: ServerConfig): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DevSpace Workspace</title>
+    <title>ForgeRelay Workspace</title>
     <script type="module" crossorigin src="${assetUrl(baseUrl, entry.file)}"></script>
 ${stylesheets}
   </head>
@@ -673,8 +673,8 @@ export function createMcpServer(
   const toolDescriptions = buildToolDescriptions(config);
   const server = new McpServer(
     {
-      name: "devspace",
-      title: "DevSpace",
+      name: "forgerelay",
+      title: "ForgeRelay",
       version: "0.1.0",
       description:
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
@@ -688,10 +688,10 @@ export function createMcpServer(
 
   registerAppResource(
     server,
-    "DevSpace Diff Card",
+    "ForgeRelay Diff Card",
     WORKSPACE_APP_URI,
     {
-      description: "Interactive card for viewing DevSpace file diffs.",
+      description: "Interactive card for viewing ForgeRelay file diffs.",
       _meta: {
         ui: {
           csp: appCsp(config),
@@ -723,23 +723,29 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. Call this once before working in a project or worktree, then reuse the returned workspaceId for later file, search, edit, show-changes, and shell calls. By default this opens the actual checkout; set mode=\"worktree\" when you need isolated or parallel work. Open another workspace when changing projects, switching modes, or starting another isolated worktree.",
+        "Open a local project directory as a coding workspace. The same directory reuses the same active workspaceId across requests. Default to checkout mode and only use mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches and can later be safely closed into their original target branch with close_worktree. Existing managed worktree paths can also be reopened directly.",
       inputSchema: {
         path: z
           .string()
           .describe(
-            "Absolute path, or a leading-tilde home path such as ~/project, to a local project directory inside an allowed root.",
+            "Absolute path, or a leading-tilde home path such as ~/project, to a local project directory inside an allowed root. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
           ),
         mode: z
           .enum(["checkout", "worktree"])
           .optional()
           .describe(
-            "Defaults to checkout, which works in the actual directory. Use worktree for isolated or parallel Git work.",
+            "Defaults to checkout, which works in the actual directory. Use worktree only when the user explicitly requests isolated or parallel Git work.",
           ),
         baseRef: z
           .string()
           .optional()
-          .describe("Git ref to base a worktree on. Only used with mode=\"worktree\". Defaults to HEAD."),
+          .describe("Local branch to base a managed worktree on and eventually merge back into. Only used with mode=\"worktree\". Defaults to the source checkout's current branch."),
+        newWorktree: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, create another isolated managed worktree instead of reusing the existing worktree for this project and baseRef. Use only when the user explicitly requests a separate worktree.",
+          ),
       },
       outputSchema: {
         workspaceId: z.string(),
@@ -751,11 +757,25 @@ export function createMcpServer(
             path: z.string(),
             baseRef: z.string(),
             baseSha: z.string(),
+            branch: z.string().optional(),
+            targetBranch: z.string().optional(),
             dirtySource: z.boolean(),
             detached: z.boolean(),
             managed: z.boolean(),
           })
           .optional(),
+        worktrees: z.array(
+          z.object({
+            workspaceId: z.string(),
+            path: z.string(),
+            baseRef: z.string(),
+            baseSha: z.string(),
+            branch: z.string().optional(),
+            targetBranch: z.string().optional(),
+            managed: z.boolean(),
+            current: z.boolean(),
+          }),
+        ),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
         skills: z.array(workspaceSkillOutputSchema).optional(),
@@ -765,9 +785,14 @@ export function createMcpServer(
         instruction: z.string(),
       },
       ...toolWidgetDescriptorMeta(config, "workspace"),
-      annotations: { readOnlyHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
-    async ({ path, mode, baseRef }, { _meta }) => {
+    async ({ path, mode, baseRef, newWorktree }, { _meta }) => {
       const startedAt = performance.now();
       const {
         workspace,
@@ -776,9 +801,10 @@ export function createMcpServer(
         workspaceReused,
         includeBootstrapContext,
       } = await workspaces.openWorkspace(
-        { path, mode, baseRef },
+        { path, mode, baseRef, newWorktree },
         { conversationScopeId: openAiConversationScopeId(_meta) },
       );
+      const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -815,14 +841,20 @@ export function createMcpServer(
       const loadedAgentsFiles = includeBootstrapContext ? cardAgentsFiles : [];
       const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
       const cardInstruction = config.skillsEnabled
-        ? "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, you switch to a different project folder or checkout/worktree mode, or the user requests a new isolated worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
-        : "Use this workspaceId in all subsequent tool calls for this project. Do not call open_workspace again for this same folder unless this workspaceId stops working, you switch to a different project folder or checkout/worktree mode, or the user requests a new isolated worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
+        ? "Use this workspaceId in all subsequent tool calls for this project. Default to the user's checkout; only create a worktree when the user explicitly requests isolated or parallel work. Managed worktrees are branch-backed. When a managed worktree task is complete and verified, close it with close_worktree so ForgeRelay can commit, fast-forward the target branch when safe, and clean up the worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
+        : "Use this workspaceId in all subsequent tool calls for this project. Default to the user's checkout; only create a worktree when the user explicitly requests isolated or parallel work. Managed worktrees are branch-backed. When a managed worktree task is complete and verified, close it with close_worktree so ForgeRelay can commit, fast-forward the target branch when safe, and clean up the worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
       const instruction = workspaceReused
-        ? [
-            `Workspace already open as ${workspace.id}.`,
-            "Reuse this workspaceId for subsequent tool calls. This is the same checkout previously opened for this project in this conversation.",
-            "Continue following the project instructions, nested instruction files, skills, agent profiles, and diagnostics previously provided for this workspace. They remain the active workspace context and are not repeated here.",
-          ].join("\n\n")
+        ? includeBootstrapContext
+          ? [
+              `Workspace already exists as ${workspace.id} for this directory.`,
+              "Reuse this workspaceId for subsequent tool calls.",
+              "The complete project context is included because it has not yet been provided in this conversation or host context.",
+            ].join("\n\n")
+          : [
+              `Workspace already open as ${workspace.id}.`,
+              "Reuse this workspaceId for subsequent tool calls. This is the same directory previously opened in this conversation.",
+              "Continue following the project instructions, nested instruction files, skills, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
+            ].join("\n\n")
         : workspace.mode === "worktree"
           ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
           : cardInstruction;
@@ -855,6 +887,9 @@ export function createMcpServer(
             visibleAgents.length > 0
               ? `Available subagent profiles: ${visibleAgents.map(formatVisibleAgent).join(", ")}`
               : undefined,
+            knownWorktrees.length > 0
+              ? `Known worktrees: ${knownWorktrees.map((worktree) => `${worktree.path} [${worktree.workspaceId}]${worktree.branch ? ` branch=${worktree.branch}` : ""}${worktree.targetBranch ? ` target=${worktree.targetBranch}` : ""}${worktree.current ? " (current)" : ""}`).join(", ")}`
+              : undefined,
             instruction,
           ].filter(Boolean).join("\n"),
         },
@@ -880,6 +915,7 @@ export function createMcpServer(
             includeBootstrapContext,
             sourceRoot: workspace.sourceRoot,
             worktree: workspace.worktree,
+            worktrees: knownWorktrees,
             agentsFiles: cardAgentsFiles,
             availableAgentsFiles: cardAvailableAgentsFiles,
             skills: cardSkills,
@@ -902,6 +938,7 @@ export function createMcpServer(
           mode: workspace.mode,
           sourceRoot: workspace.sourceRoot,
           worktree: workspace.worktree,
+          worktrees: knownWorktrees,
           ...(includeBootstrapContext
             ? {
                 agentsFiles: loadedAgentsFiles,
@@ -913,6 +950,73 @@ export function createMcpServer(
               }
             : {}),
           instruction,
+        },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    toolNames.closeWorktree,
+    {
+      title: "Close worktree",
+      description:
+        "Finish a managed ForgeRelay worktree after its task has been completed and verified. ForgeRelay commits any remaining worktree changes, fast-forwards the original target branch only when the source checkout is clean and the histories have not diverged, then removes the worktree and its forgerelay/* branch. If safe fast-forward is not possible, the source checkout is left out of a merge-conflict state and the worktree is preserved.",
+      inputSchema: {
+        workspaceId: z
+          .string()
+          .describe("Managed worktree workspace identifier returned by open_workspace."),
+        commitMessage: z
+          .string()
+          .min(1)
+          .describe("Concise Git commit message describing the completed worktree changes."),
+      },
+      outputSchema: resultOutputSchema({
+        workspaceId: z.string(),
+        sourceRoot: z.string(),
+        branch: z.string(),
+        targetBranch: z.string(),
+        commitSha: z.string(),
+        mergedSha: z.string(),
+        committed: z.boolean(),
+        cleanupWarning: z.string().optional(),
+      }),
+      _meta: {},
+      annotations: WRITE_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId, commitMessage }) => {
+      const startedAt = performance.now();
+      const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+      const result = [
+        `Closed managed worktree ${workspaceId}.`,
+        `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
+        `Source checkout: ${closed.sourceRoot}`,
+        `Commit: ${closed.commitSha}`,
+        closed.cleanupWarning
+          ? `Cleanup warning: ${closed.cleanupWarning}`
+          : "The worktree directory and managed branch were removed.",
+      ].join("\n");
+
+      logToolCall(config, {
+        tool: toolNames.closeWorktree,
+        workspaceId,
+        path: closed.sourceRoot,
+        success: true,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+
+      return {
+        content: [{ type: "text" as const, text: result }],
+        structuredContent: {
+          result,
+          workspaceId,
+          sourceRoot: closed.sourceRoot,
+          branch: closed.branch,
+          targetBranch: closed.targetBranch,
+          commitSha: closed.commitSha,
+          mergedSha: closed.mergedSha,
+          committed: closed.committed,
+          cleanupWarning: closed.cleanupWarning,
         },
       };
     },
@@ -1712,7 +1816,7 @@ export function createServer(
       baseUrl: new URL(config.publicBaseUrl),
       resourceServerUrl,
       scopesSupported: config.oauth.scopes,
-      resourceName: "DevSpace",
+      resourceName: "ForgeRelay",
     }),
   );
 
@@ -1732,7 +1836,7 @@ export function createServer(
   );
 
   app.get("/healthz", (_req, res) => {
-    res.json({ ok: true, name: "devspace" });
+    res.json({ ok: true, name: "forgerelay" });
   });
 
   app.all("/mcp", async (req, res) => {
@@ -1857,7 +1961,7 @@ if (await isMainModule()) {
   const { app, config, close, localAgentProviders } = createServer();
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(
-      `devspace listening on http://${config.host}:${config.port}/mcp`,
+      `forgerelay listening on http://${config.host}:${config.port}/mcp`,
     );
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log("auth: oauth owner-token flow required");
@@ -1885,7 +1989,7 @@ if (await isMainModule()) {
   };
   const handleShutdown = () => {
     void shutdown().catch((error) => {
-      console.error("devspace shutdown failed", error);
+      console.error("forgerelay shutdown failed", error);
       process.exit(1);
     });
   };

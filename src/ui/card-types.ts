@@ -37,6 +37,8 @@ export interface ToolResultCard {
     path?: string;
     baseRef?: string;
     baseSha?: string;
+    branch?: string;
+    targetBranch?: string;
     dirtySource?: boolean;
     detached?: boolean;
     managed?: boolean;

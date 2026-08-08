@@ -65,7 +65,7 @@ async function boot(): Promise<void> {
   render();
 
   app = new App(
-    { name: "devspace-tool-cards", version: "0.4.0" },
+    { name: "forgerelay-tool-cards", version: "0.1.0" },
     {},
   );
 
@@ -498,6 +498,13 @@ function renderWorkspacePayload(container: HTMLElement, card: ToolResultCard): v
     }
 
     appendWorkspaceRow(rows, "Base", baseContent, toolIcons.base);
+
+    if (worktree.branch) {
+      appendWorkspaceTextRow(rows, "Worktree branch", worktree.branch, toolIcons.gitBranch, false);
+    }
+    if (worktree.targetBranch) {
+      appendWorkspaceTextRow(rows, "Merge target", worktree.targetBranch, toolIcons.gitBranch, false);
+    }
   }
 
   if (card.sourceRoot && card.sourceRoot !== card.root) {
