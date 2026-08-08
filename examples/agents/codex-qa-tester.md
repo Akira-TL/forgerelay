@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: codex-qa-tester
 description: Manual QA profile for browser testing, workflow verification, and regression checks.
 provider: codex

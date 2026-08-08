@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: pi-reviewer
 description: Read-only review profile for quick risk checks and targeted implementation questions.
 provider: pi

@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
 
-export interface DevspaceUserConfig {
+export interface ForgeRelayUserConfig {
   host?: string;
   port?: number;
   allowedRoots?: string[];
@@ -25,42 +25,56 @@ export interface DevspaceUserConfig {
   subagents?: boolean;
 }
 
-export interface DevspaceAuthConfig {
+export interface ForgeRelayAuthConfig {
   ownerToken?: string;
 }
 
-export interface DevspaceFiles {
+export interface ForgeRelayFiles {
   dir: string;
   configPath: string;
   authPath: string;
   configExists: boolean;
   authExists: boolean;
-  config: DevspaceUserConfig;
-  auth: DevspaceAuthConfig;
+  config: ForgeRelayUserConfig;
+  auth: ForgeRelayAuthConfig;
+  usingLegacyDir: boolean;
 }
 
-export function devspaceConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(expandHomePath(env.DEVSPACE_CONFIG_DIR ?? join(homedir(), ".devspace")));
+/** @deprecated Internal compatibility alias. */
+export type DevspaceUserConfig = ForgeRelayUserConfig;
+/** @deprecated Internal compatibility alias. */
+export type DevspaceAuthConfig = ForgeRelayAuthConfig;
+/** @deprecated Internal compatibility alias. */
+export type DevspaceFiles = ForgeRelayFiles;
+
+export function forgerelayConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.FORGERELAY_CONFIG_DIR ?? env.DEVSPACE_CONFIG_DIR;
+  if (explicit) return resolve(expandHomePath(explicit));
+
+  const current = join(homedir(), ".forgerelay");
+  const legacy = join(homedir(), ".devspace");
+  if (existsSync(current) || !existsSync(legacy)) return resolve(current);
+  return resolve(legacy);
 }
 
-export function devspaceConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(devspaceConfigDir(env), "config.json");
+export function forgerelayConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "config.json");
 }
 
-export function devspaceAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(devspaceConfigDir(env), "auth.json");
+export function forgerelayAuthPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "auth.json");
 }
 
-export function devspaceSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(devspaceConfigDir(env), "skills");
+export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "skills");
 }
 
-export function devspaceAgentsDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(devspaceConfigDir(env), "agents");
+export function forgerelayAgentsDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "agents");
 }
 
-export function loadDevspaceFiles(env: NodeJS.ProcessEnv = process.env): DevspaceFiles {
-  const dir = devspaceConfigDir(env);
+export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): ForgeRelayFiles {
+  const dir = forgerelayConfigDir(env);
   const configPath = join(dir, "config.json");
   const authPath = join(dir, "auth.json");
   const configExists = existsSync(configPath);
@@ -72,27 +86,28 @@ export function loadDevspaceFiles(env: NodeJS.ProcessEnv = process.env): Devspac
     authPath,
     configExists,
     authExists,
-    config: configExists ? readJsonFile<DevspaceUserConfig>(configPath) : {},
-    auth: authExists ? readJsonFile<DevspaceAuthConfig>(authPath) : {},
+    config: configExists ? readJsonFile<ForgeRelayUserConfig>(configPath) : {},
+    auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
+    usingLegacyDir: dir === resolve(join(homedir(), ".devspace")),
   };
 }
 
-export function writeDevspaceConfig(
-  config: DevspaceUserConfig,
+export function writeForgeRelayConfig(
+  config: ForgeRelayUserConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const filePath = devspaceConfigPath(env);
-  mkdirSync(devspaceConfigDir(env), { recursive: true });
+  const filePath = forgerelayConfigPath(env);
+  mkdirSync(forgerelayConfigDir(env), { recursive: true });
   writeJsonFile(filePath, config, 0o600);
   return filePath;
 }
 
-export function writeDevspaceAuth(
-  auth: DevspaceAuthConfig,
+export function writeForgeRelayAuth(
+  auth: ForgeRelayAuthConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const filePath = devspaceAuthPath(env);
-  mkdirSync(devspaceConfigDir(env), { recursive: true });
+  const filePath = forgerelayAuthPath(env);
+  mkdirSync(forgerelayConfigDir(env), { recursive: true });
   writeJsonFile(filePath, auth, 0o600);
   return filePath;
 }
@@ -101,8 +116,8 @@ export function generateOwnerToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export function ensureDevspaceDefaultSkills(env: NodeJS.ProcessEnv = process.env): string[] {
-  const targetPath = join(devspaceSkillsDir(env), "subagent-delegation", "SKILL.md");
+export function ensureForgeRelayDefaultSkills(env: NodeJS.ProcessEnv = process.env): string[] {
+  const targetPath = join(forgerelaySkillsDir(env), "subagent-delegation", "SKILL.md");
   if (existsSync(targetPath)) return [];
 
   const sourcePath = new URL("../skills/subagent-delegation/SKILL.md", import.meta.url);
@@ -112,12 +127,25 @@ export function ensureDevspaceDefaultSkills(env: NodeJS.ProcessEnv = process.env
 }
 
 export function resolveSubagentsFlag(
-  config: Pick<DevspaceUserConfig, "subagents">,
+  config: Pick<ForgeRelayUserConfig, "subagents">,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean | undefined {
-  if (env.DEVSPACE_SUBAGENTS === undefined) return config.subagents;
-  return ["1", "true", "yes", "on"].includes(env.DEVSPACE_SUBAGENTS.toLowerCase());
+  const value = env.FORGERELAY_SUBAGENTS ?? env.DEVSPACE_SUBAGENTS;
+  if (value === undefined) return config.subagents;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
+
+// Legacy exported names remain temporarily so existing integrations and tests do not
+// break while the public product surface migrates to ForgeRelay.
+export const devspaceConfigDir = forgerelayConfigDir;
+export const devspaceConfigPath = forgerelayConfigPath;
+export const devspaceAuthPath = forgerelayAuthPath;
+export const devspaceSkillsDir = forgerelaySkillsDir;
+export const devspaceAgentsDir = forgerelayAgentsDir;
+export const loadDevspaceFiles = loadForgeRelayFiles;
+export const writeDevspaceConfig = writeForgeRelayConfig;
+export const writeDevspaceAuth = writeForgeRelayAuth;
+export const ensureDevspaceDefaultSkills = ensureForgeRelayDefaultSkills;
 
 function readJsonFile<T>(filePath: string): T {
   try {

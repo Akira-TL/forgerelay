@@ -231,8 +231,8 @@ async function testCrashLeftoverCleanup(testRoot: string): Promise<void> {
   });
 
   const destinationDirectory = join(workspaceRoot, "downloads");
-  const stalePartial = join(destinationDirectory, ".devspace-download-stale.partial");
-  const recentPartial = join(destinationDirectory, ".devspace-download-recent.partial");
+  const stalePartial = join(destinationDirectory, ".forgerelay-download-stale.partial");
+  const recentPartial = join(destinationDirectory, ".forgerelay-download-recent.partial");
   const unrelated = join(destinationDirectory, "keep-me.partial");
   await writeFile(stalePartial, "stale");
   await writeFile(recentPartial, "recent");
@@ -250,8 +250,8 @@ async function testCrashLeftoverCleanup(testRoot: string): Promise<void> {
   });
 
   const entries = await readdir(destinationDirectory);
-  assert.equal(entries.includes(".devspace-download-stale.partial"), false);
-  assert.equal(entries.includes(".devspace-download-recent.partial"), true);
+  assert.equal(entries.includes(".forgerelay-download-stale.partial"), false);
+  assert.equal(entries.includes(".forgerelay-download-recent.partial"), true);
   assert.equal(entries.includes("keep-me.partial"), true);
   assert.equal(entries.includes("first.txt"), true);
   assert.equal(entries.includes("second.txt"), true);

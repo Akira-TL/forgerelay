@@ -14,7 +14,7 @@ let stoppingForRestart = false;
 let shuttingDown = false;
 
 function log(message) {
-  console.error(`[devspace:dev] ${message}`);
+  console.error(`[forgerelay:dev] ${message}`);
 }
 
 function start() {

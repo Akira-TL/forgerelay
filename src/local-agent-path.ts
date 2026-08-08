@@ -19,7 +19,8 @@ function isDevspaceNodeModulesBin(pathEntry: string): boolean {
 
   try {
     const packageInfo = JSON.parse(readFileSync(packageJson, "utf8")) as { name?: unknown };
-    return packageInfo.name === "@waishnav/devspace";
+    const packageName = typeof packageInfo.name === "string" ? packageInfo.name : "";
+    return ["@akira-tl/forgerelay", "@akira-tl/devspace", "@waishnav/devspace"].includes(packageName);
   } catch {
     return false;
   }

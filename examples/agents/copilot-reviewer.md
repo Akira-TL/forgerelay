@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: copilot-reviewer
 description: Read-only review profile for bug risk, regressions, and missing test coverage.
 provider: copilot

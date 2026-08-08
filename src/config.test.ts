@@ -22,6 +22,28 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "full" }).toolMode, "f
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "codex" }).toolMode, "codex");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+
+const forgeRelayConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-config-test-"));
+const forgeRelayConfig = loadConfig({
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: forgeRelayConfigDir,
+  FORGERELAY_WIDGETS: "changes",
+  DEVSPACE_WIDGETS: "off",
+  FORGERELAY_TOOL_MODE: "full",
+  DEVSPACE_TOOL_MODE: "minimal",
+  FORGERELAY_SUBAGENTS: "1",
+  DEVSPACE_SUBAGENTS: "0",
+});
+assert.equal(forgeRelayConfig.widgets, "changes");
+assert.equal(forgeRelayConfig.toolMode, "full");
+assert.equal(forgeRelayConfig.subagents, true);
+assert.equal(forgeRelayConfig.devspaceSkillsDir, join(forgeRelayConfigDir, "skills"));
+assert.equal(forgeRelayConfig.devspaceAgentsDir, join(forgeRelayConfigDir, "agents"));
+assert.equal(
+  resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1", DEVSPACE_SUBAGENTS: "0" }),
+  true,
+);
+
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
 assert.equal(
   loadConfig({ ...baseEnv, DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined Git workflows." })
@@ -68,19 +90,19 @@ assert.deepEqual(ensureDevspaceDefaultSkills({ DEVSPACE_CONFIG_DIR: seededConfig
 
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "invalid" }),
-  /Invalid DEVSPACE_WIDGETS: invalid/,
+  /Invalid FORGERELAY_WIDGETS: invalid/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "minimal" }),
-  /Invalid DEVSPACE_WIDGETS: minimal/,
+  /Invalid FORGERELAY_WIDGETS: minimal/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "write-only" }),
-  /Invalid DEVSPACE_WIDGETS: write-only/,
+  /Invalid FORGERELAY_WIDGETS: write-only/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "invalid" }),
-  /Invalid DEVSPACE_TOOL_MODE: invalid/,
+  /Invalid FORGERELAY_TOOL_MODE: invalid/,
 );
 
 assert.deepEqual(loadConfig(baseEnv).logging, {
@@ -110,12 +132,12 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TRUST_PROXY: "1" }).logging.trust
 
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "trace" }),
-  /Invalid DEVSPACE_LOG_LEVEL: trace/,
+  /Invalid FORGERELAY_LOG_LEVEL: trace/,
 );
 
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "color" }),
-  /Invalid DEVSPACE_LOG_FORMAT: color/,
+  /Invalid FORGERELAY_LOG_FORMAT: color/,
 );
 
 assert.equal(loadConfig(baseEnv).oauth.ownerToken, "test-owner-token-that-is-long-enough");
@@ -150,19 +172,19 @@ assert.equal(
 
 assert.throws(
   () => loadConfig({ DEVSPACE_CONFIG_DIR: emptyConfigDir, DEVSPACE_ALLOWED_ROOTS: process.cwd() }),
-  /DEVSPACE_OAUTH_OWNER_TOKEN is required/,
+  /FORGERELAY_OAUTH_OWNER_TOKEN is required/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_OAUTH_OWNER_TOKEN: "too-short" }),
-  /DEVSPACE_OAUTH_OWNER_TOKEN must be at least 16 characters long/,
+  /FORGERELAY_OAUTH_OWNER_TOKEN must be at least 16 characters long/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "0" }),
-  /Invalid DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 0/,
+  /Invalid FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 0/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_ARTIFACT_MAX_FILE_BYTES: "0" }),
-  /Invalid DEVSPACE_ARTIFACT_MAX_FILE_BYTES: 0/,
+  /Invalid FORGERELAY_ARTIFACT_MAX_FILE_BYTES: 0/,
 );
 
 assert.equal(loadConfig(baseEnv).publicBaseUrl, "http://127.0.0.1:7676");

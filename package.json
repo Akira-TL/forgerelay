@@ -1,14 +1,22 @@
 {
-  "name": "@akira-tl/devspace",
-  "version": "1.0.6-akira.1",
-  "description": "Expose a secure local coding workspace through an MCP server.",
+  "name": "@akira-tl/forgerelay",
+  "version": "0.1.0",
+  "description": "Local development control plane for MCP coding agents.",
   "type": "module",
+  "homepage": "https://github.com/Akira-TL/forgerelay#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Akira-TL/forgerelay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Akira-TL/forgerelay/issues"
+  },
   "main": "dist/server.js",
   "engines": {
     "node": ">=22.19 <27"
   },
   "bin": {
-    "devspace": "dist/cli.js"
+    "forgerelay": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -16,10 +24,13 @@
     "examples",
     "scripts",
     "skills",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "NOTICE.md"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "latest"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -29,10 +40,23 @@
     "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "start": "node dist/cli.js serve",
     "test": "tsx src/config.test.ts && tsx src/mcp/server-instructions.test.ts && tsx src/request-meta.test.ts && tsx src/incoming-artifacts.test.ts && tsx src/artifact-download.test.ts && tsx src/ui/card-types.test.ts && tsx src/ui/patch-display.test.ts && tsx src/ui/tool-display.test.ts && tsx src/apply-patch.test.ts && tsx src/process-platform.test.ts && tsx src/process-sessions.test.ts && tsx src/mcp-sessions.test.ts && tsx src/server-shutdown.test.ts && tsx src/local-agent-runtime.test.ts && tsx src/local-agent-adapters.test.ts && tsx src/local-agent-availability.test.ts && tsx src/local-agent-profiles.test.ts && tsx src/local-agent-targets.test.ts && tsx src/local-agent-store.test.ts && tsx src/roots.test.ts && tsx src/skills.test.ts && tsx src/workspaces.test.ts && tsx src/workspace-conversation.test.ts && tsx src/review-checkpoints.test.ts && tsx src/server.test.ts && tsx src/oauth-store.test.ts && tsx src/cli.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "release:check": "node scripts/release-version.mjs check",
+    "release:tag-check": "node scripts/release-version.mjs tag",
+    "release:next": "node scripts/release-version.mjs next patch",
+    "release:patch": "node scripts/release-version.mjs next patch",
+    "release:minor": "node scripts/release-version.mjs next minor",
+    "release:major": "node scripts/release-version.mjs next major",
+    "release:verify": "npm run release:check && npm run typecheck && npm test && npm run build"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "chatgpt",
+    "coding-agent",
+    "developer-tools",
+    "git-worktree"
+  ],
+  "author": "Akira-TL",
   "license": "MIT",
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.1.0",

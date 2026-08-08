@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: codex-worker
 description: Implementation profile for focused coding tasks with clear acceptance criteria.
 provider: codex

@@ -51,6 +51,7 @@ export async function loadLocalAgentProfiles(
   const profileDirs = [
     config.devspaceAgentsDir,
     join(workspaceRoot, ".devspace", "agents"),
+    join(workspaceRoot, ".forgerelay", "agents"),
   ];
   const profilesByName = new Map<string, LocalAgentProfile>();
 

@@ -12,6 +12,7 @@ try {
   const workspaceRoot = join(root, "project");
   await mkdir(join(configDir, "agents"), { recursive: true });
   await mkdir(join(workspaceRoot, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(workspaceRoot, ".forgerelay", "agents"), { recursive: true });
 
   await writeFile(
     join(configDir, "agents", "reviewer.md"),
@@ -43,6 +44,21 @@ try {
     ].join("\n"),
   );
   await writeFile(
+    join(workspaceRoot, ".forgerelay", "agents", "reviewer.md"),
+    [
+      "---",
+      "name: reviewer",
+      'description: "ForgeRelay project reviewer."',
+      "provider: claude",
+      "model: opus",
+      "thinking: high",
+      "---",
+      "",
+      "ForgeRelay project body.",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
     join(workspaceRoot, ".devspace", "agents", "disabled.md"),
     [
       "---",
@@ -58,25 +74,25 @@ try {
   );
 
   const enabledConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: configDir,
-    DEVSPACE_ALLOWED_ROOTS: workspaceRoot,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_ALLOWED_ROOTS: workspaceRoot,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
   const profiles = await loadLocalAgentProfiles(enabledConfig, workspaceRoot);
 
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0]?.name, "reviewer");
-  assert.equal(profiles[0]?.description, "Project reviewer #1.");
+  assert.equal(profiles[0]?.description, "ForgeRelay project reviewer.");
   assert.equal(profiles[0]?.provider, "claude");
-  assert.equal(profiles[0]?.model, "sonnet");
+  assert.equal(profiles[0]?.model, "opus");
   assert.equal(profiles[0]?.thinking, "high");
-  assert.equal(profiles[0]?.body, "Project body.");
+  assert.equal(profiles[0]?.body, "ForgeRelay project body.");
   assert.deepEqual(summarizeLocalAgentProfile(profiles[0]!), {
     name: "reviewer",
-    description: "Project reviewer #1.",
+    description: "ForgeRelay project reviewer.",
     provider: "claude",
-    model: "sonnet",
+    model: "opus",
     thinking: "high",
   });
 

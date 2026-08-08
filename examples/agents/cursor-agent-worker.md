@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: cursor-agent-worker
 description: Implementation profile for UI-heavy changes, small refactors, and alternative solution passes.
 provider: cursor

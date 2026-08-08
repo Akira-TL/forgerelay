@@ -216,7 +216,7 @@ function reviewRefs(
 }
 
 async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
-  const tempDir = await mkdtemp(join(tmpdir(), "devspace-review-index-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "forgerelay-review-index-"));
   const indexPath = join(tempDir, "index");
   const env = checkpointEnv(indexPath);
 
@@ -225,7 +225,7 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
     await git(gitRoot, ["add", "-A", "--", "."], { env });
     const tree = (await git(gitRoot, ["write-tree"], { env })).stdout.trim();
     const parent = (await git(gitRoot, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
-    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", "DevSpace review snapshot"], { env })).stdout.trim();
+    return (await git(gitRoot, ["commit-tree", tree, "-p", parent, "-m", "ForgeRelay review snapshot"], { env })).stdout.trim();
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -234,10 +234,10 @@ async function createWorkingTreeSnapshot(gitRoot: string): Promise<string> {
 function checkpointEnv(indexPath: string): NodeJS.ProcessEnv {
   return {
     GIT_INDEX_FILE: indexPath,
-    GIT_AUTHOR_NAME: "DevSpace",
-    GIT_AUTHOR_EMAIL: "devspace@users.noreply.local",
-    GIT_COMMITTER_NAME: "DevSpace",
-    GIT_COMMITTER_EMAIL: "devspace@users.noreply.local",
+    GIT_AUTHOR_NAME: "ForgeRelay",
+    GIT_AUTHOR_EMAIL: "forgerelay@users.noreply.local",
+    GIT_COMMITTER_NAME: "ForgeRelay",
+    GIT_COMMITTER_EMAIL: "forgerelay@users.noreply.local",
   };
 }
 

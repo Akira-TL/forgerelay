@@ -194,7 +194,7 @@ class AcpLocalAgentAdapter implements LocalAgentAdapter {
     );
     try {
       let providerSessionId = input.providerSessionId ?? null;
-      const finalResponse = await client({ name: "DevSpace" })
+      const finalResponse = await client({ name: "ForgeRelay" })
         .onRequest(methods.client.session.requestPermission, (context) => {
           const selected = selectAcpAllowPermissionOption(context.params.options);
           return selected

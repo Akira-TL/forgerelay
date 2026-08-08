@@ -1,5 +1,5 @@
 ---
-schema: devspace-agent/v1
+schema: forgerelay-agent/v1
 name: opencode-explorer
 description: Read-only profile for fast relevant-file discovery and small architecture questions.
 provider: opencode

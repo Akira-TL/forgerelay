@@ -31,7 +31,7 @@ const ARTIFACT_WRITE_ANNOTATIONS = {
 };
 const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 const DIRECTORY_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | NO_FOLLOW;
-const PARTIAL_PREFIX = ".devspace-download-";
+const PARTIAL_PREFIX = ".forgerelay-download-";
 const PARTIAL_SUFFIX = ".partial";
 const STALE_PARTIAL_AGE_MS = 24 * 60 * 60 * 1_000;
 const MAX_STALE_PARTIAL_CLEANUP = 32;

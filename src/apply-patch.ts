@@ -430,7 +430,7 @@ async function readUtf8Text(absolute: string, displayPath: string): Promise<stri
 
 async function writeTextFile(destination: string, content: string, mode?: number): Promise<void> {
   await mkdir(dirname(destination), { recursive: true });
-  const temporary = `${destination}.devspace-patch-${process.pid}-${randomUUID()}`;
+  const temporary = `${destination}.forgerelay-patch-${process.pid}-${randomUUID()}`;
   try {
     await writeFile(temporary, content, mode === undefined ? undefined : { mode });
     await replaceFile(temporary, destination, await fileExists(destination));

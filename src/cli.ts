@@ -87,17 +87,17 @@ function normalizeCommand(command: string | undefined): Command {
 async function ensureConfigured(): Promise<void> {
   const files = loadDevspaceFiles();
   if (files.configExists && files.authExists) return;
-  if (process.env.DEVSPACE_OAUTH_OWNER_TOKEN) return;
+  if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN) return;
 
   if (!input.isTTY || !output.isTTY) {
     throw new Error(
       [
-        "DevSpace is not configured and this terminal is non-interactive.",
+        "ForgeRelay is not configured and this terminal is non-interactive.",
         "",
         "Run:",
-        "  devspace init",
+        "  forgerelay init",
         "",
-        "Or provide DEVSPACE_OAUTH_OWNER_TOKEN and DEVSPACE_ALLOWED_ROOTS.",
+        "Or provide FORGERELAY_OAUTH_OWNER_TOKEN and FORGERELAY_ALLOWED_ROOTS.",
       ].join("\n"),
     );
   }
@@ -108,13 +108,13 @@ async function ensureConfigured(): Promise<void> {
 async function runInit({ force }: { force: boolean }): Promise<void> {
   const files = loadDevspaceFiles();
   if (!force && files.configExists && files.authExists) {
-    prompts.log.info(`DevSpace is already configured at ${files.dir}`);
-    prompts.log.info("Run `devspace init --force` to update it.");
+    prompts.log.info(`ForgeRelay is already configured at ${files.dir}`);
+    prompts.log.info("Run `forgerelay init --force` to update it.");
     return;
   }
 
   try {
-    prompts.intro("DevSpace setup");
+    prompts.intro("ForgeRelay setup");
 
     const defaultRoots = files.config.allowedRoots?.join(", ") || process.cwd();
     const rootsAnswer = await textPrompt({
@@ -130,7 +130,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     const defaultPort = String(files.config.port ?? 7676);
     const portAnswer = await textPrompt({
-      message: `Which local port should DevSpace use? Press Enter to use ${defaultPort}`,
+      message: `Which local port should ForgeRelay use? Press Enter to use ${defaultPort}`,
       placeholder: defaultPort,
       defaultValue: defaultPort,
       validate: validatePort,
@@ -139,7 +139,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     prompts.note(
       [
-        "DevSpace needs a public base URL so ChatGPT or Claude can reach this MCP server.",
+        "ForgeRelay needs a public base URL so ChatGPT or Claude can reach this MCP server.",
         "Create a tunnel or reverse proxy with Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own HTTPS proxy.",
         "Paste the public origin here, without /mcp.",
         "",
@@ -180,16 +180,16 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       `Local MCP URL: http://${config.host}:${config.port}/mcp`,
       ...(publicBaseUrl ? [`Public MCP URL: ${publicBaseUrl}/mcp`] : []),
     ];
-    prompts.note(lines.join("\n"), "DevSpace configured");
+    prompts.note(lines.join("\n"), "ForgeRelay configured");
     prompts.note(
       [
         `Owner password: ${auth.ownerToken}`,
-        "Use this when ChatGPT or Claude asks you to approve DevSpace access.",
+        "Use this when ChatGPT or Claude asks you to approve ForgeRelay access.",
         `Stored at: ${authPath}`,
       ].join("\n"),
       "Owner password",
     );
-    prompts.outro("Run `devspace serve` to start the MCP server.");
+    prompts.outro("Run `forgerelay serve` to start the MCP server.");
   } catch (error) {
     if (error instanceof SetupCancelledError) {
       prompts.cancel("Setup cancelled");
@@ -217,12 +217,12 @@ async function serve(): Promise<void> {
   const config = loadConfig();
   const { app, close, localAgentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`devspace listening on http://${config.host}:${config.port}/mcp`);
+    console.log(`forgerelay listening on http://${config.host}:${config.port}/mcp`);
     console.log(`public base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
     if (config.allowedHosts.includes("*")) {
-      console.warn("warning: Host header allowlist is disabled because DEVSPACE_ALLOWED_HOSTS=*");
+      console.warn("warning: Host header allowlist is disabled because FORGERELAY_ALLOWED_HOSTS=*");
     }
     console.log("auth: Owner password approval required");
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
@@ -240,7 +240,7 @@ async function serve(): Promise<void> {
   };
   const handleShutdown = () => {
     void shutdown().catch((error) => {
-      console.error("devspace shutdown failed", error);
+      console.error("forgerelay shutdown failed", error);
       process.exit(1);
     });
   };
@@ -284,7 +284,7 @@ function runConfigCommand(args: string[]): void {
     throw new Error(`Unknown config command: ${subcommand}`);
   }
   if (key !== "publicBaseUrl") {
-    throw new Error("Only `devspace config set publicBaseUrl <url|null>` is supported right now.");
+    throw new Error("Only `forgerelay config set publicBaseUrl <url|null>` is supported right now.");
   }
 
   const value = rest.join(" ").trim();
@@ -302,22 +302,22 @@ function runConfigCommand(args: string[]): void {
 function printHelp(): void {
   console.log(
     [
-      "DevSpace",
+      "ForgeRelay",
       "",
       "Usage:",
-      "  devspace                 Run first-time setup if needed, then start the server",
-      "  devspace serve           Start the server",
-      "  devspace init            Create or update ~/.devspace/config.json and auth.json",
-      "  devspace doctor          Show config, runtime, and native dependency status",
-      "  devspace config get      Print persisted config",
-      "  devspace config set publicBaseUrl <url|null>",
-      "  devspace agents ls       List subagent sessions",
-      "  devspace agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
-      "  devspace agents show <id>",
-      "  devspace -v, --version   Print the installed version",
+      "  forgerelay                 Run first-time setup if needed, then start the server",
+      "  forgerelay serve           Start the server",
+      "  forgerelay init            Create or update ~/.forgerelay/config.json and auth.json",
+      "  forgerelay doctor          Show config, runtime, and native dependency status",
+      "  forgerelay config get      Print persisted config",
+      "  forgerelay config set publicBaseUrl <url|null>",
+      "  forgerelay agents ls       List subagent sessions",
+      "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
+      "  forgerelay agents show <id>",
+      "  forgerelay -v, --version   Print the installed version",
       "",
       "For temporary tunnels:",
-      "  DEVSPACE_PUBLIC_BASE_URL=https://example.trycloudflare.com devspace serve",
+      "  FORGERELAY_PUBLIC_BASE_URL=https://example.trycloudflare.com forgerelay serve",
     ].join("\n"),
   );
 }
@@ -406,7 +406,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
 
   const promptFile = writeAgentPromptFile(parsed.prompt);
   const record = store.create({
-    workspaceId: process.env.DEVSPACE_WORKSPACE_ID,
+    workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
     workspaceRoot,
     profileName: target.name,
     provider: target.provider,
@@ -420,7 +420,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
 
 async function runAgentsShow(args: string[]): Promise<void> {
   const [id] = args;
-  if (!id) throw new Error("Usage: devspace agents show <id>");
+  if (!id) throw new Error("Usage: forgerelay agents show <id>");
 
   const config = loadConfig();
   const store = createLocalAgentStore(config);
@@ -443,14 +443,14 @@ async function runAgentsShow(args: string[]): Promise<void> {
     return;
   }
   if (record.status === "starting" || record.status === "running") {
-    console.log(`No final response yet. Call \`devspace agents show ${record.id}\` again later.`);
+    console.log(`No final response yet. Call \`forgerelay agents show ${record.id}\` again later.`);
   }
 }
 
 async function runAgentsWorker(args: string[]): Promise<void> {
   const [id, promptFileFlag, promptFile] = args;
   if (!id || promptFileFlag !== "--prompt-file" || !promptFile) {
-    throw new Error("Usage: devspace agents __worker <id> --prompt-file <path>");
+    throw new Error("Usage: forgerelay agents __worker <id> --prompt-file <path>");
   }
 
   const config = loadConfig();
@@ -533,19 +533,19 @@ function spawnAgentWorker(agentId: string, promptFile: string): void {
 }
 
 function writeAgentPromptFile(prompt: string): string {
-  const directory = mkdtempSync(join(tmpdir(), "devspace-agent-prompt-"));
+  const directory = mkdtempSync(join(tmpdir(), "forgerelay-agent-prompt-"));
   const filePath = join(directory, "prompt.txt");
   writeFileSync(filePath, prompt, { mode: 0o600 });
   return filePath;
 }
 
 function resolveCurrentWorkspaceRoot(): string {
-  return resolve(process.env.DEVSPACE_WORKSPACE_ROOT || process.cwd());
+  return resolve(process.env.FORGERELAY_WORKSPACE_ROOT ?? process.env.DEVSPACE_WORKSPACE_ROOT ?? process.cwd());
 }
 
 function resolveCurrentWorkspaceScope(): { workspaceId?: string; workspaceRoot: string } {
   return {
-    workspaceId: process.env.DEVSPACE_WORKSPACE_ID,
+    workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
     workspaceRoot: resolveCurrentWorkspaceRoot(),
   };
 }
@@ -566,12 +566,12 @@ function sleep(ms: number): Promise<void> {
 function printAgentsHelp(): void {
   console.log(
     [
-      "DevSpace agents",
+      "ForgeRelay agents",
       "",
       "Usage:",
-      "  devspace agents ls",
-      "  devspace agents run <profile-or-provider-or-id> [--model <model>] [--thinking <level>] <prompt>",
-      "  devspace agents show <id>",
+      "  forgerelay agents ls",
+      "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] [--thinking <level>] <prompt>",
+      "  forgerelay agents show <id>",
     ].join("\n"),
   );
 }
@@ -579,7 +579,7 @@ function printAgentsHelp(): void {
 function printVersion(): void {
   const packageJson = require("../package.json") as { version?: unknown };
   if (typeof packageJson.version !== "string") {
-    throw new Error("Unable to read DevSpace package version.");
+    throw new Error("Unable to read ForgeRelay package version.");
   }
 
   console.log(packageJson.version);
@@ -646,7 +646,7 @@ function assertSupportedNode(): void {
 
   throw new Error(
     [
-      `DevSpace requires Node ${SUPPORTED_NODE_RANGE}.`,
+      `ForgeRelay requires Node ${SUPPORTED_NODE_RANGE}.`,
       `Current Node: ${process.version}`,
       "",
       "Install Node 22 LTS or use a version manager such as nvm, fnm, or mise.",

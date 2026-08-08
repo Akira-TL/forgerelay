@@ -1,9 +1,10 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
-import { devspaceAgentsDir, devspaceSkillsDir, loadDevspaceFiles } from "./user-config.js";
+import { forgerelayAgentsDir, forgerelaySkillsDir, loadForgeRelayFiles } from "./user-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -86,13 +87,18 @@ function parseBoolean(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(value?.toLowerCase() ?? "");
 }
 
-function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
-  const mode = env.DEVSPACE_TOOL_MODE;
-  if (mode === "minimal" || mode === "full" || mode === "codex") return mode;
-  if (mode) throw new Error(`Invalid DEVSPACE_TOOL_MODE: ${mode}`);
+function productEnv(env: NodeJS.ProcessEnv, suffix: string): string | undefined {
+  return env[`FORGERELAY_${suffix}`] ?? env[`DEVSPACE_${suffix}`];
+}
 
-  if (env.DEVSPACE_MINIMAL_TOOLS !== undefined) {
-    return parseBoolean(env.DEVSPACE_MINIMAL_TOOLS) ? "minimal" : "full";
+function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
+  const mode = productEnv(env, "TOOL_MODE");
+  if (mode === "minimal" || mode === "full" || mode === "codex") return mode;
+  if (mode) throw new Error(`Invalid FORGERELAY_TOOL_MODE: ${mode}`);
+
+  const legacyMinimal = productEnv(env, "MINIMAL_TOOLS");
+  if (legacyMinimal !== undefined) {
+    return parseBoolean(legacyMinimal) ? "minimal" : "full";
   }
   return "minimal";
 }
@@ -120,14 +126,14 @@ function parseLogLevel(value: string | undefined): LogLevel {
   if (!value || value === "info") return "info";
   if (["silent", "error", "warn", "debug"].includes(value)) return value as LogLevel;
 
-  throw new Error(`Invalid DEVSPACE_LOG_LEVEL: ${value}`);
+  throw new Error(`Invalid FORGERELAY_LOG_LEVEL: ${value}`);
 }
 
 function parseLogFormat(value: string | undefined): LogFormat {
   if (!value || value === "json") return "json";
   if (value === "pretty") return "pretty";
 
-  throw new Error(`Invalid DEVSPACE_LOG_FORMAT: ${value}`);
+  throw new Error(`Invalid FORGERELAY_LOG_FORMAT: ${value}`);
 }
 
 function parsePathList(value: string | undefined): string[] {
@@ -165,14 +171,16 @@ function parsePositiveInteger(
 }
 
 function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
+  const requests = productEnv(env, "LOG_REQUESTS");
+  const toolCalls = productEnv(env, "LOG_TOOL_CALLS");
   return {
-    level: parseLogLevel(env.DEVSPACE_LOG_LEVEL),
-    format: parseLogFormat(env.DEVSPACE_LOG_FORMAT),
-    requests: env.DEVSPACE_LOG_REQUESTS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_REQUESTS),
-    assets: parseBoolean(env.DEVSPACE_LOG_ASSETS),
-    toolCalls: env.DEVSPACE_LOG_TOOL_CALLS === undefined ? true : parseBoolean(env.DEVSPACE_LOG_TOOL_CALLS),
-    shellCommands: parseBoolean(env.DEVSPACE_LOG_SHELL_COMMANDS),
-    trustProxy: parseBoolean(env.DEVSPACE_TRUST_PROXY),
+    level: parseLogLevel(productEnv(env, "LOG_LEVEL")),
+    format: parseLogFormat(productEnv(env, "LOG_FORMAT")),
+    requests: requests === undefined ? true : parseBoolean(requests),
+    assets: parseBoolean(productEnv(env, "LOG_ASSETS")),
+    toolCalls: toolCalls === undefined ? true : parseBoolean(toolCalls),
+    shellCommands: parseBoolean(productEnv(env, "LOG_SHELL_COMMANDS")),
+    trustProxy: parseBoolean(productEnv(env, "TRUST_PROXY")),
   };
 }
 
@@ -180,13 +188,13 @@ function parseWidgetMode(value: string | undefined): WidgetMode {
   if (!value || value === "full") return "full";
   if (value === "off" || value === "changes") return value;
 
-  throw new Error(`Invalid DEVSPACE_WIDGETS: ${value}`);
+  throw new Error(`Invalid FORGERELAY_WIDGETS: ${value}`);
 }
 
 function parseRequiredSecret(value: string | undefined, name: string): string {
   const secret = value?.trim();
   if (!secret) {
-    throw new Error(`${name} is required for DevSpace OAuth. Run: devspace init`);
+    throw new Error(`${name} is required for ForgeRelay OAuth. Run: forgerelay init`);
   }
   if (secret.length < 16) {
     throw new Error(`${name} must be at least 16 characters long.`);
@@ -196,19 +204,19 @@ function parseRequiredSecret(value: string | undefined, name: string): string {
 
 function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined): OAuthConfig {
   return {
-    ownerToken: parseRequiredSecret(env.DEVSPACE_OAUTH_OWNER_TOKEN ?? ownerToken, "DEVSPACE_OAUTH_OWNER_TOKEN"),
+    ownerToken: parseRequiredSecret(productEnv(env, "OAUTH_OWNER_TOKEN") ?? ownerToken, "FORGERELAY_OAUTH_OWNER_TOKEN"),
     accessTokenTtlSeconds: parsePositiveInteger(
-      env.DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+      productEnv(env, "OAUTH_ACCESS_TOKEN_TTL_SECONDS"),
       DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-      "DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS",
+      "FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS",
     ),
     refreshTokenTtlSeconds: parsePositiveInteger(
-      env.DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+      productEnv(env, "OAUTH_REFRESH_TOKEN_TTL_SECONDS"),
       DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
-      "DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
+      "FORGERELAY_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
     ),
-    scopes: parseStringList(env.DEVSPACE_OAUTH_SCOPES, ["devspace"]),
-    allowedRedirectHosts: parseStringList(env.DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS, [
+    scopes: parseStringList(productEnv(env, "OAUTH_SCOPES"), ["devspace"]),
+    allowedRedirectHosts: parseStringList(productEnv(env, "OAUTH_ALLOWED_REDIRECT_HOSTS"), [
       "chatgpt.com",
       "localhost",
       "127.0.0.1",
@@ -217,11 +225,15 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
 }
 
 function defaultStateDir(): string {
-  return join(homedir(), ".local", "share", "devspace");
+  const current = join(homedir(), ".local", "share", "forgerelay");
+  const legacy = join(homedir(), ".local", "share", "devspace");
+  return existsSync(current) || !existsSync(legacy) ? current : legacy;
 }
 
 function defaultWorktreeRoot(): string {
-  return join(homedir(), ".devspace", "worktrees");
+  const current = join(homedir(), ".forgerelay", "worktrees");
+  const legacy = join(homedir(), ".devspace", "worktrees");
+  return existsSync(current) || !existsSync(legacy) ? current : legacy;
 }
 
 function defaultAgentDir(): string {
@@ -229,11 +241,11 @@ function defaultAgentDir(): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const files = loadDevspaceFiles(env);
+  const files = loadForgeRelayFiles(env);
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
   const port = parsePort(env.PORT ?? files.config.port);
   const publicBaseUrl = parsePublicBaseUrl(
-    env.DEVSPACE_PUBLIC_BASE_URL ?? files.config.publicBaseUrl ?? localPublicBaseUrl(host, port),
+    productEnv(env, "PUBLIC_BASE_URL") ?? files.config.publicBaseUrl ?? localPublicBaseUrl(host, port),
   );
   const derivedAllowedHosts = [
     "localhost",
@@ -248,39 +260,39 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     host,
     port,
     oauth: parseOAuthConfig(env, files.auth.ownerToken),
-    allowedRoots: parseAllowedRoots(env.DEVSPACE_ALLOWED_ROOTS ?? files.config.allowedRoots),
-    allowedHosts: parseAllowedHosts(env.DEVSPACE_ALLOWED_HOSTS, derivedAllowedHosts),
+    allowedRoots: parseAllowedRoots(productEnv(env, "ALLOWED_ROOTS") ?? files.config.allowedRoots),
+    allowedHosts: parseAllowedHosts(productEnv(env, "ALLOWED_HOSTS"), derivedAllowedHosts),
     publicBaseUrl,
     toolMode: parseToolMode(env),
     workflowInstructions: parseWorkflowInstructions(
-      env.DEVSPACE_WORKFLOW_INSTRUCTIONS,
+      productEnv(env, "WORKFLOW_INSTRUCTIONS"),
       files.config.workflowInstructions,
     ),
     appendInstructions: parseAppendInstructions(
-      env.DEVSPACE_APPEND_INSTRUCTIONS,
+      productEnv(env, "APPEND_INSTRUCTIONS"),
       files.config.appendInstructions,
     ),
-    widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
-    stateDir: resolve(expandHomePath(env.DEVSPACE_STATE_DIR ?? files.config.stateDir ?? defaultStateDir())),
-    worktreeRoot: resolve(expandHomePath(env.DEVSPACE_WORKTREE_ROOT ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),
+    widgets: parseWidgetMode(productEnv(env, "WIDGETS")),
+    stateDir: resolve(expandHomePath(productEnv(env, "STATE_DIR") ?? files.config.stateDir ?? defaultStateDir())),
+    worktreeRoot: resolve(expandHomePath(productEnv(env, "WORKTREE_ROOT") ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),
     artifactsEnabled:
-      env.DEVSPACE_ARTIFACTS === undefined
+      productEnv(env, "ARTIFACTS") === undefined
         ? files.config.artifactsEnabled === true
-        : parseBoolean(env.DEVSPACE_ARTIFACTS),
+        : parseBoolean(productEnv(env, "ARTIFACTS")),
     artifactMaxFileBytes: parsePositiveInteger(
-      env.DEVSPACE_ARTIFACT_MAX_FILE_BYTES ?? numberConfigValue(files.config.artifactMaxFileBytes),
+      productEnv(env, "ARTIFACT_MAX_FILE_BYTES") ?? numberConfigValue(files.config.artifactMaxFileBytes),
       DEFAULT_ARTIFACT_MAX_FILE_BYTES,
-      "DEVSPACE_ARTIFACT_MAX_FILE_BYTES",
+      "FORGERELAY_ARTIFACT_MAX_FILE_BYTES",
     ),
-    skillsEnabled: env.DEVSPACE_SKILLS === undefined ? true : parseBoolean(env.DEVSPACE_SKILLS),
-    skillPaths: parsePathList(env.DEVSPACE_SKILL_PATHS),
-    devspaceSkillsDir: devspaceSkillsDir(env),
-    devspaceAgentsDir: devspaceAgentsDir(env),
+    skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
+    skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
+    devspaceSkillsDir: forgerelaySkillsDir(env),
+    devspaceAgentsDir: forgerelayAgentsDir(env),
     subagents:
-      env.DEVSPACE_SUBAGENTS === undefined
+      productEnv(env, "SUBAGENTS") === undefined
         ? files.config.subagents === true
-        : parseBoolean(env.DEVSPACE_SUBAGENTS),
-    agentDir: resolve(expandHomePath(env.DEVSPACE_AGENT_DIR ?? files.config.agentDir ?? defaultAgentDir())),
+        : parseBoolean(productEnv(env, "SUBAGENTS")),
+    agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
     logging: parseLoggingConfig(env),
   };
 }
