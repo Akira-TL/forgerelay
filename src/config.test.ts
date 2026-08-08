@@ -22,6 +22,21 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "full" }).toolMode, "f
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "codex" }).toolMode, "codex");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined Git workflows." })
+    .workflowInstructions,
+  "Use repository-defined Git workflows.",
+);
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_WORKFLOW_INSTRUCTIONS: "" }).workflowInstructions,
+  false,
+);
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_APPEND_INSTRUCTIONS: "Keep command output concise." })
+    .appendInstructions,
+  "Keep command output concise.",
+);
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).devspaceSkillsDir, join(emptyConfigDir, "skills"));
 assert.equal(loadConfig(baseEnv).devspaceAgentsDir, join(emptyConfigDir, "agents"));
@@ -176,6 +191,8 @@ writeFileSync(
     subagents: true,
     artifactsEnabled: true,
     artifactMaxFileBytes: 321,
+    workflowInstructions: false,
+    appendInstructions: "Follow repository workflow instructions.",
   }),
 );
 writeFileSync(
@@ -192,6 +209,8 @@ assert.equal(fileConfig.publicBaseUrl, "https://devspace.example.com");
 assert.equal(fileConfig.subagents, true);
 assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
+assert.equal(fileConfig.workflowInstructions, false);
+assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",

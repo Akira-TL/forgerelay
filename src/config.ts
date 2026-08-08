@@ -19,6 +19,8 @@ export interface ServerConfig {
   allowedHosts: string[];
   publicBaseUrl: string;
   toolMode: ToolMode;
+  workflowInstructions: string | false | undefined;
+  appendInstructions: string | undefined;
   widgets: WidgetMode;
   stateDir: string;
   worktreeRoot: string;
@@ -93,6 +95,25 @@ function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
     return parseBoolean(env.DEVSPACE_MINIMAL_TOOLS) ? "minimal" : "full";
   }
   return "minimal";
+}
+
+function parseWorkflowInstructions(
+  value: string | undefined,
+  fallback: string | false | undefined,
+): string | false | undefined {
+  const resolved = value !== undefined ? value : fallback;
+  if (resolved === false || resolved === undefined) return resolved;
+
+  const instructions = resolved.trim();
+  return instructions.length > 0 ? instructions : false;
+}
+
+function parseAppendInstructions(
+  value: string | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  const instructions = (value ?? fallback)?.trim();
+  return instructions ? instructions : undefined;
 }
 
 function parseLogLevel(value: string | undefined): LogLevel {
@@ -231,6 +252,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(env.DEVSPACE_ALLOWED_HOSTS, derivedAllowedHosts),
     publicBaseUrl,
     toolMode: parseToolMode(env),
+    workflowInstructions: parseWorkflowInstructions(
+      env.DEVSPACE_WORKFLOW_INSTRUCTIONS,
+      files.config.workflowInstructions,
+    ),
+    appendInstructions: parseAppendInstructions(
+      env.DEVSPACE_APPEND_INSTRUCTIONS,
+      files.config.appendInstructions,
+    ),
     widgets: parseWidgetMode(env.DEVSPACE_WIDGETS),
     stateDir: resolve(expandHomePath(env.DEVSPACE_STATE_DIR ?? files.config.stateDir ?? defaultStateDir())),
     worktreeRoot: resolve(expandHomePath(env.DEVSPACE_WORKTREE_ROOT ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),

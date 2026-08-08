@@ -16,6 +16,39 @@ import { WorkspaceRegistry } from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);
 
+test("MCP instructions separate capability contract from configurable workflow policy", async (t) => {
+  const defaultContext = await fixture(t);
+  const defaultInstructions = defaultContext.client.getInstructions() ?? "";
+  const defaultTools = await defaultContext.client.listTools();
+  const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
+  const shellInputProperties = (shellTool?.inputSchema as {
+    properties?: Record<string, { description?: string }>;
+  } | undefined)?.properties;
+
+  assert.match(defaultInstructions, /Call open_workspace once per project folder or worktree/);
+  assert.match(defaultInstructions, /Do not create or modify files with bash/);
+  assert.match(shellTool?.description ?? "", /local user's authority/);
+  assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create or modify files/);
+  assert.equal(
+    shellInputProperties?.command?.description,
+    "Shell command to run with the local user's authority.",
+  );
+
+  const overrideContext = await fixture(t, {
+    env: {
+      DEVSPACE_WORKFLOW_INSTRUCTIONS: "Follow repository-defined development and Git workflows.",
+      DEVSPACE_APPEND_INSTRUCTIONS: "Preserve the capability contract.",
+    },
+  });
+  const overrideInstructions = overrideContext.client.getInstructions() ?? "";
+
+  assert.match(overrideInstructions, /Call open_workspace once per project folder or worktree/);
+  assert.match(overrideInstructions, /Follow instructions returned by open_workspace/);
+  assert.match(overrideInstructions, /Follow repository-defined development and Git workflows\./);
+  assert.match(overrideInstructions, /Preserve the capability contract\./);
+  assert.doesNotMatch(overrideInstructions, /Do not create or modify files with bash/);
+});
+
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
@@ -185,7 +218,10 @@ interface ServerFixture {
   close: () => Promise<void>;
 }
 
-async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise<ServerFixture> {
+async function fixture(
+  t: TestContext,
+  options: { git?: boolean; env?: NodeJS.ProcessEnv } = {},
+): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
   const project = join(root, "project");
   const agentDir = join(root, "agent");
@@ -222,6 +258,7 @@ async function fixture(t: TestContext, options: { git?: boolean } = {}): Promise
     DEVSPACE_TOOL_MODE: "full",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
+    ...options.env,
   });
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);

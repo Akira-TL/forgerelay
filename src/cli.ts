@@ -161,6 +161,8 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       port,
       allowedRoots,
       publicBaseUrl,
+      workflowInstructions: files.config.workflowInstructions,
+      appendInstructions: files.config.appendInstructions,
       subagents: resolveSubagentsFlag(files.config),
     };
     const auth = {

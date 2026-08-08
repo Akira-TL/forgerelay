@@ -19,6 +19,8 @@ export interface DevspaceUserConfig {
   worktreeRoot?: string;
   artifactsEnabled?: boolean;
   artifactMaxFileBytes?: number;
+  workflowInstructions?: string | false;
+  appendInstructions?: string;
   agentDir?: string;
   subagents?: boolean;
 }
