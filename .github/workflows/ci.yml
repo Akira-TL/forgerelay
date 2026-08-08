@@ -19,9 +19,9 @@ jobs:
           - windows-latest
 
     env:
-      DEVSPACE_ALLOWED_ROOTS: ${{ github.workspace }}
-      DEVSPACE_OAUTH_OWNER_TOKEN: ci-owner-token-that-is-long-enough
-      DEVSPACE_PUBLIC_BASE_URL: http://127.0.0.1:7676
+      FORGERELAY_ALLOWED_ROOTS: ${{ github.workspace }}
+      FORGERELAY_OAUTH_OWNER_TOKEN: ci-owner-token-that-is-long-enough
+      FORGERELAY_PUBLIC_BASE_URL: http://127.0.0.1:7676
 
     steps:
       - name: Checkout
@@ -35,6 +35,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Release metadata
+        run: npm run release:check
 
       - name: Typecheck
         run: npm run typecheck
