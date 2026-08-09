@@ -266,6 +266,7 @@ Trusted Publishing setup.
 ## Documentation
 
 - [Setup Guide](docs/setup.md)
+- [Local Debugging and 7677 Acceptance](docs/debugging.md)
 - [ChatGPT Coding Workflow](docs/chatgpt-coding-workflow.md)
 - [Configuration Reference](docs/configuration.md)
 - [Agent Profile Schema](docs/agent-profile-schema.md)
@@ -293,7 +294,17 @@ The original copyright notice remains in [LICENSE](LICENSE). See
 ```bash
 npm install --include=dev
 npm run dev
+npm run debug:accept
 npm run typecheck
 npm test
 npm run build
 ```
+
+`npm run dev` uses the checked-in local debug configuration and binds ForgeRelay
+to `127.0.0.1:7677`, keeping the normal `7676` product port free. The
+`debug:accept` command starts a temporary 7677 server and sends real
+HTTP/OAuth/MCP requests through it, including workspace tools, managed worktree
+close, and Hooks v1 lifecycle recording. Debug state stays under the gitignored
+`.forgerelay-debug/` directory.
+
+See [Local Debugging](docs/debugging.md) for the exact configuration and scripts.

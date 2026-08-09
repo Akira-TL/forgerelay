@@ -72,6 +72,7 @@ type Transport = StreamableHTTPServerTransport;
 // MCP clients can reconnect without closing the previous transport. Bound stale
 // session retention so abandoned MCP servers do not accumulate for the life of the process.
 const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+const FORGERELAY_VERSION = readForgeRelayVersion();
 const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
 const WORKSPACE_APP_URI = "ui://forgerelay/workspace-app.html";
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
@@ -488,6 +489,16 @@ function processOutputSchema(): z.ZodRawShape {
   });
 }
 
+function readForgeRelayVersion(): string {
+  const packageJson = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version?: unknown };
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
+    throw new Error("Unable to read ForgeRelay package version.");
+  }
+  return packageJson.version;
+}
+
 function processToolResponse(
   tool: "exec_command" | "write_stdin",
   workspaceId: string,
@@ -710,7 +721,7 @@ export function createMcpServer(
     {
       name: "forgerelay",
       title: "ForgeRelay",
-      version: "0.1.0",
+      version: FORGERELAY_VERSION,
       description:
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
     },

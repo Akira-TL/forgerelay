@@ -81,6 +81,8 @@ Determine how the user will consume the change and verify that path. Behavior ma
 
 State clearly when only a narrower proxy was verified. For model-facing schemas, inspect what the host receives. For UI and artifacts, inspect the rendered result rather than inferring success from the producing command.
 
+For local server debugging, use the checked-in debug workflow on `127.0.0.1:7677`; do not reuse the normal `7676` product port. `npm run dev` starts the watched debug server, and `npm run debug:accept` performs the real HTTP/OAuth/MCP acceptance path. Keep debug credentials and generated state under the gitignored `.forgerelay-debug/` directory rather than committing secrets or one-off runtime files.
+
 ## Trace affected contracts
 
 When changing a cross-cutting concept, check every surface it actually reaches:

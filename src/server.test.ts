@@ -16,11 +16,15 @@ import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+  version: string;
+};
 
 test("MCP instructions separate capability contract from configurable workflow policy", async (t) => {
   const defaultContext = await fixture(t);
   const defaultInstructions = defaultContext.client.getInstructions() ?? "";
   const defaultTools = await defaultContext.client.listTools();
+  assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
   const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
   const shellInputProperties = (shellTool?.inputSchema as {

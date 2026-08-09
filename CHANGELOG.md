@@ -6,9 +6,14 @@ All notable ForgeRelay changes are documented here.
 
 ### Added
 
+- A checked-in `127.0.0.1:7677` local debug environment with reproducible OAuth/MCP acceptance scripts, isolated runtime state, and Hooks v1 lifecycle recording.
 - User-configured lifecycle hooks for workspace creation, MCP tool execution, explicit file changes, managed-worktree close, and local subagent execution.
 - Blocking `BeforeTool` and `BeforeWorktreeClose` policy gates with bounded command timeouts, plus observational after-events that log failures without rolling back completed work.
 - Hook lifecycle context through `FORGERELAY_HOOK_*` and workspace environment variables without exposing native-file credentials or subagent prompts.
+
+### Fixed
+
+- MCP `initialize` now reports the package version from `package.json` instead of a stale hardcoded `0.1.0` server version.
 
 ### Security
 
