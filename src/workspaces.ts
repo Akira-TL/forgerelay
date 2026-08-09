@@ -607,6 +607,7 @@ export class WorkspaceRegistry {
     const resolvedRoot = (await tryRealpath(root)) ?? root;
     const systemInstructionsPath = resolve(this.config.systemInstructionsPath);
     const loadedFiles: LoadedAgentsFile[] = [];
+    const loadedRealPaths = new Set<string>();
     const systemInstructions = await readSystemInstructions(systemInstructionsPath);
     const systemInstructionsRealPath = await tryRealpath(systemInstructionsPath);
 
@@ -615,6 +616,7 @@ export class WorkspaceRegistry {
         path: systemInstructionsPath,
         content: systemInstructions,
       });
+      if (systemInstructionsRealPath) loadedRealPaths.add(systemInstructionsRealPath);
     }
 
     for (const fileName of CONTEXT_FILE_NAMES) {
@@ -623,12 +625,13 @@ export class WorkspaceRegistry {
       if (content === undefined) continue;
 
       const realPath = await tryRealpath(path);
-      if (systemInstructionsRealPath && realPath === systemInstructionsRealPath) continue;
+      if (realPath && loadedRealPaths.has(realPath)) continue;
 
       loadedFiles.push({
         path,
         content,
       });
+      if (realPath) loadedRealPaths.add(realPath);
     }
 
     return loadedFiles;

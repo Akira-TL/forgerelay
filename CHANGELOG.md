@@ -30,6 +30,7 @@ All notable ForgeRelay changes are documented here.
 ### Fixed
 
 - Symbolic-link system instruction entries now follow their configured target even when the canonical source lives outside the runtime instruction directory.
+- Project instruction aliases that resolve to the same file are loaded once, preventing duplicate `AGENTS.md` context on case-insensitive filesystems such as default macOS and Windows checkouts.
 
 ## [0.1.0] - 2026-08-09
 
