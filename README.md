@@ -3,7 +3,7 @@
 **Give MCP coding agents a real local workspace.**
 
 [![npm](https://img.shields.io/npm/v/%40akira-tl%2Fforgerelay?style=flat-square)](https://www.npmjs.com/package/@akira-tl/forgerelay)
-[![CI](https://img.shields.io/github/actions/workflow/status/Akira-TL/forgerelay/ci.yml?style=flat-square&branch=main)](https://github.com/Akira-TL/forgerelay/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/Akira-TL/forgerelay/release.yml?style=flat-square&label=release)](https://github.com/Akira-TL/forgerelay/actions/workflows/release.yml)
 [![License](https://img.shields.io/npm/l/%40akira-tl%2Fforgerelay?style=flat-square)](LICENSE)
 
 ForgeRelay is a self-hosted MCP server that lets ChatGPT and other MCP-capable
@@ -227,9 +227,11 @@ npm run release:major
 npm run release:verify
 ```
 
-Pushing a matching `vX.Y.Z` tag to `Akira-TL/forgerelay` is the publish action.
-GitHub Actions verifies the tagged commit, publishes `@akira-tl/forgerelay` to
-npm, and creates the matching GitHub Release.
+Daily branch pushes do not run cloud CI. When preparing a release, run the full
+local release verification first. Pushing a matching `vX.Y.Z` tag to
+`Akira-TL/forgerelay` is the only cloud CI and publish trigger: GitHub Actions
+runs the reusable multi-platform CI, then publishes `@akira-tl/forgerelay` and
+creates the matching GitHub Release only after CI succeeds.
 
 See [Versioning and Release Management](docs/versioning.md) for the bootstrap and
 Trusted Publishing setup.

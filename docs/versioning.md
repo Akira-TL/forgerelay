@@ -96,28 +96,28 @@ A release tag must exactly equal `v` followed by the package version, and
 
 ## CI and tag-triggered publishing
 
-`.github/workflows/ci.yml` does not run on ordinary branch pushes or pull-request
-updates. Run the full local gate first, push the reviewed commits, then explicitly
-start CI with `gh workflow run ci.yml --ref main` (or the GitHub Actions UI).
-Cloud CI is a second verification layer after local validation, not a substitute
-for it.
+`.github/workflows/ci.yml` is a reusable workflow with only a `workflow_call`
+entry point. It does not run on ordinary branch pushes, pull-request updates, or
+manual dispatches. Day-to-day development therefore does not consume cloud CI.
 
-`.github/workflows/release.yml` runs only for stable SemVer tags matching
-`v[0-9]+.[0-9]+.[0-9]+` in the `Akira-TL/forgerelay` repository. The release
-helper then requires the tag to exactly equal `v` plus the package version.
-Ordinary branch pushes never enter the publication workflow.
+`.github/workflows/release.yml` is the single GitHub Actions entry point. It runs
+only for stable SemVer tags matching `v[0-9]+.[0-9]+.[0-9]+` in the
+`Akira-TL/forgerelay` repository. The release helper then requires the tag to
+exactly equal `v` plus the package version. Ordinary branch pushes never enter
+cloud CI or publication.
 
 For a valid tag, the workflow:
 
-1. checks out the tagged commit with full Git history;
-2. verifies the tagged commit is contained in `origin/main`;
-3. installs dependencies;
-4. checks the tag against `package.json` and `CHANGELOG.md`;
-5. runs `npm run release:verify`;
-6. runs `npm pack --dry-run`;
-7. checks whether the exact npm version is already published;
-8. publishes `@akira-tl/forgerelay` when necessary;
-9. creates the matching GitHub Release after npm publication succeeds.
+1. invokes `.github/workflows/ci.yml` for the cloud multi-platform verification;
+2. waits for every CI matrix job to pass;
+3. checks out the tagged commit with full Git history;
+4. verifies the tagged commit is contained in `origin/main`;
+5. installs dependencies and checks the tag against `package.json` and `CHANGELOG.md`;
+6. rebuilds the publish artifact on the publication runner;
+7. runs `npm pack --dry-run`;
+8. checks whether the exact npm version is already published;
+9. publishes `@akira-tl/forgerelay` when necessary;
+10. creates the matching GitHub Release after npm publication succeeds.
 
 The npm existence check makes the workflow safely restartable when npm
 publication succeeds but GitHub Release creation fails afterward.
@@ -158,15 +158,10 @@ npm publishing token.
 3. Run the appropriate `release:patch`, `release:minor`, or `release:major`
    command.
 4. Review the generated version and changelog diff.
-5. Run `npm run release:verify`.
+5. Run `npm run release:verify` locally. This full local gate is a release-time
+   operation; ordinary development pushes do not need to run the full release gate.
 6. Commit the release-ready code and metadata and push `main`.
-7. Explicitly run cloud CI and confirm it passes:
-
-   ```bash
-   gh workflow run ci.yml --ref main
-   ```
-
-8. Create the exact version tag, for example:
+7. Create the exact version tag, for example:
 
    ```bash
    git tag v0.2.0
