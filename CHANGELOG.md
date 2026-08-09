@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-09
+
 ### Added
 
 - Conversation-scoped logical workspace handles: the same conversation keeps a stable `workspaceId`, different conversations normally receive separate IDs for the same physical checkout/worktree, `open_workspace` can explicitly resume a known ID or allocate a user-requested fresh logical handle, and workspaces idle for more than two days are reported for user-directed resumption or cleanup.
