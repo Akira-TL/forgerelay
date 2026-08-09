@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { ensureDevspaceDefaultSkills, resolveSubagentsFlag } from "./user-config.js";
@@ -17,6 +17,12 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "changes" }).widgets, "c
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "full" }).widgets, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off" }).widgets, "off");
 assert.equal(loadConfig(baseEnv).toolMode, "minimal");
+assert.equal(loadConfig(baseEnv).systemInstructionsPath, join(homedir(), ".agents", "AGENTS.md"));
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: "~/custom-system.md" })
+    .systemInstructionsPath,
+  join(homedir(), "custom-system.md"),
+);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "minimal" }).toolMode, "minimal");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "full" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "codex" }).toolMode, "codex");
@@ -103,6 +109,10 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "invalid" }),
   /Invalid FORGERELAY_TOOL_MODE: invalid/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: "" }),
+  /FORGERELAY_SYSTEM_INSTRUCTIONS_PATH must be one non-empty path/,
 );
 
 assert.deepEqual(loadConfig(baseEnv).logging, {
@@ -215,6 +225,7 @@ writeFileSync(
     artifactMaxFileBytes: 321,
     workflowInstructions: false,
     appendInstructions: "Follow repository workflow instructions.",
+    systemInstructionsPath: "~/configured-system.md",
   }),
 );
 writeFileSync(
@@ -233,6 +244,7 @@ assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
+assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",

@@ -22,6 +22,7 @@ export interface ForgeRelayUserConfig {
   workflowInstructions?: string | false;
   appendInstructions?: string;
   agentDir?: string;
+  systemInstructionsPath?: string;
   subagents?: boolean;
 }
 

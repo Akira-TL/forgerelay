@@ -7,7 +7,6 @@ import type {
 } from "./workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
 import {
   closeManagedWorktree,
@@ -560,21 +559,26 @@ export class WorkspaceRegistry {
   }
 
   private async loadInitialAgentsFiles(root: string): Promise<LoadedAgentsFile[]> {
-    const agentDir = resolve(this.config.agentDir);
     const resolvedRoot = (await tryRealpath(root)) ?? root;
-    const resolvedAgentDir = (await tryRealpath(agentDir)) ?? agentDir;
+    const systemInstructionsPath = resolve(this.config.systemInstructionsPath);
     const loadedFiles: LoadedAgentsFile[] = [];
+    const systemInstructions = await readSystemInstructions(systemInstructionsPath);
+    const systemInstructionsRealPath = await tryRealpath(systemInstructionsPath);
 
-    for (const file of loadProjectContextFiles({ cwd: root, agentDir })) {
-      const path = resolve(file.path);
-      if (!isInitialAgentsFilePath(path, root, agentDir)) continue;
-      const content = await readResolvedContextFile(
-        path,
-        file.content,
-        resolvedRoot,
-        resolvedAgentDir,
-      );
+    if (systemInstructions !== undefined) {
+      loadedFiles.push({
+        path: systemInstructionsPath,
+        content: systemInstructions,
+      });
+    }
+
+    for (const fileName of CONTEXT_FILE_NAMES) {
+      const path = join(root, fileName);
+      const content = await readResolvedProjectContextFile(path, resolvedRoot);
       if (content === undefined) continue;
+
+      const realPath = await tryRealpath(path);
+      if (systemInstructionsRealPath && realPath === systemInstructionsRealPath) continue;
 
       loadedFiles.push({
         path,
@@ -597,7 +601,10 @@ export class WorkspaceRegistry {
     }
     const discovered: AvailableAgentsFile[] = [];
 
+    const agentDir = resolve(this.config.agentDir);
+
     await walkWorkspace(root, async (path, entry) => {
+      if (isPathInsideRoot(path, agentDir)) return;
       if (!entry.isFile()) return;
       if (!CONTEXT_FILE_NAMES.has(entry.name)) return;
       if (loadedPaths.has(path)) return;
@@ -678,23 +685,31 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
   return relationship.split(sep).join("/");
 }
 
-function isInitialAgentsFilePath(path: string, root: string, agentDir: string): boolean {
-  if (isPathInsideRoot(path, agentDir)) return true;
+function isProjectRootInstructionPath(path: string, root: string): boolean {
   return isPathInsideRoot(path, root) && dirname(path) === root;
 }
 
-async function readResolvedContextFile(
-  path: string,
-  fallbackContent: string,
-  root: string,
-  agentDir: string,
-): Promise<string | undefined> {
+async function readSystemInstructions(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function readResolvedProjectContextFile(path: string, root: string): Promise<string | undefined> {
   try {
     const resolvedPath = await realpath(path);
-    if (!isInitialAgentsFilePath(resolvedPath, root, agentDir)) return undefined;
+    if (!isProjectRootInstructionPath(resolvedPath, root)) return undefined;
     return await readFile(resolvedPath, "utf8");
-  } catch {
-    return fallbackContent;
+  } catch (error) {
+    if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+      return undefined;
+    }
+    throw error;
   }
 }
 

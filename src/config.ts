@@ -33,6 +33,7 @@ export interface ServerConfig {
   devspaceAgentsDir: string;
   subagents: boolean;
   agentDir: string;
+  systemInstructionsPath: string;
   logging: LoggingConfig;
 }
 
@@ -240,6 +241,18 @@ function defaultAgentDir(): string {
   return join(homedir(), ".codex");
 }
 
+function defaultSystemInstructionsPath(): string {
+  return join(homedir(), ".agents", "AGENTS.md");
+}
+
+function parseSystemInstructionsPath(value: unknown): string {
+  if (value === undefined) return resolve(defaultSystemInstructionsPath());
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("FORGERELAY_SYSTEM_INSTRUCTIONS_PATH must be one non-empty path");
+  }
+  return resolve(expandHomePath(value.trim()));
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const files = loadForgeRelayFiles(env);
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
@@ -293,6 +306,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         ? files.config.subagents === true
         : parseBoolean(productEnv(env, "SUBAGENTS")),
     agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
+    systemInstructionsPath: parseSystemInstructionsPath(
+      productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,
+    ),
     logging: parseLoggingConfig(env),
   };
 }

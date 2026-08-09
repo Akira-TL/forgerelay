@@ -12,15 +12,18 @@ import { WorkspaceRegistry } from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);
 
-test("a checkout exposes initial and nested instruction context while filtering outside symlinks", async (t) => {
+test("a checkout loads one configured system instruction plus project context", async (t) => {
   const context = await fixture(t);
   const opened = await context.registry.openWorkspace(context.root);
 
   assert.match(opened.workspace.id, /^ws_[a-f0-9]{10}$/);
   assert.equal(opened.workspace.mode, "checkout");
   assert.deepEqual(
-    opened.agentsFiles.map((file) => file.content),
-    ["global instructions\n", "root instructions\n"],
+    opened.agentsFiles.map((file) => ({ path: file.path, content: file.content })),
+    [
+      { path: context.systemInstructionsPath, content: "global instructions\n" },
+      { path: join(context.root, "AGENTS.md"), content: "root instructions\n" },
+    ],
   );
   assert.deepEqual(
     opened.availableAgentsFiles.map((file) => file.path),
@@ -52,6 +55,7 @@ test("a checkout exposes initial and nested instruction context while filtering 
       DEVSPACE_ALLOWED_ROOTS: context.root,
       DEVSPACE_WORKTREE_ROOT: join(context.root, ".devspace", "unsafe-worktrees"),
       DEVSPACE_AGENT_DIR: unsafeAgentDir,
+      DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
       DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
       PORT: "1",
     });
@@ -59,7 +63,7 @@ test("a checkout exposes initial and nested instruction context while filtering 
 
     assert.deepEqual(
       unsafeWorkspace.agentsFiles.map((file) => file.content),
-      ["root instructions\n"],
+      ["global instructions\n", "root instructions\n"],
     );
   }
 });
@@ -233,6 +237,7 @@ test("a symlinked allowed root preserves checkout and worktree path behavior", {
     DEVSPACE_ALLOWED_ROOTS: aliasRoot,
     DEVSPACE_WORKTREE_ROOT: join(aliasRoot, ".devspace", "alias-worktrees"),
     DEVSPACE_AGENT_DIR: context.agentDir,
+    DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
@@ -255,6 +260,7 @@ interface WorkspaceFixture {
   root: string;
   outsideRoot: string;
   agentDir: string;
+  systemInstructionsPath: string;
   config: ServerConfig;
   registry: WorkspaceRegistry;
 }
@@ -263,14 +269,20 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-workspace-test-"));
   const outsideRoot = await mkdtemp(join(tmpdir(), "devspace-workspace-outside-test-"));
   const agentDir = join(root, ".pi", "agent");
+  const systemInstructionsPath = join(root, ".agents", "AGENTS.md");
+
+  await mkdir(agentDir, { recursive: true });
+  await writeFile(join(agentDir, "AGENTS.md"), "legacy agent-dir instructions\n");
+  await mkdir(join(root, ".agents"), { recursive: true });
 
   if (platform() === "win32") {
-    await mkdir(agentDir, { recursive: true });
-    await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
+    await writeFile(systemInstructionsPath, "global instructions\n");
   } else {
-    await mkdir(join(agentDir, "skills"), { recursive: true });
-    await writeFile(join(agentDir, "skills", "AGENTS.md"), "global instructions\n");
-    await symlink("skills/AGENTS.md", join(agentDir, "AGENTS.md"));
+    const canonicalInstructionsDir = join(outsideRoot, "core");
+    const canonicalInstructionsPath = join(canonicalInstructionsDir, "AGENTS.md");
+    await mkdir(canonicalInstructionsDir, { recursive: true });
+    await writeFile(canonicalInstructionsPath, "global instructions\n");
+    await symlink(canonicalInstructionsPath, systemInstructionsPath);
   }
 
   await writeFile(join(root, "AGENTS.md"), "root instructions\n");
@@ -297,6 +309,7 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
     DEVSPACE_ALLOWED_ROOTS: root,
     DEVSPACE_WORKTREE_ROOT: join(root, ".devspace", "worktrees"),
     DEVSPACE_AGENT_DIR: agentDir,
+    DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: systemInstructionsPath,
     DEVSPACE_SUBAGENTS: "1",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
@@ -311,6 +324,7 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
     root,
     outsideRoot,
     agentDir,
+    systemInstructionsPath,
     config,
     registry: new WorkspaceRegistry(config),
   };
