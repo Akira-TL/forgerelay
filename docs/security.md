@@ -145,15 +145,18 @@ as owner-only files. See [Native File Download](artifact-exchange.md).
 
 ## Logging
 
-ForgeRelay logs requests/tool calls by default. Shell command previews are off
-unless explicitly enabled:
+ForgeRelay's default human-facing `pretty` logs focus on tool and Hook
+operations; HTTP request records are off by default. Pretty mode includes a
+truncated shell command preview so local operators can see what the Agent ran.
+Command arguments can contain secrets, so disable previews when necessary:
 
 ```bash
-FORGERELAY_LOG_SHELL_COMMANDS=1
+FORGERELAY_LOG_SHELL_COMMANDS=0
 ```
 
-Command arguments can contain secrets, so only enable command-preview logging
-when necessary.
+Explicit `json` mode is intended for machine collection. Its default preserves
+HTTP request records and omits shell command previews unless those settings are
+overridden explicitly.
 
 ## Package provenance
 

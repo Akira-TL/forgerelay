@@ -310,15 +310,23 @@ forgerelay agents show <id>
 | Variable | Default |
 | --- | --- |
 | `FORGERELAY_LOG_LEVEL` | `info` |
-| `FORGERELAY_LOG_FORMAT` | `json` |
-| `FORGERELAY_LOG_REQUESTS` | `1` |
+| `FORGERELAY_LOG_FORMAT` | `pretty` |
+| `FORGERELAY_LOG_REQUESTS` | `0` in `pretty`, `1` in `json` |
 | `FORGERELAY_LOG_ASSETS` | `0` |
 | `FORGERELAY_LOG_TOOL_CALLS` | `1` |
-| `FORGERELAY_LOG_SHELL_COMMANDS` | `0` |
+| `FORGERELAY_LOG_SHELL_COMMANDS` | `1` in `pretty`, `0` in `json` |
 | `FORGERELAY_TRUST_PROXY` | `0` |
 
-Set `FORGERELAY_LOG_FORMAT=pretty` for local debugging. Enable shell command
-previews only when intentionally needed; they can reveal sensitive arguments.
+`pretty` is the human-facing local console format. It uses terminal-aware color,
+short timestamps, workspace/session context, and compact operation results while
+keeping HTTP request records off by default. Shell command previews are enabled
+in this mode and truncated to 120 characters; set
+`FORGERELAY_LOG_SHELL_COMMANDS=0` when command arguments may contain secrets.
+
+Set `FORGERELAY_LOG_FORMAT=json` for machine collection. Unless explicitly
+overridden, JSON mode preserves request logging and omits shell command previews.
+`FORGERELAY_LOG_REQUESTS` and `FORGERELAY_LOG_SHELL_COMMANDS` always override
+these format-specific defaults when set.
 
 ## Environment-only example
 

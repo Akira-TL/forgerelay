@@ -1,0 +1,104 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { formatPrettyLogEntry } from "./logger.js";
+
+const timestamp = new Date(2026, 7, 9, 20, 41, 3).toISOString();
+
+test("pretty tool logs emphasize workspace, session, operation, target, and result", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "devspace/ws_a20bade4",
+    session: "7f7ce1d1",
+    tool: "bash",
+    commandPreview: "git push origin v0.2.0",
+    success: true,
+    exitCode: 0,
+    durationMs: 21,
+  }, { colorize: false });
+
+  assert.match(line, /^08-09 20:41:03 \[INFO\] devspace\/ws_a20bade4 session:7f7ce1d1 \| /);
+  assert.match(line, /bash git push origin v0\.2\.0 -> exit=0$/);
+  assert.doesNotMatch(line, /durationMs|event=|success=/);
+});
+
+test("pretty file logs use ok or error rather than fake process exit codes", () => {
+  const success = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "devspace/ws_a20bade4",
+    session: "7f7ce1d1",
+    tool: "write",
+    path: "src/hooks.ts",
+    success: true,
+  }, { colorize: false });
+  const failure = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "warn",
+    event: "tool_call",
+    workspace: "devspace/ws_a20bade4",
+    tool: "edit",
+    path: "src/hooks.ts",
+    success: false,
+    error: "replacement text did not match",
+  }, { colorize: false });
+
+  assert.match(success, /\| write src\/hooks\.ts -> ok$/);
+  assert.match(failure, /\| edit src\/hooks\.ts -> error: replacement text did not match$/);
+  assert.doesNotMatch(`${success}\n${failure}`, /exit=[01]/);
+});
+
+test("pretty hook logs remain compact and preserve process exit status", () => {
+  const success = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "hook_call",
+    workspace: "devspace/ws_a20bade4",
+    hookName: "release-tag-local-ci",
+    hookEvent: "BeforeTool",
+    success: true,
+  }, { colorize: false });
+  const failure = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "warn",
+    event: "hook_call",
+    workspace: "devspace/ws_a20bade4",
+    hookName: "release-tag-local-ci",
+    hookEvent: "BeforeTool",
+    success: false,
+    error: "Hook release-tag-local-ci exited with code 13",
+  }, { colorize: false });
+
+  assert.match(success, /\| hook release-tag-local-ci BeforeTool -> exit=0$/);
+  assert.match(failure, /\| hook release-tag-local-ci BeforeTool -> exit=13$/);
+});
+
+test("pretty transport logs have a concise fallback when explicitly enabled", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "http_request",
+    method: "GET",
+    path: "/healthz",
+    status: 200,
+  }, { colorize: false });
+
+  assert.match(line, /\| http GET \/healthz -> 200$/);
+  assert.doesNotMatch(line, /userAgent|requestId/);
+});
+
+test("pretty logs can emit ANSI styles without a third-party logger", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "warn",
+    event: "tool_call",
+    workspace: "devspace/ws_a20bade4",
+    tool: "edit",
+    path: "src/hooks.ts",
+    success: false,
+  }, { colorize: true, validateStream: false });
+
+  assert.match(line, /\u001b\[/);
+});

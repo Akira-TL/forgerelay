@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "./workspace-store.js";
 import type { LoggingConfig } from "./logger.js";
-import { commandPreview, logEvent } from "./logger.js";
+import { commandPreview, logEvent, workspaceLogLabel } from "./logger.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 
 export const HOOK_EVENTS = [
@@ -328,6 +328,9 @@ export class HookRunner {
         hookName: execution.name,
         hookScope: execution.scope,
         workspaceId: invocation.workspaceId,
+        workspace: invocation.workspaceId
+          ? workspaceLogLabel(invocation.workspaceRoot, invocation.workspaceId)
+          : invocation.workspaceRoot,
         success: execution.status === "passed",
         durationMs: execution.durationMs,
         error: execution.error,

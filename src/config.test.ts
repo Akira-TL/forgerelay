@@ -159,6 +159,16 @@ assert.throws(
 
 assert.deepEqual(loadConfig(baseEnv).logging, {
   level: "info",
+  format: "pretty",
+  requests: false,
+  assets: false,
+  toolCalls: true,
+  shellCommands: true,
+  trustProxy: false,
+});
+
+assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging, {
+  level: "info",
   format: "json",
   requests: true,
   assets: false,

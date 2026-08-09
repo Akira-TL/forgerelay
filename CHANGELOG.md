@@ -17,6 +17,10 @@ All notable ForgeRelay changes are documented here.
 - 通过 `FORGERELAY_HOOK_*` 和 workspace 环境变量提供生命周期上下文，同时避免暴露 native-file credentials 或 subagent prompts。
 - 异步 subagent Hook report 的 session 持久化与 `agents show` 展示。
 
+### Changed
+
+- Local console logging now defaults to a compact Loguru-style `pretty` format focused on Agent operations: short timestamps, workspace/session context, tool or Hook action, target, and `ok`/`error` or shell exit status. HTTP request logging is off by default in human mode, while explicit `json` mode keeps the previous request-on and shell-command-off machine defaults.
+
 ### Fixed
 
 - File and search tools can access and modify files in the operating system temporary directory without making that directory an implicit workspace root; Codex `apply_patch` supports absolute OS-temp paths while workspace patch paths remain relative.

@@ -40,6 +40,7 @@ import {
   requestPath,
   commandPreview,
   sessionIdPrefix,
+  workspaceLogLabel,
 } from "./logger.js";
 import {
   editFileTool,
@@ -175,13 +176,26 @@ function toolWidgetDescriptorMeta(
 interface ToolLogFields {
   tool: string;
   workspaceId?: string;
+  workspace?: string;
+  session?: string;
   path?: string;
   workingDirectory?: string;
   command?: string;
   commandLength?: number;
+  exitCode?: number;
+  running?: boolean;
+  processSessionId?: number;
   success: boolean;
   durationMs: number;
   error?: string;
+}
+
+function workspaceLogContext(workspace: Workspace, sessionId?: string): Pick<ToolLogFields, "workspaceId" | "workspace" | "session"> {
+  return {
+    workspaceId: workspace.id,
+    workspace: workspaceLogLabel(workspace.root, workspace.id),
+    session: sessionIdPrefix(sessionId),
+  };
 }
 
 function formatVisibleAgent(agent: {
@@ -590,7 +604,7 @@ function registerCodexProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
+    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: "exec_command",
@@ -613,11 +627,14 @@ function registerCodexProcessTools(
 
           logToolCall(config, {
             tool: "exec_command",
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             workingDirectory: workingDirectory ?? ".",
             command: cmd,
             commandLength: cmd.length,
-            success: true,
+            exitCode: snapshot.exitCode,
+            running: snapshot.running,
+            processSessionId: snapshot.sessionId,
+            success: snapshot.running || snapshot.exitCode === 0,
             durationMs: Math.round(performance.now() - startedAt),
           });
 
@@ -665,7 +682,7 @@ function registerCodexProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }) => {
+    async ({ workspaceId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: "write_stdin",
@@ -690,8 +707,11 @@ function registerCodexProcessTools(
 
           logToolCall(config, {
             tool: "write_stdin",
-            workspaceId,
-            success: true,
+            ...workspaceLogContext(workspace, extra.sessionId),
+            exitCode: snapshot.exitCode,
+            running: snapshot.running,
+            processSessionId: snapshot.sessionId,
+            success: snapshot.running || snapshot.exitCode === 0,
             durationMs: Math.round(performance.now() - startedAt),
           });
 
@@ -839,7 +859,7 @@ export function createMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ path, mode, baseRef, newWorktree }, { _meta }) => {
+    async ({ path, mode, baseRef, newWorktree }, { _meta, sessionId }) => {
       const startedAt = performance.now();
       const {
         workspace,
@@ -944,7 +964,7 @@ export function createMcpServer(
       ];
       logToolCall(config, {
         tool: "open_workspace",
-        workspaceId: workspace.id,
+        ...workspaceLogContext(workspace, sessionId),
         path: workspace.root,
         success: true,
         durationMs: Math.round(performance.now() - startedAt),
@@ -1032,7 +1052,7 @@ export function createMcpServer(
       _meta: {},
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, commitMessage }) => {
+    async ({ workspaceId, commitMessage }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: toolNames.closeWorktree,
@@ -1054,7 +1074,7 @@ export function createMcpServer(
 
           logToolCall(config, {
             tool: toolNames.closeWorktree,
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             path: closed.sourceRoot,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
@@ -1113,7 +1133,7 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: { readOnlyHint: true },
     },
-    async ({ workspaceId, ...input }) => {
+    async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: toolNames.read,
@@ -1135,7 +1155,7 @@ export function createMcpServer(
           if (response.isError) {
             logFailedToolResponse(config, {
               tool: toolNames.read,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
             }, response.content, startedAt);
             return response;
@@ -1149,7 +1169,7 @@ export function createMcpServer(
           };
           logToolCall(config, {
             tool: toolNames.read,
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             path: input.path,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
@@ -1195,7 +1215,7 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "write"),
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }) => {
+    async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: toolNames.write,
@@ -1214,7 +1234,7 @@ export function createMcpServer(
           if (response.isError) {
             logFailedToolResponse(config, {
               tool: toolNames.write,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
             }, response.content, startedAt);
             return response;
@@ -1229,7 +1249,7 @@ export function createMcpServer(
           };
           logToolCall(config, {
             tool: toolNames.write,
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             path: input.path,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
@@ -1290,7 +1310,7 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }) => {
+    async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: toolNames.edit,
@@ -1309,7 +1329,7 @@ export function createMcpServer(
           if (response.isError) {
             logFailedToolResponse(config, {
               tool: toolNames.edit,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
             }, response.content, startedAt);
             return response;
@@ -1326,7 +1346,7 @@ export function createMcpServer(
           const editContent = [textBlock(editResultText)];
           logToolCall(config, {
             tool: toolNames.edit,
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             path: input.path,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
@@ -1386,7 +1406,7 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "edit"),
         annotations: EDIT_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId, patch }) => {
+      async ({ workspaceId, patch }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
           tool: "apply_patch",
@@ -1408,7 +1428,8 @@ export function createMcpServer(
 
             logToolCall(config, {
               tool: "apply_patch",
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path: displayPath,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
             });
@@ -1459,7 +1480,7 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "show_changes"),
         annotations: { readOnlyHint: true },
       },
-      async ({ workspaceId }) => {
+      async ({ workspaceId }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
           tool: "show_changes",
@@ -1475,7 +1496,7 @@ export function createMcpServer(
             const content = [textBlock(review.result)];
             logToolCall(config, {
               tool: "show_changes",
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
             });
@@ -1528,7 +1549,7 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "search"),
         annotations: { readOnlyHint: true },
       },
-      async ({ workspaceId, ...input }) => {
+      async ({ workspaceId, ...input }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
           tool: toolNames.grep,
@@ -1546,7 +1567,7 @@ export function createMcpServer(
             if (response.isError) {
               logFailedToolResponse(config, {
                 tool: toolNames.grep,
-                workspaceId,
+                ...workspaceLogContext(workspace, extra.sessionId),
                 path: input.path,
               }, response.content, startedAt);
               return response;
@@ -1559,7 +1580,7 @@ export function createMcpServer(
             };
             logToolCall(config, {
               tool: toolNames.grep,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
@@ -1606,7 +1627,7 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "search"),
         annotations: { readOnlyHint: true },
       },
-      async ({ workspaceId, ...input }) => {
+      async ({ workspaceId, ...input }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
           tool: toolNames.glob,
@@ -1624,7 +1645,7 @@ export function createMcpServer(
             if (response.isError) {
               logFailedToolResponse(config, {
                 tool: toolNames.glob,
-                workspaceId,
+                ...workspaceLogContext(workspace, extra.sessionId),
                 path: input.path,
               }, response.content, startedAt);
               return response;
@@ -1637,7 +1658,7 @@ export function createMcpServer(
             };
             logToolCall(config, {
               tool: toolNames.glob,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
@@ -1684,7 +1705,7 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "directory"),
         annotations: { readOnlyHint: true },
       },
-      async ({ workspaceId, ...input }) => {
+      async ({ workspaceId, ...input }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
           tool: toolNames.ls,
@@ -1702,7 +1723,7 @@ export function createMcpServer(
             if (response.isError) {
               logFailedToolResponse(config, {
                 tool: toolNames.ls,
-                workspaceId,
+                ...workspaceLogContext(workspace, extra.sessionId),
                 path: input.path,
               }, response.content, startedAt);
               return response;
@@ -1711,7 +1732,7 @@ export function createMcpServer(
             const summary = textSummary(response.content);
             logToolCall(config, {
               tool: toolNames.ls,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               path: input.path,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
@@ -1769,7 +1790,7 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, workingDirectory, ...input }) => {
+    async ({ workspaceId, workingDirectory, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
         tool: toolNames.shell,
@@ -1794,7 +1815,7 @@ export function createMcpServer(
           if (response.isError) {
             logFailedToolResponse(config, {
               tool: toolNames.shell,
-              workspaceId,
+              ...workspaceLogContext(workspace, extra.sessionId),
               workingDirectory: workingDirectory ?? ".",
               command: input.command,
               commandLength: input.command.length,
@@ -1809,7 +1830,7 @@ export function createMcpServer(
           };
           logToolCall(config, {
             tool: toolNames.shell,
-            workspaceId,
+            ...workspaceLogContext(workspace, extra.sessionId),
             workingDirectory: workingDirectory ?? ".",
             command: input.command,
             commandLength: input.command.length,

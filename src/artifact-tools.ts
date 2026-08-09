@@ -21,7 +21,7 @@ import {
   IncomingArtifactAdapterRegistry,
   type IncomingArtifactAdapter,
 } from "./incoming-artifacts.js";
-import { logEvent } from "./logger.js";
+import { logEvent, sessionIdPrefix, workspaceLogLabel } from "./logger.js";
 import type { WorkspaceRegistry } from "./workspaces.js";
 
 const ARTIFACT_WRITE_ANNOTATIONS = {
@@ -119,7 +119,7 @@ export function registerArtifactTools(
       _meta: { "openai/fileParams": ["file"] },
       annotations: ARTIFACT_WRITE_ANNOTATIONS,
     },
-    async (input) => {
+    async (input, extra) => {
       const workspace = workspaces.getWorkspace(input.workspaceId);
       return runToolWithHooks(hooks, {
         tool: "download_artifact",
@@ -131,7 +131,10 @@ export function registerArtifactTools(
         },
         payload: { path: input.path },
         changedPaths: (result) => [result.structuredContent.path],
-        operation: () => executeArtifactTool(config, input, async () => {
+        operation: () => executeArtifactTool(config, input, {
+          workspace: workspaceLogLabel(workspace.root, workspace.id),
+          session: sessionIdPrefix(extra?.sessionId),
+        }, async () => {
           const downloaded = await downloadIncomingArtifact({
             registry: incomingRegistry,
             workspaceId: workspace.id,
@@ -316,6 +319,7 @@ export function artifactToolLogFields(
 async function executeArtifactTool(
   config: ServerConfig,
   input: Record<string, unknown>,
+  logContext: { workspace: string; session?: string },
   operation: () => Promise<{
     publicResult: { path: string };
     logResult: DownloadIncomingArtifactResult;
@@ -328,6 +332,7 @@ async function executeArtifactTool(
       logEvent(config.logging, "info", "artifact_tool_call", {
         tool: "download_artifact",
         ...artifactToolLogFields(input),
+        ...logContext,
         path: logResult.path,
         size: logResult.size,
         sha256: logResult.sha256,
@@ -341,6 +346,7 @@ async function executeArtifactTool(
       logEvent(config.logging, "warn", "artifact_tool_call", {
         tool: "download_artifact",
         ...artifactToolLogFields(input),
+        ...logContext,
         success: false,
         errorCode: error instanceof ArtifactError ? error.code : "internal_error",
         durationMs: Math.round(performance.now() - startedAt),

@@ -133,8 +133,8 @@ function parseLogLevel(value: string | undefined): LogLevel {
 }
 
 function parseLogFormat(value: string | undefined): LogFormat {
-  if (!value || value === "json") return "json";
-  if (value === "pretty") return "pretty";
+  if (!value || value === "pretty") return "pretty";
+  if (value === "json") return "json";
 
   throw new Error(`Invalid FORGERELAY_LOG_FORMAT: ${value}`);
 }
@@ -174,15 +174,17 @@ function parsePositiveInteger(
 }
 
 function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
+  const format = parseLogFormat(productEnv(env, "LOG_FORMAT"));
   const requests = productEnv(env, "LOG_REQUESTS");
   const toolCalls = productEnv(env, "LOG_TOOL_CALLS");
+  const shellCommands = productEnv(env, "LOG_SHELL_COMMANDS");
   return {
     level: parseLogLevel(productEnv(env, "LOG_LEVEL")),
-    format: parseLogFormat(productEnv(env, "LOG_FORMAT")),
-    requests: requests === undefined ? true : parseBoolean(requests),
+    format,
+    requests: requests === undefined ? format === "json" : parseBoolean(requests),
     assets: parseBoolean(productEnv(env, "LOG_ASSETS")),
     toolCalls: toolCalls === undefined ? true : parseBoolean(toolCalls),
-    shellCommands: parseBoolean(productEnv(env, "LOG_SHELL_COMMANDS")),
+    shellCommands: shellCommands === undefined ? format === "pretty" : parseBoolean(shellCommands),
     trustProxy: parseBoolean(productEnv(env, "TRUST_PROXY")),
   };
 }
