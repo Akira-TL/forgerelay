@@ -140,69 +140,54 @@ programs when the optional `node-pty` dependency is available.
 
 Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；命中后 ForgeRelay 直接执行，不再增加批准步骤。
 
-全局规则放在当前 ForgeRelay 配置目录的 `hooks.json`。新安装通常是：
+首选格式是 **一个 Hook 一个 JSON 文件**。全局 Hook 放在当前 ForgeRelay 配置目录的 `hooks/` 下，新安装通常是：
 
 ```text
-~/.forgerelay/hooks.json
+~/.forgerelay/hooks/<hook-name>.json
 ```
 
-使用 `FORGERELAY_CONFIG_DIR` 时，文件跟随该目录。旧的 `config.json -> hooks` 仍兼容，并与 `hooks.json` 中的规则组合执行。全局规则随 server config 在启动时加载，修改后需要重启 ForgeRelay。
-
-项目规则放在工作区根目录：
+项目 Hook 放在工作区根目录：
 
 ```text
-<workspace>/.forgerelay/hooks.json
+<workspace>/.forgerelay/hooks/<hook-name>.json
 ```
 
-全局规则先执行，项目规则随后执行；两者都是追加关系。项目文件在每次事件时重新读取，所以 Agent 修改项目 Hook 后不需要重启 ForgeRelay。若项目 Hook JSON 或 schema 无效，ForgeRelay 会把 `Project hooks config` diagnostic 返回给 Agent，同时保留工作区和工具可用性，让 Agent 可以直接修复文件。
+文件名去掉 `.json` 后就是 Hook 名，也是日志和 Agent-visible report 中显示的名称。例如 `release-tag-local-ci.json` 会显示为 `release-tag-local-ci`。目录内按文件名字典序执行；需要显式排序时可以使用 `10-release-verify.json`、`20-package-inspection.json` 这样的前缀。ForgeRelay 只读取普通 `*.json` 文件，所以临时停用某条 Hook 时可以把扩展名改掉。
 
-### 规则结构
+全局 Hook 在 server 启动时读取，修改后需要重启 ForgeRelay；项目目录在每次事件时重新读取，所以 Agent 修改项目 Hook 后不需要重启。全局规则先执行，项目规则随后执行，两边都只做追加，不互相覆盖。
 
-一个事件可以写旧版简写 handler：
+每个独立 Hook 文件只描述一条规则：
 
 ```json
 {
-  "BeforeWorktreeClose": [
-    {
-      "name": "Project tests",
-      "command": "npm test",
-      "timeoutSeconds": 120,
-      "report": true
-    }
-  ]
+  "event": "BeforeTool",
+  "matcher": {
+    "tool": "bash",
+    "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+  },
+  "command": "npm run release:verify",
+  "timeoutSeconds": 300,
+  "report": true
 }
 ```
 
-需要精确触发时使用 `matcher -> handlers`：
+这个例子可以保存为 `.forgerelay/hooks/release-tag-local-ci.json`。Agent 通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 先跑本地发布检查；成功后才执行原始 `git push`，失败则直接阻断并把 `release-tag-local-ci` 的失败报告返回给 Agent。
 
-```json
-{
-  "BeforeTool": [
-    {
-      "matcher": {
-        "tool": "bash",
-        "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
-      },
-      "handlers": [
-        {
-          "name": "Local release CI",
-          "command": "npm run release:verify",
-          "timeoutSeconds": 300,
-          "report": true
-        },
-        {
-          "name": "Package inspection",
-          "command": "npm pack --dry-run",
-          "timeoutSeconds": 120,
-          "report": true
-        }
-      ]
-    }
-  ]
-}
-```
+独立 Hook 文件支持这些顶层字段：
 
-这条规则的语义是：Agent 通过 ForgeRelay `bash` 工具请求推送稳定版本 tag 时，先跑本地发布检查；所有 blocking handlers 成功后才执行原始 `git push`。任一 handler 失败时，push 不会执行，失败报告直接返回给 Agent。
+| 字段 | 含义 |
+| --- | --- |
+| `event` | 必填，九个 Hook event 之一。 |
+| `matcher` | 可选，只在匹配当前生命周期上下文时执行。 |
+| `command` | 必填，本地 shell 命令。 |
+| `timeoutSeconds` | 默认 `30`，范围 `1` 到 `300`。 |
+| `report` | 默认 `true`。为 `false` 时成功结果不主动出现在 Agent 可见报告中；blocking 失败始终可见。 |
+
+独立文件不写 `name`：文件名就是唯一的 Hook 名。一个逻辑 Hook 如果需要多个独立步骤，拆成多个文件；这样可以单独启停、重命名、排序和审查每一步。
+
+为兼容已有配置，ForgeRelay 仍接受旧的 `config.json -> hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式。执行顺序是旧配置在前、`hooks/*.json` 独立文件在后。新配置应优先使用独立文件。
+
+若某个项目 Hook 文件 JSON 或 schema 无效，ForgeRelay 会返回 `Project hooks config` diagnostic，同时继续加载其他有效项目 Hook，并保持 workspace/tool 可用，让 Agent 可以直接修复出错文件。
 
 `matcher` 当前支持：
 
@@ -216,16 +201,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 
 Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令内部后续启动的子进程。例如 `bash` 参数本身是 `git push origin v0.2.0` 时可以命中；若参数只是 `./release.sh`，而脚本内部再执行 `git push`，ForgeRelay 不会把内部子进程重新解释成新的 Hook 事件。
 
-Handler 字段：
-
-| 字段 | 含义 |
-| --- | --- |
-| `name` | 可选的人类可读名称；建议为需要向用户报告的 Hook 设置。 |
-| `command` | 必填，本地 shell 命令。 |
-| `timeoutSeconds` | 默认 `30`，范围 `1` 到 `300`。 |
-| `report` | 默认 `true`。为 `false` 时成功结果不主动出现在 Agent 可见报告中；blocking 失败始终可见。 |
-
-同一个 rule 的 handlers 按配置顺序串行执行。
+旧聚合格式里的 `matcher -> handlers` 与 handler `name` 继续按原语义工作，只作为兼容入口保留。
 
 ### 事件
 
@@ -249,7 +225,7 @@ Handler 字段：
 
 ```text
 Hook results:
-✓ Local release CI (BeforeTool, project) passed in 38124ms
+✓ release-tag-local-ci (BeforeTool, project) passed in 38124ms
 ```
 
 阻断失败会明确显示 `failed`。ForgeRelay 的 server instructions 要求 Agent 在出现 Hook results 时，向用户说明有意义的 Hook 是否通过或阻断了操作。异步 subagent 的 `SubagentStart` / `SubagentStop` 报告会随 session 持久化，并由 `forgerelay agents show` 展示。
@@ -270,7 +246,7 @@ Hook 命令继承 ForgeRelay 进程环境，并额外获得：
 
 Payload 用于策略和自动化，不包含文件正文、native-file credentials 或 subagent prompt。Shell Hook 会看到请求本身的 command metadata，因此 Hook 自己的日志仍应按可能含敏感参数处理。
 
-Hook 命令与 ForgeRelay 使用同一个本地用户权限。项目 `.forgerelay/hooks.json` 也是可执行项目约定；允许某个 root 后，应把该 root 中的项目 Hook 视为本地开发环境的一部分。详见 [Security Model](security.md)。
+Hook 命令与 ForgeRelay 使用同一个本地用户权限。项目 `.forgerelay/hooks/*.json` 是可执行项目约定；允许某个 root 后，应把该 root 中的项目 Hook 视为本地开发环境的一部分。详见 [Security Model](security.md)。
 
 ## System instructions
 

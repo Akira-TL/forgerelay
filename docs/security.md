@@ -103,9 +103,9 @@ Do not describe ForgeRelay as a sandboxed coding environment.
 
 Hook command 是本地代码执行，使用与 ForgeRelay 相同的操作系统用户权限并继承进程环境。
 
-Hooks v1 有两个自动作用域：当前 ForgeRelay 配置目录中的全局规则，以及 workspace 根目录的 `.forgerelay/hooks.json`。项目规则不需要额外批准；打开允许根目录中的项目时，ForgeRelay 会把项目 Hook 当作该开发环境的执行约定直接使用，`WorkspaceOpen` 也可以立即触发命令。因此 allowed roots 不只是文件访问边界，也界定了你愿意让 ForgeRelay 操作的本地项目环境。
+Hooks v1 有两个自动作用域：当前 ForgeRelay 配置目录中的 `hooks/<hook-name>.json` 全局规则，以及 workspace 根目录的 `.forgerelay/hooks/<hook-name>.json` 项目规则。项目规则不需要额外批准；打开允许根目录中的项目时，ForgeRelay 会把这些 Hook 当作该开发环境的执行约定直接使用，`WorkspaceOpen` 也可以立即触发命令。因此 allowed roots 不只是文件访问边界，也界定了你愿意让 ForgeRelay 操作的本地项目环境。
 
-项目 Hook 文件只解析 Hook 规则，不能通过自身扩大 allowed roots、修改 OAuth 配置或删除全局规则。全局与项目规则采用组合关系。若项目 Hook 文件损坏，ForgeRelay 返回可见 diagnostic 并保持工具可用，便于 Agent 修复；无效项目规则不会被执行。
+每个独立 Hook 文件只声明一个 event、可选 matcher 和一个 command，以及 timeout/report。文件名只决定 Hook 名和排序，不能扩大 allowed roots、修改 OAuth 配置或删除全局规则。全局与项目规则采用组合关系。若某个项目 Hook 文件损坏，ForgeRelay 返回可见 diagnostic、跳过该无效文件并继续加载其他有效 Hook，同时保持工具可用，便于 Agent 修复。旧聚合格式仍兼容。
 
 `BeforeTool` 和 `BeforeWorktreeClose` 是阻断点：命中的 handler 失败或超时后，待执行操作不会继续。其余事件用于观察已发生的生命周期结果，失败不会回滚已经完成的工作。`report:false` 可以隐藏成功的高频报告，但不能隐藏阻断失败。
 

@@ -455,42 +455,25 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
   setupGitProject(releaseProject);
   runGit(acceptanceRoot, ["init", "--bare", releaseRemote]);
   runGit(releaseProject, ["remote", "add", "origin", releaseRemote]);
-  mkdirSync(join(releaseProject, ".forgerelay"), { recursive: true });
+  mkdirSync(join(releaseProject, ".forgerelay", "hooks"), { recursive: true });
   writeFileSync(
     join(releaseProject, ".forgerelay", "release-check.mjs"),
     [
       'import { writeFileSync } from "node:fs";',
-      'writeFileSync("release-ci-ran.txt", process.env.FORGERELAY_HOOK_PAYLOAD ?? "{}");',
+      'const payload = process.env.FORGERELAY_HOOK_PAYLOAD ?? "{}";',
+      'writeFileSync("release-ci-ran.txt", payload);',
+      'if (JSON.parse(payload).command === "git push origin v0.2.1") process.exit(17);',
       "",
     ].join("\n"),
   );
   writeFileSync(
-    join(releaseProject, ".forgerelay", "hooks.json"),
+    join(releaseProject, ".forgerelay", "hooks", "release-tag-local-ci.json"),
     JSON.stringify({
-      BeforeTool: [
-        {
-          matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.0$" },
-          handlers: [
-            {
-              name: "Local release CI",
-              command: "node .forgerelay/release-check.mjs",
-              timeoutSeconds: 30,
-              report: true,
-            },
-          ],
-        },
-        {
-          matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.1$" },
-          handlers: [
-            {
-              name: "Local release CI",
-              command: "node -e \"process.exit(17)\"",
-              timeoutSeconds: 30,
-              report: true,
-            },
-          ],
-        },
-      ],
+      event: "BeforeTool",
+      matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.[01]$" },
+      command: "node .forgerelay/release-check.mjs",
+      timeoutSeconds: 30,
+      report: true,
     }, null, 2) + "\n",
   );
   runGit(releaseProject, ["add", ".forgerelay"]);
@@ -508,7 +491,7 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
     command: "git push origin v0.2.0",
   });
   assert.equal(pushed.isError, undefined);
-  assert.match(toolText(pushed), /Local release CI \(BeforeTool, project\) passed/);
+  assert.match(toolText(pushed), /release-tag-local-ci \(BeforeTool, project\) passed/);
   assert.ok(existsSync(join(releaseProject, "release-ci-ran.txt")));
   assert.equal(
     gitOutput(releaseRemote, ["rev-parse", "refs/tags/v0.2.0"], { gitDir: true }),
@@ -520,7 +503,7 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
     command: "git push origin v0.2.1",
   });
   assert.equal(blocked.isError, true);
-  assert.match(toolText(blocked), /Local release CI.*failed/);
+  assert.match(toolText(blocked), /release-tag-local-ci.*failed/);
   const missingTag = spawnSync("git", ["--git-dir", releaseRemote, "show-ref", "--verify", "--quiet", "refs/tags/v0.2.1"]);
   assert.notEqual(missingTag.status, 0, "blocked release tag unexpectedly reached the remote");
   pass("release tag hook gate", "local Hook passed before v0.2.0 push and blocked v0.2.1 before remote mutation");

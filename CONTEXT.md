@@ -24,8 +24,12 @@ ForgeRelay 生命周期中的命名触发点。规则在对应事件发生前后
 _Avoid_: Plugin event, Git hook
 
 **Hook rule**：
-绑定到一个 Hook event 的自动规则，由可选 matcher 和有序 handlers 组成；全局规则与项目规则可以同时生效。
+绑定到一个 Hook event 的自动规则。首选形式是一条规则一个独立 Hook file；全局规则与项目规则可以同时生效。
 _Avoid_: Permission prompt, approval rule
+
+**Hook file**：
+一个独立命名的 `<hook-name>.json` 生命周期规则文件。文件名就是日志和 Agent-visible report 中的 Hook 名。
+_Avoid_: Plugin manifest, hook bundle
 
 **Hook handler**：
 规则命中后由 ForgeRelay 自动执行的本地命令。handler 可以决定执行结果是否需要向 Agent 报告。

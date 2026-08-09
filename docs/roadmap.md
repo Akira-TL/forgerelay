@@ -64,9 +64,10 @@ Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生�
 
 当前契约包括：
 
-- 全局 `hooks.json` 与项目 `.forgerelay/hooks.json` 自动组合；
-- `event -> matcher -> handlers` 规则；
-- command handler 的名称、timeout 与 `report`；
+- 全局 `hooks/<hook-name>.json` 与项目 `.forgerelay/hooks/<hook-name>.json` 自动组合；
+- 一个独立文件就是一个 Hook，文件名就是 Hook 名，目录内按文件名稳定排序；
+- `event + matcher + command` 规则，以及 timeout 与 `report`；
+- 旧 inline/聚合 Hook 配置继续兼容；
 - `BeforeTool` / `BeforeWorktreeClose` 阻断语义；
 - observational after-events；
 - Agent 可见 Hook report；

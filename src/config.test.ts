@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
@@ -41,6 +41,25 @@ writeFileSync(
     ],
   }),
 );
+mkdirSync(join(forgeRelayConfigDir, "hooks"));
+writeFileSync(
+  join(forgeRelayConfigDir, "hooks", "20-package-inspection.json"),
+  JSON.stringify({
+    event: "BeforeTool",
+    matcher: { tool: "bash" },
+    command: "npm pack --dry-run",
+    report: false,
+  }),
+);
+writeFileSync(
+  join(forgeRelayConfigDir, "hooks", "10-release-verify.json"),
+  JSON.stringify({
+    event: "BeforeTool",
+    matcher: { tool: "bash" },
+    command: "npm run release:verify",
+    timeoutSeconds: 300,
+  }),
+);
 writeFileSync(
   join(forgeRelayConfigDir, "config.json"),
   JSON.stringify({
@@ -64,7 +83,7 @@ assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
 assert.deepEqual(
   forgeRelayConfig.hooks.BeforeTool?.flatMap((rule) => rule.handlers.map((handler) => handler.name)),
-  ["Legacy inline hook", "Global hooks file"],
+  ["Legacy inline hook", "Global hooks file", "10-release-verify", "20-package-inspection"],
 );
 assert.equal(forgeRelayConfig.devspaceSkillsDir, join(forgeRelayConfigDir, "skills"));
 assert.equal(forgeRelayConfig.devspaceAgentsDir, join(forgeRelayConfigDir, "agents"));

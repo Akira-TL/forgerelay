@@ -3,12 +3,18 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
-import type { HookConfigInput } from "./hooks.js";
+import {
+  mergeHookConfigs,
+  parseHookFile,
+  type HookConfig,
+  type HookConfigInput,
+} from "./hooks.js";
 
 export interface ForgeRelayUserConfig {
   host?: string;
@@ -43,6 +49,7 @@ export interface ForgeRelayFiles {
   config: ForgeRelayUserConfig;
   auth: ForgeRelayAuthConfig;
   hooks: HookConfigInput;
+  hookFiles: HookConfig;
   usingLegacyDir: boolean;
 }
 
@@ -75,6 +82,10 @@ export function forgerelayHooksPath(env: NodeJS.ProcessEnv = process.env): strin
   return join(forgerelayConfigDir(env), "hooks.json");
 }
 
+export function forgerelayHooksDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "hooks");
+}
+
 export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(forgerelayConfigDir(env), "skills");
 }
@@ -103,6 +114,7 @@ export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): Forge
     config: configExists ? readJsonFile<ForgeRelayUserConfig>(configPath) : {},
     auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
     hooks: hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
+    hookFiles: readHookFiles(join(dir, "hooks")),
     usingLegacyDir: dir === resolve(join(homedir(), ".devspace")),
   };
 }
@@ -161,6 +173,28 @@ export const loadDevspaceFiles = loadForgeRelayFiles;
 export const writeDevspaceConfig = writeForgeRelayConfig;
 export const writeDevspaceAuth = writeForgeRelayAuth;
 export const ensureDevspaceDefaultSkills = ensureForgeRelayDefaultSkills;
+
+function readHookFiles(directory: string): HookConfig {
+  if (!existsSync(directory)) return {};
+
+  let hooks: HookConfig = {};
+  const entries = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+  for (const entry of entries) {
+    const filePath = join(directory, entry.name);
+    try {
+      hooks = mergeHookConfigs(
+        hooks,
+        parseHookFile(readJsonFile<unknown>(filePath), entry.name.slice(0, -5)),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to load hook file ${filePath}: ${reason}`);
+    }
+  }
+  return hooks;
+}
 
 function readJsonFile<T>(filePath: string): T {
   try {

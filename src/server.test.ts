@@ -224,27 +224,26 @@ test("WorkspaceOpen hook reports are visible on the open_workspace result", asyn
 
 test("invalid project hooks stay visible and can be repaired through ForgeRelay", async (t) => {
   const context = await fixture(t);
-  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
-  await writeFile(join(context.project, ".forgerelay", "hooks.json"), "{ invalid json\n");
+  await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
+  await writeFile(
+    join(context.project, ".forgerelay", "hooks", "repaired-project-hook.json"),
+    "{ invalid json\n",
+  );
 
   const opened = await callOpen(context.client, context.project, "chat-hook-repair");
   const workspaceId = String(structuredContent(opened).workspaceId);
   assert.match(allResponseText(opened), /Project hooks config.*failed/);
 
   const repairedConfig = JSON.stringify({
-    BeforeTool: [{
-      matcher: { tool: "bash", commandRegex: "^printf repaired$" },
-      handlers: [{
-        name: "Repaired project hook",
-        command: "node -e \"process.exit(0)\"",
-      }],
-    }],
+    event: "BeforeTool",
+    matcher: { tool: "bash", commandRegex: "^printf repaired$" },
+    command: "node -e \"process.exit(0)\"",
   });
   const repaired = await context.client.callTool({
     name: "write",
     arguments: {
       workspaceId,
-      path: ".forgerelay/hooks.json",
+      path: ".forgerelay/hooks/repaired-project-hook.json",
       content: `${repairedConfig}\n`,
     },
   });
@@ -256,7 +255,7 @@ test("invalid project hooks stay visible and can be repaired through ForgeRelay"
   });
   assert.match(
     allResponseText(shell),
-    /Repaired project hook \(BeforeTool, project\) passed/,
+    /repaired-project-hook \(BeforeTool, project\) passed/,
   );
 });
 
@@ -276,21 +275,13 @@ test("global and project hook rules compose for the same tool call", async (t) =
       ],
     },
   });
-  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
   await writeFile(
-    join(context.project, ".forgerelay", "hooks.json"),
+    join(context.project, ".forgerelay", "hooks", "project-bash-check.json"),
     JSON.stringify({
-      BeforeTool: [
-        {
-          matcher: { tool: "bash", commandRegex: "^printf scoped-hooks$" },
-          handlers: [
-            {
-              name: "Project bash check",
-              command: "node -e \"process.exit(0)\"",
-            },
-          ],
-        },
-      ],
+      event: "BeforeTool",
+      matcher: { tool: "bash", commandRegex: "^printf scoped-hooks$" },
+      command: "node -e \"process.exit(0)\"",
     }),
   );
 
@@ -303,7 +294,7 @@ test("global and project hook rules compose for the same tool call", async (t) =
   const visible = allResponseText(shell);
 
   assert.match(visible, /Global bash check \(BeforeTool, global\) passed/);
-  assert.match(visible, /Project bash check \(BeforeTool, project\) passed/);
+  assert.match(visible, /project-bash-check \(BeforeTool, project\) passed/);
 });
 
 test("reported hooks are visible to the MCP agent while report false stays silent", async (t) => {
@@ -420,25 +411,22 @@ test("close_worktree commits and fast-forwards a managed worktree through the MC
 
 test("worktree lifecycle hook reports are visible on close_worktree", async (t) => {
   const context = await fixture(t, { git: true });
-  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
   await writeFile(
-    join(context.project, ".forgerelay", "hooks.json"),
+    join(context.project, ".forgerelay", "hooks", "worktree-verification.json"),
     JSON.stringify({
-      BeforeWorktreeClose: [
-        {
-          name: "Worktree verification",
-          command: "node -e \"process.exit(0)\"",
-        },
-      ],
-      AfterWorktreeClose: [
-        {
-          name: "Worktree integrated",
-          command: "node -e \"process.exit(0)\"",
-        },
-      ],
+      event: "BeforeWorktreeClose",
+      command: "node -e \"process.exit(0)\"",
     }),
   );
-  await git(context.project, ["add", ".forgerelay/hooks.json"]);
+  await writeFile(
+    join(context.project, ".forgerelay", "hooks", "worktree-integrated.json"),
+    JSON.stringify({
+      event: "AfterWorktreeClose",
+      command: "node -e \"process.exit(0)\"",
+    }),
+  );
+  await git(context.project, ["add", ".forgerelay/hooks"]);
   await git(context.project, ["commit", "-m", "Add project hooks"]);
 
   const opened = await callOpen(context.client, context.project, "chat-hook-close-report", "worktree");
@@ -453,8 +441,8 @@ test("worktree lifecycle hook reports are visible on close_worktree", async (t) 
   });
   const visible = allResponseText(closed);
 
-  assert.match(visible, /Worktree verification \(BeforeWorktreeClose, project\) passed/);
-  assert.match(visible, /Worktree integrated \(AfterWorktreeClose, project\) passed/);
+  assert.match(visible, /worktree-verification \(BeforeWorktreeClose, project\) passed/);
+  assert.match(visible, /worktree-integrated \(AfterWorktreeClose, project\) passed/);
 });
 
 test("checkout opened after a worktree receives its own complete context", async (t) => {

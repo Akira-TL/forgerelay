@@ -314,6 +314,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     hooks: mergeHookConfigs(
       parseHookConfig(files.config.hooks),
       parseHookConfig(files.hooks),
+      files.hookFiles,
     ),
     logging: parseLoggingConfig(env),
   };

@@ -108,6 +108,81 @@ test("tool and command matchers run only for matching operations", async (t) => 
   assert.equal(await readFile(join(root, "matched.txt"), "utf8"), "yes");
 });
 
+test("project hook files load by filename and report that filename as the hook name", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const hookDir = join(root, ".forgerelay", "hooks");
+  const marker = join(root, "project-hook-files.log");
+  const firstScript = join(root, "first-hook.mjs");
+  const secondScript = join(root, "second-hook.mjs");
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(
+    firstScript,
+    `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "first\\n");\n`,
+  );
+  await writeFile(
+    secondScript,
+    `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "second\\n");\n`,
+  );
+  await writeFile(
+    join(hookDir, "20-second.json"),
+    JSON.stringify({
+      event: "AfterTool",
+      matcher: { tool: "bash" },
+      command: `node "${secondScript}"`,
+    }),
+  );
+  await writeFile(
+    join(hookDir, "10-first.json"),
+    JSON.stringify({
+      event: "AfterTool",
+      matcher: { tool: "bash" },
+      command: `node "${firstScript}"`,
+    }),
+  );
+
+  const runner = new HookRunner({}, silentLogging);
+  const reports = await runner.run("AfterTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    payload: { tool: "bash", command: "printf hooks" },
+  });
+
+  assert.equal((await readFile(marker, "utf8")).replace(/\r\n/g, "\n"), "first\nsecond\n");
+  assert.deepEqual(reports.map((report) => report.name), ["10-first", "20-second"]);
+});
+
+test("an invalid project hook file reports a diagnostic without disabling valid sibling hooks", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const hookDir = join(root, ".forgerelay", "hooks");
+  const marker = join(root, "valid-sibling.txt");
+  const script = join(root, "valid-sibling.mjs");
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(join(hookDir, "10-broken.json"), "{ invalid json\n");
+  await writeFile(
+    script,
+    `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "yes");\n`,
+  );
+  await writeFile(
+    join(hookDir, "20-valid.json"),
+    JSON.stringify({ event: "AfterTool", command: `node "${script}"` }),
+  );
+
+  const reports = await new HookRunner({}, silentLogging).run("AfterTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    payload: { tool: "bash" },
+  });
+
+  assert.equal(await readFile(marker, "utf8"), "yes");
+  assert.equal(reports[0]?.name, "Project hooks config");
+  assert.match(reports[0]?.error ?? "", /10-broken\.json/);
+  assert.equal(reports[1]?.name, "20-valid");
+});
+
 test("project hooks resolve from workspace root instead of a nested tool cwd", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));

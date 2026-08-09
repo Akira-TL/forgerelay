@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "./workspace-store.js";
@@ -91,6 +91,7 @@ export interface HookReportContainer {
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 const MAX_HOOK_TIMEOUT_SECONDS = 300;
 const PROJECT_HOOKS_PATH = join(".forgerelay", "hooks.json");
+const PROJECT_HOOKS_DIR = join(".forgerelay", "hooks");
 const MAX_CAPTURE_BYTES = 64 * 1024;
 const BLOCKING_EVENTS = new Set<HookEvent>(["BeforeTool", "BeforeWorktreeClose"]);
 const EVENT_SET = new Set<string>(HOOK_EVENTS);
@@ -117,6 +118,35 @@ export function mergeHookConfigs(...configs: HookConfig[]): HookConfig {
     }
   }
   return merged;
+}
+
+export function parseHookFile(value: unknown, hookName: string): HookConfig {
+  if (!hookName.trim()) throw new Error("ForgeRelay hook filename must not be empty");
+  if (!isRecord(value)) {
+    throw new Error(`ForgeRelay hook ${hookName} must be a JSON object`);
+  }
+
+  const eventName = value.event;
+  if (typeof eventName !== "string" || !EVENT_SET.has(eventName)) {
+    throw new Error(`ForgeRelay hook ${hookName} event must be one of: ${HOOK_EVENTS.join(", ")}`);
+  }
+  const event = eventName as HookEvent;
+  const knownKeys = new Set(["event", "matcher", "command", "timeoutSeconds", "report"]);
+  const unknownKey = Object.keys(value).find((key) => !knownKeys.has(key));
+  if (unknownKey) {
+    throw new Error(`Unknown ForgeRelay hook ${hookName} field: ${unknownKey}`);
+  }
+
+  const matcher = parseHookMatcher(event, value.matcher, 0);
+  const handler = parseHookHandler(event, {
+    name: hookName,
+    command: value.command,
+    timeoutSeconds: value.timeoutSeconds,
+    report: value.report,
+  }, 0);
+  return {
+    [event]: [{ ...(matcher ? { matcher } : {}), handlers: [handler] }],
+  };
 }
 
 export function parseHookConfig(value: unknown): HookConfig {
@@ -504,38 +534,43 @@ interface ProjectHookLoadResult {
 }
 
 async function loadProjectHookConfig(workspaceRoot: string): Promise<ProjectHookLoadResult> {
-  const path = join(workspaceRoot, PROJECT_HOOKS_PATH);
-  let content: string;
+  let hooks: HookConfig = {};
+  const diagnostics: string[] = [];
+  const aggregatePath = join(workspaceRoot, PROJECT_HOOKS_PATH);
+
   try {
-    content = await readFile(path, "utf8");
+    const content = await readFile(aggregatePath, "utf8");
+    hooks = mergeHookConfigs(hooks, parseHookConfig(JSON.parse(content)));
   } catch (error) {
-    if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
-      return { hooks: {} };
+    if (!(isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"))) {
+      diagnostics.push(`Could not load project hooks at ${aggregatePath}: ${errorMessage(error)}`);
     }
-    return {
-      hooks: {},
-      diagnostic: `Could not read project hooks at ${path}: ${errorMessage(error)}`,
-    };
   }
 
-  let value: unknown;
+  const directory = join(workspaceRoot, PROJECT_HOOKS_DIR);
   try {
-    value = JSON.parse(content);
+    const entries = (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      try {
+        const value = JSON.parse(await readFile(path, "utf8"));
+        hooks = mergeHookConfigs(hooks, parseHookFile(value, entry.name.slice(0, -5)));
+      } catch (error) {
+        diagnostics.push(`Could not load project hook at ${path}: ${errorMessage(error)}`);
+      }
+    }
   } catch (error) {
-    return {
-      hooks: {},
-      diagnostic: `Invalid project hooks JSON at ${path}: ${errorMessage(error)}`,
-    };
+    if (!(isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"))) {
+      diagnostics.push(`Could not read project hook directory at ${directory}: ${errorMessage(error)}`);
+    }
   }
 
-  try {
-    return { hooks: parseHookConfig(value) };
-  } catch (error) {
-    return {
-      hooks: {},
-      diagnostic: `Invalid project hooks at ${path}: ${errorMessage(error)}`,
-    };
-  }
+  return {
+    hooks,
+    ...(diagnostics.length > 0 ? { diagnostic: diagnostics.join(" | ") } : {}),
+  };
 }
 
 function hookRuleMatches(

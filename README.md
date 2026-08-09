@@ -121,32 +121,26 @@ You can rebase and verify inside the worktree, then retry the close.
 
 ## Lifecycle hooks
 
-Hook 是 ForgeRelay 的自动生命周期规则。用户或 Agent 可以写全局规则 `~/.forgerelay/hooks.json`，也可以把项目规则放进 `<repo>/.forgerelay/hooks.json`；两类规则组合执行，不需要额外批准。
+Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一个文件：全局放在 `~/.forgerelay/hooks/<hook-name>.json`，项目放在 `<repo>/.forgerelay/hooks/<hook-name>.json`。文件名就是 Hook 名，方便直接从目录看出每条规则的用途；全局与项目规则组合执行，不需要额外批准。
 
-例如，项目可以要求稳定版本 tag push 前先完成本地发布检查：
+例如项目里的 `.forgerelay/hooks/release-tag-local-ci.json` 可以要求稳定版本 tag push 前先完成本地发布检查：
 
 ```json
 {
-  "BeforeTool": [
-    {
-      "matcher": {
-        "tool": "bash",
-        "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
-      },
-      "handlers": [
-        {
-          "name": "Local release CI",
-          "command": "npm run release:verify",
-          "timeoutSeconds": 300,
-          "report": true
-        }
-      ]
-    }
-  ]
+  "event": "BeforeTool",
+  "matcher": {
+    "tool": "bash",
+    "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+  },
+  "command": "npm run release:verify",
+  "timeoutSeconds": 300,
+  "report": true
 }
 ```
 
 命中 `BeforeTool` 后，Hook 先执行；成功才继续原始 `git push`，失败则直接阻断。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
+
+旧的 inline `hooks` 和聚合 `hooks.json` 仍兼容；新配置建议都用独立 `hooks/*.json` 文件。
 
 完整 matcher、事件与环境变量见 [Configuration Reference](docs/configuration.md#lifecycle-hooks)。
 
