@@ -87,10 +87,14 @@ placed into a merge-conflict state.
 Legacy `devspace/*` managed branches remain closable when they are already stored
 in workspace metadata; only new managed branches use `forgerelay/*`.
 
-## Project instructions
+## Instructions
 
-When a workspace opens, ForgeRelay loads root-level instruction files when they
-exist:
+When a workspace opens, ForgeRelay first loads exactly one global system-instructions
+file. The default is `~/.agents/AGENTS.md`; configure a different single path with
+`FORGERELAY_SYSTEM_INSTRUCTIONS_PATH`. Symbolic links are followed so this entry can
+point at a canonical source elsewhere on disk.
+
+ForgeRelay then loads root-level project instruction files when they exist:
 
 ```text
 AGENTS.md
@@ -99,8 +103,10 @@ CLAUDE.md
 CLAUDE.MD
 ```
 
-Nested instruction files are returned as available paths rather than all being
-injected eagerly. Read the relevant nested file before working under that path.
+Nested project instruction files are returned as available paths rather than all
+being injected eagerly. Read the relevant nested file before working under that path.
+`FORGERELAY_AGENT_DIR` is not an instruction source; it remains only a compatibility
+skill-discovery path.
 
 ## Agent Skills
 

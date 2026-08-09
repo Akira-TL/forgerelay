@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Global system instructions now come from exactly one configured file, defaulting to `~/.agents/AGENTS.md`; `FORGERELAY_AGENT_DIR` remains a skill-compatibility path rather than an instruction source.
+
+### Fixed
+
+- Symbolic-link system instruction entries now follow their configured target even when the canonical source lives outside the runtime instruction directory.
+
 ## [0.1.0] - 2026-08-09
 
 ### Added

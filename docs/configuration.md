@@ -136,6 +136,18 @@ programs when the optional `node-pty` dependency is available.
 | `changes` | Attach UI to `open_workspace` and aggregate `show_changes`. |
 | `off` | Disable widget UI. |
 
+## System instructions
+
+ForgeRelay loads exactly one global system-instructions file. The default is
+`~/.agents/AGENTS.md`. Set `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` or the
+`systemInstructionsPath` config key to point at a different single file.
+Arrays or empty values are not accepted. Symbolic links are followed, so the
+runtime entry may point at a canonical source elsewhere on disk.
+
+Project-root `AGENTS.md` / `CLAUDE.md` files remain project context and are
+loaded separately. `FORGERELAY_AGENT_DIR` does not select a global instruction
+file; it remains a compatibility path for Agent Skills.
+
 ## Skills and subagents
 
 | Variable | Purpose |
