@@ -2,6 +2,7 @@ import type { ServerConfig } from "../config.js";
 
 export const toolNames = {
   openWorkspace: "open_workspace",
+  closeWorkspace: "close_workspace",
   closeWorktree: "close_worktree",
   read: "read",
   write: "write",
@@ -12,6 +13,7 @@ export const toolNames = {
   glob: "glob",
   ls: "ls",
   shell: "bash",
+  writeStdin: "write_stdin",
 } as const;
 
 interface ServerInstructionContext {
@@ -61,7 +63,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     delete: `Delete one file or directory inside an open workspace or the OS temp directory. Non-empty directories require recursive=true. An allowed root itself cannot be deleted. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. ${shellMutationPolicy} Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
+    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. ForgeRelay waits up to 300 seconds for bash, then returns a running process session without killing it; use ${toolNames.writeStdin} to poll, keep waiting, interact, or send Ctrl-C. Completed background commands are also reported with a later tool result for the same workspaceId. ${shellMutationPolicy} Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -71,8 +73,8 @@ function capabilityContractInstructions(
   context: ServerInstructionContext,
 ): string {
   const workspaceLifecycle = config.toolMode === "codex"
-    ? `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`
-    : `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId for later file, search, edit, write, rename, delete, show-changes, and shell tools. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`;
+    ? `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Keep the workspaceId returned for this conversation stable. Different conversations normally receive separate logical workspaceIds even when they point at the same physical checkout or worktree; pass an existing workspaceId to ${toolNames.openWorkspace} only when the user wants to resume that logical workspace in this conversation. Only request a new logical workspace when the user explicitly asks. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`
+    : `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Keep the workspaceId returned for this conversation stable for later file, search, edit, write, rename, delete, show-changes, shell, and process-polling tools. Different conversations normally receive separate logical workspaceIds even when they point at the same physical checkout or worktree; pass an existing workspaceId to ${toolNames.openWorkspace} only when the user wants to resume that logical workspace in this conversation. Only request a new logical workspace when the user explicitly asks. If ${toolNames.openWorkspace} reports logical workspaces idle for more than two days, tell the user each workspaceId and let them decide whether to resume it or explicitly clean it up with ${toolNames.closeWorkspace}; do not close it automatically. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it.`;
   const skills = config.skillsEnabled
@@ -93,14 +95,14 @@ function capabilityContractInstructions(
 
 function toolSurfaceInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `In codex tool mode, workspace file and command operations use ${toolNames.read}, ${toolNames.rename}, ${toolNames.delete}, apply_patch, exec_command, and write_stdin.`;
+    return `In codex tool mode, workspace file and command operations use ${toolNames.read}, ${toolNames.rename}, ${toolNames.delete}, apply_patch, exec_command, and ${toolNames.writeStdin}.`;
   }
 
   if (config.toolMode === "full") {
-    return `In full tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are available alongside the core workspace tools.`;
+    return `In full tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are available alongside the core workspace tools. ${toolNames.writeStdin} is available for running bash sessions.`;
   }
 
-  return `In minimal tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are disabled; the core workspace tools remain available.`;
+  return `In minimal tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are disabled; the core workspace tools remain available, including ${toolNames.writeStdin} for running bash sessions.`;
 }
 
 function selectedWorkflowInstructions(config: ServerConfig): string {
@@ -111,7 +113,7 @@ function selectedWorkflowInstructions(config: ServerConfig): string {
 
 function defaultWorkflowInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes.`;
+    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes.`;
   }
 
   const inspection = config.toolMode === "full"
@@ -120,7 +122,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running session, use ${toolNames.writeStdin} only when you need to poll, wait, interact, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
   );
 }
 

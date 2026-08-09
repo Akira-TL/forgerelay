@@ -4,6 +4,19 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Conversation-scoped logical workspace handles: the same conversation keeps a stable `workspaceId`, different conversations normally receive separate IDs for the same physical checkout/worktree, `open_workspace` can explicitly resume a known ID or allocate a user-requested fresh logical handle, and workspaces idle for more than two days are reported for user-directed resumption or cleanup.
+- `close_workspace` releases a logical workspace handle without deleting checkout files; the last handle anchoring a physical worktree remains protected for `close_worktree`.
+
+### Changed
+
+- `bash` now uses ForgeRelay's process-session runtime instead of the Pi bash executor. It waits in the foreground for at most 300 seconds and, if still running, returns a `sessionId` without killing the process. `write_stdin` is available in regular tool modes to poll, wait, interact, or interrupt, and asynchronous completion is delivered once on a later tool result for the same workspace ID.
+
+### Security
+
+- Background-process ownership and completion delivery are scoped to the logical `workspaceId`; logical workspace cleanup is refused while that ID owns a running or unconsumed process completion, and idle-session scanning does not refresh stale activity timestamps.
+
 ## [0.2.3] - 2026-08-09
 
 ### Changed

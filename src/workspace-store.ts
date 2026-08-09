@@ -48,6 +48,8 @@ export interface WorkspaceStore {
   touchSession(id: string): void;
   setSessionStatus(id: string, status: string): void;
   listSessions(input?: { status?: string; mode?: WorkspaceMode }): WorkspaceSession[];
+  deleteSession(id: string): void;
+  listConversationBindings(): WorkspaceConversationBinding[];
   getConversationBinding(
     conversationScopeId: string,
     targetKey: string,
@@ -160,6 +162,21 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         : query.where(and(...conditions)).all();
 
     return rows.map(rowToWorkspaceSession);
+  }
+
+  deleteSession(id: string): void {
+    this.database.db
+      .delete(workspaceSessions)
+      .where(eq(workspaceSessions.id, id))
+      .run();
+  }
+
+  listConversationBindings(): WorkspaceConversationBinding[] {
+    return this.database.db
+      .select()
+      .from(workspaceConversationBindings)
+      .all()
+      .map(rowToWorkspaceConversationBinding);
   }
 
   getConversationBinding(

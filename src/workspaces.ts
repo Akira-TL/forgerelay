@@ -82,10 +82,23 @@ export interface WorkspaceReadPath {
 }
 
 export interface OpenWorkspaceInput {
-  path: string;
+  path?: string;
+  workspaceId?: string;
   mode?: WorkspaceMode;
   baseRef?: string;
   newWorktree?: boolean;
+  newWorkspace?: boolean;
+}
+
+export interface StaleWorkspaceSession {
+  workspaceId: string;
+  root: string;
+  mode: WorkspaceMode;
+  lastUsedAt: string;
+  idleMs: number;
+  branch?: string;
+  targetBranch?: string;
+  managed: boolean;
 }
 
 export interface KnownWorkspaceWorktree {
@@ -101,7 +114,12 @@ export interface KnownWorkspaceWorktree {
 
 export interface OpenWorkspaceOptions {
   conversationScopeId?: string;
+  protectedWorkspaceIds?: ReadonlySet<string>;
 }
+
+const WORKSPACE_STALE_REMINDER_MS = 2 * 24 * 60 * 60 * 1_000;
+const WORKSPACE_SESSION_IDLE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
+const WORKSPACE_GC_INTERVAL_MS = 60 * 60 * 1_000;
 
 type PathStats = Stats;
 type DirectoryOps = {
@@ -113,26 +131,121 @@ export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, Workspace>();
   private readonly pendingOpens = new Map<string, Promise<WorkspaceContext>>();
   private readonly hooks: HookRunner;
+  private lastWorkspaceGcAt = 0;
 
   constructor(
     private readonly config: ServerConfig,
     private readonly store?: WorkspaceStore,
   ) {
     this.hooks = new HookRunner(config.hooks, config.logging);
+    this.pruneIdleWorkspaceSessions(new Set(), true);
   }
 
   async openWorkspace(
     input: string | OpenWorkspaceInput,
     openOptions: OpenWorkspaceOptions = {},
   ): Promise<WorkspaceContext> {
+    this.pruneIdleWorkspaceSessions(openOptions.protectedWorkspaceIds ?? new Set());
     const workspaceInput = typeof input === "string" ? { path: input } : input;
-    const mode = workspaceInput.mode ?? "checkout";
 
+    if (workspaceInput.workspaceId) {
+      return this.resumeWorkspace(workspaceInput.workspaceId, openOptions.conversationScopeId);
+    }
+    if (!workspaceInput.path) {
+      throw new Error("open_workspace requires either path or workspaceId.");
+    }
+
+    const mode = workspaceInput.mode ?? "checkout";
     if (mode === "worktree") {
       return this.openReusableWorktree(workspaceInput, openOptions.conversationScopeId);
     }
 
-    return this.openReusableCheckout(workspaceInput.path, openOptions.conversationScopeId);
+    return this.openReusableCheckout(
+      workspaceInput.path,
+      openOptions.conversationScopeId,
+      workspaceInput.newWorkspace ?? false,
+    );
+  }
+
+  async resumeWorkspace(
+    workspaceId: string,
+    conversationScopeId: string | undefined,
+  ): Promise<WorkspaceContext> {
+    const workspace = this.getWorkspace(workspaceId);
+    const context = await this.reusedWorkspaceContext(workspace);
+    if (!conversationScopeId || !this.store) {
+      return { ...context, includeBootstrapContext: true };
+    }
+
+    const targetKeys = await this.workspaceTargetKeys(workspace);
+    const alreadyBound = targetKeys.some((targetKey) =>
+      this.store?.getConversationBinding(conversationScopeId, targetKey)?.workspaceSessionId === workspace.id
+    );
+    for (const targetKey of targetKeys) {
+      this.store.setConversationBinding({
+        conversationScopeId,
+        targetKey,
+        workspaceSessionId: workspace.id,
+      });
+    }
+    return { ...context, includeBootstrapContext: !alreadyBound };
+  }
+
+  async listStaleWorkspaces(workspace: Workspace): Promise<StaleWorkspaceSession[]> {
+    if (!this.store) return [];
+    const now = Date.now();
+    const workspaceRootKey = await canonicalPath(workspace.root);
+    const stale: StaleWorkspaceSession[] = [];
+
+    for (const session of this.store.listSessions({ status: "active", mode: workspace.mode })) {
+      if (session.id === workspace.id) continue;
+      const lastUsedAt = Date.parse(session.lastUsedAt);
+      if (!Number.isFinite(lastUsedAt) || now - lastUsedAt < WORKSPACE_STALE_REMINDER_MS) continue;
+      const root = await this.validSessionRoot(session);
+      if (!root || await canonicalPath(root) !== workspaceRootKey) continue;
+      stale.push({
+        workspaceId: session.id,
+        root,
+        mode: session.mode,
+        lastUsedAt: session.lastUsedAt,
+        idleMs: now - lastUsedAt,
+        branch: session.branch,
+        targetBranch: session.targetBranch,
+        managed: session.managed,
+      });
+    }
+
+    return stale.sort((left, right) => left.lastUsedAt.localeCompare(right.lastUsedAt));
+  }
+
+  closeWorkspace(workspaceId: string): void {
+    const workspace = this.getWorkspace(workspaceId);
+    if (workspace.mode === "worktree") {
+      const aliases = this.activeSessions("worktree")
+        .filter((session) => resolve(session.root) === resolve(workspace.root));
+      if (aliases.length <= 1) {
+        throw new Error(
+          `Workspace ${workspaceId} is the last active handle for a worktree. Use close_worktree to finalize and remove the physical worktree, or keep this handle as its anchor.`,
+        );
+      }
+    }
+
+    if (this.store) {
+      for (const binding of this.store.listConversationBindings()) {
+        if (binding.workspaceSessionId === workspaceId) {
+          this.store.deleteConversationBinding(binding.conversationScopeId, binding.targetKey);
+        }
+      }
+      this.store.deleteSession(workspaceId);
+    }
+    this.workspaces.delete(workspaceId);
+  }
+
+  workspaceIdsForPhysicalWorkspace(workspace: Workspace): string[] {
+    const root = resolve(workspace.root);
+    return this.activeSessions(workspace.mode)
+      .filter((session) => resolve(session.root) === root)
+      .map((session) => session.id);
   }
 
   async listKnownWorktrees(workspace: Workspace): Promise<KnownWorkspaceWorktree[]> {
@@ -140,14 +253,18 @@ export class WorkspaceRegistry {
     if (!sourceRoot) return [];
 
     const sourceKey = await canonicalPath(sourceRoot);
-    const results: KnownWorkspaceWorktree[] = [];
+    const currentRootKey = workspace.mode === "worktree"
+      ? await canonicalPath(workspace.root)
+      : undefined;
+    const resultsByRoot = new Map<string, KnownWorkspaceWorktree>();
     for (const session of this.activeSessions("worktree")) {
       if (!session.sourceRoot) continue;
       if (await canonicalPath(session.sourceRoot) !== sourceKey) continue;
 
       const root = await this.validSessionRoot(session);
       if (!root) continue;
-      results.push({
+      const rootKey = await canonicalPath(root);
+      const candidate: KnownWorkspaceWorktree = {
         workspaceId: session.id,
         path: root,
         baseRef: session.baseRef ?? "HEAD",
@@ -155,11 +272,15 @@ export class WorkspaceRegistry {
         branch: session.branch,
         targetBranch: session.targetBranch,
         managed: session.managed,
-        current: session.id === workspace.id,
-      });
+        current: rootKey === currentRootKey,
+      };
+      const existing = resultsByRoot.get(rootKey);
+      if (!existing || session.id === workspace.id) {
+        resultsByRoot.set(rootKey, candidate);
+      }
     }
 
-    return results;
+    return [...resultsByRoot.values()];
   }
 
   async closeWorktree(workspaceId: string, commitMessage: string): Promise<ClosedManagedWorktree & HookReportContainer> {
@@ -200,6 +321,10 @@ export class WorkspaceRegistry {
       },
     });
 
+    const aliasedWorkspaceIds = this.activeSessions("worktree")
+      .filter((session) => resolve(session.root) === resolve(workspace.root))
+      .map((session) => session.id);
+
     const result = await closeManagedWorktree({
       worktree: managedWorktree,
       commitMessage,
@@ -223,24 +348,48 @@ export class WorkspaceRegistry {
       },
     }));
 
-    this.store?.setSessionStatus(workspace.id, "closed");
-    this.workspaces.delete(workspace.id);
+    for (const aliasedWorkspaceId of aliasedWorkspaceIds) {
+      this.store?.setSessionStatus(aliasedWorkspaceId, "closed");
+      this.workspaces.delete(aliasedWorkspaceId);
+    }
     return { ...result, hookReports };
   }
 
   private async openReusableCheckout(
     path: string,
     conversationScopeId: string | undefined,
+    newWorkspace: boolean,
   ): Promise<WorkspaceContext> {
     const allowedPath = assertAllowedPath(path, this.config.allowedRoots);
     const projectKey = await canonicalPath(allowedPath);
     const targetKey = JSON.stringify(["checkout", projectKey, null]);
 
-    const context = await this.openOnce(targetKey, async () => {
+    if (!newWorkspace) {
+      const boundContext = await this.boundConversationContext(
+        conversationScopeId,
+        targetKey,
+        "checkout",
+        async (session, root) =>
+          session.mode === "checkout" && await canonicalPath(root) === projectKey,
+      );
+      if (boundContext) return boundContext;
+    }
+
+    if (newWorkspace) {
       const reusableWorkspace = await this.findReusableWorkspaceByDirectory(projectKey, "checkout");
-      return reusableWorkspace
-        ? this.reusedWorkspaceContext(reusableWorkspace)
-        : this.openCheckoutWorkspace(path);
+      const freshContext = reusableWorkspace
+        ? await this.cloneWorkspaceContext(reusableWorkspace)
+        : await this.openCheckoutWorkspace(path);
+      return this.withConversationContext(freshContext, conversationScopeId, targetKey);
+    }
+
+    const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
+    const context = await this.openOnce(operationKey, async () => {
+      const reusableWorkspace = await this.findReusableWorkspaceByDirectory(projectKey, "checkout");
+      if (!reusableWorkspace) return this.openCheckoutWorkspace(path);
+      return conversationScopeId && this.store
+        ? this.cloneWorkspaceContext(reusableWorkspace)
+        : this.reusedWorkspaceContext(reusableWorkspace);
     });
     return this.withConversationContext(context, conversationScopeId, targetKey);
   }
@@ -249,24 +398,54 @@ export class WorkspaceRegistry {
     input: OpenWorkspaceInput,
     conversationScopeId: string | undefined,
   ): Promise<WorkspaceContext> {
-    const managedPath = this.tryManagedWorktreePath(input.path);
+    const path = input.path;
+    if (!path) throw new Error("Worktree mode requires path.");
+    const managedPath = this.tryManagedWorktreePath(path);
     if (managedPath) {
       const worktreeKey = await canonicalPath(managedPath);
       const targetKey = JSON.stringify(["worktree-path", worktreeKey]);
-      const context = await this.openOnce(targetKey, async () => {
+      if (!input.newWorkspace) {
+        const boundContext = await this.boundConversationContext(
+          conversationScopeId,
+          targetKey,
+          "worktree",
+          async (session, root) =>
+            session.mode === "worktree" && await canonicalPath(root) === worktreeKey,
+        );
+        if (boundContext) return boundContext;
+      }
+
+      if (input.newWorkspace) {
         const reusableWorkspace = await this.findReusableWorkspaceByDirectory(worktreeKey, "worktree");
         if (!reusableWorkspace) {
           throw new Error(
             `Managed worktree is not registered as an active ForgeRelay workspace: ${managedPath}. Open the source project in worktree mode to create or recover a managed worktree first.`,
           );
         }
-        return this.reusedWorkspaceContext(reusableWorkspace);
+        return this.withConversationContext(
+          await this.cloneWorkspaceContext(reusableWorkspace),
+          conversationScopeId,
+          targetKey,
+        );
+      }
+
+      const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
+      const context = await this.openOnce(operationKey, async () => {
+        const reusableWorkspace = await this.findReusableWorkspaceByDirectory(worktreeKey, "worktree");
+        if (!reusableWorkspace) {
+          throw new Error(
+            `Managed worktree is not registered as an active ForgeRelay workspace: ${managedPath}. Open the source project in worktree mode to create or recover a managed worktree first.`,
+          );
+        }
+        return conversationScopeId && this.store
+          ? this.cloneWorkspaceContext(reusableWorkspace)
+          : this.reusedWorkspaceContext(reusableWorkspace);
       });
       return this.withConversationContext(context, conversationScopeId, targetKey);
     }
 
     const resolvedBase = await resolveManagedWorktreeBase({
-      sourcePath: input.path,
+      sourcePath: path,
       baseRef: input.baseRef,
       config: this.config,
     });
@@ -274,18 +453,45 @@ export class WorkspaceRegistry {
     const targetKey = JSON.stringify(["worktree", sourceKey, resolvedBase.targetBranch]);
 
     if (input.newWorktree) {
-      const context = await this.openWorktreeWorkspace(input.path, input.baseRef);
+      const context = await this.openWorktreeWorkspace(path, input.baseRef);
       return this.withConversationContext(context, conversationScopeId, targetKey);
     }
 
-    const context = await this.openOnce(targetKey, async () => {
+    if (!input.newWorkspace) {
+      const boundContext = await this.boundConversationContext(
+        conversationScopeId,
+        targetKey,
+        "worktree",
+        async (session) =>
+          session.mode === "worktree" &&
+          session.sourceRoot !== undefined &&
+          await canonicalPath(session.sourceRoot) === sourceKey &&
+          session.targetBranch === resolvedBase.targetBranch,
+      );
+      if (boundContext) return boundContext;
+    }
+
+    if (input.newWorkspace) {
       const reusableWorkspace = await this.findReusableWorktreeBySource(
         sourceKey,
         resolvedBase.targetBranch,
       );
-      return reusableWorkspace
-        ? this.reusedWorkspaceContext(reusableWorkspace)
-        : this.openWorktreeWorkspace(input.path, input.baseRef);
+      const freshContext = reusableWorkspace
+        ? await this.cloneWorkspaceContext(reusableWorkspace)
+        : await this.openWorktreeWorkspace(path, input.baseRef);
+      return this.withConversationContext(freshContext, conversationScopeId, targetKey);
+    }
+
+    const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
+    const context = await this.openOnce(operationKey, async () => {
+      const reusableWorkspace = await this.findReusableWorktreeBySource(
+        sourceKey,
+        resolvedBase.targetBranch,
+      );
+      if (!reusableWorkspace) return this.openWorktreeWorkspace(path, input.baseRef);
+      return conversationScopeId && this.store
+        ? this.cloneWorkspaceContext(reusableWorkspace)
+        : this.reusedWorkspaceContext(reusableWorkspace);
     });
     return this.withConversationContext(context, conversationScopeId, targetKey);
   }
@@ -311,6 +517,63 @@ export class WorkspaceRegistry {
     }
   }
 
+  private async workspaceTargetKeys(workspace: Workspace): Promise<string[]> {
+    if (workspace.mode === "checkout") {
+      return [JSON.stringify(["checkout", await canonicalPath(workspace.root), null])];
+    }
+
+    const keys = [JSON.stringify(["worktree-path", await canonicalPath(workspace.root)])];
+    if (workspace.sourceRoot && workspace.worktree?.targetBranch) {
+      keys.push(JSON.stringify([
+        "worktree",
+        await canonicalPath(workspace.sourceRoot),
+        workspace.worktree.targetBranch,
+      ]));
+    }
+    return keys;
+  }
+
+  private conversationOpenKey(
+    targetKey: string,
+    conversationScopeId: string | undefined,
+  ): string {
+    return conversationScopeId && this.store
+      ? JSON.stringify(["conversation", conversationScopeId, targetKey])
+      : targetKey;
+  }
+
+  private async boundConversationContext(
+    conversationScopeId: string | undefined,
+    targetKey: string,
+    mode: WorkspaceMode,
+    matches: (session: WorkspaceSession, root: string) => Promise<boolean>,
+  ): Promise<WorkspaceContext | undefined> {
+    if (!conversationScopeId || !this.store) return undefined;
+
+    const binding = this.store.getConversationBinding(conversationScopeId, targetKey);
+    if (!binding) return undefined;
+
+    const session = this.store.getSession(binding.workspaceSessionId);
+    if (!session || session.status !== "active" || session.mode !== mode) {
+      this.store.deleteConversationBinding(conversationScopeId, targetKey);
+      return undefined;
+    }
+
+    const root = await this.validSessionRoot(session);
+    if (!root) {
+      this.store.deleteConversationBinding(conversationScopeId, targetKey);
+      return undefined;
+    }
+    if (!await matches(session, root)) {
+      this.store.deleteConversationBinding(conversationScopeId, targetKey);
+      return undefined;
+    }
+
+    const context = await this.reusedWorkspaceContext(this.getWorkspace(session.id));
+    this.store.touchConversationBinding(conversationScopeId, targetKey);
+    return { ...context, includeBootstrapContext: false };
+  }
+
   private withConversationContext(
     context: WorkspaceContext,
     conversationScopeId: string | undefined,
@@ -334,6 +597,56 @@ export class WorkspaceRegistry {
     return { ...context, includeBootstrapContext: true };
   }
 
+  private pruneIdleWorkspaceSessions(
+    protectedWorkspaceIds: ReadonlySet<string>,
+    force = false,
+  ): void {
+    if (!this.store) return;
+    const now = Date.now();
+    if (!force && now - this.lastWorkspaceGcAt < WORKSPACE_GC_INTERVAL_MS) return;
+    this.lastWorkspaceGcAt = now;
+
+    const activeSessions = this.store.listSessions({ status: "active" });
+    const sessionsById = new Map(activeSessions.map((session) => [session.id, session]));
+    const isIdle = (session: WorkspaceSession): boolean => {
+      const lastUsedAt = Date.parse(session.lastUsedAt);
+      return Number.isFinite(lastUsedAt) && now - lastUsedAt >= WORKSPACE_SESSION_IDLE_TTL_MS;
+    };
+
+    for (const binding of this.store.listConversationBindings()) {
+      const session = sessionsById.get(binding.workspaceSessionId);
+      if (!session) {
+        this.store.deleteConversationBinding(binding.conversationScopeId, binding.targetKey);
+      }
+    }
+
+    const boundWorkspaceIds = new Set(
+      this.store.listConversationBindings().map((binding) => binding.workspaceSessionId),
+    );
+    const worktreeAnchors = new Map<string, WorkspaceSession>();
+    for (const session of activeSessions) {
+      if (session.mode !== "worktree") continue;
+      const key = resolve(session.root);
+      const current = worktreeAnchors.get(key);
+      if (!current || current.lastUsedAt < session.lastUsedAt) {
+        worktreeAnchors.set(key, session);
+      }
+    }
+
+    for (const session of activeSessions) {
+      if (!isIdle(session)) continue;
+      if (protectedWorkspaceIds.has(session.id) || boundWorkspaceIds.has(session.id)) continue;
+      if (
+        session.mode === "worktree" &&
+        worktreeAnchors.get(resolve(session.root))?.id === session.id
+      ) {
+        continue;
+      }
+      this.store.deleteSession(session.id);
+      this.workspaces.delete(session.id);
+    }
+  }
+
   private async findReusableWorkspaceByDirectory(
     directoryKey: string,
     mode: WorkspaceMode,
@@ -342,7 +655,7 @@ export class WorkspaceRegistry {
       const root = await this.validSessionRoot(session);
       if (!root) continue;
       if (await canonicalPath(root) !== directoryKey) continue;
-      return this.getWorkspace(session.id);
+      return this.workspaceFromSession(session, false);
     }
     return undefined;
   }
@@ -356,7 +669,7 @@ export class WorkspaceRegistry {
       if (await canonicalPath(session.sourceRoot) !== sourceKey) continue;
       const root = await this.validSessionRoot(session);
       if (!root) continue;
-      return this.getWorkspace(session.id);
+      return this.workspaceFromSession(session, false);
     }
     return undefined;
   }
@@ -409,6 +722,15 @@ export class WorkspaceRegistry {
     }
   }
 
+  private async cloneWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+    return this.createWorkspaceContext({
+      root: workspace.root,
+      mode: workspace.mode,
+      sourceRoot: workspace.sourceRoot,
+      worktree: workspace.worktree ? { ...workspace.worktree } : undefined,
+    });
+  }
+
   private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
@@ -436,6 +758,16 @@ export class WorkspaceRegistry {
       throw new Error(`Unknown workspaceId: ${workspaceId}. Call open_workspace first.`);
     }
 
+    return this.workspaceFromSession(session, true);
+  }
+
+  private workspaceFromSession(session: WorkspaceSession, touch: boolean): Workspace {
+    const existing = this.workspaces.get(session.id);
+    if (existing) {
+      if (touch) this.store?.touchSession(session.id);
+      return existing;
+    }
+
     const root = this.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
     const restoredWorkspace: Workspace = {
       id: session.id,
@@ -459,9 +791,8 @@ export class WorkspaceRegistry {
       agentProfiles: [],
       activatedSkillDirs: new Set(),
     };
-    this.store?.touchSession(workspaceId);
+    if (touch) this.store?.touchSession(session.id);
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);
-
     return restoredWorkspace;
   }
 

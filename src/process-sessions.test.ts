@@ -48,10 +48,20 @@ assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
 assert.equal(foreground.sessionId, undefined);
 
+const regularEnvironment = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log(process.env.CODEX_CI ?? 'unset')"`,
+  yieldTimeMs: 2_000,
+});
+assert.equal(regularEnvironment.running, false);
+assert.match(regularEnvironment.output, /unset/);
+
 const environment = await manager.start({
   workspaceId: "workspace-a",
   workspaceRoot: "/tmp/devspace-workspace-a",
   cwd: process.cwd(),
+  codexCi: true,
   command: `${node} -e "console.log([process.env.NO_COLOR, process.env.TERM, process.env.PAGER, process.env.GIT_PAGER, process.env.GH_PAGER, process.env.CODEX_CI, process.env.DEVSPACE_WORKSPACE_ID, process.env.DEVSPACE_WORKSPACE_ROOT].join(','))"`,
   yieldTimeMs: 2_000,
 });
@@ -85,6 +95,23 @@ const completed = await manager.write({
 assert.equal(completed.running, false);
 assert.equal(completed.exitCode, 0);
 assert.match(completed.output, /finished/);
+assert.deepEqual(manager.takeCompleted("workspace-a"), []);
+
+const autoCompleted = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('auto-finished'), 40)"`,
+  yieldTimeMs: 1,
+});
+assert.equal(autoCompleted.running, true);
+assert.ok(autoCompleted.sessionId);
+assert.equal(manager.activeWorkspaceIds().has("workspace-a"), true);
+await new Promise((resolve) => setTimeout(resolve, 100));
+const notices = manager.takeCompleted("workspace-a");
+assert.equal(notices.length, 1);
+assert.equal(notices[0]?.sessionId, autoCompleted.sessionId);
+assert.match(notices[0]?.command ?? "", /auto-finished/);
+assert.match(notices[0]?.output ?? "", /auto-finished/);
 
 const interactive = await manager.start({
   workspaceId: "workspace-a",

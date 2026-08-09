@@ -108,13 +108,22 @@ try {
     params: {},
   }).message.result.tools;
   const toolNames = tools.map((tool) => tool.name);
-  for (const expected of ["open_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash"]) {
+  for (const expected of ["open_workspace", "close_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "write_stdin"]) {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
   const bashTool = tools.find((tool) => tool.name === "bash");
   assert.match(bashTool?.description ?? "", /may modify ordinary project files/);
   assert.match(bashTool?.description ?? "", /\/etc\/sudoers/);
   assert.doesNotMatch(bashTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
+  assert.equal(bashTool?.inputSchema?.properties?.timeout, undefined);
+  assert.match(bashTool?.description ?? "", /waits up to 300 seconds/);
+  assert.match(bashTool?.description ?? "", /write_stdin/);
+  const writeStdinTool = tools.find((tool) => tool.name === "write_stdin");
+  assert.equal(writeStdinTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
+  const openWorkspaceTool = tools.find((tool) => tool.name === "open_workspace");
+  assert.ok(openWorkspaceTool?.inputSchema?.properties?.workspaceId);
+  assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
+  assert.ok(openWorkspaceTool?.outputSchema?.properties?.staleWorkspaces);
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
 
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
@@ -145,7 +154,8 @@ try {
     command: "printf debug-bash-ok",
   });
   assert.match(shell.structuredContent.result, /debug-bash-ok/);
-  pass("bash", "debug-bash-ok");
+  assert.equal(shell.structuredContent.running, false);
+  pass("bash", "foreground command completed through ProcessSessionManager");
 
   const failedEdit = callTool(oauth.accessToken, sessionId, 7, "edit", {
     workspaceId,

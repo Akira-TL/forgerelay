@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadConfig, type ServerConfig } from "./config.js";
+import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { ProcessSessionManager } from "./process-sessions.js";
@@ -34,6 +35,8 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(defaultInstructions, /Default to the user's existing checkout/);
   assert.match(defaultInstructions, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(defaultInstructions, /close_worktree/);
+  assert.match(defaultInstructions, /close_workspace/);
+  assert.match(defaultInstructions, /write_stdin/);
   assert.match(defaultInstructions, /Shell commands may modify ordinary project files/);
   assert.match(defaultInstructions, /\/etc\/sudoers/);
   assert.match(defaultInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
@@ -44,12 +47,17 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellTool?.description ?? "", /may modify ordinary project files/);
   assert.match(shellTool?.description ?? "", /\/etc\/sudoers/);
   assert.match(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.match(shellTool?.description ?? "", /waits up to 300 seconds/);
+  assert.match(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
   assert.equal(
     shellInputProperties?.command?.description,
     "Shell command to run with the local user's authority.",
   );
+  assert.equal(shellInputProperties?.timeout, undefined);
+  assert.ok(defaultTools.tools.some((tool) => tool.name === "write_stdin"));
+  assert.ok(defaultTools.tools.some((tool) => tool.name === "close_workspace"));
 
   const overrideContext = await fixture(t, {
     env: {
@@ -62,6 +70,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(overrideInstructions, /Default to the user's existing checkout/);
   assert.match(overrideInstructions, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(overrideInstructions, /close_worktree/);
+  assert.match(overrideInstructions, /close_workspace/);
   assert.match(overrideInstructions, /Follow instructions returned by open_workspace/);
   assert.match(overrideInstructions, /Follow repository-defined development and Git workflows\./);
   assert.match(overrideInstructions, /Preserve the capability contract\./);
@@ -124,6 +133,75 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.skills));
   assert.ok(Array.isArray(card.agentProviders));
   assert.ok(Array.isArray(card.agents));
+});
+
+test("different MCP conversations get different stable workspace ids and can explicitly resume one", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-1");
+  const second = await callOpen(context.client, context.project, "chat-2");
+  const firstId = String(structuredContent(first).workspaceId);
+  const secondId = String(structuredContent(second).workspaceId);
+  assert.notEqual(secondId, firstId);
+
+  const resumed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: firstId },
+    _meta: { "openai/session": "chat-2" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(structuredContent(resumed).workspaceId, firstId);
+
+  const repeated = await callOpen(context.client, context.project, "chat-2");
+  assert.equal(structuredContent(repeated).workspaceId, firstId);
+});
+
+test("open_workspace reports all logical workspaces idle for more than two days", async (t) => {
+  const context = await fixture(t);
+  const old = await callOpen(context.client, context.project, "chat-old");
+  const oldId = String(structuredContent(old).workspaceId);
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite
+      .prepare("update workspace_sessions set last_used_at = ? where id = ?")
+      .run(new Date(Date.now() - 3 * 24 * 60 * 60 * 1_000).toISOString(), oldId);
+  } finally {
+    database.close();
+  }
+
+  const current = await callOpen(context.client, context.project, "chat-current");
+  const stale = structuredContent(current).staleWorkspaces as Array<Record<string, unknown>>;
+  assert.equal(stale.length, 1);
+  assert.equal(stale[0]?.workspaceId, oldId);
+  assert.match(allResponseText(current), /Idle logical workspaces.*>2 days/);
+  assert.match(allResponseText(current), new RegExp(oldId));
+  assert.match(allResponseText(current), /do not clean them up automatically/i);
+});
+
+test("close_workspace releases one logical checkout handle without touching another", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-1");
+  const second = await callOpen(context.client, context.project, "chat-2");
+  const firstId = String(structuredContent(first).workspaceId);
+  const secondId = String(structuredContent(second).workspaceId);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: firstId },
+  });
+  assert.equal(closed.isError, undefined);
+  assert.match(allResponseText(closed), /Physical project files were not removed/);
+
+  const closedRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: firstId, path: "AGENTS.md" },
+  });
+  assert.equal(closedRead.isError, true);
+  assert.match(allResponseText(closedRead), /Unknown workspaceId/);
+
+  const liveRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: secondId, path: "AGENTS.md" },
+  });
+  assert.equal(liveRead.isError, undefined);
 });
 
 test("concurrent checkout opens return one full context and one reuse instruction", async (t) => {
@@ -544,6 +622,130 @@ test("WorkspaceOpen hook reports are visible on the open_workspace result", asyn
   );
 });
 
+test("bash returns a running session instead of killing a command after the foreground wait", async (t) => {
+  const processSessions = new ProcessSessionManager({
+    maxStartYieldMs: 20,
+    completedSessionTtlMs: 2_000,
+  });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-background");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('background-done'), 100)"`,
+    },
+  });
+
+  assert.equal(shell.isError, undefined);
+  assert.equal(structuredContent(shell).running, true);
+  assert.equal(typeof structuredContent(shell).sessionId, "number");
+  assert.match(allResponseText(shell), /Process running with session ID/);
+
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+  });
+  assert.match(allResponseText(read), /Background process \d+ exited with code 0/);
+  assert.match(allResponseText(read), /background-done/);
+
+  const readAgain = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+  });
+  assert.doesNotMatch(allResponseText(readAgain), /Background process/);
+});
+
+test("a failed workspace tool call still carries a completed background process notice", async (t) => {
+  const processSessions = new ProcessSessionManager({
+    maxStartYieldMs: 20,
+    completedSessionTtlMs: 2_000,
+  });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-error-notice");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('notice-on-error'), 80)"`,
+    },
+  });
+  assert.equal(structuredContent(shell).running, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const failedRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "missing-background-notice.txt" },
+  });
+  assert.equal(failedRead.isError, true);
+  assert.match(allResponseText(failedRead), /Background process \d+ exited with code 0/);
+  assert.match(allResponseText(failedRead), /notice-on-error/);
+});
+
+test("close_workspace refuses a logical workspace with a running process", async (t) => {
+  const processSessions = new ProcessSessionManager({ maxStartYieldMs: 10 });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-close-guard");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('close-guard-done'), 80)"`,
+    },
+  });
+  const sessionId = Number(structuredContent(shell).sessionId);
+  assert.ok(sessionId > 0);
+
+  const blockedClose = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(blockedClose.isError, true);
+  assert.match(allResponseText(blockedClose), /running process or an unconsumed process completion/);
+
+  await context.client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId, sessionId, yieldTimeMs: 500 },
+  });
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(closed.isError, undefined);
+});
+
+test("write_stdin can explicitly keep waiting for a bash process", async (t) => {
+  const processSessions = new ProcessSessionManager({ maxStartYieldMs: 10 });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-poll");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('polled-done'), 80)"`,
+    },
+  });
+  const sessionId = Number(structuredContent(shell).sessionId);
+  assert.ok(sessionId > 0);
+
+  const polled = await context.client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId, sessionId, yieldTimeMs: 500 },
+  });
+  assert.equal(structuredContent(polled).running, false);
+  assert.equal(structuredContent(polled).exitCode, 0);
+  assert.match(allResponseText(polled), /polled-done/);
+});
+
 test("invalid project hooks stay visible and can be repaired through ForgeRelay", async (t) => {
   const context = await fixture(t);
   await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
@@ -843,12 +1045,18 @@ interface ServerFixture {
   project: string;
   config: ServerConfig;
   stateDir: string;
+  processSessions: ProcessSessionManager;
   close: () => Promise<void>;
 }
 
 async function fixture(
   t: TestContext,
-  options: { git?: boolean; env?: NodeJS.ProcessEnv; hooks?: HookConfigInput } = {},
+  options: {
+    git?: boolean;
+    env?: NodeJS.ProcessEnv;
+    hooks?: HookConfigInput;
+    processSessions?: ProcessSessionManager;
+  } = {},
 ): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
   const project = join(root, "project");
@@ -893,11 +1101,12 @@ async function fixture(
     : loadedConfig;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
+  const processSessions = options.processSessions ?? new ProcessSessionManager();
   const server = createMcpServer(
     config,
     workspaces,
     createReviewCheckpointManager(),
-    new ProcessSessionManager(),
+    processSessions,
     [],
     [],
   );
@@ -914,6 +1123,7 @@ async function fixture(
     closed = true;
     await client.close();
     await server.close();
+    processSessions.shutdown();
     store.close();
   };
 
@@ -922,7 +1132,7 @@ async function fixture(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, config, stateDir, close };
+  return { client, project, config, stateDir, processSessions, close };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {

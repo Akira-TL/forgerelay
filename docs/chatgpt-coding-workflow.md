@@ -153,24 +153,41 @@ Default `FORGERELAY_TOOL_MODE=minimal` exposes:
 
 ```text
 open_workspace
+close_workspace
 read
 write
 edit
 rename
 delete
 bash
+write_stdin
 close_worktree
 ```
 
 The exact lifecycle tools available depend on the active server configuration.
 In minimal mode, normal shell inspection commands such as `rg`, `find`, and `ls`
-can be used rather than dedicated MCP search tools.
+can be used rather than dedicated MCP search tools. `bash` waits in the foreground
+for at most 300 seconds. If the command is still running, ForgeRelay returns a
+process `sessionId` without killing it. The Agent can use `write_stdin` to poll,
+wait again, interact, or explicitly send Ctrl-C, or continue other work; once the
+command finishes, its completion is attached to a later tool result using the
+same workspace ID.
 
 `FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
 
 Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
 surface including direct `rename`/`delete` path mutations alongside `apply_patch`,
 `exec_command`, and `write_stdin`.
+
+Workspace IDs are logical conversation handles rather than physical-directory
+identities. The same conversation keeps a stable ID for a project, while another
+conversation normally receives a different ID pointing at the same checkout or
+worktree. `open_workspace` can explicitly resume a known `workspaceId`, and a
+fresh logical ID is created only when the user asks for one. When a project has
+other logical workspaces idle for more than two days, `open_workspace` reports
+all of them so the user can choose to resume or clean them up. `close_workspace`
+releases only the logical handle; the last handle for a physical worktree cannot
+be released that way and must be finalized with `close_worktree`.
 
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply

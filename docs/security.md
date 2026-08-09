@@ -122,6 +122,16 @@ The security model is therefore based on:
 
 Do not describe ForgeRelay as a sandboxed coding environment.
 
+Shell execution has a 300-second foreground wait ceiling, not a 300-second
+process lifetime. When `bash` is still running after that window, ForgeRelay
+returns a process `sessionId` and leaves the process alive. `write_stdin` can poll,
+wait, interact, or explicitly interrupt it. An asynchronously completed process
+is reported on a later tool result for the same logical workspace ID, including
+error-result paths, and is never broadcast to another workspace ID. Explicitly
+resuming the same workspace ID in another conversation intentionally transfers
+that completion scope as well. Hook handlers keep their separate bounded timeout
+policy because they are lifecycle gates rather than user-command execution.
+
 ## Lifecycle hooks
 
 Hook command 是本地代码执行，使用与 ForgeRelay 相同的操作系统用户权限并继承进程环境。

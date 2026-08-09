@@ -115,9 +115,9 @@ MCP clients discover metadata from:
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, `rename`, `delete`, and `bash`. |
+| `minimal` | Default. Exposes `open_workspace`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, `bash`, `write_stdin`, and `close_worktree`. |
 | `full` | Adds dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Experimental Codex-shaped tool surface using `open_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, and `write_stdin`. |
+| `codex` | Experimental Codex-shaped tool surface using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `close_worktree`. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
 explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
@@ -125,6 +125,24 @@ also accepted.
 
 Codex-mode commands run without a PTY by default. `tty: true` enables interactive
 programs when the optional `node-pty` dependency is available.
+
+Logical workspace IDs are conversation-scoped handles. Reopening the same project
+from the same conversation keeps its ID stable; a different conversation normally
+receives a different ID for the same physical checkout/worktree. Pass
+`workspaceId` to `open_workspace` to explicitly resume an existing handle in the
+current conversation. `newWorkspace: true` allocates a new logical handle without
+creating another checkout or Git worktree and should be used only on explicit user
+request. Sessions idle for more than two days are returned in `staleWorkspaces` so
+the user can choose whether to resume or release them. `close_workspace` removes a
+logical handle without deleting checkout files; it refuses to remove the last
+handle anchoring a physical worktree.
+
+`bash` has no execution-timeout input. It waits in the foreground for at most 300
+seconds; if the process is still alive, the result contains `running: true` and a
+`sessionId`. `write_stdin` can poll or interact with that session for up to another
+300 seconds per call. ForgeRelay does not kill a process merely because a wait
+window expires. Completed background processes are delivered once with a later
+tool result for the same logical workspace ID.
 
 ## Widgets
 

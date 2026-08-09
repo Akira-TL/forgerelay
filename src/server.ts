@@ -50,7 +50,6 @@ import {
   grepFilesTool,
   listDirectoryTool,
   readFileTool,
-  runShellTool,
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
@@ -58,7 +57,11 @@ import {
   McpSessionRegistry,
   type McpSessionCloseResult,
 } from "./mcp-sessions.js";
-import { ProcessSessionManager, type ProcessSnapshot } from "./process-sessions.js";
+import {
+  ProcessSessionManager,
+  type CompletedProcessSnapshot,
+  type ProcessSnapshot,
+} from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { openAiConversationScopeId } from "./request-meta.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
@@ -495,6 +498,50 @@ function processResult(snapshot: ProcessSnapshot): string {
   return snapshot.output ? `${snapshot.output.replace(/\n$/, "")}\n${status}` : status;
 }
 
+function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
+  const status = snapshot.signal
+    ? `Background process ${snapshot.sessionId} exited after signal ${snapshot.signal}.`
+    : `Background process ${snapshot.sessionId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
+  const command = `Command: ${snapshot.command}`;
+  const output = snapshot.output ? `\n${snapshot.output.replace(/\n$/, "")}` : "";
+  return `${status}\n${command}${output}`;
+}
+
+function attachCompletedProcessNotices<T>(
+  processSessions: ProcessSessionManager,
+  workspaceId: string,
+  result: T,
+): T {
+  if (result instanceof Error) {
+    const completed = processSessions.takeCompleted(workspaceId);
+    if (completed.length > 0) {
+      result.message = [
+        result.message,
+        ...completed.map((snapshot) => completedProcessResult(snapshot)),
+      ].join("\n\n");
+    }
+    return result;
+  }
+  if (typeof result !== "object" || result === null) return result;
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return result;
+
+  const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
+  const currentSessionId = structured?.running === true && typeof structured.sessionId === "number"
+    ? structured.sessionId
+    : undefined;
+  const completed = processSessions.takeCompleted(workspaceId, undefined, currentSessionId);
+  if (completed.length === 0) return result;
+
+  return {
+    ...result,
+    content: [
+      ...content,
+      ...completed.map((snapshot) => textBlock(completedProcessResult(snapshot))),
+    ],
+  } as T;
+}
+
 function processOutputSchema(): z.ZodRawShape {
   return resultOutputSchema({
     sessionId: z.number().optional(),
@@ -517,7 +564,7 @@ function readForgeRelayVersion(): string {
 }
 
 function processToolResponse(
-  tool: "exec_command" | "write_stdin",
+  tool: "bash" | "exec_command" | "write_stdin",
   workspaceId: string,
   snapshot: ProcessSnapshot,
   summary: Record<string, unknown>,
@@ -560,16 +607,17 @@ function toolResultIsError(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
 }
 
-function registerCodexProcessTools(
+function registerProcessTools(
   server: McpServer,
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
   processSessions: ProcessSessionManager,
   hooks: HookRunner,
 ): void {
-  registerAppTool(
-    server,
-    "exec_command",
+  if (config.toolMode === "codex") {
+    registerAppTool(
+      server,
+      "exec_command",
     {
       title: "Execute command",
       description:
@@ -625,6 +673,7 @@ function registerCodexProcessTools(
             rows,
             yieldTimeMs,
             maxOutputTokens,
+            codexCi: true,
           });
 
           logToolCall(config, {
@@ -650,7 +699,8 @@ function registerCodexProcessTools(
         },
       });
     },
-  );
+    );
+  }
 
   registerAppTool(
     server,
@@ -658,7 +708,7 @@ function registerCodexProcessTools(
     {
       title: "Write to process",
       description:
-        "Poll or write characters to a process returned by exec_command. Omit chars or pass an empty string to poll. Pass \\u0003 to send Ctrl-C.",
+        "Poll or write characters to a running process returned by bash or exec_command. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
         sessionId: z.number().describe("Process session identifier returned by exec_command."),
@@ -669,9 +719,9 @@ function registerCodexProcessTools(
           .number()
           .int()
           .min(0)
-          .max(30_000)
+          .max(300_000)
           .optional()
-          .describe("Milliseconds to wait for process output or completion. Defaults to 10000."),
+          .describe("Milliseconds to keep waiting before returning again, max 300000. Polling defaults to 5000; interaction defaults to 250."),
         maxOutputTokens: z
           .number()
           .int()
@@ -739,7 +789,12 @@ export function createMcpServer(
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
-  const hooks = new HookRunner(config.hooks, config.logging);
+  const hooks = new HookRunner(
+    config.hooks,
+    config.logging,
+    process.env,
+    (workspaceId, result) => attachCompletedProcessNotices(processSessions, workspaceId, result),
+  );
   const server = new McpServer(
     {
       name: "forgerelay",
@@ -792,12 +847,19 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open a local project directory as a coding workspace. The same directory reuses the same active workspaceId across requests. Default to checkout mode and only use mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches and can later be safely closed into their original target branch with close_worktree. Existing managed worktree paths can also be reopened directly.",
+        "Open or resume a local coding workspace. A conversation keeps a stable workspaceId for a project, while different conversations normally receive different logical workspaceIds that may point at the same physical checkout or worktree. Pass workspaceId to explicitly resume an existing logical workspace in this conversation. Default to checkout mode and only use mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. Workspaces idle for more than two days are reported for user-directed cleanup or resumption.",
       inputSchema: {
         path: z
           .string()
+          .optional()
           .describe(
-            "Absolute path, or a leading-tilde home path such as ~/project, to a local project directory inside an allowed root. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
+            "Project path to open. Required unless workspaceId is supplied. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
+          ),
+        workspaceId: z
+          .string()
+          .optional()
+          .describe(
+            "Existing logical workspace ID to resume in this conversation. When supplied, ForgeRelay resumes that workspace rather than allocating another ID.",
           ),
         mode: z
           .enum(["checkout", "worktree"])
@@ -813,7 +875,13 @@ export function createMcpServer(
           .boolean()
           .optional()
           .describe(
-            "When true, create another isolated managed worktree instead of reusing the existing worktree for this project and baseRef. Use only when the user explicitly requests a separate worktree.",
+            "When true, create another isolated managed Git worktree instead of reusing the existing physical worktree. Use only when the user explicitly requests separate Git isolation.",
+          ),
+        newWorkspace: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, allocate a fresh logical workspaceId for the same physical checkout or worktree and bind this conversation to it. Use only after the user explicitly requests a new logical workspace.",
           ),
       },
       outputSchema: {
@@ -845,6 +913,18 @@ export function createMcpServer(
             current: z.boolean(),
           }),
         ),
+        staleWorkspaces: z.array(
+          z.object({
+            workspaceId: z.string(),
+            root: z.string(),
+            mode: z.enum(["checkout", "worktree"]),
+            lastUsedAt: z.string(),
+            idleMs: z.number().nonnegative(),
+            branch: z.string().optional(),
+            targetBranch: z.string().optional(),
+            managed: z.boolean(),
+          }),
+        ),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
         skills: z.array(workspaceSkillOutputSchema).optional(),
@@ -861,7 +941,7 @@ export function createMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ path, mode, baseRef, newWorktree }, { _meta, sessionId }) => {
+    async ({ path, workspaceId, mode, baseRef, newWorktree, newWorkspace }, { _meta, sessionId }) => {
       const startedAt = performance.now();
       const {
         workspace,
@@ -871,10 +951,14 @@ export function createMcpServer(
         workspaceReused,
         includeBootstrapContext,
       } = await workspaces.openWorkspace(
-        { path, mode, baseRef, newWorktree },
-        { conversationScopeId: openAiConversationScopeId(_meta) },
+        { path, workspaceId, mode, baseRef, newWorktree, newWorkspace },
+        {
+          conversationScopeId: openAiConversationScopeId(_meta),
+          protectedWorkspaceIds: processSessions.activeWorkspaceIds(),
+        },
       );
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
+      const staleWorkspaces = await workspaces.listStaleWorkspaces(workspace);
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -960,6 +1044,9 @@ export function createMcpServer(
             knownWorktrees.length > 0
               ? `Known worktrees: ${knownWorktrees.map((worktree) => `${worktree.path} [${worktree.workspaceId}]${worktree.branch ? ` branch=${worktree.branch}` : ""}${worktree.targetBranch ? ` target=${worktree.targetBranch}` : ""}${worktree.current ? " (current)" : ""}`).join(", ")}`
               : undefined,
+            staleWorkspaces.length > 0
+              ? `Idle logical workspaces for this same physical workspace (>2 days): ${staleWorkspaces.map((stale) => `${stale.workspaceId} last-used=${stale.lastUsedAt}`).join(", ")}. Tell the user these are available to resume or explicitly close; do not clean them up automatically.`
+              : undefined,
             instruction,
           ].filter(Boolean).join("\n"),
         },
@@ -972,7 +1059,7 @@ export function createMcpServer(
         durationMs: Math.round(performance.now() - startedAt),
       });
 
-      return attachHookReports({
+      return hooks.decorateResult(workspace.id, attachHookReports({
         content: resultContent,
         _meta: {
           tool: "open_workspace",
@@ -986,6 +1073,7 @@ export function createMcpServer(
             sourceRoot: workspace.sourceRoot,
             worktree: workspace.worktree,
             worktrees: knownWorktrees,
+            staleWorkspaces,
             agentsFiles: cardAgentsFiles,
             availableAgentsFiles: cardAvailableAgentsFiles,
             skills: cardSkills,
@@ -1009,6 +1097,7 @@ export function createMcpServer(
           sourceRoot: workspace.sourceRoot,
           worktree: workspace.worktree,
           worktrees: knownWorktrees,
+          staleWorkspaces,
           ...(includeBootstrapContext
             ? {
                 agentsFiles: loadedAgentsFiles,
@@ -1021,7 +1110,44 @@ export function createMcpServer(
             : {}),
           instruction,
         },
-      }, hookReports);
+      }, hookReports));
+    },
+  );
+
+  registerAppTool(
+    server,
+    toolNames.closeWorkspace,
+    {
+      title: "Close logical workspace",
+      description:
+        "Release one logical ForgeRelay workspaceId after the user explicitly chooses to clean it up. This never deletes checkout files. A worktree handle can be released only when another logical handle still anchors the same physical worktree; use close_worktree to finalize and remove the last managed worktree. Running or unconsumed background processes prevent closure.",
+      inputSchema: {
+        workspaceId: z.string().describe("Logical workspace ID to release."),
+      },
+      outputSchema: resultOutputSchema({ workspaceId: z.string() }),
+      _meta: {},
+      annotations: WRITE_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId }) => {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
+        tool: toolNames.closeWorkspace,
+        invocation: workspaceHookInvocation(workspace),
+        payload: { workspaceId },
+        operation: async () => {
+          if (processSessions.activeWorkspaceIds().has(workspaceId)) {
+            throw new Error(
+              `Workspace ${workspaceId} still owns a running process or an unconsumed process completion. Poll or consume it before closing this workspace.`,
+            );
+          }
+          workspaces.closeWorkspace(workspaceId);
+          const result = `Closed logical workspace ${workspaceId}. Physical project files were not removed.`;
+          return {
+            content: [textBlock(result)],
+            structuredContent: { result, workspaceId },
+          };
+        },
+      });
     },
   );
 
@@ -1062,6 +1188,14 @@ export function createMcpServer(
         payload: { commitMessage },
         afterCwd: (response) => response.structuredContent.sourceRoot,
         operation: async () => {
+          const busyWorkspaceIds = workspaces
+            .workspaceIdsForPhysicalWorkspace(workspace)
+            .filter((id) => processSessions.activeWorkspaceIds().has(id));
+          if (busyWorkspaceIds.length > 0) {
+            throw new Error(
+              `Cannot close this worktree while logical workspace processes are still running or awaiting completion delivery: ${busyWorkspaceIds.join(", ")}.`,
+            );
+          }
           const startedAt = performance.now();
           const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
           const result = [
@@ -1914,108 +2048,81 @@ export function createMcpServer(
   }
 
   if (config.toolMode !== "codex") {
-  registerAppTool(
-    server,
-    toolNames.shell,
-    {
-      title: "Bash",
-      description: toolDescriptions.shell,
-      inputSchema: {
-        workspaceId: z
-          .string()
-          .describe("Workspace identifier returned by open_workspace."),
-        command: z
-          .string()
-          .describe(toolDescriptions.shellCommand),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe(
-            "Optional working directory relative to the workspace root. Defaults to the workspace root.",
-          ),
-        timeout: z
-          .number()
-          .positive()
-          .max(300)
-          .optional()
-          .describe("Timeout in seconds. Defaults to 30, max 300."),
-      },
-      outputSchema: resultOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "shell"),
-      annotations: SHELL_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId, workingDirectory, ...input }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        tool: toolNames.shell,
-        invocation: workspaceHookInvocation(workspace),
-        payload: {
-          command: input.command,
-          workingDirectory: workingDirectory ?? ".",
-          timeoutSeconds: input.timeout,
+    registerAppTool(
+      server,
+      toolNames.shell,
+      {
+        title: "Bash",
+        description: toolDescriptions.shell,
+        inputSchema: {
+          workspaceId: z
+            .string()
+            .describe("Workspace identifier returned by open_workspace."),
+          command: z
+            .string()
+            .describe(toolDescriptions.shellCommand),
+          workingDirectory: z
+            .string()
+            .optional()
+            .describe(
+              "Optional working directory relative to the workspace root. Defaults to the workspace root.",
+            ),
         },
-        isFailure: toolResultIsError,
-        operation: async () => {
-          const startedAt = performance.now();
-          const cwd = workspaces.resolveWorkingDirectory(
-            workspace,
-            workingDirectory,
-          );
-          const response = await runShellTool(input, {
-            cwd,
-            root: workspace.root,
-          });
+        outputSchema: processOutputSchema(),
+        ...toolWidgetDescriptorMeta(config, "shell"),
+        annotations: SHELL_TOOL_ANNOTATIONS,
+      },
+      async ({ workspaceId, command, workingDirectory }, extra) => {
+        const workspace = workspaces.getWorkspace(workspaceId);
+        return runToolWithHooks(hooks, {
+          tool: toolNames.shell,
+          invocation: workspaceHookInvocation(workspace),
+          payload: {
+            command,
+            workingDirectory: workingDirectory ?? ".",
+          },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+            const snapshot = await processSessions.start({
+              workspaceId,
+              command,
+              cwd,
+              workspaceRoot: workspace.root,
+              yieldTimeMs: 300_000,
+            });
 
-          if (response.isError) {
-            logFailedToolResponse(config, {
+            logToolCall(config, {
               tool: toolNames.shell,
               ...workspaceLogContext(workspace, extra.sessionId),
               workingDirectory: workingDirectory ?? ".",
-              command: input.command,
-              commandLength: input.command.length,
-            }, response.content, startedAt);
-            return response;
-          }
+              command,
+              commandLength: command.length,
+              exitCode: snapshot.exitCode,
+              running: snapshot.running,
+              processSessionId: snapshot.sessionId,
+              success: snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
+              durationMs: Math.round(performance.now() - startedAt),
+            });
 
-          const summary = {
-            command: input.command,
-            workingDirectory: workingDirectory ?? ".",
-            ...textSummary(response.content),
-          };
-          logToolCall(config, {
-            tool: toolNames.shell,
-            ...workspaceLogContext(workspace, extra.sessionId),
-            workingDirectory: workingDirectory ?? ".",
-            command: input.command,
-            commandLength: input.command.length,
-            success: true,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          return {
-            ...response,
-            _meta: {
-              tool: toolNames.shell,
-              card: {
-                workspaceId,
-                path: workingDirectory,
-                summary,
-                payload: { content: response.content },
-              },
-            },
-            structuredContent: {
-              result: contentText(response.content),
-            },
-          };
-        },
-      });
-    },
-  );
+            const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
+              command,
+              workingDirectory: workingDirectory ?? ".",
+              running: snapshot.running,
+              exitCode: snapshot.exitCode,
+              wallTimeMs: snapshot.wallTimeMs,
+            });
+            return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
+              ? { ...response, isError: true }
+              : response;
+          },
+        });
+      },
+    );
   }
 
-  if (config.toolMode === "codex") {
-    registerCodexProcessTools(server, config, workspaces, processSessions, hooks);
-  }
+  registerProcessTools(server, config, workspaces, processSessions, hooks);
 
   if (config.artifactsEnabled && isArtifactDownloadSupportedPlatform()) {
     registerArtifactTools(server, {

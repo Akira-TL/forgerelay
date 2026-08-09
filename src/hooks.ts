@@ -181,6 +181,13 @@ export interface ToolHookOptions<T> {
   afterCwd?: (result: T) => string | undefined;
 }
 
+function decorateToolResult<T>(runner: HookRunner, workspaceId: string | undefined, result: T): T {
+  const decorator = (runner as { decorateResult?: (workspaceId: string, result: T) => T }).decorateResult;
+  return workspaceId && typeof decorator === "function"
+    ? decorator.call(runner, workspaceId, result)
+    : result;
+}
+
 export async function runToolWithHooks<T>(
   runner: HookRunner,
   options: ToolHookOptions<T>,
@@ -201,7 +208,8 @@ export async function runToolWithHooks<T>(
         cwd: afterCwd,
         payload: basePayload,
       }));
-      return attachHookReports(result, executions);
+      const reported = attachHookReports(result, executions);
+      return decorateToolResult(runner, options.invocation.workspaceId, reported);
     }
 
     executions.push(...await runner.run("AfterTool", {
@@ -217,7 +225,8 @@ export async function runToolWithHooks<T>(
         payload: { ...basePayload, paths: changedPaths },
       }));
     }
-    return attachHookReports(result, executions);
+    const reported = attachHookReports(result, executions);
+    return decorateToolResult(runner, options.invocation.workspaceId, reported);
   } catch (error) {
     if (error instanceof HookExecutionError) {
       executions.push(...error.executions);
@@ -229,7 +238,8 @@ export async function runToolWithHooks<T>(
         errorType: error instanceof Error ? error.name : "Error",
       },
     }));
-    throw appendHookReportsToError(error, executions);
+    const reportedError = appendHookReportsToError(error, executions);
+    throw decorateToolResult(runner, options.invocation.workspaceId, reportedError);
   }
 }
 
@@ -294,7 +304,12 @@ export class HookRunner {
     private readonly hooks: HookConfig,
     private readonly logging: LoggingConfig,
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
+    private readonly resultDecorator?: (workspaceId: string, result: unknown) => unknown,
   ) {}
+
+  decorateResult<T>(workspaceId: string, result: T): T {
+    return (this.resultDecorator?.(workspaceId, result) ?? result) as T;
+  }
 
   async run(event: HookEvent, invocation: HookInvocation): Promise<HookExecutionReport[]> {
     const projectRoot = event === "AfterWorktreeClose" && invocation.sourceRoot
