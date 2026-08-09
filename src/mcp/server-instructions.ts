@@ -6,6 +6,8 @@ export const toolNames = {
   read: "read",
   write: "write",
   edit: "edit",
+  rename: "rename",
+  delete: "delete",
   grep: "grep",
   glob: "glob",
   ls: "ls",
@@ -20,6 +22,8 @@ export interface ToolDescriptions {
   read: string;
   write: string;
   edit: string;
+  rename: string;
+  delete: string;
   applyPatch: string;
   shell: string;
   shellCommand: string;
@@ -48,8 +52,10 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     read: `Read a file inside an open workspace or the OS temp directory. Instruction files returned by ${toolNames.openWorkspace} and advertised skill files are also readable when applicable.${skillCapability} Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     write: `Create or completely overwrite a file inside an open workspace or the OS temp directory. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     edit: `Edit one file inside an open workspace or the OS temp directory by replacing exact text blocks. Each oldText must match a unique, non-overlapping region of the original file. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    delete: `Delete one file or directory inside an open workspace or the OS temp directory. Non-empty directories require recursive=true. An allowed root itself cannot be deleted. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. Do not use ${toolNames.shell} to create or modify project files; use ${toolNames.edit} or ${toolNames.write} for file changes. Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
+    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. Do not use ${toolNames.shell} to create, move, rename, or delete project files; use ${toolNames.edit}, ${toolNames.write}, ${toolNames.rename}, or ${toolNames.delete} for file changes. Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -60,7 +66,7 @@ function capabilityContractInstructions(
 ): string {
   const workspaceLifecycle = config.toolMode === "codex"
     ? `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`
-    : `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId for later file, search, edit, write, show-changes, and shell tools. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`;
+    : `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout and reuse its workspaceId for later file, search, edit, write, rename, delete, show-changes, and shell tools. Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel work. Managed worktrees use dedicated forgerelay/* branches, not detached HEADs. When work in a managed worktree is complete and verified, call ${toolNames.closeWorktree}; it commits remaining worktree changes, fast-forwards the original target branch only when safe, then removes the worktree and its branch. If the target branch diverged or the source checkout is dirty, closing is refused and the worktree is preserved.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Before working under a path listed in availableAgentsFiles, use ${toolNames.read} to inspect that instruction file and follow it.`;
   const skills = config.skillsEnabled
@@ -80,7 +86,7 @@ function capabilityContractInstructions(
 
 function toolSurfaceInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `In codex tool mode, workspace file and command operations use ${toolNames.read}, apply_patch, exec_command, and write_stdin.`;
+    return `In codex tool mode, workspace file and command operations use ${toolNames.read}, ${toolNames.rename}, ${toolNames.delete}, apply_patch, exec_command, and write_stdin.`;
   }
 
   if (config.toolMode === "full") {
@@ -98,7 +104,7 @@ function selectedWorkflowInstructions(config: ServerConfig): string {
 
 function defaultWorkflowInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `Use ${toolNames.read} for direct file reads, apply_patch for all file modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes.`;
+    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and write_stdin to poll or interact with running processes.`;
   }
 
   const inspection = config.toolMode === "full"
@@ -107,7 +113,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted modifications, ${toolNames.write} only for new files or complete rewrites, and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, and commands that are better executed by the shell.`,
     `Do not create or modify files with ${toolNames.shell}; avoid shell redirection, heredocs, tee, sed -i, perl -i, node/python/ruby scripts, or any command whose purpose is to write project files.`,
   );
 }

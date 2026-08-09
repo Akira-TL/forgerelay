@@ -9,6 +9,8 @@ export type ToolName =
   | "read"
   | "write"
   | "edit"
+  | "rename"
+  | "delete"
   | "grep"
   | "glob"
   | "ls"
@@ -106,6 +108,8 @@ export function isToolName(value: unknown): value is ToolName {
     value === "read" ||
     value === "write" ||
     value === "edit" ||
+    value === "rename" ||
+    value === "delete" ||
     value === "grep" ||
     value === "glob" ||
     value === "ls" ||

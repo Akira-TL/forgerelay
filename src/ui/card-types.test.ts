@@ -10,7 +10,7 @@ import {
 } from "./card-types.js";
 
 test("the supported coding tools are recognized as card tools", () => {
-  for (const tool of ["apply_patch", "exec_command", "write_stdin"]) {
+  for (const tool of ["apply_patch", "exec_command", "write_stdin", "rename", "delete"]) {
     assert.equal(isToolName(tool), true, `${tool} should be a recognized card tool`);
   }
 });

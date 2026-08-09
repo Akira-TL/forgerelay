@@ -19,6 +19,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
+import { deletePath, renamePath } from "./file-mutations.js";
 import {
   isArtifactDownloadSupportedPlatform,
   registerArtifactTools,
@@ -1376,6 +1377,158 @@ export function createMcpServer(
     },
   );
   }
+
+  registerAppTool(
+    server,
+    toolNames.rename,
+    {
+      title: "Rename path",
+      description: toolDescriptions.rename,
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        path: z.string().describe("Source file or directory path relative to the workspace root, or absolute inside the OS temp directory."),
+        newPath: z.string().describe("Destination path relative to the workspace root, or absolute inside the OS temp directory. The destination must not already exist."),
+      },
+      outputSchema: resultOutputSchema({
+        status: z.literal("renamed"),
+        path: z.string(),
+        newPath: z.string(),
+      }),
+      ...toolWidgetDescriptorMeta(config, "edit"),
+      annotations: EDIT_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId, path, newPath }, extra) => {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
+        tool: toolNames.rename,
+        invocation: workspaceHookInvocation(workspace),
+        payload: { path, newPath, paths: [path, newPath] },
+        changedPaths: () => [path, newPath],
+        operation: async () => {
+          const startedAt = performance.now();
+          try {
+            await renamePath({ path, newPath }, {
+              cwd: workspace.root,
+              allowedRoots: workspaces.fileToolRoots(workspace),
+            });
+            const result = `Renamed ${path} to ${newPath}.`;
+            const content = [textBlock(result)];
+            logToolCall(config, {
+              tool: toolNames.rename,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path: `${path} -> ${newPath}`,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return {
+              content,
+              _meta: {
+                tool: toolNames.rename,
+                card: {
+                  workspaceId,
+                  path: newPath,
+                  summary: { previousPath: path },
+                  payload: { content },
+                },
+              },
+              structuredContent: {
+                result,
+                status: "renamed" as const,
+                path,
+                newPath,
+              },
+            };
+          } catch (error) {
+            logToolCall(config, {
+              tool: toolNames.rename,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path: `${path} -> ${newPath}`,
+              success: false,
+              durationMs: Math.round(performance.now() - startedAt),
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        },
+      });
+    },
+  );
+
+  registerAppTool(
+    server,
+    toolNames.delete,
+    {
+      title: "Delete path",
+      description: toolDescriptions.delete,
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        path: z.string().describe("File or directory path relative to the workspace root, or absolute inside the OS temp directory."),
+        recursive: z.boolean().optional().describe("Delete a non-empty directory tree. Defaults to false."),
+      },
+      outputSchema: resultOutputSchema({
+        status: z.literal("deleted"),
+        path: z.string(),
+        recursive: z.boolean(),
+      }),
+      ...toolWidgetDescriptorMeta(config, "edit"),
+      annotations: EDIT_TOOL_ANNOTATIONS,
+    },
+    async ({ workspaceId, path, recursive }, extra) => {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
+        tool: toolNames.delete,
+        invocation: workspaceHookInvocation(workspace),
+        payload: { path, recursive: recursive ?? false },
+        changedPaths: () => [path],
+        operation: async () => {
+          const startedAt = performance.now();
+          try {
+            const deleted = await deletePath({ path, recursive }, {
+              cwd: workspace.root,
+              allowedRoots: workspaces.fileToolRoots(workspace),
+            });
+            const result = `Deleted ${path}${deleted.recursive ? " recursively" : ""}.`;
+            const content = [textBlock(result)];
+            logToolCall(config, {
+              tool: toolNames.delete,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return {
+              content,
+              _meta: {
+                tool: toolNames.delete,
+                card: {
+                  workspaceId,
+                  path,
+                  summary: { recursive: deleted.recursive },
+                  payload: { content },
+                },
+              },
+              structuredContent: {
+                result,
+                status: "deleted" as const,
+                path,
+                recursive: deleted.recursive,
+              },
+            };
+          } catch (error) {
+            logToolCall(config, {
+              tool: toolNames.delete,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path,
+              success: false,
+              durationMs: Math.round(performance.now() - startedAt),
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        },
+      });
+    },
+  );
 
   if (config.toolMode === "codex") {
     registerAppTool(

@@ -156,6 +156,8 @@ open_workspace
 read
 write
 edit
+rename
+delete
 bash
 close_worktree
 ```
@@ -167,7 +169,8 @@ can be used rather than dedicated MCP search tools.
 `FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
 
 Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
-surface including `apply_patch`, `exec_command`, and `write_stdin`.
+surface including direct `rename`/`delete` path mutations alongside `apply_patch`,
+`exec_command`, and `write_stdin`.
 
 ## Change review UI
 

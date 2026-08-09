@@ -103,7 +103,7 @@ try {
     params: {},
   }).message.result.tools;
   const toolNames = tools.map((tool) => tool.name);
-  for (const expected of ["open_workspace", "close_worktree", "read", "write", "edit", "grep", "glob", "ls", "bash"]) {
+  for (const expected of ["open_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash"]) {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
@@ -146,6 +146,21 @@ try {
   assert.equal(failedEdit.isError, true);
   pass("failed tool path", "edit returned isError=true and triggered AfterToolFailure");
 
+  const renamedWorkspaceFile = callTool(oauth.accessToken, sessionId, 74, "rename", {
+    workspaceId,
+    path: "acceptance.txt",
+    newPath: "renamed-acceptance.txt",
+  });
+  assert.equal(renamedWorkspaceFile.isError, undefined);
+  assert.equal(readFileSync(join(checkoutWorkspace, "renamed-acceptance.txt"), "utf8"), "forgerelay 7677 acceptance\n");
+  const deletedWorkspaceFile = callTool(oauth.accessToken, sessionId, 75, "delete", {
+    workspaceId,
+    path: "renamed-acceptance.txt",
+  });
+  assert.equal(deletedWorkspaceFile.isError, undefined);
+  assert.equal(existsSync(join(checkoutWorkspace, "renamed-acceptance.txt")), false);
+  pass("rename + delete", "workspace file renamed and deleted through MCP");
+
   mkdirSync(tempAcceptanceRoot, { recursive: true });
   const tempFile = join(tempAcceptanceRoot, "mcp-temp.txt");
   const tempWritten = callTool(oauth.accessToken, sessionId, 70, "write", {
@@ -169,13 +184,28 @@ try {
   assert.equal(tempEdited.isError, undefined);
   assert.equal(readFileSync(tempFile, "utf8"), "forgerelay temp after edit\n");
 
+  const renamedTempFile = join(tempAcceptanceRoot, "mcp-temp-renamed.txt");
+  const tempRenamed = callTool(oauth.accessToken, sessionId, 76, "rename", {
+    workspaceId,
+    path: tempFile,
+    newPath: renamedTempFile,
+  });
+  assert.equal(tempRenamed.isError, undefined);
+  assert.equal(readFileSync(renamedTempFile, "utf8"), "forgerelay temp after edit\n");
+  const tempDeleted = callTool(oauth.accessToken, sessionId, 77, "delete", {
+    workspaceId,
+    path: renamedTempFile,
+  });
+  assert.equal(tempDeleted.isError, undefined);
+  assert.equal(existsSync(renamedTempFile), false);
+
   const outsideRoots = callTool(oauth.accessToken, sessionId, 73, "read", {
     workspaceId,
     path: join(homedir(), "forgerelay-debug-outside-roots.txt"),
   });
   assert.equal(outsideRoots.isError, true);
   assert.match(toolText(outsideRoots), /outside allowed roots/i);
-  pass("OS temp file tools", "write + read + edit passed; arbitrary home path rejected");
+  pass("OS temp file tools", "write + read + edit + rename + delete passed; arbitrary home path rejected");
 
   setupGitProject(gitProject);
   const worktreeOpened = callTool(oauth.accessToken, sessionId, 8, "open_workspace", {

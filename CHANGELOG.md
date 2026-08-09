@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- First-class `rename` and `delete` MCP tools for files and directories in workspace or OS-temp file roots, including direct availability in minimal, full, and Codex tool modes.
+
+### Security
+
+- `rename` validates both source and destination canonical roots and refuses existing destinations; `delete` refuses allowed roots themselves and requires explicit `recursive: true` for non-empty directory trees.
+
 ## [0.2.1] - 2026-08-09
 
 ### Changed

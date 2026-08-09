@@ -38,7 +38,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
   assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
   assert.match(shellTool?.description ?? "", /local user's authority/);
-  assert.match(shellTool?.description ?? "", /Do not use bash to create or modify project files/);
+  assert.match(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
   assert.equal(
     shellInputProperties?.command?.description,
@@ -222,6 +222,80 @@ test("edit can modify a file in the OS temp directory", async (t) => {
   assert.equal(await readFile(tempFile, "utf8"), "after temp edit\n");
 });
 
+test("rename and delete are core tools in regular and codex modes", async (t) => {
+  const regular = await fixture(t);
+  const codex = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+
+  for (const context of [regular, codex]) {
+    const tools = await context.client.listTools();
+    const names = tools.tools.map((tool) => tool.name);
+    assert.ok(names.includes("rename"));
+    assert.ok(names.includes("delete"));
+  }
+});
+
+test("rename and delete mutate workspace paths through the MCP surface", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-mutations");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  await writeFile(join(context.project, "before.txt"), "workspace mutation\n");
+
+  const renamed = await context.client.callTool({
+    name: "rename",
+    arguments: { workspaceId, path: "before.txt", newPath: "after.txt" },
+  });
+  assert.equal(renamed.isError, undefined);
+  assert.equal(await readFile(join(context.project, "after.txt"), "utf8"), "workspace mutation\n");
+  await assert.rejects(readFile(join(context.project, "before.txt"), "utf8"), /ENOENT/);
+
+  const deleted = await context.client.callTool({
+    name: "delete",
+    arguments: { workspaceId, path: "after.txt" },
+  });
+  assert.equal(deleted.isError, undefined);
+  await assert.rejects(readFile(join(context.project, "after.txt"), "utf8"), /ENOENT/);
+});
+
+test("rename and delete mutate OS temp paths through the MCP surface", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-mutations");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const before = join(tempRoot, "before.txt");
+  const after = join(tempRoot, "after.txt");
+  await writeFile(before, "temp mutation\n");
+  t.after(async () => rm(tempRoot, { recursive: true, force: true }));
+
+  const renamed = await context.client.callTool({
+    name: "rename",
+    arguments: { workspaceId, path: before, newPath: after },
+  });
+  assert.equal(renamed.isError, undefined);
+  assert.equal(await readFile(after, "utf8"), "temp mutation\n");
+
+  const deleted = await context.client.callTool({
+    name: "delete",
+    arguments: { workspaceId, path: after },
+  });
+  assert.equal(deleted.isError, undefined);
+  await assert.rejects(readFile(after, "utf8"), /ENOENT/);
+});
+
+test("delete refuses the workspace root itself", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-delete-root");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const deleted = await context.client.callTool({
+    name: "delete",
+    arguments: { workspaceId, path: ".", recursive: true },
+  });
+
+  assert.equal(deleted.isError, true);
+  assert.match(allResponseText(deleted), /allowed root itself/i);
+  assert.equal(await readFile(join(context.project, "AGENTS.md"), "utf8") !== "", true);
+});
+
 test("ls can inspect the OS temp directory", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-temp-ls");
@@ -396,6 +470,14 @@ test("tool hooks observe success, failure, and file changes through the MCP surf
     name: "write",
     arguments: { workspaceId, path: "hooked.txt", content: "hello\n" },
   });
+  await context.client.callTool({
+    name: "rename",
+    arguments: { workspaceId, path: "hooked.txt", newPath: "renamed.txt" },
+  });
+  await context.client.callTool({
+    name: "delete",
+    arguments: { workspaceId, path: "renamed.txt" },
+  });
   const failedEdit = await context.client.callTool({
     name: "edit",
     arguments: {
@@ -412,6 +494,12 @@ test("tool hooks observe success, failure, and file changes through the MCP surf
       "BeforeTool:write",
       "AfterTool:write",
       "AfterFileChange:write",
+      "BeforeTool:rename",
+      "AfterTool:rename",
+      "AfterFileChange:rename",
+      "BeforeTool:delete",
+      "AfterTool:delete",
+      "AfterFileChange:delete",
       "BeforeTool:edit",
       "AfterToolFailure:edit",
       "",

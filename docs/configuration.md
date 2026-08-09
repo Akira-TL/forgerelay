@@ -115,9 +115,9 @@ MCP clients discover metadata from:
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, and `bash`. |
+| `minimal` | Default. Exposes `open_workspace`, `read`, `write`, `edit`, `rename`, `delete`, and `bash`. |
 | `full` | Adds dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Experimental Codex-shaped tool surface using `open_workspace`, `read`, `apply_patch`, `exec_command`, and `write_stdin`. |
+| `codex` | Experimental Codex-shaped tool surface using `open_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, and `write_stdin`. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
 explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
@@ -224,7 +224,7 @@ Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令�
 | `BeforeTool` | workspace-scoped MCP tool 执行前触发；失败或超时会阻断原操作。`open_workspace` 因执行前还没有 workspace，不走该事件。 |
 | `AfterTool` | tool 成功后触发。 |
 | `AfterToolFailure` | tool 失败或被 `BeforeTool` 拒绝后触发。 |
-| `AfterFileChange` | `write`、`edit`、`apply_patch`、native artifact 等明确文件变更成功后触发；不会推断 shell 的文件副作用。 |
+| `AfterFileChange` | `write`、`edit`、`rename`、`delete`、`apply_patch`、native artifact 等明确文件变更成功后触发；不会推断 shell 的文件副作用。 |
 | `BeforeWorktreeClose` | worktree commit、fast-forward、cleanup 前触发；失败会保留 worktree 并阻断 close。 |
 | `AfterWorktreeClose` | managed worktree 成功关闭后触发；此时从 source checkout 运行。 |
 | `SubagentStart` | 本地 subagent worker 进入执行时触发。 |

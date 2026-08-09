@@ -27,7 +27,9 @@ test("default instructions keep capability contract and built-in workflow prefer
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
-  assert.match(result, /Prefer edit for targeted modifications/);
+  assert.match(result, /Prefer edit for targeted content modifications/);
+  assert.match(result, /rename for path moves/);
+  assert.match(result, /delete for removals/);
   assert.match(result, /Do not create or modify files with bash/);
 });
 
@@ -48,7 +50,7 @@ test("workflow override replaces built-in workflow without replacing the capabil
   assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Use repository-defined development and Git workflows\./);
-  assert.doesNotMatch(result, /Prefer edit for targeted modifications/);
+  assert.doesNotMatch(result, /Prefer edit for targeted content modifications/);
   assert.doesNotMatch(result, /Do not create or modify files with bash/);
 });
 
@@ -59,7 +61,7 @@ test("empty workflow override emits capability-only instructions", () => {
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
-  assert.doesNotMatch(result, /Prefer edit for targeted modifications/);
+  assert.doesNotMatch(result, /Prefer edit for targeted content modifications/);
   assert.doesNotMatch(result, /Do not create or modify files with bash/);
 });
 
@@ -79,11 +81,12 @@ test("codex workflow can be overridden independently of codex capabilities", () 
     DEVSPACE_WORKFLOW_INSTRUCTIONS: "Follow the repository workflow.",
   });
 
-  assert.match(defaultResult, /apply_patch for all file modifications/);
+  assert.match(defaultResult, /rename and delete for direct path moves or removals/);
+  assert.match(defaultResult, /apply_patch for content modifications/);
   assert.match(overrideResult, /apply_patch/);
   assert.match(overrideResult, /exec_command/);
   assert.match(overrideResult, /Follow the repository workflow\./);
-  assert.doesNotMatch(overrideResult, /apply_patch for all file modifications/);
+  assert.doesNotMatch(overrideResult, /apply_patch for content modifications/);
 });
 
 test("tool descriptions expose capabilities without embedding workflow policy", () => {
@@ -91,7 +94,7 @@ test("tool descriptions expose capabilities without embedding workflow policy", 
 
   assert.match(descriptions.shell, /local user's authority/);
   assert.match(descriptions.shell, /does not make shell execution a sandbox/);
-  assert.match(descriptions.shell, /Do not use bash to create or modify project files/);
+  assert.match(descriptions.shell, /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(descriptions.shell, /Use only for/);
   assert.equal(descriptions.shellCommand, "Shell command to run with the local user's authority.");
   assert.doesNotMatch(descriptions.read, /instead of shell commands/);
@@ -101,5 +104,9 @@ test("tool descriptions expose capabilities without embedding workflow policy", 
   assert.match(descriptions.read, /OS temp directory/);
   assert.match(descriptions.write, /OS temp directory/);
   assert.match(descriptions.edit, /OS temp directory/);
+  assert.match(descriptions.rename, /OS temp directory/);
+  assert.match(descriptions.rename, /without overwriting an existing destination/);
+  assert.match(descriptions.delete, /OS temp directory/);
+  assert.match(descriptions.delete, /recursive=true/);
   assert.match(descriptions.applyPatch, /OS temp directory/);
 });

@@ -56,6 +56,20 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         label: card.path,
         tone: "edit",
       };
+    case "rename":
+      return {
+        icon: toolIcons.editFile,
+        title: "Renamed path",
+        label: card.path,
+        tone: "edit",
+      };
+    case "delete":
+      return {
+        icon: toolIcons.deleteFile,
+        title: "Deleted path",
+        label: card.path,
+        tone: "delete",
+      };
     case "apply_patch": {
       const display = getPatchDisplayParts(card);
       return {

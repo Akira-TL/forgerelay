@@ -11,6 +11,8 @@ const displayCases: Array<[ToolResultCard, { title: string; tone: string }]> = [
   [{ tool: "read", path: "src/read.ts" }, { title: "Read file", tone: "read" }],
   [{ tool: "write", path: "src/write.ts" }, { title: "Wrote file", tone: "write" }],
   [{ tool: "edit", path: "src/edit.ts" }, { title: "Edited file", tone: "edit" }],
+  [{ tool: "rename", path: "src/renamed.ts" }, { title: "Renamed path", tone: "edit" }],
+  [{ tool: "delete", path: "src/deleted.ts" }, { title: "Deleted path", tone: "delete" }],
   [{
     tool: "apply_patch",
     files: [{ path: "src/new.ts", operation: "add" }],
