@@ -9,11 +9,16 @@ import { LocalAgentStore } from "./local-agent-store.js";
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
 };
+const cleanProductEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) =>
+    !name.startsWith("FORGERELAY_") && !name.startsWith("DEVSPACE_")
+  ),
+) as NodeJS.ProcessEnv;
 
 for (const flag of ["-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
     encoding: "utf8",
-    env: { ...process.env, DEVSPACE_CONFIG_DIR: "/tmp/devspace-cli-version-test" },
+    env: { ...cleanProductEnv, DEVSPACE_CONFIG_DIR: "/tmp/devspace-cli-version-test" },
   }).trim();
 
   assert.equal(output, packageJson.version);
@@ -46,7 +51,7 @@ try {
     }),
   );
 
-  const hooksEnv = { ...process.env, FORGERELAY_CONFIG_DIR: configDir };
+  const hooksEnv = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: configDir };
   const listed = execFileSync(
     "node",
     ["--import", "tsx", "src/cli.ts", "hooks", "list", "--project", projectRoot],
@@ -150,7 +155,7 @@ try {
     cwd: process.cwd(),
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...cleanProductEnv,
       DEVSPACE_CONFIG_DIR: configDir,
       DEVSPACE_ALLOWED_ROOTS: projectRoot,
       DEVSPACE_STATE_DIR: stateDir,
@@ -191,7 +196,7 @@ try {
       cwd: process.cwd(),
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...cleanProductEnv,
         DEVSPACE_CONFIG_DIR: configDir,
         DEVSPACE_ALLOWED_ROOTS: projectRoot,
         DEVSPACE_STATE_DIR: stateDir,
@@ -225,7 +230,7 @@ try {
       cwd: process.cwd(),
       encoding: "utf8",
       env: {
-        ...process.env,
+        ...cleanProductEnv,
         DEVSPACE_CONFIG_DIR: configDir,
         DEVSPACE_ALLOWED_ROOTS: projectRoot,
         DEVSPACE_STATE_DIR: stateDir,
