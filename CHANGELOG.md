@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-09
+
 ### Added
 
 - First-class `rename` and `delete` MCP tools for files and directories in workspace or OS-temp file roots, including direct availability in minimal, full, and Codex tool modes.
