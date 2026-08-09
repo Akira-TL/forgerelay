@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-09
+
 ### Changed
 
 - Shell tools no longer carry a blanket prohibition against commands that modify files. `bash` and Codex `exec_command` may update ordinary project files when that is a natural part of the user's requested development task, including package managers, generators, and formatters.
