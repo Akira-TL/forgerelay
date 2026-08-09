@@ -644,11 +644,14 @@ test("bash returns a running session instead of killing a command after the fore
   assert.equal(typeof structuredContent(shell).sessionId, "number");
   assert.match(allResponseText(shell), /Process running with session ID/);
 
-  await new Promise((resolve) => setTimeout(resolve, 180));
-  const read = await context.client.callTool({
-    name: "read",
-    arguments: { workspaceId, path: "AGENTS.md" },
-  });
+  const read = await waitForToolText(
+    context.client,
+    {
+      name: "read",
+      arguments: { workspaceId, path: "AGENTS.md" },
+    },
+    /Background process \d+ exited with code 0/,
+  );
   assert.match(allResponseText(read), /Background process \d+ exited with code 0/);
   assert.match(allResponseText(read), /background-done/);
 
@@ -677,11 +680,14 @@ test("a failed workspace tool call still carries a completed background process 
   });
   assert.equal(structuredContent(shell).running, true);
 
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  const failedRead = await context.client.callTool({
-    name: "read",
-    arguments: { workspaceId, path: "missing-background-notice.txt" },
-  });
+  const failedRead = await waitForToolText(
+    context.client,
+    {
+      name: "read",
+      arguments: { workspaceId, path: "missing-background-notice.txt" },
+    },
+    /Background process \d+ exited with code 0/,
+  );
   assert.equal(failedRead.isError, true);
   assert.match(allResponseText(failedRead), /Background process \d+ exited with code 0/);
   assert.match(allResponseText(failedRead), /notice-on-error/);
@@ -712,7 +718,7 @@ test("close_workspace refuses a logical workspace with a running process", async
 
   await context.client.callTool({
     name: "write_stdin",
-    arguments: { workspaceId, sessionId, yieldTimeMs: 500 },
+    arguments: { workspaceId, sessionId, yieldTimeMs: 5_000 },
   });
   const closed = await context.client.callTool({
     name: "close_workspace",
@@ -739,7 +745,7 @@ test("write_stdin can explicitly keep waiting for a bash process", async (t) => 
 
   const polled = await context.client.callTool({
     name: "write_stdin",
-    arguments: { workspaceId, sessionId, yieldTimeMs: 500 },
+    arguments: { workspaceId, sessionId, yieldTimeMs: 5_000 },
   });
   assert.equal(structuredContent(polled).running, false);
   assert.equal(structuredContent(polled).exitCode, 0);
@@ -1186,6 +1192,21 @@ function allResponseText(result: Awaited<ReturnType<Client["callTool"]>>): strin
     )
     .map((entry) => entry.text)
     .join("\n");
+}
+
+async function waitForToolText(
+  client: Client,
+  params: Parameters<Client["callTool"]>[0],
+  expected: RegExp,
+  timeoutMs = 5_000,
+): Promise<Awaited<ReturnType<Client["callTool"]>>> {
+  const deadline = Date.now() + timeoutMs;
+  let result = await client.callTool(params);
+  while (!expected.test(allResponseText(result)) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    result = await client.callTool(params);
+  }
+  return result;
 }
 
 function responseCard(result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> {

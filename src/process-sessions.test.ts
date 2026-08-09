@@ -37,6 +37,20 @@ const node = process.platform === "win32"
   ? `"${process.execPath}"`
   : JSON.stringify(process.execPath);
 
+async function waitForCompleted(
+  sessionManager: ProcessSessionManager,
+  workspaceId: string,
+  timeoutMs = 5_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const completed = sessionManager.takeCompleted(workspaceId);
+    if (completed.length > 0) return completed;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return sessionManager.takeCompleted(workspaceId);
+}
+
 const foreground = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
@@ -106,8 +120,7 @@ const autoCompleted = await manager.start({
 assert.equal(autoCompleted.running, true);
 assert.ok(autoCompleted.sessionId);
 assert.equal(manager.activeWorkspaceIds().has("workspace-a"), true);
-await new Promise((resolve) => setTimeout(resolve, 100));
-const notices = manager.takeCompleted("workspace-a");
+const notices = await waitForCompleted(manager, "workspace-a");
 assert.equal(notices.length, 1);
 assert.equal(notices[0]?.sessionId, autoCompleted.sessionId);
 assert.match(notices[0]?.command ?? "", /auto-finished/);
