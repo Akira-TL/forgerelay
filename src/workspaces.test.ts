@@ -131,7 +131,10 @@ test("closing a managed worktree commits, fast-forwards the target branch, and c
   assert.equal(closed.branch, branch);
   assert.equal(closed.targetBranch, targetBranch);
   assert.equal(closed.committed, true);
-  assert.equal((await readFile(join(gitRoot, "feature.txt"), "utf8")), "finished\n");
+  assert.equal(
+    (await readFile(join(gitRoot, "feature.txt"), "utf8")).replace(/\r\n/g, "\n"),
+    "finished\n",
+  );
   assert.equal((await gitOutput(gitRoot, ["rev-parse", "HEAD"])).trim(), closed.mergedSha);
   assert.equal((await gitOutput(gitRoot, ["log", "-1", "--pretty=%s"])).trim(), "feat: finish managed worktree");
   await assert.rejects(() => stat(worktreePath), /ENOENT/);
