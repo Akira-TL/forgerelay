@@ -4,10 +4,6 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
-### Fixed
-
-- Hook commands on Windows preserve quoted arguments when executed through `cmd.exe`, fixing release-gate and other Hook commands that reference absolute paths.
-
 ## [0.2.0] - 2026-08-09
 
 ### Added
@@ -24,6 +20,7 @@ All notable ForgeRelay changes are documented here.
 ### Fixed
 
 - MCP `initialize` now reports the package version from `package.json` instead of a stale hardcoded `0.1.0` server version.
+- Hook commands on Windows preserve quoted arguments when executed through `cmd.exe`, fixing release-gate and other Hook commands that reference absolute paths.
 
 ### Security
 
