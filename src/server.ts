@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -1092,8 +1093,8 @@ export function createMcpServer(
           .string()
           .describe(
             config.skillsEnabled
-              ? "File path to read, relative to the workspace root. May also be an advertised skill path from open_workspace skills."
-              : "File path to read, relative to the workspace root.",
+              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill path from open_workspace skills."
+              : "File path to read, relative to the workspace root or absolute inside the OS temp directory.",
           ),
         offset: z
           .number()
@@ -1187,7 +1188,7 @@ export function createMcpServer(
           .describe("Workspace identifier returned by open_workspace."),
         path: z
           .string()
-          .describe("File path to write, relative to the workspace root."),
+          .describe("File path to write, relative to the workspace root or absolute inside the OS temp directory."),
         content: z.string().describe("Complete new file content."),
       },
       outputSchema: resultOutputSchema(),
@@ -1204,10 +1205,10 @@ export function createMcpServer(
         changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
         operation: async () => {
           const startedAt = performance.now();
-          workspaces.resolvePath(workspace, input.path);
           const response = await writeFileTool(input, {
             cwd: workspace.root,
             root: workspace.root,
+            fileRoots: workspaces.fileToolRoots(workspace),
           });
 
           if (response.isError) {
@@ -1269,7 +1270,7 @@ export function createMcpServer(
           .describe("Workspace identifier returned by open_workspace."),
         path: z
           .string()
-          .describe("File path to edit, relative to the workspace root."),
+          .describe("File path to edit, relative to the workspace root or absolute inside the OS temp directory."),
         edits: z
           .array(
             z.object({
@@ -1299,10 +1300,10 @@ export function createMcpServer(
         changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
         operation: async () => {
           const startedAt = performance.now();
-          workspaces.resolvePath(workspace, input.path);
           const response = await editFileTool(input, {
             cwd: workspace.root,
             root: workspace.root,
+            fileRoots: workspaces.fileToolRoots(workspace),
           });
 
           if (response.isError) {
@@ -1397,7 +1398,7 @@ export function createMcpServer(
           )),
           operation: async () => {
             const startedAt = performance.now();
-            const applied = await applyPatch(workspace.root, patch);
+            const applied = await applyPatch(workspace.root, patch, [tmpdir()]);
             const paths = applied.files.map((file) => file.path).join(", ");
             const result = `Applied patch to ${applied.files.length} file(s): ${paths}`;
             const content = [textBlock(result)];
@@ -1509,7 +1510,7 @@ export function createMcpServer(
       {
         title: "Grep",
         description:
-          "Search file contents inside an open workspace. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
+          "Search file contents inside an open workspace or the OS temp directory. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
         inputSchema: {
           workspaceId: z
             .string()
@@ -1519,7 +1520,7 @@ export function createMcpServer(
             .string()
             .optional()
             .describe(
-              "Optional path or glob scope relative to the workspace root.",
+              "Optional path or glob scope relative to the workspace root, or an absolute path inside the OS temp directory.",
             ),
           include: z.string().optional().describe("Optional include glob."),
         },
@@ -1536,10 +1537,10 @@ export function createMcpServer(
           isFailure: toolResultIsError,
           operation: async () => {
             const startedAt = performance.now();
-            if (input.path) workspaces.resolvePath(workspace, input.path);
             const response = await grepFilesTool(input, {
               cwd: workspace.root,
               root: workspace.root,
+              fileRoots: workspaces.fileToolRoots(workspace),
             });
 
             if (response.isError) {
@@ -1590,7 +1591,7 @@ export function createMcpServer(
       {
         title: "Glob",
         description:
-          "Find files by glob pattern inside an open workspace. Use this to discover filenames or narrow file sets before reading. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
+          "Find files by glob pattern inside an open workspace or the OS temp directory. Use this to discover filenames or narrow file sets before reading. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
         inputSchema: {
           workspaceId: z
             .string()
@@ -1599,7 +1600,7 @@ export function createMcpServer(
           path: z
             .string()
             .optional()
-            .describe("Optional path scope relative to the workspace root."),
+            .describe("Optional path scope relative to the workspace root, or an absolute path inside the OS temp directory."),
         },
         outputSchema: resultOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "search"),
@@ -1614,10 +1615,10 @@ export function createMcpServer(
           isFailure: toolResultIsError,
           operation: async () => {
             const startedAt = performance.now();
-            if (input.path) workspaces.resolvePath(workspace, input.path);
             const response = await findFilesTool(input, {
               cwd: workspace.root,
               root: workspace.root,
+              fileRoots: workspaces.fileToolRoots(workspace),
             });
 
             if (response.isError) {
@@ -1668,7 +1669,7 @@ export function createMcpServer(
       {
         title: "Ls",
         description:
-          "List a directory inside an open workspace. Use this for directory inspection before reading files. Call open_workspace first and pass workspaceId.",
+          "List a directory inside an open workspace or the OS temp directory. Use this for directory inspection before reading files. Call open_workspace first and pass workspaceId.",
         inputSchema: {
           workspaceId: z
             .string()
@@ -1676,7 +1677,7 @@ export function createMcpServer(
           path: z
             .string()
             .describe(
-              "Directory path to list, relative to the workspace root.",
+              "Directory path to list, relative to the workspace root or absolute inside the OS temp directory.",
             ),
         },
         outputSchema: resultOutputSchema(),
@@ -1692,10 +1693,10 @@ export function createMcpServer(
           isFailure: toolResultIsError,
           operation: async () => {
             const startedAt = performance.now();
-            workspaces.resolvePath(workspace, input.path);
             const response = await listDirectoryTool(input, {
               cwd: workspace.root,
               root: workspace.root,
+              fileRoots: workspaces.fileToolRoots(workspace),
             });
 
             if (response.isError) {

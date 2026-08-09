@@ -6,6 +6,7 @@ import type {
   WorkspaceStore,
 } from "./workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ServerConfig } from "./config.js";
 import { HookRunner, type HookReportContainer } from "./hooks.js";
@@ -464,6 +465,10 @@ export class WorkspaceRegistry {
     return restoredWorkspace;
   }
 
+  fileToolRoots(workspace: Workspace): string[] {
+    return [workspace.root, tmpdir()];
+  }
+
   resolvePath(workspace: Workspace, inputPath: string): string {
     const absolutePath = resolveAllowedPath(inputPath, workspace.root, [workspace.root]);
     if (!isPathInsideRoot(absolutePath, workspace.root)) {
@@ -485,13 +490,22 @@ export class WorkspaceRegistry {
         workspace.activatedSkillDirs,
         inputPath,
       );
-      if (!skillRead) throw workspaceError;
+      if (skillRead) {
+        return {
+          absolutePath: skillRead.absolutePath,
+          readRoots: [workspace.root, skillRead.skill.baseDir],
+          skillRead,
+        };
+      }
 
-      return {
-        absolutePath: skillRead.absolutePath,
-        readRoots: [workspace.root, skillRead.skill.baseDir],
-        skillRead,
-      };
+      try {
+        return {
+          absolutePath: resolveAllowedPath(inputPath, workspace.root, [tmpdir()]),
+          readRoots: this.fileToolRoots(workspace),
+        };
+      } catch {
+        throw workspaceError;
+      }
     }
   }
 

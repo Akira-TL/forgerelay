@@ -98,4 +98,8 @@ test("tool descriptions expose capabilities without embedding workflow policy", 
   assert.doesNotMatch(descriptions.write, /Prefer edit/);
   assert.doesNotMatch(descriptions.edit, /Prefer this over write/);
   assert.doesNotMatch(descriptions.applyPatch, /Use this for all file modifications/);
+  assert.match(descriptions.read, /OS temp directory/);
+  assert.match(descriptions.write, /OS temp directory/);
+  assert.match(descriptions.edit, /OS temp directory/);
+  assert.match(descriptions.applyPatch, /OS temp directory/);
 });

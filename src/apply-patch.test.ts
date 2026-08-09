@@ -83,6 +83,18 @@ if (process.platform !== "win32") {
 }
 await assert.rejects(readFile(join(root, "alpha.txt"), "utf8"), /ENOENT/);
 
+const auxiliaryTempRoot = await mkdtemp(join(tmpdir(), "forgerelay-apply-patch-temp-"));
+const auxiliaryTempFile = join(auxiliaryTempRoot, "codex-temp.txt");
+await applyPatch(
+  root,
+  `*** Begin Patch
+*** Add File: ${auxiliaryTempFile}
++temporary
+*** End Patch`,
+  [tmpdir()],
+);
+assert.equal(await readFile(auxiliaryTempFile, "utf8"), "temporary\n");
+
 await assert.rejects(
   applyPatch(
     root,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -157,6 +157,225 @@ test("worktree mode reuses by default and only creates another worktree explicit
 
   assert.equal(structuredContent(checkoutAgain).agentsFiles, undefined);
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
+});
+
+test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-write");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const tempFile = join(tempRoot, "note.txt");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const written = await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId, path: tempFile, content: "hello from temp\n" },
+  });
+
+  assert.equal(written.isError, undefined);
+  assert.equal(await readFile(tempFile, "utf8"), "hello from temp\n");
+});
+
+test("read can inspect a file in the OS temp directory", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-read");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const tempFile = join(tempRoot, "note.txt");
+  await writeFile(tempFile, "read from temp\n");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: tempFile },
+  });
+
+  assert.equal(read.isError, undefined);
+  assert.match(allResponseText(read), /read from temp/);
+});
+
+test("edit can modify a file in the OS temp directory", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-edit");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const tempFile = join(tempRoot, "note.txt");
+  await writeFile(tempFile, "before temp edit\n");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const edited = await context.client.callTool({
+    name: "edit",
+    arguments: {
+      workspaceId,
+      path: tempFile,
+      edits: [{ oldText: "before temp edit", newText: "after temp edit" }],
+    },
+  });
+
+  assert.equal(edited.isError, undefined);
+  assert.equal(await readFile(tempFile, "utf8"), "after temp edit\n");
+});
+
+test("ls can inspect the OS temp directory", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-ls");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  await writeFile(join(tempRoot, "listed.txt"), "temp listing\n");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const listed = await context.client.callTool({
+    name: "ls",
+    arguments: { workspaceId, path: tempRoot },
+  });
+
+  assert.equal(listed.isError, undefined);
+  assert.match(allResponseText(listed), /listed\.txt/);
+});
+
+test("grep can search the OS temp directory", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-grep");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  await writeFile(join(tempRoot, "searched.txt"), "unique-temp-needle\n");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const searched = await context.client.callTool({
+    name: "grep",
+    arguments: { workspaceId, pattern: "unique-temp-needle", path: tempRoot },
+  });
+
+  assert.equal(searched.isError, undefined);
+  assert.match(allResponseText(searched), /unique-temp-needle/);
+});
+
+test("glob can find files in the OS temp directory", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-glob");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  await writeFile(join(tempRoot, "matched-temp.txt"), "temp glob\n");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const found = await context.client.callTool({
+    name: "glob",
+    arguments: { workspaceId, pattern: "*.txt", path: tempRoot },
+  });
+
+  assert.equal(found.isError, undefined);
+  assert.match(allResponseText(found), /matched-temp\.txt/);
+});
+
+test("codex apply_patch can create a file in the OS temp directory", async (t) => {
+  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const opened = await callOpen(context.client, context.project, "chat-temp-apply-patch");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const tempFile = join(tempRoot, "patched-temp.txt");
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const patched = await context.client.callTool({
+    name: "apply_patch",
+    arguments: {
+      workspaceId,
+      patch: `*** Begin Patch\n*** Add File: ${tempFile}\n+patched temp\n*** End Patch`,
+    },
+  });
+
+  assert.equal(patched.isError, undefined);
+  assert.equal(await readFile(tempFile, "utf8"), "patched temp\n");
+});
+
+test("temp file access rejects symlinks that escape the OS temp directory", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Uses /etc/hosts as a stable outside-temp target on POSIX.");
+    return;
+  }
+
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-symlink");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  const escapedPath = join(tempRoot, "escaped-hosts");
+  await symlink("/etc/hosts", escapedPath);
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const escaped = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: escapedPath },
+  });
+
+  assert.equal(escaped.isError, true);
+  assert.match(allResponseText(escaped), /outside allowed roots/i);
+});
+
+test("grep does not follow symlinked files that escape the OS temp directory", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("File symlink creation requires extra privileges on some Windows setups.");
+    return;
+  }
+
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-temp-grep-symlink");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
+  await symlink(join(process.cwd(), "package.json"), join(tempRoot, "escaped-package.json"));
+  t.after(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  const searched = await context.client.callTool({
+    name: "grep",
+    arguments: { workspaceId, pattern: "@akira-tl/forgerelay", path: tempRoot },
+  });
+
+  assert.equal(searched.isError, undefined);
+  assert.doesNotMatch(allResponseText(searched), /@akira-tl\/forgerelay/);
+});
+
+test("file tools still reject arbitrary paths outside the workspace and OS temp directory", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Uses /etc/hosts as a stable non-temp path on POSIX.");
+    return;
+  }
+
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-outside-file-root");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const outside = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "/etc/hosts" },
+  });
+
+  assert.equal(outside.isError, true);
+  assert.match(allResponseText(outside), /outside allowed roots/i);
+});
+
+test("open_workspace does not treat the OS temp directory as an implicit workspace root", async (t) => {
+  const context = await fixture(t);
+
+  const opened = await callOpen(context.client, tmpdir(), "chat-temp-workspace");
+
+  assert.equal(opened.isError, true);
+  assert.match(allResponseText(opened), /outside allowed roots/i);
 });
 
 test("tool hooks observe success, failure, and file changes through the MCP surface", async (t) => {

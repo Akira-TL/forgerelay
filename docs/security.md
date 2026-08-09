@@ -17,8 +17,16 @@ Example:
 Do not use your entire home directory unless that is intentionally the access
 boundary you want.
 
-Filesystem-oriented tools validate workspace-relative paths and reject paths
-that escape the opened workspace or configured roots.
+Opening a workspace still requires the path to be inside the configured allowed
+roots. File and search tools additionally accept paths inside the operating
+system temporary directory (for example `/tmp` on Linux) without treating that
+directory as an allowed workspace root. Workspace paths remain confined to the
+opened workspace, and shell working directories are not expanded by this temp
+access.
+
+Filesystem-oriented tools canonicalize existing path segments before access so
+symlinks inside either the workspace or OS temp directory cannot escape to
+arbitrary filesystem locations.
 
 ## Owner-password OAuth
 

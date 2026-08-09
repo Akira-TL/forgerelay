@@ -4,6 +4,7 @@ import { access, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile }
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
+import { AccessDeniedError, resolveCanonicalAllowedPath } from "./roots.js";
 
 export type PatchOperation = "add" | "update" | "delete" | "move";
 
@@ -190,9 +191,27 @@ function isInside(root: string, path: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-async function resolveConfinedPath(root: string, input: string): Promise<string> {
-  if (!input || input.includes("\0") || isAbsolute(input)) {
+async function resolveConfinedPath(
+  root: string,
+  input: string,
+  auxiliaryRoots: string[] = [],
+): Promise<string> {
+  if (!input || input.includes("\0")) {
     throw patchError(`path must be relative to the workspace: ${input}`);
+  }
+
+  if (isAbsolute(input)) {
+    if (auxiliaryRoots.length === 0) {
+      throw patchError(`path must be relative to the workspace: ${input}`);
+    }
+    try {
+      return await resolveCanonicalAllowedPath(input, root, auxiliaryRoots);
+    } catch (error) {
+      if (error instanceof AccessDeniedError) {
+        throw patchError(`path is outside allowed auxiliary roots: ${input}`);
+      }
+      throw error;
+    }
   }
 
   const rootPath = await realpath(root);
@@ -340,7 +359,11 @@ export async function isSamePatchFile(
   }
 }
 
-export async function applyPatch(root: string, patch: string): Promise<ApplyPatchResult> {
+export async function applyPatch(
+  root: string,
+  patch: string,
+  auxiliaryRoots: string[] = [],
+): Promise<ApplyPatchResult> {
   const actions = parsePatch(patch);
   const results: AppliedPatchFile[] = [];
   const patches: string[] = [];
@@ -361,7 +384,7 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
 
   for (const action of actions) {
     if (action.kind === "add") {
-      const absolute = await resolveConfinedPath(root, action.path);
+      const absolute = await resolveConfinedPath(root, action.path, auxiliaryRoots);
       const original = await readStagedOptional(absolute, action.path);
       staged.set(absolute, { content: action.content, mode: original?.mode });
       patches.push(unifiedFilePatch(action.path, action.path, original?.content ?? null, action.content));
@@ -369,7 +392,7 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
       continue;
     }
 
-    const absolute = await resolveConfinedPath(root, action.path);
+    const absolute = await resolveConfinedPath(root, action.path, auxiliaryRoots);
     const file = await readStagedRequired(absolute, action.path);
 
     if (action.kind === "delete") {
@@ -381,7 +404,7 @@ export async function applyPatch(root: string, patch: string): Promise<ApplyPatc
 
     const updated = applyHunks(action.path, file.content, action.hunks);
     if (action.moveTo) {
-      const destination = await resolveConfinedPath(root, action.moveTo);
+      const destination = await resolveConfinedPath(root, action.moveTo, auxiliaryRoots);
       const samePatchFile = await isSamePatchFile(absolute, destination);
       if (!samePatchFile) await readStagedOptional(destination, action.moveTo);
       if (samePatchFile) staged.delete(absolute);

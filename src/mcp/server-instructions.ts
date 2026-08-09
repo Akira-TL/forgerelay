@@ -45,10 +45,10 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     : "";
 
   return {
-    read: `Read a file inside an open workspace. Instruction files returned by ${toolNames.openWorkspace} and advertised skill files are also readable when applicable.${skillCapability} Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    write: `Create or completely overwrite a file inside an open workspace. The path is resolved within the workspace filesystem boundary. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    edit: `Edit one file inside an open workspace by replacing exact text blocks. Each oldText must match a unique, non-overlapping region of the original file. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    applyPatch: `Apply one Codex-style patch inside an open workspace. Supports adding, overwriting, updating, deleting, and moving files. Paths must be relative to the workspace. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    read: `Read a file inside an open workspace or the OS temp directory. Instruction files returned by ${toolNames.openWorkspace} and advertised skill files are also readable when applicable.${skillCapability} Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    write: `Create or completely overwrite a file inside an open workspace or the OS temp directory. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    edit: `Edit one file inside an open workspace or the OS temp directory by replacing exact text blocks. Each oldText must match a unique, non-overlapping region of the original file. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. Do not use ${toolNames.shell} to create or modify project files; use ${toolNames.edit} or ${toolNames.write} for file changes. Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
