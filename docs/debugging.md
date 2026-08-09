@@ -61,10 +61,11 @@ The acceptance checks:
 5. MCP `initialize`, including package/server version consistency;
 6. `tools/list` for the full debug tool surface;
 7. a real checkout workspace with `write`, `read`, `bash`, and a deliberate failed `edit`;
-8. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
-9. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
-10. deterministic local subagent error path，不联系任何模型 provider；
-11. debug hook recorder 覆盖全部九个 Hooks v1 lifecycle events。
+8. OS temp-directory `write` → `read` → `edit` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
+9. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
+10. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
+11. deterministic local subagent error path，不联系任何模型 provider；
+12. debug hook recorder 覆盖全部九个 Hooks v1 lifecycle events。
 
 `curl` must be available on `PATH` for this acceptance command. Node and Git are
 already normal ForgeRelay development prerequisites.

@@ -10,6 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -30,6 +31,7 @@ const gitProject = resolve(acceptanceRoot, "git-project");
 const releaseProject = resolve(acceptanceRoot, "release-project");
 const releaseRemote = resolve(acceptanceRoot, "release-remote.git");
 const ownerToken = randomBytes(32).toString("base64url");
+const tempAcceptanceRoot = resolve(tmpdir(), `forgerelay-debug-acceptance-${randomUUID()}`);
 
 assertCurlAvailable();
 await assertDebugPortFree();
@@ -144,6 +146,37 @@ try {
   assert.equal(failedEdit.isError, true);
   pass("failed tool path", "edit returned isError=true and triggered AfterToolFailure");
 
+  mkdirSync(tempAcceptanceRoot, { recursive: true });
+  const tempFile = join(tempAcceptanceRoot, "mcp-temp.txt");
+  const tempWritten = callTool(oauth.accessToken, sessionId, 70, "write", {
+    workspaceId,
+    path: tempFile,
+    content: "forgerelay temp before edit\n",
+  });
+  assert.equal(tempWritten.isError, undefined);
+
+  const tempRead = callTool(oauth.accessToken, sessionId, 71, "read", {
+    workspaceId,
+    path: tempFile,
+  });
+  assert.match(tempRead.structuredContent.result, /forgerelay temp before edit/);
+
+  const tempEdited = callTool(oauth.accessToken, sessionId, 72, "edit", {
+    workspaceId,
+    path: tempFile,
+    edits: [{ oldText: "before edit", newText: "after edit" }],
+  });
+  assert.equal(tempEdited.isError, undefined);
+  assert.equal(readFileSync(tempFile, "utf8"), "forgerelay temp after edit\n");
+
+  const outsideRoots = callTool(oauth.accessToken, sessionId, 73, "read", {
+    workspaceId,
+    path: join(homedir(), "forgerelay-debug-outside-roots.txt"),
+  });
+  assert.equal(outsideRoots.isError, true);
+  assert.match(toolText(outsideRoots), /outside allowed roots/i);
+  pass("OS temp file tools", "write + read + edit passed; arbitrary home path rejected");
+
   setupGitProject(gitProject);
   const worktreeOpened = callTool(oauth.accessToken, sessionId, 8, "open_workspace", {
     path: gitProject,
@@ -211,6 +244,7 @@ try {
   console.error("\nForgeRelay 7677 acceptance failed.");
   throw error;
 } finally {
+  rmSync(tempAcceptanceRoot, { recursive: true, force: true });
   await stopServer(server);
 }
 
