@@ -20,7 +20,7 @@
   },
   "files": [
     "dist",
-    "docs",
+    "docs/*.md",
     "examples",
     "scripts",
     "skills",
