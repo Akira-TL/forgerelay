@@ -68,6 +68,24 @@ test("a checkout loads one configured system instruction plus project context", 
   }
 });
 
+test("project instruction aliases resolving to the same file are loaded once", async (t) => {
+  const context = await fixture(t);
+  const aliasPath = join(context.root, "AGENTS.MD");
+
+  try {
+    await stat(aliasPath);
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    await symlink("AGENTS.md", aliasPath);
+  }
+
+  const opened = await context.registry.openWorkspace(context.root);
+  assert.deepEqual(
+    opened.agentsFiles.map((file) => file.content),
+    ["global instructions\n", "root instructions\n"],
+  );
+});
+
 test("opening a missing checkout creates its workspace root", async (t) => {
   const context = await fixture(t);
   const missingRoot = join(context.root, "missing", "workspace");
