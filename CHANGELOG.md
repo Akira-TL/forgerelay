@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-09
+
 ### Changed
 
 - GitHub CI is now release-only: ordinary branch pushes, pull-request updates, and manual dispatches do not start cloud CI; the reusable CI workflow is invoked only by the stable `vX.Y.Z` tag release workflow.
