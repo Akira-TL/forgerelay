@@ -58,8 +58,8 @@ The acceptance checks:
 2. OAuth protected-resource and authorization-server discovery;
 3. unauthenticated `/mcp` rejection;
 4. dynamic OAuth client registration, PKCE Owner-password approval, and access-token exchange;
-5. MCP `initialize`, including package/server version consistency;
-6. `tools/list` for the full debug tool surface;
+5. MCP `initialize`, including package/server version consistency and the shell mutation safety contract;
+6. `tools/list` for the full debug tool surface, including the non-blanket `bash` mutation policy;
 7. a real checkout workspace with `write`, `read`, `rename`, `delete`, `bash`, and a deliberate failed `edit`;
 8. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
 9. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;

@@ -28,6 +28,7 @@ import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
 import {
   buildServerInstructions,
+  buildShellMutationPolicy,
   buildToolDescriptions,
   toolNames,
 } from "./mcp/server-instructions.js";
@@ -572,7 +573,7 @@ function registerCodexProcessTools(
     {
       title: "Execute command",
       description:
-        "Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, and long-running processes. Call open_workspace first and pass workspaceId.",
+        `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, generators, formatters, and long-running processes. ${buildShellMutationPolicy()} Call open_workspace first and pass workspaceId.`,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
         cmd: z.string().min(1).describe("Shell command to execute."),

@@ -97,6 +97,21 @@ repositories, local services, and other resources outside a narrow workspace
 sandbox, and MCP currently does not provide a clean universal interaction model
 for dynamically crossing such a boundary.
 
+The Agent-facing shell contract therefore does not ban every command that can
+change files. Commands may modify ordinary project files when that is a natural
+part of the user's requested development task, including package managers,
+generators, formatters, and similar tooling. The contract does prohibit shell
+mutation of security- or privilege-sensitive operating-system files and
+credential material such as `/etc/sudoers`, `/etc/passwd`, `/etc/shadow`, PAM or
+authentication policy, SSH private keys, and equivalent privileged targets.
+Configuration files may be changed through shell only when the user's request
+explicitly calls for that configuration change rather than merely making it a
+convenient implementation detail.
+
+This is an Agent execution policy, not an OS-level sandbox or command parser.
+Operators that need a stronger project-specific runtime gate can use blocking
+`BeforeTool` Hooks around `bash` or `exec_command`.
+
 The security model is therefore based on:
 
 - strong authentication;

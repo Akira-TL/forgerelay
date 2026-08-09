@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Shell tools no longer carry a blanket prohibition against commands that modify files. `bash` and Codex `exec_command` may update ordinary project files when that is a natural part of the user's requested development task, including package managers, generators, and formatters.
+
+### Security
+
+- The Agent shell contract continues to prohibit mutation of security- or privilege-sensitive operating-system files and credential material such as `/etc/sudoers`, `/etc/passwd`, `/etc/shadow`, authentication policy, and SSH private keys; configuration-file changes through shell require an explicit user request.
+
 ## [0.2.2] - 2026-08-09
 
 ### Added

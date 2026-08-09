@@ -172,6 +172,14 @@ Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
 surface including direct `rename`/`delete` path mutations alongside `apply_patch`,
 `exec_command`, and `write_stdin`.
 
+Shell commands are allowed to modify ordinary project files when that is a
+natural part of the user's requested development task; ForgeRelay does not apply
+a blanket ban to package managers, generators, formatters, or similar commands
+that write files. The Agent contract still prohibits shell mutation of
+security- or privilege-sensitive operating-system files and credential material,
+and requires an explicit user request before changing configuration files
+through `bash` or `exec_command`.
+
 ## Change review UI
 
 By default `FORGERELAY_WIDGETS=full` attaches ChatGPT Apps-compatible UI to the

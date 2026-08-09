@@ -34,11 +34,17 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(defaultInstructions, /Default to the user's existing checkout/);
   assert.match(defaultInstructions, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(defaultInstructions, /close_worktree/);
-  assert.match(defaultInstructions, /Do not create or modify files with bash/);
+  assert.match(defaultInstructions, /Shell commands may modify ordinary project files/);
+  assert.match(defaultInstructions, /\/etc\/sudoers/);
+  assert.match(defaultInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.doesNotMatch(defaultInstructions, /Do not create or modify files with bash/);
   assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
   assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
   assert.match(shellTool?.description ?? "", /local user's authority/);
-  assert.match(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
+  assert.match(shellTool?.description ?? "", /may modify ordinary project files/);
+  assert.match(shellTool?.description ?? "", /\/etc\/sudoers/);
+  assert.match(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
   assert.equal(
     shellInputProperties?.command?.description,
@@ -59,7 +65,16 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(overrideInstructions, /Follow instructions returned by open_workspace/);
   assert.match(overrideInstructions, /Follow repository-defined development and Git workflows\./);
   assert.match(overrideInstructions, /Preserve the capability contract\./);
+  assert.match(overrideInstructions, /Shell commands may modify ordinary project files/);
+  assert.match(overrideInstructions, /\/etc\/sudoers/);
   assert.doesNotMatch(overrideInstructions, /Do not create or modify files with bash/);
+
+  const codexContext = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const codexTools = await codexContext.client.listTools();
+  const execCommandTool = codexTools.tools.find((tool) => tool.name === "exec_command");
+  assert.match(execCommandTool?.description ?? "", /may modify ordinary project files/);
+  assert.match(execCommandTool?.description ?? "", /\/etc\/sudoers/);
+  assert.match(execCommandTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
 });
 
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {

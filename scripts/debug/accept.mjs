@@ -83,6 +83,11 @@ try {
   assert.equal(initialized.message.result.serverInfo.name, "forgerelay");
   assert.equal(initialized.message.result.serverInfo.title, "ForgeRelay");
   assert.equal(initialized.message.result.serverInfo.version, packageJson.version);
+  const serverInstructions = initialized.message.result.instructions ?? "";
+  assert.match(serverInstructions, /Shell commands may modify ordinary project files/);
+  assert.match(serverInstructions, /\/etc\/sudoers/);
+  assert.match(serverInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.doesNotMatch(serverInstructions, /Do not create or modify files with bash/);
   pass(
     "MCP initialize",
     JSON.stringify(initialized.message.result.serverInfo),
@@ -106,6 +111,10 @@ try {
   for (const expected of ["open_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash"]) {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
+  const bashTool = tools.find((tool) => tool.name === "bash");
+  assert.match(bashTool?.description ?? "", /may modify ordinary project files/);
+  assert.match(bashTool?.description ?? "", /\/etc\/sudoers/);
+  assert.doesNotMatch(bashTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
 
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
