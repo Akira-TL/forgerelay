@@ -1,0 +1,10 @@
+{
+  "event": "BeforeTool",
+  "matcher": {
+    "tool": "bash",
+    "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+  },
+  "command": "npm run release:verify",
+  "timeoutSeconds": 300,
+  "report": true
+}

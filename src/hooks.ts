@@ -358,6 +358,7 @@ export class HookRunner {
       const result = await executeHookCommand({
         executable: shell.executable,
         args: shell.args,
+        windowsVerbatimArguments: shell.windowsVerbatimArguments,
         cwd: invocation.cwd ?? invocation.workspaceRoot,
         env,
         timeoutMs: handler.timeoutSeconds * 1_000,
@@ -639,6 +640,7 @@ function hookEnvironment(
 interface ExecuteHookCommandInput {
   executable: string;
   args: string[];
+  windowsVerbatimArguments?: boolean;
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
@@ -660,6 +662,7 @@ function executeHookCommand(input: ExecuteHookCommandInput): Promise<ExecuteHook
       env: input.env,
       detached: input.detached,
       windowsHide: true,
+      windowsVerbatimArguments: input.windowsVerbatimArguments,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
