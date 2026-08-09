@@ -14,8 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Cloud CI
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: Publish npm and GitHub Release
+    needs: verify
     if: github.repository == 'Akira-TL/forgerelay'
     runs-on: ubuntu-latest
     env:
@@ -46,8 +51,8 @@ jobs:
       - name: Require tagged commit on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
-      - name: Verify release
-        run: npm run release:verify
+      - name: Build publish artifact
+        run: npm run build
 
       - name: Inspect published package
         run: npm pack --dry-run
