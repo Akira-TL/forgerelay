@@ -7,9 +7,12 @@ All notable ForgeRelay changes are documented here.
 ### Added
 
 - A checked-in `127.0.0.1:7677` local debug environment with reproducible OAuth/MCP acceptance scripts, isolated runtime state, and Hooks v1 lifecycle recording.
-- User-configured lifecycle hooks for workspace creation, MCP tool execution, explicit file changes, managed-worktree close, and local subagent execution.
-- Blocking `BeforeTool` and `BeforeWorktreeClose` policy gates with bounded command timeouts, plus observational after-events that log failures without rolling back completed work.
-- Hook lifecycle context through `FORGERELAY_HOOK_*` and workspace environment variables without exposing native-file credentials or subagent prompts.
+- 用户或 Agent 可写的生命周期 Hook，覆盖 workspace、MCP tool、明确文件变更、managed-worktree close 与本地 subagent 生命周期。
+- 全局 `hooks.json` 与项目 `.forgerelay/hooks.json` 组合规则，以及 `matcher -> handlers` 精确触发模型。
+- handler `name`、bounded timeout 与 `report` 配置；可报告结果进入 Agent 可见返回，阻断失败始终可见。
+- `BeforeTool` 与 `BeforeWorktreeClose` 阻断语义，以及不会伪装回滚已完成操作的 observational after-events。
+- 通过 `FORGERELAY_HOOK_*` 和 workspace 环境变量提供生命周期上下文，同时避免暴露 native-file credentials 或 subagent prompts。
+- 异步 subagent Hook report 的 session 持久化与 `agents show` 展示。
 
 ### Fixed
 
@@ -17,7 +20,8 @@ All notable ForgeRelay changes are documented here.
 
 ### Security
 
-- Hook definitions are loaded only from user-controlled ForgeRelay configuration; repositories do not gain implicit local-command execution by containing hook files.
+- 项目 Hook 作为 allowed-root 内项目执行约定自动生效，不需要批准；Hook 文件只能声明生命周期规则，不能扩大 allowed roots、修改认证配置或覆盖全局规则。
+- 无效项目 Hook 配置会作为 Agent 可见 diagnostic 返回，同时保持工具可用，避免 Agent 因写坏配置而无法修复。
 
 ## [0.1.1] - 2026-08-09
 

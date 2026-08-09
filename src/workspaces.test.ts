@@ -7,6 +7,7 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { GitWorktreeError } from "./git-worktrees.js";
+import { parseHookConfig } from "./hooks.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
@@ -77,9 +78,9 @@ test("WorkspaceOpen hook runs once when a workspace session is created", async (
   );
   const registry = new WorkspaceRegistry({
     ...context.config,
-    hooks: {
+    hooks: parseHookConfig({
       WorkspaceOpen: [{ command: `node "${hookScript}"`, timeoutSeconds: 30 }],
-    },
+    }),
   });
 
   const first = await registry.openWorkspace(context.root);
@@ -203,9 +204,9 @@ test("worktree close hooks block before integration and observe successful close
 
   const blockingRegistry = new WorkspaceRegistry({
     ...context.config,
-    hooks: {
+    hooks: parseHookConfig({
       BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
-    },
+    }),
   });
   const blocked = await blockingRegistry.openWorkspace({ path: gitRoot, mode: "worktree" });
   await writeFile(join(blocked.workspace.root, "feature.txt"), "blocked\n");
@@ -219,10 +220,10 @@ test("worktree close hooks block before integration and observe successful close
 
   const observingRegistry = new WorkspaceRegistry({
     ...context.config,
-    hooks: {
+    hooks: parseHookConfig({
       BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
       AfterWorktreeClose: [{ command: `node "${afterScript}"`, timeoutSeconds: 30 }],
-    },
+    }),
   });
   const opened = await observingRegistry.openWorkspace({ path: gitRoot, mode: "worktree", newWorktree: true });
   await writeFile(join(opened.workspace.root, "feature.txt"), "finished\n");

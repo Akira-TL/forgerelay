@@ -138,73 +138,139 @@ programs when the optional `node-pty` dependency is available.
 
 ## Lifecycle hooks
 
-Hooks v1 is configured only in the user-controlled ForgeRelay `config.json`.
-ForgeRelay does not discover or execute hook definitions from a repository just
-because that repository was opened.
+Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；命中后 ForgeRelay 直接执行，不再增加批准步骤。
 
-A hook event maps to an ordered array of local command handlers:
+全局规则放在当前 ForgeRelay 配置目录的 `hooks.json`。新安装通常是：
+
+```text
+~/.forgerelay/hooks.json
+```
+
+使用 `FORGERELAY_CONFIG_DIR` 时，文件跟随该目录。旧的 `config.json -> hooks` 仍兼容，并与 `hooks.json` 中的规则组合执行。全局规则随 server config 在启动时加载，修改后需要重启 ForgeRelay。
+
+项目规则放在工作区根目录：
+
+```text
+<workspace>/.forgerelay/hooks.json
+```
+
+全局规则先执行，项目规则随后执行；两者都是追加关系。项目文件在每次事件时重新读取，所以 Agent 修改项目 Hook 后不需要重启 ForgeRelay。若项目 Hook JSON 或 schema 无效，ForgeRelay 会把 `Project hooks config` diagnostic 返回给 Agent，同时保留工作区和工具可用性，让 Agent 可以直接修复文件。
+
+### 规则结构
+
+一个事件可以写旧版简写 handler：
 
 ```json
 {
-  "hooks": {
-    "BeforeWorktreeClose": [
-      { "command": "npm test", "timeoutSeconds": 120 }
-    ],
-    "AfterFileChange": [
-      { "command": "./scripts/refresh-generated-state.sh" }
-    ]
-  }
+  "BeforeWorktreeClose": [
+    {
+      "name": "Project tests",
+      "command": "npm test",
+      "timeoutSeconds": 120,
+      "report": true
+    }
+  ]
 }
 ```
 
-`timeoutSeconds` defaults to `30` and must be an integer from `1` through `300`.
-Handlers for one event run sequentially in configuration order.
+需要精确触发时使用 `matcher -> handlers`：
 
-Supported events:
+```json
+{
+  "BeforeTool": [
+    {
+      "matcher": {
+        "tool": "bash",
+        "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+      },
+      "handlers": [
+        {
+          "name": "Local release CI",
+          "command": "npm run release:verify",
+          "timeoutSeconds": 300,
+          "report": true
+        },
+        {
+          "name": "Package inspection",
+          "command": "npm pack --dry-run",
+          "timeoutSeconds": 120,
+          "report": true
+        }
+      ]
+    }
+  ]
+}
+```
 
-| Event | Semantics |
+这条规则的语义是：Agent 通过 ForgeRelay `bash` 工具请求推送稳定版本 tag 时，先跑本地发布检查；所有 blocking handlers 成功后才执行原始 `git push`。任一 handler 失败时，push 不会执行，失败报告直接返回给 Agent。
+
+`matcher` 当前支持：
+
+| 字段 | 匹配方式 |
 | --- | --- |
-| `WorkspaceOpen` | Observes creation of a new workspace session. Reusing an existing workspace does not fire it again. |
-| `BeforeTool` | Runs before a workspace-scoped MCP tool. A failed or timed-out handler prevents the tool operation. `open_workspace` is excluded because no workspace exists before it opens. |
-| `AfterTool` | Observes a successful workspace-scoped MCP tool call. |
-| `AfterToolFailure` | Observes a failed or rejected workspace-scoped MCP tool call, including a `BeforeTool` rejection. |
-| `AfterFileChange` | Observes successful explicit file mutations such as `write`, `edit`, `apply_patch`, and native artifact publication. Shell side effects are not inferred. |
-| `BeforeWorktreeClose` | Runs before commit, fast-forward integration, or cleanup. Failure preserves the managed worktree and blocks close. |
-| `AfterWorktreeClose` | Observes a successful managed-worktree close. Its command runs from the source checkout because the managed worktree may already be removed. |
-| `SubagentStart` | Observes a local subagent worker entering execution. |
-| `SubagentStop` | Observes a local subagent worker completing or entering an error state. |
+| `tool` | 精确匹配 MCP tool 名称。 |
+| `commandRegex` | 对 tool payload 中的 `command` 做 JavaScript 正则匹配。 |
+| `pathRegex` | 对 payload 中的 `path` 或 `paths` 做正则匹配。 |
+| `provider` | 精确匹配 subagent provider。 |
+| `workspaceMode` | `checkout` 或 `worktree`。 |
 
-`WorkspaceOpen`, `AfterTool`, `AfterToolFailure`, `AfterFileChange`,
-`AfterWorktreeClose`, `SubagentStart`, and `SubagentStop` are observational. A
-failure in one of those handlers is logged and does not roll back an operation
-that has already happened; later handlers for the same event still run.
+Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令内部后续启动的子进程。例如 `bash` 参数本身是 `git push origin v0.2.0` 时可以命中；若参数只是 `./release.sh`，而脚本内部再执行 `git push`，ForgeRelay 不会把内部子进程重新解释成新的 Hook 事件。
 
-Blocking is not transactional. A failing `BeforeTool` or `BeforeWorktreeClose`
-handler prevents the pending ForgeRelay operation, but any filesystem, process,
-or network side effects produced by the hook command itself remain the user's
-responsibility.
+Handler 字段：
 
-Hook commands inherit the ForgeRelay process environment and receive lifecycle
-context through these variables:
-
-| Variable | Meaning |
+| 字段 | 含义 |
 | --- | --- |
-| `FORGERELAY_HOOK_EVENT` | Current event name. |
-| `FORGERELAY_HOOK_PAYLOAD` | JSON object containing event-specific metadata. |
-| `FORGERELAY_WORKSPACE_ROOT` | Workspace root associated with the event. |
-| `FORGERELAY_WORKSPACE_ID` | Workspace ID when the caller has one. Direct CLI subagent runs may omit it. |
-| `FORGERELAY_WORKSPACE_MODE` | `checkout` or `worktree` when known. |
-| `FORGERELAY_SOURCE_ROOT` | Source checkout for managed-worktree events when applicable. |
-| `FORGERELAY_TOOL_NAME` | MCP tool name for tool lifecycle events. |
+| `name` | 可选的人类可读名称；建议为需要向用户报告的 Hook 设置。 |
+| `command` | 必填，本地 shell 命令。 |
+| `timeoutSeconds` | 默认 `30`，范围 `1` 到 `300`。 |
+| `report` | 默认 `true`。为 `false` 时成功结果不主动出现在 Agent 可见报告中；blocking 失败始终可见。 |
 
-Payloads contain metadata needed for policy and automation, not file contents,
-native file credentials, or subagent prompts. Additional metadata keys may be
-added while ForgeRelay remains pre-1.0; handlers should ignore keys they do not
-use.
+同一个 rule 的 handlers 按配置顺序串行执行。
 
-Hook commands execute with the same local-user authority as ForgeRelay itself.
-See [Security Model](security.md) before enabling commands from shared machine
-configuration.
+### 事件
+
+| Event | 语义 |
+| --- | --- |
+| `WorkspaceOpen` | 新 workspace session 创建后触发；复用已有 workspace 不重复触发。 |
+| `BeforeTool` | workspace-scoped MCP tool 执行前触发；失败或超时会阻断原操作。`open_workspace` 因执行前还没有 workspace，不走该事件。 |
+| `AfterTool` | tool 成功后触发。 |
+| `AfterToolFailure` | tool 失败或被 `BeforeTool` 拒绝后触发。 |
+| `AfterFileChange` | `write`、`edit`、`apply_patch`、native artifact 等明确文件变更成功后触发；不会推断 shell 的文件副作用。 |
+| `BeforeWorktreeClose` | worktree commit、fast-forward、cleanup 前触发；失败会保留 worktree 并阻断 close。 |
+| `AfterWorktreeClose` | managed worktree 成功关闭后触发；此时从 source checkout 运行。 |
+| `SubagentStart` | 本地 subagent worker 进入执行时触发。 |
+| `SubagentStop` | subagent 完成或进入 error 状态时触发。 |
+
+`BeforeTool` 与 `BeforeWorktreeClose` 是 blocking 事件。其他事件是 observational：失败会被记录并报告，但不会回滚已经完成的文件、Git、进程或网络副作用。Blocking 同样不是事务；Hook 命令自己已经产生的副作用不会因 exit code 非零而撤销。
+
+### Agent 可见报告
+
+`report:true` 的执行结果会进入模型可见 tool result，例如：
+
+```text
+Hook results:
+✓ Local release CI (BeforeTool, project) passed in 38124ms
+```
+
+阻断失败会明确显示 `failed`。ForgeRelay 的 server instructions 要求 Agent 在出现 Hook results 时，向用户说明有意义的 Hook 是否通过或阻断了操作。异步 subagent 的 `SubagentStart` / `SubagentStop` 报告会随 session 持久化，并由 `forgerelay agents show` 展示。
+
+### Hook 环境
+
+Hook 命令继承 ForgeRelay 进程环境，并额外获得：
+
+| Variable | 含义 |
+| --- | --- |
+| `FORGERELAY_HOOK_EVENT` | 当前事件名。 |
+| `FORGERELAY_HOOK_PAYLOAD` | 事件相关 metadata 的 JSON。 |
+| `FORGERELAY_WORKSPACE_ROOT` | 当前 workspace root。 |
+| `FORGERELAY_WORKSPACE_ID` | 已知时提供 workspace ID；直接 CLI subagent 可能没有。 |
+| `FORGERELAY_WORKSPACE_MODE` | 已知时为 `checkout` 或 `worktree`。 |
+| `FORGERELAY_SOURCE_ROOT` | managed worktree 场景中的 source checkout。 |
+| `FORGERELAY_TOOL_NAME` | tool 生命周期事件中的 MCP tool 名称。 |
+
+Payload 用于策略和自动化，不包含文件正文、native-file credentials 或 subagent prompt。Shell Hook 会看到请求本身的 command metadata，因此 Hook 自己的日志仍应按可能含敏感参数处理。
+
+Hook 命令与 ForgeRelay 使用同一个本地用户权限。项目 `.forgerelay/hooks.json` 也是可执行项目约定；允许某个 root 后，应把该 root 中的项目 Hook 视为本地开发环境的一部分。详见 [Security Model](security.md)。
 
 ## System instructions
 

@@ -31,6 +31,13 @@ test("default instructions keep capability contract and built-in workflow prefer
   assert.match(result, /Do not create or modify files with bash/);
 });
 
+test("capability contract requires agents to report visible hook results", () => {
+  const result = instructions();
+
+  assert.match(result, /tool result reports Hook results/);
+  assert.match(result, /tell the user which meaningful hooks ran and whether they passed or blocked the operation/);
+});
+
 test("workflow override replaces built-in workflow without replacing the capability contract", () => {
   const result = instructions({
     DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined development and Git workflows.",

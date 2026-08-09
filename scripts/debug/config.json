@@ -10,31 +10,31 @@
   "subagents": false,
   "hooks": {
     "WorkspaceOpen": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "BeforeTool": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "AfterTool": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "AfterToolFailure": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "AfterFileChange": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "BeforeWorktreeClose": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "AfterWorktreeClose": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "SubagentStart": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ],
     "SubagentStop": [
-      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10 }
+      { "command": "node --input-type=module -e \"import { pathToFileURL } from 'node:url'; await import(pathToFileURL(process.env.FORGERELAY_DEBUG_HOOK_RECORDER).href)\"", "timeoutSeconds": 10, "report": false }
     ]
   }
 }

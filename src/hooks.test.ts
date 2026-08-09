@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,6 +15,137 @@ const silentLogging: LoggingConfig = {
   shellCommands: false,
   trustProxy: false,
 };
+
+test("hook config normalizes matcher rules and report defaults", () => {
+  assert.deepEqual(
+    parseHookConfig({
+      BeforeTool: [
+        {
+          matcher: {
+            tool: "bash",
+            commandRegex: "^git\\s+push\\b.*v\\d+\\.\\d+\\.\\d+$",
+          },
+          handlers: [
+            {
+              name: "Local release CI",
+              command: "npm run release:verify",
+              timeoutSeconds: 300,
+            },
+            {
+              name: "Package inspection",
+              command: "npm pack --dry-run",
+              report: false,
+            },
+          ],
+        },
+      ],
+    }),
+    {
+      BeforeTool: [
+        {
+          matcher: {
+            tool: "bash",
+            commandRegex: "^git\\s+push\\b.*v\\d+\\.\\d+\\.\\d+$",
+          },
+          handlers: [
+            {
+              name: "Local release CI",
+              command: "npm run release:verify",
+              timeoutSeconds: 300,
+              report: true,
+            },
+            {
+              name: "Package inspection",
+              command: "npm pack --dry-run",
+              timeoutSeconds: 30,
+              report: false,
+            },
+          ],
+        },
+      ],
+    },
+  );
+});
+
+test("tool and command matchers run only for matching operations", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const script = join(root, "matched.mjs");
+  await writeFile(
+    script,
+    'import { writeFileSync } from "node:fs"; writeFileSync("matched.txt", "yes");\n',
+  );
+
+  const runner = new HookRunner(
+    parseHookConfig({
+      BeforeTool: [
+        {
+          matcher: {
+            tool: "bash",
+            commandRegex: "^git\\s+push\\b.*v\\d+\\.\\d+\\.\\d+$",
+          },
+          handlers: [{ command: `node "${script}"` }],
+        },
+      ],
+    }),
+    silentLogging,
+  );
+
+  await runner.run("BeforeTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    payload: { tool: "bash", command: "git status" },
+  });
+  await assert.rejects(() => readFile(join(root, "matched.txt"), "utf8"), /ENOENT/);
+
+  await runner.run("BeforeTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    payload: { tool: "bash", command: "git push origin v0.2.0" },
+  });
+  assert.equal(await readFile(join(root, "matched.txt"), "utf8"), "yes");
+});
+
+test("project hooks resolve from workspace root instead of a nested tool cwd", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const nested = join(root, "packages", "app");
+  const hookDir = join(root, ".forgerelay");
+  const marker = join(root, "project-hook-ran.txt");
+  const hookScript = join(root, "project-root-hook.mjs");
+  await mkdir(nested, { recursive: true });
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(
+    hookScript,
+    `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "yes");\n`,
+  );
+  await writeFile(
+    join(hookDir, "hooks.json"),
+    JSON.stringify({
+      AfterTool: [{
+        matcher: { tool: "bash" },
+        handlers: [{
+          name: "Project root hook",
+          command: `node "${hookScript}"`,
+        }],
+      }],
+    }),
+  );
+
+  const runner = new HookRunner({}, silentLogging);
+  const reports = await runner.run("AfterTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    cwd: nested,
+    payload: { tool: "bash", command: "printf nested" },
+  });
+
+  assert.equal(await readFile(marker, "utf8"), "yes");
+  assert.equal(reports[0]?.scope, "project");
+});
 
 test("blocking hook receives workspace and payload environment", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));

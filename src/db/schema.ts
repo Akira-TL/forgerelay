@@ -106,6 +106,7 @@ export const localAgentSessions = sqliteTable(
     status: text("status").notNull(),
     latestResponse: text("latest_response"),
     error: text("error"),
+    hookReportsJson: text("hook_reports_json"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },

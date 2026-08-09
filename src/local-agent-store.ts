@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import type { ServerConfig } from "./config.js";
+import type { HookExecutionReport } from "./hooks.js";
 
 export type LocalAgentStatus = "starting" | "running" | "idle" | "error" | "stopped";
 
@@ -17,6 +18,7 @@ export interface LocalAgentRecord {
   status: LocalAgentStatus;
   latestResponse?: string;
   error?: string;
+  hookReports?: HookExecutionReport[];
   createdAt: string;
   updatedAt: string;
 }
@@ -47,6 +49,7 @@ interface LocalAgentRow {
   status: string;
   latest_response: string | null;
   error: string | null;
+  hook_reports_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -175,6 +178,7 @@ export class LocalAgentStore {
           status = ?,
           latest_response = ?,
           error = ?,
+          hook_reports_json = ?,
           updated_at = ?
          where id = ?`,
       )
@@ -189,6 +193,7 @@ export class LocalAgentStore {
         updated.status,
         updated.latestResponse ?? null,
         updated.error ?? null,
+        updated.hookReports ? JSON.stringify(updated.hookReports) : null,
         updated.updatedAt,
         updated.id,
       );
@@ -225,9 +230,20 @@ function rowToLocalAgentRecord(row: LocalAgentRow): LocalAgentRecord {
     status: readStatus(row.status),
     latestResponse: row.latest_response ?? undefined,
     error: row.error ?? undefined,
+    hookReports: parseHookReports(row.hook_reports_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function parseHookReports(value: string | null): HookExecutionReport[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as HookExecutionReport[] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readStatus(status: string): LocalAgentStatus {

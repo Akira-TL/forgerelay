@@ -30,12 +30,32 @@ try {
     latestResponse: "done",
     providerSessionId: "thread_123",
     thinking: "medium",
+    hookReports: [
+      {
+        event: "SubagentStart",
+        name: "Agent audit",
+        scope: "global",
+        status: "passed",
+        durationMs: 12,
+        report: true,
+      },
+    ],
   });
 
   assert.equal(updated.status, "idle");
   assert.equal(updated.thinking, "medium");
   assert.equal(store.get("thread_123")?.id, created.id);
   assert.equal(store.get(created.id)?.thinking, "medium");
+  assert.deepEqual(store.get(created.id)?.hookReports, [
+    {
+      event: "SubagentStart",
+      name: "Agent audit",
+      scope: "global",
+      status: "passed",
+      durationMs: 12,
+      report: true,
+    },
+  ]);
   assert.equal(store.update(created.id, { latestResponse: undefined }).latestResponse, undefined);
   assert.deepEqual(
     store.list({ workspaceRoot: join(root, "project") }).map((agent) => agent.latestResponse),

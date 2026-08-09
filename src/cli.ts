@@ -11,7 +11,7 @@ import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
-import { HookRunner } from "./hooks.js";
+import { formatVisibleHookReports, HookRunner } from "./hooks.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
   isLocalAgentProvider,
@@ -385,6 +385,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
       thinking: parsed.thinking ?? existing.thinking,
       latestResponse: undefined,
       error: undefined,
+      hookReports: undefined,
     });
     spawnAgentWorker(existing.id, promptFile);
     console.log(formatAgentLine({
@@ -435,6 +436,8 @@ async function runAgentsShow(args: string[]): Promise<void> {
   }
 
   console.log(formatAgentLine(record));
+  const hookSummary = formatVisibleHookReports(record.hookReports ?? []);
+  if (hookSummary) console.log(hookSummary);
   if (record.latestResponse) {
     console.log(record.latestResponse);
     return;
@@ -471,8 +474,9 @@ async function runAgentsWorker(args: string[]): Promise<void> {
     },
   };
 
-  store.update(record.id, { status: "running", error: undefined });
-  await hooks.run("SubagentStart", hookInvocation);
+  store.update(record.id, { status: "running", error: undefined, hookReports: undefined });
+  const hookReports = await hooks.run("SubagentStart", hookInvocation);
+  store.update(record.id, { hookReports });
   try {
     const profiles = await loadLocalAgentProfiles(config, record.workspaceRoot);
     const profile = profiles.find((candidate) => candidate.name === record.profileName);
@@ -480,32 +484,34 @@ async function runAgentsWorker(args: string[]): Promise<void> {
     const result = profile
       ? await runLocalAgentProfile(profile, record, prompt)
       : await runRawLocalAgentProvider(record, prompt);
-    store.update(record.id, {
-      providerSessionId: result.providerSessionId ?? undefined,
-      status: "idle",
-      latestResponse: result.finalResponse,
-      error: undefined,
-    });
-    await hooks.run("SubagentStop", {
+    hookReports.push(...await hooks.run("SubagentStop", {
       ...hookInvocation,
       payload: {
         ...hookInvocation.payload,
         status: "idle",
         providerSessionId: result.providerSessionId,
       },
+    }));
+    store.update(record.id, {
+      providerSessionId: result.providerSessionId ?? undefined,
+      status: "idle",
+      latestResponse: result.finalResponse,
+      error: undefined,
+      hookReports,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    store.update(record.id, {
-      status: "error",
-      error: message,
-    });
-    await hooks.run("SubagentStop", {
+    hookReports.push(...await hooks.run("SubagentStop", {
       ...hookInvocation,
       payload: {
         ...hookInvocation.payload,
         status: "error",
       },
+    }));
+    store.update(record.id, {
+      status: "error",
+      error: message,
+      hookReports,
     });
   }
 }

@@ -36,10 +36,13 @@ export interface ForgeRelayFiles {
   dir: string;
   configPath: string;
   authPath: string;
+  hooksPath: string;
   configExists: boolean;
   authExists: boolean;
+  hooksExists: boolean;
   config: ForgeRelayUserConfig;
   auth: ForgeRelayAuthConfig;
+  hooks: HookConfigInput;
   usingLegacyDir: boolean;
 }
 
@@ -68,6 +71,10 @@ export function forgerelayAuthPath(env: NodeJS.ProcessEnv = process.env): string
   return join(forgerelayConfigDir(env), "auth.json");
 }
 
+export function forgerelayHooksPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(forgerelayConfigDir(env), "hooks.json");
+}
+
 export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(forgerelayConfigDir(env), "skills");
 }
@@ -80,17 +87,22 @@ export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): Forge
   const dir = forgerelayConfigDir(env);
   const configPath = join(dir, "config.json");
   const authPath = join(dir, "auth.json");
+  const hooksPath = join(dir, "hooks.json");
   const configExists = existsSync(configPath);
   const authExists = existsSync(authPath);
+  const hooksExists = existsSync(hooksPath);
 
   return {
     dir,
     configPath,
     authPath,
+    hooksPath,
     configExists,
     authExists,
+    hooksExists,
     config: configExists ? readJsonFile<ForgeRelayUserConfig>(configPath) : {},
     auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
+    hooks: hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
     usingLegacyDir: dir === resolve(join(homedir(), ".devspace")),
   };
 }

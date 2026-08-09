@@ -121,29 +121,34 @@ You can rebase and verify inside the worktree, then retry the close.
 
 ## Lifecycle hooks
 
-Hooks let you put local policy and automation around ForgeRelay without turning
-the project into a plugin host. They live in your ForgeRelay config, not in the
-repository being opened.
+Hook 是 ForgeRelay 的自动生命周期规则。用户或 Agent 可以写全局规则 `~/.forgerelay/hooks.json`，也可以把项目规则放进 `<repo>/.forgerelay/hooks.json`；两类规则组合执行，不需要额外批准。
 
-For example, you can require tests before a managed worktree is integrated:
+例如，项目可以要求稳定版本 tag push 前先完成本地发布检查：
 
 ```json
 {
-  "hooks": {
-    "BeforeWorktreeClose": [
-      { "command": "npm test", "timeoutSeconds": 120 }
-    ]
-  }
+  "BeforeTool": [
+    {
+      "matcher": {
+        "tool": "bash",
+        "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+      },
+      "handlers": [
+        {
+          "name": "Local release CI",
+          "command": "npm run release:verify",
+          "timeoutSeconds": 300,
+          "report": true
+        }
+      ]
+    }
+  ]
 }
 ```
 
-`BeforeTool` and `BeforeWorktreeClose` can block the operation. Events that run
-after something has happened are observational: a broken notification or cleanup
-hook is logged, but it does not pretend to undo an already-completed edit or Git
-operation.
+命中 `BeforeTool` 后，Hook 先执行；成功才继续原始 `git push`，失败则直接阻断。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
 
-See [Configuration Reference](docs/configuration.md#lifecycle-hooks) for the full
-event list and hook environment.
+完整 matcher、事件与环境变量见 [Configuration Reference](docs/configuration.md#lifecycle-hooks)。
 
 ## Local coding agents
 

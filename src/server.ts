@@ -23,7 +23,7 @@ import {
   registerArtifactTools,
 } from "./artifact-tools.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
-import { HookRunner, runToolWithHooks } from "./hooks.js";
+import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
 import {
   buildServerInstructions,
   buildToolDescriptions,
@@ -844,6 +844,7 @@ export function createMcpServer(
         workspace,
         agentsFiles,
         availableAgentsFiles,
+        hookReports,
         workspaceReused,
         includeBootstrapContext,
       } = await workspaces.openWorkspace(
@@ -948,7 +949,7 @@ export function createMcpServer(
         durationMs: Math.round(performance.now() - startedAt),
       });
 
-      return {
+      return attachHookReports({
         content: resultContent,
         _meta: {
           tool: "open_workspace",
@@ -997,7 +998,7 @@ export function createMcpServer(
             : {}),
           instruction,
         },
-      };
+      }, hookReports);
     },
   );
 
@@ -1058,7 +1059,7 @@ export function createMcpServer(
             durationMs: Math.round(performance.now() - startedAt),
           });
 
-          return {
+          return attachHookReports({
             content: [{ type: "text" as const, text: result }],
             structuredContent: {
               result,
@@ -1071,7 +1072,7 @@ export function createMcpServer(
               committed: closed.committed,
               cleanupWarning: closed.cleanupWarning,
             },
-          };
+          }, closed.hookReports);
         },
       });
     },

@@ -101,27 +101,17 @@ Do not describe ForgeRelay as a sandboxed coding environment.
 
 ## Lifecycle hooks
 
-Hook commands are local code execution. They run with the same operating-system
-user authority as ForgeRelay and inherit its process environment, so only put
-commands you trust in the active ForgeRelay `config.json`.
+Hook command 是本地代码执行，使用与 ForgeRelay 相同的操作系统用户权限并继承进程环境。
 
-ForgeRelay Hooks v1 deliberately does **not** auto-discover hook configuration
-from an opened repository. Opening an untrusted checkout therefore does not, by
-itself, grant that checkout a new command-execution path through lifecycle
-hooks. Repository-local hooks would require a separate explicit trust or approval
-model before they could be supported safely.
+Hooks v1 有两个自动作用域：当前 ForgeRelay 配置目录中的全局规则，以及 workspace 根目录的 `.forgerelay/hooks.json`。项目规则不需要额外批准；打开允许根目录中的项目时，ForgeRelay 会把项目 Hook 当作该开发环境的执行约定直接使用，`WorkspaceOpen` 也可以立即触发命令。因此 allowed roots 不只是文件访问边界，也界定了你愿意让 ForgeRelay 操作的本地项目环境。
 
-`BeforeTool` and `BeforeWorktreeClose` are enforcement points: failure or timeout
-blocks the pending operation. The remaining v1 events are observational; their
-failures are logged instead of rolling back work that has already completed.
+项目 Hook 文件只解析 Hook 规则，不能通过自身扩大 allowed roots、修改 OAuth 配置或删除全局规则。全局与项目规则采用组合关系。若项目 Hook 文件损坏，ForgeRelay 返回可见 diagnostic 并保持工具可用，便于 Agent 修复；无效项目规则不会被执行。
 
-Hook payloads expose lifecycle metadata but intentionally avoid file contents,
-native-file credentials, and subagent prompts. Shell command metadata may still
-contain sensitive arguments when a tool hook observes a shell tool, so hook
-handlers and their own logging should treat payloads as potentially sensitive.
+`BeforeTool` 和 `BeforeWorktreeClose` 是阻断点：命中的 handler 失败或超时后，待执行操作不会继续。其余事件用于观察已发生的生命周期结果，失败不会回滚已经完成的工作。`report:false` 可以隐藏成功的高频报告，但不能隐藏阻断失败。
 
-See [Configuration Reference](configuration.md#lifecycle-hooks) for the event and
-environment contract.
+Hook payload 刻意不携带文件正文、native-file credentials 或 subagent prompt。Shell tool 的 command metadata 仍可能包含敏感参数，因此 Hook 脚本自己的日志也应按敏感输入处理。
+
+详见 [Configuration Reference](configuration.md#lifecycle-hooks)。
 
 ## Git and managed worktrees
 

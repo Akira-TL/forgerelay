@@ -67,6 +67,7 @@ function capabilityContractInstructions(
     ? `When ${toolNames.openWorkspace} returns available skills and a task matches a skill, use ${toolNames.read} to read that skill's path before proceeding. Skill paths may be outside the workspace, but ${toolNames.read} only permits advertised SKILL.md files and files under already-loaded skill directories.`
     : "";
   const toolSurface = toolSurfaceInstructions(config);
+  const hooks = "When a ForgeRelay tool result reports Hook results, tell the user which meaningful hooks ran and whether they passed or blocked the operation. Do not claim the requested operation succeeded when a blocking hook prevented it.";
   const artifact = config.artifactsEnabled && context.artifactDownloadSupported
     ? "When the user supplies or generates a file that is not present on the ForgeRelay host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs."
     : "";
@@ -74,7 +75,7 @@ function capabilityContractInstructions(
     ? "If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change; do not skip it because individual file-change tools already returned diffs."
     : "";
 
-  return joinInstructions(workspaceLifecycle, agents, skills, toolSurface, artifact, showChanges);
+  return joinInstructions(workspaceLifecycle, agents, skills, toolSurface, hooks, artifact, showChanges);
 }
 
 function toolSurfaceInstructions(config: ServerConfig): string {

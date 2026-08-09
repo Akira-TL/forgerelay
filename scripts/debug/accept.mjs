@@ -27,6 +27,8 @@ const worktreeRoot = resolve(acceptanceRoot, "worktrees");
 const hookLog = resolve(acceptanceRoot, "hooks.jsonl");
 const checkoutWorkspace = resolve(acceptanceRoot, "workspace");
 const gitProject = resolve(acceptanceRoot, "git-project");
+const releaseProject = resolve(acceptanceRoot, "release-project");
+const releaseRemote = resolve(acceptanceRoot, "release-remote.git");
 const ownerToken = randomBytes(32).toString("base64url");
 
 assertCurlAvailable();
@@ -172,6 +174,7 @@ try {
     `${closed.structuredContent.branch} -> ${closed.structuredContent.targetBranch}`,
   );
 
+  exerciseReleaseTagHooks(oauth.accessToken, sessionId);
   exerciseSubagentHooks(env, stateDir, workspaceId, checkoutWorkspace);
 
   const hookEntries = readHookEntries(hookLog);
@@ -436,6 +439,93 @@ function runGit(cwd, args) {
   }
 }
 
+function gitOutput(cwd, args, options = {}) {
+  const gitArgs = options.gitDir ? ["--git-dir", cwd, ...args] : args;
+  const result = spawnSync("git", gitArgs, {
+    ...(options.gitDir ? {} : { cwd }),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${gitArgs.join(" ")} failed: ${result.stderr.trim() || result.stdout.trim()}`);
+  }
+  return result.stdout.trim();
+}
+
+function exerciseReleaseTagHooks(accessToken, sessionId) {
+  setupGitProject(releaseProject);
+  runGit(acceptanceRoot, ["init", "--bare", releaseRemote]);
+  runGit(releaseProject, ["remote", "add", "origin", releaseRemote]);
+  mkdirSync(join(releaseProject, ".forgerelay"), { recursive: true });
+  writeFileSync(
+    join(releaseProject, ".forgerelay", "release-check.mjs"),
+    [
+      'import { writeFileSync } from "node:fs";',
+      'writeFileSync("release-ci-ran.txt", process.env.FORGERELAY_HOOK_PAYLOAD ?? "{}");',
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(releaseProject, ".forgerelay", "hooks.json"),
+    JSON.stringify({
+      BeforeTool: [
+        {
+          matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.0$" },
+          handlers: [
+            {
+              name: "Local release CI",
+              command: "node .forgerelay/release-check.mjs",
+              timeoutSeconds: 30,
+              report: true,
+            },
+          ],
+        },
+        {
+          matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.1$" },
+          handlers: [
+            {
+              name: "Local release CI",
+              command: "node -e \"process.exit(17)\"",
+              timeoutSeconds: 30,
+              report: true,
+            },
+          ],
+        },
+      ],
+    }, null, 2) + "\n",
+  );
+  runGit(releaseProject, ["add", ".forgerelay"]);
+  runGit(releaseProject, ["commit", "-m", "Add release hook fixture"]);
+  runGit(releaseProject, ["tag", "v0.2.0"]);
+  runGit(releaseProject, ["tag", "v0.2.1"]);
+
+  const opened = callTool(accessToken, sessionId, 11, "open_workspace", {
+    path: releaseProject,
+  });
+  const releaseWorkspaceId = opened.structuredContent.workspaceId;
+
+  const pushed = callTool(accessToken, sessionId, 12, "bash", {
+    workspaceId: releaseWorkspaceId,
+    command: "git push origin v0.2.0",
+  });
+  assert.equal(pushed.isError, undefined);
+  assert.match(toolText(pushed), /Local release CI \(BeforeTool, project\) passed/);
+  assert.ok(existsSync(join(releaseProject, "release-ci-ran.txt")));
+  assert.equal(
+    gitOutput(releaseRemote, ["rev-parse", "refs/tags/v0.2.0"], { gitDir: true }),
+    gitOutput(releaseProject, ["rev-parse", "v0.2.0"]),
+  );
+
+  const blocked = callTool(accessToken, sessionId, 13, "bash", {
+    workspaceId: releaseWorkspaceId,
+    command: "git push origin v0.2.1",
+  });
+  assert.equal(blocked.isError, true);
+  assert.match(toolText(blocked), /Local release CI.*failed/);
+  const missingTag = spawnSync("git", ["--git-dir", releaseRemote, "show-ref", "--verify", "--quiet", "refs/tags/v0.2.1"]);
+  assert.notEqual(missingTag.status, 0, "blocked release tag unexpectedly reached the remote");
+  pass("release tag hook gate", "local Hook passed before v0.2.0 push and blocked v0.2.1 before remote mutation");
+}
+
 function exerciseSubagentHooks(runtimeEnv, debugStateDir, workspaceId, workspaceRoot) {
   const seedScript = [
     'import { LocalAgentStore } from "./src/local-agent-store.js";',
@@ -490,6 +580,13 @@ function exerciseSubagentHooks(runtimeEnv, debugStateDir, workspaceId, workspace
   assert.equal(record.status, "error");
   assert.match(record.error, /Subagent profile not found/);
   pass("subagent hook path", `${agentId} stopped in deterministic error path without calling a provider`);
+}
+
+function toolText(result) {
+  return (result.content ?? [])
+    .filter((entry) => entry?.type === "text" && typeof entry.text === "string")
+    .map((entry) => entry.text)
+    .join("\n");
 }
 
 function readHookEntries(path) {

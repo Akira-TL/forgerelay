@@ -30,6 +30,25 @@ assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "0" }).toolMode, "
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
 
 const forgeRelayConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-config-test-"));
+writeFileSync(
+  join(forgeRelayConfigDir, "hooks.json"),
+  JSON.stringify({
+    BeforeTool: [
+      {
+        matcher: { tool: "bash" },
+        handlers: [{ name: "Global hooks file", command: "echo global" }],
+      },
+    ],
+  }),
+);
+writeFileSync(
+  join(forgeRelayConfigDir, "config.json"),
+  JSON.stringify({
+    hooks: {
+      BeforeTool: [{ name: "Legacy inline hook", command: "echo inline" }],
+    },
+  }),
+);
 const forgeRelayConfig = loadConfig({
   ...baseEnv,
   FORGERELAY_CONFIG_DIR: forgeRelayConfigDir,
@@ -43,6 +62,10 @@ const forgeRelayConfig = loadConfig({
 assert.equal(forgeRelayConfig.widgets, "changes");
 assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
+assert.deepEqual(
+  forgeRelayConfig.hooks.BeforeTool?.flatMap((rule) => rule.handlers.map((handler) => handler.name)),
+  ["Legacy inline hook", "Global hooks file"],
+);
 assert.equal(forgeRelayConfig.devspaceSkillsDir, join(forgeRelayConfigDir, "skills"));
 assert.equal(forgeRelayConfig.devspaceAgentsDir, join(forgeRelayConfigDir, "agents"));
 assert.equal(
@@ -250,8 +273,22 @@ assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));
 assert.deepEqual(fileConfig.hooks, {
-  WorkspaceOpen: [{ command: "echo opened", timeoutSeconds: 30 }],
-  BeforeWorktreeClose: [{ command: "npm test", timeoutSeconds: 45 }],
+  WorkspaceOpen: [{
+    handlers: [{
+      name: undefined,
+      command: "echo opened",
+      timeoutSeconds: 30,
+      report: true,
+    }],
+  }],
+  BeforeWorktreeClose: [{
+    handlers: [{
+      name: undefined,
+      command: "npm test",
+      timeoutSeconds: 45,
+      report: true,
+    }],
+  }],
 });
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",

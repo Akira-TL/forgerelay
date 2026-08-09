@@ -116,6 +116,16 @@ async function testArtifactHookLifecycle(workspaceRoot: string): Promise<void> {
   const hooks = {
     async run(event: string, invocation: { payload?: Record<string, unknown> }) {
       events.push({ event, payload: invocation.payload ?? {} });
+      return event === "BeforeTool"
+        ? [{
+            event: "BeforeTool",
+            name: "Artifact preflight",
+            scope: "global",
+            status: "passed",
+            durationMs: 1,
+            report: true,
+          }]
+        : [];
     },
   };
   const adapter: IncomingArtifactAdapter = {
@@ -155,9 +165,16 @@ async function testArtifactHookLifecycle(workspaceRoot: string): Promise<void> {
       download_url: "https://files.example.test/download?secret=must-not-leak",
       file_id: "file_secret",
     },
-  }) as { structuredContent?: { path?: string } };
+  }) as {
+    content?: Array<{ type?: string; text?: string }>;
+    structuredContent?: { path?: string };
+  };
 
   assert.equal(result.structuredContent?.path, "downloads/artifact.txt");
+  assert.match(
+    result.content?.map((entry) => entry.text ?? "").join("\n") ?? "",
+    /Artifact preflight \(BeforeTool, global\) passed/,
+  );
   assert.equal(await readFile(join(workspaceRoot, "downloads", "artifact.txt"), "utf8"), "hello");
   assert.deepEqual(events.map((entry) => entry.event), ["BeforeTool", "AfterTool", "AfterFileChange"]);
   assert.deepEqual(events[0]?.payload, { tool: "download_artifact", path: "downloads/artifact.txt" });

@@ -62,8 +62,9 @@ The acceptance checks:
 6. `tools/list` for the full debug tool surface;
 7. a real checkout workspace with `write`, `read`, `bash`, and a deliberate failed `edit`;
 8. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
-9. the deterministic local subagent error path without contacting a model provider;
-10. all nine Hooks v1 lifecycle events through the debug hook recorder.
+9. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
+10. deterministic local subagent error path，不联系任何模型 provider；
+11. debug hook recorder 覆盖全部九个 Hooks v1 lifecycle events。
 
 `curl` must be available on `PATH` for this acceptance command. Node and Git are
 already normal ForgeRelay development prerequisites.
@@ -107,9 +108,7 @@ That directory is gitignored. Typical contents include:
 .forgerelay-debug/acceptance/
 ```
 
-The acceptance runner recreates its own `acceptance/` subtree on every run. It
-uses a temporary checkout workspace and temporary Git repository, so acceptance
-does not edit tracked project files.
+Acceptance runner 每次都会重建自己的 `acceptance/` 子目录。除了临时 checkout/worktree，它还会建立一个本地 bare Git remote，用来验证 release tag Hook 的真实 `git push` 顺序；不会访问或修改 ForgeRelay 的远程仓库，也不会编辑 tracked project files。
 
 ## Scripts
 

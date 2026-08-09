@@ -8,7 +8,7 @@ import type {
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ServerConfig } from "./config.js";
-import { HookRunner } from "./hooks.js";
+import { HookRunner, type HookReportContainer } from "./hooks.js";
 import {
   closeManagedWorktree,
   createManagedWorktree,
@@ -66,7 +66,7 @@ export interface Workspace {
   activatedSkillDirs: Set<string>;
 }
 
-export interface WorkspaceContext {
+export interface WorkspaceContext extends HookReportContainer {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
@@ -161,7 +161,7 @@ export class WorkspaceRegistry {
     return results;
   }
 
-  async closeWorktree(workspaceId: string, commitMessage: string): Promise<ClosedManagedWorktree> {
+  async closeWorktree(workspaceId: string, commitMessage: string): Promise<ClosedManagedWorktree & HookReportContainer> {
     const workspace = this.getWorkspace(workspaceId);
     if (workspace.mode !== "worktree" || !workspace.worktree?.managed || !workspace.sourceRoot) {
       throw new Error(`Workspace ${workspaceId} is not a managed worktree workspace.`);
@@ -187,7 +187,7 @@ export class WorkspaceRegistry {
       detached: false,
       managed: true,
     };
-    await this.hooks.run("BeforeWorktreeClose", {
+    const hookReports = await this.hooks.run("BeforeWorktreeClose", {
       workspaceId: workspace.id,
       workspaceRoot: workspace.root,
       workspaceMode: workspace.mode,
@@ -205,7 +205,7 @@ export class WorkspaceRegistry {
       config: this.config,
     });
 
-    await this.hooks.run("AfterWorktreeClose", {
+    hookReports.push(...await this.hooks.run("AfterWorktreeClose", {
       workspaceId: workspace.id,
       workspaceRoot: workspace.root,
       workspaceMode: workspace.mode,
@@ -220,11 +220,11 @@ export class WorkspaceRegistry {
         committed: result.committed,
         cleanupWarning: result.cleanupWarning,
       },
-    });
+    }));
 
     this.store?.setSessionStatus(workspace.id, "closed");
     this.workspaces.delete(workspace.id);
-    return result;
+    return { ...result, hookReports };
   }
 
   private async openReusableCheckout(
@@ -417,6 +417,7 @@ export class WorkspaceRegistry {
       workspace,
       agentsFiles,
       availableAgentsFiles,
+      hookReports: [],
       workspaceReused: true,
       includeBootstrapContext: true,
     };
@@ -559,7 +560,7 @@ export class WorkspaceRegistry {
       managed: workspace.worktree?.managed,
     });
     this.workspaces.set(workspace.id, workspace);
-    await this.hooks.run("WorkspaceOpen", {
+    const hookReports = await this.hooks.run("WorkspaceOpen", {
       workspaceId: workspace.id,
       workspaceRoot: workspace.root,
       workspaceMode: workspace.mode,
@@ -578,6 +579,7 @@ export class WorkspaceRegistry {
       workspace,
       agentsFiles,
       availableAgentsFiles,
+      hookReports,
       workspaceReused: false,
       includeBootstrapContext: true,
     };

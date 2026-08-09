@@ -60,36 +60,25 @@ The initial independent release establishes:
 
 ## 0.2 — Hooks v1
 
-Hooks provide a general policy extension point without hardcoding
-project-specific commands into Git/workspace logic. Hooks v1 is configured from
-user-controlled ForgeRelay configuration; repository contents are not treated as
-an implicit command-execution source.
+Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生命周期规则层，而不是复制完整的 Agent 权限或插件系统。
 
-Events:
+当前契约包括：
 
-- `WorkspaceOpen`
-- `BeforeTool`
-- `AfterTool`
-- `AfterToolFailure`
-- `AfterFileChange`
-- `BeforeWorktreeClose`
-- `AfterWorktreeClose`
-- `SubagentStart`
-- `SubagentStop`
+- 全局 `hooks.json` 与项目 `.forgerelay/hooks.json` 自动组合；
+- `event -> matcher -> handlers` 规则；
+- command handler 的名称、timeout 与 `report`；
+- `BeforeTool` / `BeforeWorktreeClose` 阻断语义；
+- observational after-events；
+- Agent 可见 Hook report；
+- `WorkspaceOpen`、tool、文件变更、worktree 与 subagent 生命周期；
+- 项目 Hook 配置损坏时可见且可修复的 diagnostic；
+- 7677 真实网络验收中的 release-tag-push 本地验证场景。
 
-Handler type:
+事件仍保持九个：`WorkspaceOpen`、`BeforeTool`、`AfterTool`、`AfterToolFailure`、`AfterFileChange`、`BeforeWorktreeClose`、`AfterWorktreeClose`、`SubagentStart`、`SubagentStop`。
 
-- local command, sequentially executed with bounded timeouts and lifecycle
-  context supplied through environment variables.
+典型用法是在 `BeforeTool` 中匹配稳定版本 tag 的 `git push`，先执行项目定义的本地 CI；成功后继续 push，失败时让 Agent 获得报告并修复。`BeforeWorktreeClose` 则适合在 managed branch 集成前执行测试、类型检查或其他项目验证。
 
-The implementation keeps the hook engine contract separate from MCP tool
-handlers. `BeforeTool` and `BeforeWorktreeClose` are blocking enforcement points;
-after-events are observational and never pretend to roll back completed work.
-HTTP/prompt/agent-style handlers can be evaluated later if there is a concrete
-need.
-
-`BeforeWorktreeClose` is the natural place for user-configured test, typecheck,
-formatting, or security verification before a managed branch is integrated.
+0.2 不引入审批 UI、HTTP/prompt/agent handler、Git 字符串解析器或插件注册表。只有出现真实需求时再扩展 handler 类型。
 
 ## 0.3 — LSP code intelligence v1
 

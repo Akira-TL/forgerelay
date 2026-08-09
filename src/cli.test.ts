@@ -32,8 +32,8 @@ try {
     join(configDir, "config.json"),
     JSON.stringify({
       hooks: {
-        SubagentStart: [{ command: subagentHookCommand }],
-        SubagentStop: [{ command: subagentHookCommand }],
+        SubagentStart: [{ name: "Subagent started", command: subagentHookCommand }],
+        SubagentStop: [{ name: "Subagent stopped", command: subagentHookCommand }],
       },
     }),
   );
@@ -139,6 +139,33 @@ try {
   completedStore.close();
   assert.equal(failedRecord?.status, "error");
   assert.match(failedRecord?.error ?? "", /Subagent profile not found: missing-profile/);
+  assert.deepEqual(
+    failedRecord?.hookReports?.map((report) => [report.event, report.name, report.status]),
+    [
+      ["SubagentStart", "Subagent started", "passed"],
+      ["SubagentStop", "Subagent stopped", "passed"],
+    ],
+  );
+
+  const shown = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "agents", "show", failing.id],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DEVSPACE_CONFIG_DIR: configDir,
+        DEVSPACE_ALLOWED_ROOTS: projectRoot,
+        DEVSPACE_STATE_DIR: stateDir,
+        DEVSPACE_SUBAGENTS: "1",
+        DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      },
+    },
+  );
+  assert.match(shown, /Hook results:/);
+  assert.match(shown, /Subagent started \(SubagentStart, global\) passed/);
+  assert.match(shown, /Subagent stopped \(SubagentStop, global\) passed/);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

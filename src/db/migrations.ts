@@ -32,6 +32,11 @@ const migrations: Migration[] = [
     name: "workspace-worktree-branches",
     up: migrateWorkspaceWorktreeBranches,
   },
+  {
+    version: 6,
+    name: "local-agent-hook-reports",
+    up: migrateLocalAgentHookReports,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -206,6 +211,10 @@ function migrateWorkspaceConversationBindings(sqlite: Database.Database): void {
 function migrateWorkspaceWorktreeBranches(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "workspace_sessions", "branch", "text");
   addColumnIfMissing(sqlite, "workspace_sessions", "target_branch", "text");
+}
+
+function migrateLocalAgentHookReports(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "local_agent_sessions", "hook_reports_json", "text");
 }
 
 function addColumnIfMissing(

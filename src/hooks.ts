@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "./workspace-store.js";
 import type { LoggingConfig } from "./logger.js";
@@ -20,17 +22,48 @@ export const HOOK_EVENTS = [
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 export interface HookHandlerInput {
+  name?: string;
   command: string;
   timeoutSeconds?: number;
+  report?: boolean;
 }
 
 export interface HookHandler {
+  name?: string;
   command: string;
   timeoutSeconds: number;
+  report: boolean;
 }
 
-export type HookConfig = Partial<Record<HookEvent, HookHandler[]>>;
-export type HookConfigInput = Partial<Record<HookEvent, HookHandlerInput[]>>;
+export interface HookMatcherInput {
+  tool?: string;
+  commandRegex?: string;
+  pathRegex?: string;
+  provider?: string;
+  workspaceMode?: WorkspaceMode;
+}
+
+export interface HookMatcher {
+  tool?: string;
+  commandRegex?: string;
+  pathRegex?: string;
+  provider?: string;
+  workspaceMode?: WorkspaceMode;
+}
+
+export interface HookRuleInput {
+  matcher?: HookMatcherInput;
+  handlers: HookHandlerInput[];
+}
+
+export interface HookRule {
+  matcher?: HookMatcher;
+  handlers: HookHandler[];
+}
+
+export type HookConfig = Partial<Record<HookEvent, HookRule[]>>;
+export type HookConfigEntryInput = HookHandlerInput | HookRuleInput;
+export type HookConfigInput = Partial<Record<HookEvent, HookConfigEntryInput[]>>;
 
 export interface HookInvocation {
   workspaceId?: string;
@@ -41,8 +74,23 @@ export interface HookInvocation {
   payload?: Record<string, unknown>;
 }
 
+export interface HookExecutionReport {
+  event: HookEvent;
+  name: string;
+  scope: "global" | "project";
+  status: "passed" | "failed";
+  durationMs: number;
+  report: boolean;
+  error?: string;
+}
+
+export interface HookReportContainer {
+  hookReports: HookExecutionReport[];
+}
+
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 const MAX_HOOK_TIMEOUT_SECONDS = 300;
+const PROJECT_HOOKS_PATH = join(".forgerelay", "hooks.json");
 const MAX_CAPTURE_BYTES = 64 * 1024;
 const BLOCKING_EVENTS = new Set<HookEvent>(["BeforeTool", "BeforeWorktreeClose"]);
 const EVENT_SET = new Set<string>(HOOK_EVENTS);
@@ -52,10 +100,23 @@ export class HookExecutionError extends Error {
     readonly event: HookEvent,
     readonly handlerIndex: number,
     message: string,
+    readonly executions: HookExecutionReport[] = [],
   ) {
     super(message);
     this.name = "HookExecutionError";
   }
+}
+
+export function mergeHookConfigs(...configs: HookConfig[]): HookConfig {
+  const merged: HookConfig = {};
+  for (const config of configs) {
+    for (const event of HOOK_EVENTS) {
+      const rules = config[event];
+      if (!rules?.length) continue;
+      merged[event] = [...(merged[event] ?? []), ...rules];
+    }
+  }
+  return merged;
 }
 
 export function parseHookConfig(value: unknown): HookConfig {
@@ -71,10 +132,10 @@ export function parseHookConfig(value: unknown): HookConfig {
     }
     const event = eventName as HookEvent;
     if (!Array.isArray(rawHandlers)) {
-      throw new Error(`Hook ${event} must be an array of command handlers`);
+      throw new Error(`Hook ${event} must be an array of hook rules or command handlers`);
     }
 
-    config[event] = rawHandlers.map((rawHandler, index) => parseHookHandler(event, rawHandler, index));
+    config[event] = rawHandlers.map((entry, index) => parseHookRule(event, entry, index));
   }
 
   return config;
@@ -95,47 +156,107 @@ export async function runToolWithHooks<T>(
   options: ToolHookOptions<T>,
 ): Promise<T> {
   const basePayload = { tool: options.tool, ...(options.payload ?? {}) };
+  const executions: HookExecutionReport[] = [];
   try {
-    await runner.run("BeforeTool", {
+    executions.push(...await runner.run("BeforeTool", {
       ...options.invocation,
       payload: basePayload,
-    });
+    }));
     const result = await options.operation();
     const afterCwd = options.afterCwd?.(result);
 
     if (options.isFailure?.(result)) {
-      await runner.run("AfterToolFailure", {
+      executions.push(...await runner.run("AfterToolFailure", {
         ...options.invocation,
         cwd: afterCwd,
         payload: basePayload,
-      });
-      return result;
+      }));
+      return attachHookReports(result, executions);
     }
 
-    await runner.run("AfterTool", {
+    executions.push(...await runner.run("AfterTool", {
       ...options.invocation,
       cwd: afterCwd,
       payload: basePayload,
-    });
+    }));
     const changedPaths = options.changedPaths?.(result) ?? [];
     if (changedPaths.length > 0) {
-      await runner.run("AfterFileChange", {
+      executions.push(...await runner.run("AfterFileChange", {
         ...options.invocation,
         cwd: afterCwd,
         payload: { ...basePayload, paths: changedPaths },
-      });
+      }));
     }
-    return result;
+    return attachHookReports(result, executions);
   } catch (error) {
-    await runner.run("AfterToolFailure", {
+    if (error instanceof HookExecutionError) {
+      executions.push(...error.executions);
+    }
+    executions.push(...await runner.run("AfterToolFailure", {
       ...options.invocation,
       payload: {
         ...basePayload,
         errorType: error instanceof Error ? error.name : "Error",
       },
-    });
-    throw error;
+    }));
+    throw appendHookReportsToError(error, executions);
   }
+}
+
+export function attachHookReports<T>(result: T, executions: HookExecutionReport[]): T {
+  const summary = formatVisibleHookReports(executions);
+  if (!summary || !isRecord(result) || !Array.isArray(result.content)) return result;
+
+  return {
+    ...result,
+    content: [
+      ...result.content,
+      {
+        type: "text",
+        text: summary,
+      },
+    ],
+  } as T;
+}
+
+function appendHookReportsToError(
+  error: unknown,
+  executions: HookExecutionReport[],
+): Error {
+  const summary = formatVisibleHookReports(executions) ?? "";
+  if (error instanceof Error) {
+    if (summary && !error.message.includes(summary)) {
+      error.message = `${error.message}\n\n${summary}`;
+    }
+    return error;
+  }
+
+  return new Error(summary ? `${String(error)}\n\n${summary}` : String(error));
+}
+
+function visibleHookReports(executions: HookExecutionReport[]): HookExecutionReport[] {
+  return executions.filter((execution) =>
+    execution.report ||
+    (execution.status === "failed" && BLOCKING_EVENTS.has(execution.event))
+  );
+}
+
+export function formatVisibleHookReports(executions: HookExecutionReport[]): string | undefined {
+  const visible = visibleHookReports(executions);
+  return visible.length > 0 ? formatHookReports(visible) : undefined;
+}
+
+function formatHookReports(executions: HookExecutionReport[]): string {
+  return [
+    "Hook results:",
+    ...executions.map((execution) => {
+      const marker = execution.status === "passed" ? "✓" : "✗";
+      const result = execution.status === "passed"
+        ? "passed"
+        : `failed${execution.error ? `: ${execution.error}` : ""}`;
+      return `${marker} ${execution.name} (${execution.event}, ${execution.scope}) ${result} in ${execution.durationMs}ms`;
+    }),
+  ].join("\n");
 }
 
 export class HookRunner {
@@ -145,23 +266,49 @@ export class HookRunner {
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
   ) {}
 
-  async run(event: HookEvent, invocation: HookInvocation): Promise<void> {
-    const handlers = this.hooks[event] ?? [];
+  async run(event: HookEvent, invocation: HookInvocation): Promise<HookExecutionReport[]> {
+    const projectRoot = event === "AfterWorktreeClose" && invocation.sourceRoot
+      ? invocation.sourceRoot
+      : invocation.workspaceRoot;
+    const project = await loadProjectHookConfig(projectRoot);
+    const handlers = [
+      ...(this.hooks[event] ?? []).map((rule) => ({ scope: "global" as const, rule })),
+      ...(project.hooks[event] ?? []).map((rule) => ({ scope: "project" as const, rule })),
+    ]
+      .filter(({ rule }) => hookRuleMatches(rule.matcher, invocation))
+      .flatMap(({ scope, rule }) => rule.handlers.map((handler) => ({ scope, handler })));
     const blocking = BLOCKING_EVENTS.has(event);
+    const executions: HookExecutionReport[] = project.diagnostic
+      ? [{
+          event,
+          name: "Project hooks config",
+          scope: "project",
+          status: "failed",
+          durationMs: 0,
+          report: true,
+          error: project.diagnostic,
+        }]
+      : [];
 
-    for (const [index, handler] of handlers.entries()) {
-      try {
-        await this.runHandler(event, handler, index, invocation);
-      } catch (error) {
-        logEvent(this.logging, "warn", "hook_call", {
-          hookEvent: event,
-          workspaceId: invocation.workspaceId,
-          success: false,
-          error: errorMessage(error),
-        });
-        if (blocking) throw error;
+    for (const [index, { scope, handler }] of handlers.entries()) {
+      const execution = await this.runHandler(event, handler, index, invocation, scope);
+      executions.push(execution);
+      logEvent(this.logging, execution.status === "passed" ? "info" : "warn", "hook_call", {
+        hookEvent: event,
+        hookName: execution.name,
+        hookScope: execution.scope,
+        workspaceId: invocation.workspaceId,
+        success: execution.status === "passed",
+        durationMs: execution.durationMs,
+        error: execution.error,
+        commandPreview: this.logging.shellCommands ? commandPreview(handler.command) : undefined,
+      });
+      if (execution.status === "failed" && blocking) {
+        throw new HookExecutionError(event, index, execution.error ?? `Hook ${execution.name} failed`, executions);
       }
     }
+
+    return executions;
   }
 
   private async runHandler(
@@ -169,50 +316,153 @@ export class HookRunner {
     handler: HookHandler,
     index: number,
     invocation: HookInvocation,
-  ): Promise<void> {
+    scope: HookExecutionReport["scope"],
+  ): Promise<HookExecutionReport> {
     const startedAt = performance.now();
+    const name = handler.name ?? `${event} handler ${index + 1}`;
     const shell = resolveShellCommand(handler.command, process.platform, this.baseEnv);
     const detached = process.platform !== "win32";
     const env = hookEnvironment(this.baseEnv, event, invocation);
 
-    const result = await executeHookCommand({
-      executable: shell.executable,
-      args: shell.args,
-      cwd: invocation.cwd ?? invocation.workspaceRoot,
-      env,
-      timeoutMs: handler.timeoutSeconds * 1_000,
-      detached,
-    });
-
-    const durationMs = Math.round(performance.now() - startedAt);
-    if (result.exitCode === 0 && !result.timedOut) {
-      logEvent(this.logging, "info", "hook_call", {
-        hookEvent: event,
-        workspaceId: invocation.workspaceId,
-        success: true,
-        durationMs,
-        commandPreview: this.logging.shellCommands ? commandPreview(handler.command) : undefined,
+    try {
+      const result = await executeHookCommand({
+        executable: shell.executable,
+        args: shell.args,
+        cwd: invocation.cwd ?? invocation.workspaceRoot,
+        env,
+        timeoutMs: handler.timeoutSeconds * 1_000,
+        detached,
       });
-      return;
-    }
 
-    const reason = result.timedOut
-      ? `timed out after ${handler.timeoutSeconds}s`
-      : result.signal
-        ? `terminated by ${result.signal}`
-        : `exited with code ${result.exitCode ?? "unknown"}`;
-    const output = hookFailureOutput(result.stdout, result.stderr);
-    throw new HookExecutionError(
-      event,
-      index,
-      `Hook ${event} handler ${index + 1} ${reason}${output ? `: ${output}` : ""}`,
-    );
+      const durationMs = Math.round(performance.now() - startedAt);
+      if (result.exitCode === 0 && !result.timedOut) {
+        return {
+          event,
+          name,
+          scope,
+          status: "passed",
+          durationMs,
+          report: handler.report,
+        };
+      }
+
+      const reason = result.timedOut
+        ? `timed out after ${handler.timeoutSeconds}s`
+        : result.signal
+          ? `terminated by ${result.signal}`
+          : `exited with code ${result.exitCode ?? "unknown"}`;
+      const output = hookFailureOutput(result.stdout, result.stderr);
+      return {
+        event,
+        name,
+        scope,
+        status: "failed",
+        durationMs,
+        report: handler.report,
+        error: `Hook ${name} ${reason}${output ? `: ${output}` : ""}`,
+      };
+    } catch (error) {
+      return {
+        event,
+        name,
+        scope,
+        status: "failed",
+        durationMs: Math.round(performance.now() - startedAt),
+        report: handler.report,
+        error: `Hook ${name} failed to start: ${errorMessage(error)}`,
+      };
+    }
   }
+}
+
+function parseHookRule(event: HookEvent, value: unknown, index: number): HookRule {
+  if (!isRecord(value)) {
+    throw new Error(`Hook ${event} entry ${index + 1} must be an object`);
+  }
+
+  if (!("handlers" in value)) {
+    return {
+      handlers: [parseHookHandler(event, value, index)],
+    };
+  }
+
+  if (!Array.isArray(value.handlers) || value.handlers.length === 0) {
+    throw new Error(`Hook ${event} rule ${index + 1} handlers must be a non-empty array`);
+  }
+
+  return {
+    matcher: parseHookMatcher(event, value.matcher, index),
+    handlers: value.handlers.map((handler, handlerIndex) =>
+      parseHookHandler(event, handler, handlerIndex)
+    ),
+  };
+}
+
+function parseHookMatcher(
+  event: HookEvent,
+  value: unknown,
+  index: number,
+): HookMatcher | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`Hook ${event} rule ${index + 1} matcher must be an object`);
+  }
+
+  const matcher: HookMatcher = {};
+  if (value.tool !== undefined) {
+    if (typeof value.tool !== "string" || value.tool.trim().length === 0) {
+      throw new Error(`Hook ${event} matcher tool must be a non-empty string`);
+    }
+    matcher.tool = value.tool.trim();
+  }
+  if (value.commandRegex !== undefined) {
+    if (typeof value.commandRegex !== "string" || value.commandRegex.length === 0) {
+      throw new Error(`Hook ${event} matcher commandRegex must be a non-empty string`);
+    }
+    assertValidRegex(event, "commandRegex", value.commandRegex);
+    matcher.commandRegex = value.commandRegex;
+  }
+  if (value.pathRegex !== undefined) {
+    if (typeof value.pathRegex !== "string" || value.pathRegex.length === 0) {
+      throw new Error(`Hook ${event} matcher pathRegex must be a non-empty string`);
+    }
+    assertValidRegex(event, "pathRegex", value.pathRegex);
+    matcher.pathRegex = value.pathRegex;
+  }
+  if (value.provider !== undefined) {
+    if (typeof value.provider !== "string" || value.provider.trim().length === 0) {
+      throw new Error(`Hook ${event} matcher provider must be a non-empty string`);
+    }
+    matcher.provider = value.provider.trim();
+  }
+  if (value.workspaceMode !== undefined) {
+    if (value.workspaceMode !== "checkout" && value.workspaceMode !== "worktree") {
+      throw new Error(`Hook ${event} matcher workspaceMode must be checkout or worktree`);
+    }
+    matcher.workspaceMode = value.workspaceMode;
+  }
+
+  const knownKeys = new Set(["tool", "commandRegex", "pathRegex", "provider", "workspaceMode"]);
+  const unknownKey = Object.keys(value).find((key) => !knownKeys.has(key));
+  if (unknownKey) {
+    throw new Error(`Unknown Hook ${event} matcher field: ${unknownKey}`);
+  }
+
+  return matcher;
 }
 
 function parseHookHandler(event: HookEvent, value: unknown, index: number): HookHandler {
   if (!isRecord(value)) {
     throw new Error(`Hook ${event} handler ${index + 1} must be an object`);
+  }
+
+  const name = value.name === undefined
+    ? undefined
+    : typeof value.name === "string" && value.name.trim().length > 0
+      ? value.name.trim()
+      : null;
+  if (name === null) {
+    throw new Error(`Hook ${event} name must be a non-empty string when provided`);
   }
 
   const command = typeof value.command === "string" ? value.command.trim() : "";
@@ -232,7 +482,105 @@ function parseHookHandler(event: HookEvent, value: unknown, index: number): Hook
     );
   }
 
-  return { command, timeoutSeconds };
+  const report = value.report ?? true;
+  if (typeof report !== "boolean") {
+    throw new Error(`Hook ${event} report must be a boolean`);
+  }
+
+  return { name: name ?? undefined, command, timeoutSeconds, report };
+}
+
+function assertValidRegex(event: HookEvent, field: string, pattern: string): void {
+  try {
+    new RegExp(pattern);
+  } catch {
+    throw new Error(`Hook ${event} matcher ${field} must be a valid regular expression`);
+  }
+}
+
+interface ProjectHookLoadResult {
+  hooks: HookConfig;
+  diagnostic?: string;
+}
+
+async function loadProjectHookConfig(workspaceRoot: string): Promise<ProjectHookLoadResult> {
+  const path = join(workspaceRoot, PROJECT_HOOKS_PATH);
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+      return { hooks: {} };
+    }
+    return {
+      hooks: {},
+      diagnostic: `Could not read project hooks at ${path}: ${errorMessage(error)}`,
+    };
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(content);
+  } catch (error) {
+    return {
+      hooks: {},
+      diagnostic: `Invalid project hooks JSON at ${path}: ${errorMessage(error)}`,
+    };
+  }
+
+  try {
+    return { hooks: parseHookConfig(value) };
+  } catch (error) {
+    return {
+      hooks: {},
+      diagnostic: `Invalid project hooks at ${path}: ${errorMessage(error)}`,
+    };
+  }
+}
+
+function hookRuleMatches(
+  matcher: HookMatcher | undefined,
+  invocation: HookInvocation,
+): boolean {
+  if (!matcher) return true;
+
+  if (matcher.workspaceMode && invocation.workspaceMode !== matcher.workspaceMode) return false;
+
+  if (matcher.tool) {
+    if (typeof invocation.payload?.tool !== "string" || invocation.payload.tool !== matcher.tool) {
+      return false;
+    }
+  }
+
+  if (matcher.commandRegex) {
+    const command = invocation.payload?.command;
+    if (typeof command !== "string" || !new RegExp(matcher.commandRegex).test(command)) {
+      return false;
+    }
+  }
+
+  if (matcher.pathRegex) {
+    const pathRegex = matcher.pathRegex;
+    const pathPattern = new RegExp(pathRegex);
+    const path = invocation.payload?.path;
+    const paths = invocation.payload?.paths;
+    const matchesPath = typeof path === "string" && pathPattern.test(path);
+    const matchesPaths = Array.isArray(paths) && paths.some((entry) =>
+      typeof entry === "string" && new RegExp(pathRegex).test(entry)
+    );
+    if (!matchesPath && !matchesPaths) return false;
+  }
+
+  if (matcher.provider) {
+    if (
+      typeof invocation.payload?.provider !== "string" ||
+      invocation.payload.provider !== matcher.provider
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function hookEnvironment(
@@ -328,6 +676,10 @@ function hookFailureOutput(stdout: string, stderr: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
