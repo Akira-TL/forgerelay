@@ -189,6 +189,19 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 
 若某个项目 Hook 文件 JSON 或 schema 无效，ForgeRelay 会返回 `Project hooks config` diagnostic，同时继续加载其他有效项目 Hook，并保持 workspace/tool 可用，让 Agent 可以直接修复出错文件。
 
+### 检查 Hook 配置
+
+CLI 可以只读检查规则，不会启动 MCP server，也不会执行 Hook：
+
+```bash
+forgerelay hooks list
+forgerelay hooks check
+forgerelay hooks list --project /path/to/project
+forgerelay hooks check --project /path/to/project
+```
+
+不传 `--project` 时使用当前目录。`list` 展示实际加载的全局与项目规则，包括 event、matcher、timeout、`report` 和 command；`check` 只做解析与 schema 校验，成功时输出全局/项目 Hook 数量，发现坏的全局或项目文件时返回非零状态。
+
 `matcher` 当前支持：
 
 | 字段 | 匹配方式 |

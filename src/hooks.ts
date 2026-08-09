@@ -528,12 +528,12 @@ function assertValidRegex(event: HookEvent, field: string, pattern: string): voi
   }
 }
 
-interface ProjectHookLoadResult {
+export interface ProjectHookLoadResult {
   hooks: HookConfig;
   diagnostic?: string;
 }
 
-async function loadProjectHookConfig(workspaceRoot: string): Promise<ProjectHookLoadResult> {
+export async function loadProjectHookConfig(workspaceRoot: string): Promise<ProjectHookLoadResult> {
   let hooks: HookConfig = {};
   const diagnostics: string[] = [];
   const aggregatePath = join(workspaceRoot, PROJECT_HOOKS_PATH);

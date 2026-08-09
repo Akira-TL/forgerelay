@@ -71,6 +71,7 @@ Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生�
 - `BeforeTool` / `BeforeWorktreeClose` 阻断语义；
 - observational after-events；
 - Agent 可见 Hook report；
+- `forgerelay hooks list` / `hooks check` 只读检查入口；
 - `WorkspaceOpen`、tool、文件变更、worktree 与 subagent 生命周期；
 - 项目 Hook 配置损坏时可见且可修复的 diagnostic；
 - 7677 真实网络验收中的 release-tag-push 本地验证场景。

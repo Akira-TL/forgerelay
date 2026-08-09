@@ -142,7 +142,15 @@ Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一
 
 旧的 inline `hooks` 和聚合 `hooks.json` 仍兼容；新配置建议都用独立 `hooks/*.json` 文件。
 
-完整 matcher、事件与环境变量见 [Configuration Reference](docs/configuration.md#lifecycle-hooks)。
+可以直接检查当前全局与项目规则，而不会执行 Hook：
+
+```bash
+forgerelay hooks list
+forgerelay hooks check
+forgerelay hooks list --project /path/to/project
+```
+
+`list` 展示实际加载的规则、matcher、timeout、report 与 command；`check` 只校验配置并在发现坏文件时返回非零状态。完整 matcher、事件与环境变量见 [Configuration Reference](docs/configuration.md#lifecycle-hooks)。
 
 ## Local coding agents
 

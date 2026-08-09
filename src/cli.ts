@@ -12,6 +12,7 @@ import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
 import { formatVisibleHookReports, HookRunner } from "./hooks.js";
+import { runHooksCommand } from "./hook-cli.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
   isLocalAgentProvider,
@@ -41,7 +42,7 @@ import {
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 
-type Command = "serve" | "init" | "doctor" | "config" | "agents" | "help" | "version";
+type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
 const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
@@ -65,6 +66,9 @@ async function main(argv: string[]): Promise<void> {
     case "config":
       runConfigCommand(args);
       return;
+    case "hooks":
+      await runHooksCommand(args);
+      return;
     case "agents":
       await runAgentsCommand(args);
       return;
@@ -79,7 +83,7 @@ async function main(argv: string[]): Promise<void> {
 
 function normalizeCommand(command: string | undefined): Command {
   if (!command || command === "serve" || command === "start") return "serve";
-  if (command === "init" || command === "doctor" || command === "config" || command === "agents") return command;
+  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents") return command;
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
   throw new Error(`Unknown command: ${command}`);
@@ -312,6 +316,8 @@ function printHelp(): void {
       "  forgerelay doctor          Show config, runtime, and native dependency status",
       "  forgerelay config get      Print persisted config",
       "  forgerelay config set publicBaseUrl <url|null>",
+      "  forgerelay hooks list [--project <path>]",
+      "  forgerelay hooks check [--project <path>]",
       "  forgerelay agents ls       List subagent sessions",
       "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
       "  forgerelay agents show <id>",

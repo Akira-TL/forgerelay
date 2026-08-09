@@ -10,6 +10,7 @@ All notable ForgeRelay changes are documented here.
 - 用户或 Agent 可写的生命周期 Hook，覆盖 workspace、MCP tool、明确文件变更、managed-worktree close 与本地 subagent 生命周期。
 - 首选的一 Hook 一文件配置：全局 `hooks/<hook-name>.json` 与项目 `.forgerelay/hooks/<hook-name>.json` 自动组合，文件名直接作为 Hook 名并按文件名稳定排序；旧 inline/聚合格式继续兼容。
 - 独立 Hook 的 `event + matcher + command`、bounded timeout 与 `report` 配置；可报告结果进入 Agent 可见返回，阻断失败始终可见。
+- 只读的 `forgerelay hooks list` / `hooks check` CLI，用于查看实际加载规则和在不执行 Hook 的情况下校验全局/项目配置。
 - `BeforeTool` 与 `BeforeWorktreeClose` 阻断语义，以及不会伪装回滚已完成操作的 observational after-events。
 - 通过 `FORGERELAY_HOOK_*` 和 workspace 环境变量提供生命周期上下文，同时避免暴露 native-file credentials 或 subagent prompts。
 - 异步 subagent Hook report 的 session 持久化与 `agents show` 展示。
