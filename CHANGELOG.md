@@ -6,6 +6,8 @@ All notable ForgeRelay changes are documented here.
 
 ### Changed
 
+- GitHub CI now runs only when explicitly dispatched after local validation; ordinary branch pushes and pull-request updates no longer start CI automatically.
+- Release automation now triggers only for stable `vX.Y.Z` version tags; ordinary branch pushes never enter the publication workflow.
 - Global system instructions now come from exactly one configured file, defaulting to `~/.agents/AGENTS.md`; `FORGERELAY_AGENT_DIR` remains a skill-compatibility path rather than an instruction source.
 
 ### Fixed

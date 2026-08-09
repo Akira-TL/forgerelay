@@ -94,12 +94,18 @@ npm run release:tag-check -- v0.1.0
 A release tag must exactly equal `v` followed by the package version, and
 `Unreleased` must be empty.
 
-## Tag-triggered publishing
+## CI and tag-triggered publishing
 
-`.github/workflows/release.yml` runs for tags matching `v*.*.*` in the
-`Akira-TL/forgerelay` repository. The release helper performs the strict SemVer
-validation; tags that only match the broad GitHub glob but not the package
-version are rejected.
+`.github/workflows/ci.yml` does not run on ordinary branch pushes or pull-request
+updates. Run the full local gate first, push the reviewed commits, then explicitly
+start CI with `gh workflow run ci.yml --ref main` (or the GitHub Actions UI).
+Cloud CI is a second verification layer after local validation, not a substitute
+for it.
+
+`.github/workflows/release.yml` runs only for stable SemVer tags matching
+`v[0-9]+.[0-9]+.[0-9]+` in the `Akira-TL/forgerelay` repository. The release
+helper then requires the tag to exactly equal `v` plus the package version.
+Ordinary branch pushes never enter the publication workflow.
 
 For a valid tag, the workflow:
 
@@ -154,7 +160,13 @@ npm publishing token.
 4. Review the generated version and changelog diff.
 5. Run `npm run release:verify`.
 6. Commit the release-ready code and metadata and push `main`.
-7. Create the exact version tag, for example:
+7. Explicitly run cloud CI and confirm it passes:
+
+   ```bash
+   gh workflow run ci.yml --ref main
+   ```
+
+8. Create the exact version tag, for example:
 
    ```bash
    git tag v0.2.0
