@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Local console logging now defaults to a compact Loguru-style `pretty` format focused on Agent operations: short timestamps, workspace/session context, tool or Hook action, target, and `ok`/`error` or shell exit status. HTTP request logging is off by default in human mode, while explicit `json` mode keeps the previous request-on and shell-command-off machine defaults.
+
+### Fixed
+
+- File and search tools can access and modify files in the operating system temporary directory without making that directory an implicit workspace root; Codex `apply_patch` supports absolute OS-temp paths while workspace patch paths remain relative.
+
+### Security
+
+- 文件工具在 workspace 与 OS temp 边界内都会校验 canonical path，阻止通过 symlink 跳转到任意文件系统位置；shell cwd 与 workspace-open allowed roots 不随 temp 文件访问而扩大。
+
 ## [0.2.0] - 2026-08-09
 
 ### Added
@@ -17,19 +29,13 @@ All notable ForgeRelay changes are documented here.
 - 通过 `FORGERELAY_HOOK_*` 和 workspace 环境变量提供生命周期上下文，同时避免暴露 native-file credentials 或 subagent prompts。
 - 异步 subagent Hook report 的 session 持久化与 `agents show` 展示。
 
-### Changed
-
-- Local console logging now defaults to a compact Loguru-style `pretty` format focused on Agent operations: short timestamps, workspace/session context, tool or Hook action, target, and `ok`/`error` or shell exit status. HTTP request logging is off by default in human mode, while explicit `json` mode keeps the previous request-on and shell-command-off machine defaults.
-
 ### Fixed
 
-- File and search tools can access and modify files in the operating system temporary directory without making that directory an implicit workspace root; Codex `apply_patch` supports absolute OS-temp paths while workspace patch paths remain relative.
 - MCP `initialize` now reports the package version from `package.json` instead of a stale hardcoded `0.1.0` server version.
 - Hook commands on Windows preserve quoted arguments when executed through `cmd.exe`, fixing release-gate and other Hook commands that reference absolute paths.
 
 ### Security
 
-- 文件工具在 workspace 与 OS temp 边界内都会校验 canonical path，阻止通过 symlink 跳转到任意文件系统位置；shell cwd 与 workspace-open allowed roots 不随 temp 文件访问而扩大。
 - 项目 Hook 作为 allowed-root 内项目执行约定自动生效，不需要批准；Hook 文件只能声明生命周期规则，不能扩大 allowed roots、修改认证配置或覆盖全局规则。
 - 无效项目 Hook 配置会作为 Agent 可见 diagnostic 返回，同时保持工具可用；独立目录中的坏文件会被跳过，其他有效 Hook 继续加载，避免 Agent 因写坏单个规则而无法修复。
 
