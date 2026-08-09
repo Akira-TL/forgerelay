@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-09
+
 ### Changed
 
 - Local console logging now defaults to a compact Loguru-style `pretty` format focused on Agent operations: short timestamps, workspace/session context, tool or Hook action, target, and `ok`/`error` or shell exit status. HTTP request logging is off by default in human mode, while explicit `json` mode keeps the previous request-on and shell-command-off machine defaults.
