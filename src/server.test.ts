@@ -185,7 +185,10 @@ test("close_worktree commits and fast-forwards a managed worktree through the MC
   assert.equal(structured.committed, true);
   assert.equal(structured.branch, worktree.branch);
   assert.equal(structured.targetBranch, worktree.targetBranch);
-  assert.equal(await readFile(join(context.project, "feature.txt"), "utf8"), "finished\n");
+  assert.equal(
+    (await readFile(join(context.project, "feature.txt"), "utf8")).replace(/\r\n/g, "\n"),
+    "finished\n",
+  );
   assert.match(responseText(closed), /fast-forward/);
 });
 
