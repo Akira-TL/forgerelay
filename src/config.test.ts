@@ -226,6 +226,10 @@ writeFileSync(
     workflowInstructions: false,
     appendInstructions: "Follow repository workflow instructions.",
     systemInstructionsPath: "~/configured-system.md",
+    hooks: {
+      WorkspaceOpen: [{ command: "echo opened" }],
+      BeforeWorktreeClose: [{ command: "npm test", timeoutSeconds: 45 }],
+    },
   }),
 );
 writeFileSync(
@@ -245,9 +249,45 @@ assert.equal(fileConfig.artifactMaxFileBytes, 321);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));
+assert.deepEqual(fileConfig.hooks, {
+  WorkspaceOpen: [{ command: "echo opened", timeoutSeconds: 30 }],
+  BeforeWorktreeClose: [{ command: "npm test", timeoutSeconds: 45 }],
+});
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",
   "::1",
   "devspace.example.com",
 ]);
+
+const invalidHooksConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-invalid-hooks-test-"));
+writeFileSync(
+  join(invalidHooksConfigDir, "config.json"),
+  JSON.stringify({ hooks: { UnknownEvent: [{ command: "echo nope" }] } }),
+);
+writeFileSync(
+  join(invalidHooksConfigDir, "auth.json"),
+  JSON.stringify({ ownerToken: "persisted-owner-token-long-enough" }),
+);
+assert.throws(
+  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  /Unknown ForgeRelay hook event: UnknownEvent/,
+);
+
+writeFileSync(
+  join(invalidHooksConfigDir, "config.json"),
+  JSON.stringify({ hooks: { BeforeTool: [{ command: "   " }] } }),
+);
+assert.throws(
+  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  /Hook BeforeTool command must be a non-empty string/,
+);
+
+writeFileSync(
+  join(invalidHooksConfigDir, "config.json"),
+  JSON.stringify({ hooks: { BeforeTool: [{ command: "echo ok", timeoutSeconds: 0 }] } }),
+);
+assert.throws(
+  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  /Hook BeforeTool timeoutSeconds must be an integer between 1 and 300/,
+);

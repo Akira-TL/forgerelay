@@ -41,6 +41,7 @@ try {
     await testSymlinkRejection(join(root, "symlinks"));
     await testPublicationFailurePreservesReplacement(join(root, "publication-race"));
     await testPublishedPermissions(join(root, "permissions"));
+    await testArtifactHookLifecycle(join(root, "hook-lifecycle"));
   } else {
     await testUnsupportedPlatform(join(root, "unsupported-platform"));
   }
@@ -68,6 +69,7 @@ function testOneToolContract(): void {
       logging: { toolCalls: false },
     } as never,
     workspaces: {} as never,
+    hooks: {} as never,
   });
 
   assert.deepEqual([...registered.keys()], ["download_artifact"]);
@@ -95,6 +97,77 @@ function testOneToolContract(): void {
   });
   assert.equal(rejected.success, false);
   assert.equal(JSON.stringify(rejected).includes(sensitiveExtraValue), false);
+}
+
+async function testArtifactHookLifecycle(workspaceRoot: string): Promise<void> {
+  await mkdir(workspaceRoot, { recursive: true });
+  const registered = new Map<string, { callback: (input: Record<string, unknown>) => Promise<unknown> }>();
+  const server = {
+    registerTool(
+      name: string,
+      _descriptor: Record<string, unknown>,
+      callback: (input: Record<string, unknown>) => Promise<unknown>,
+    ) {
+      registered.set(name, { callback });
+      return {};
+    },
+  };
+  const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
+  const hooks = {
+    async run(event: string, invocation: { payload?: Record<string, unknown> }) {
+      events.push({ event, payload: invocation.payload ?? {} });
+    },
+  };
+  const adapter: IncomingArtifactAdapter = {
+    id: "hook-test-native",
+    canHandle: () => true,
+    async open() {
+      return {
+        name: "artifact.txt",
+        size: 5,
+        stream: Readable.from([Buffer.from("hello")]),
+      };
+    },
+  };
+
+  registerArtifactTools(server as never, {
+    config: {
+      artifactMaxFileBytes: 1024,
+      logging: { toolCalls: false },
+    } as never,
+    workspaces: {
+      getWorkspace: () => ({
+        id: "ws_artifact",
+        root: workspaceRoot,
+        mode: "checkout",
+      }),
+    } as never,
+    hooks: hooks as never,
+    incomingArtifactAdapters: [adapter],
+  });
+
+  const callback = registered.get("download_artifact")?.callback;
+  assert.ok(callback);
+  const result = await callback({
+    workspaceId: "ws_artifact",
+    path: "downloads/artifact.txt",
+    file: {
+      download_url: "https://files.example.test/download?secret=must-not-leak",
+      file_id: "file_secret",
+    },
+  }) as { structuredContent?: { path?: string } };
+
+  assert.equal(result.structuredContent?.path, "downloads/artifact.txt");
+  assert.equal(await readFile(join(workspaceRoot, "downloads", "artifact.txt"), "utf8"), "hello");
+  assert.deepEqual(events.map((entry) => entry.event), ["BeforeTool", "AfterTool", "AfterFileChange"]);
+  assert.deepEqual(events[0]?.payload, { tool: "download_artifact", path: "downloads/artifact.txt" });
+  assert.deepEqual(events[2]?.payload, {
+    tool: "download_artifact",
+    path: "downloads/artifact.txt",
+    paths: ["downloads/artifact.txt"],
+  });
+  assert.equal(JSON.stringify(events).includes("file_secret"), false);
+  assert.equal(JSON.stringify(events).includes("must-not-leak"), false);
 }
 
 function testPlatformSupportContract(): void {

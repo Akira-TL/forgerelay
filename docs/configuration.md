@@ -136,6 +136,76 @@ programs when the optional `node-pty` dependency is available.
 | `changes` | Attach UI to `open_workspace` and aggregate `show_changes`. |
 | `off` | Disable widget UI. |
 
+## Lifecycle hooks
+
+Hooks v1 is configured only in the user-controlled ForgeRelay `config.json`.
+ForgeRelay does not discover or execute hook definitions from a repository just
+because that repository was opened.
+
+A hook event maps to an ordered array of local command handlers:
+
+```json
+{
+  "hooks": {
+    "BeforeWorktreeClose": [
+      { "command": "npm test", "timeoutSeconds": 120 }
+    ],
+    "AfterFileChange": [
+      { "command": "./scripts/refresh-generated-state.sh" }
+    ]
+  }
+}
+```
+
+`timeoutSeconds` defaults to `30` and must be an integer from `1` through `300`.
+Handlers for one event run sequentially in configuration order.
+
+Supported events:
+
+| Event | Semantics |
+| --- | --- |
+| `WorkspaceOpen` | Observes creation of a new workspace session. Reusing an existing workspace does not fire it again. |
+| `BeforeTool` | Runs before a workspace-scoped MCP tool. A failed or timed-out handler prevents the tool operation. `open_workspace` is excluded because no workspace exists before it opens. |
+| `AfterTool` | Observes a successful workspace-scoped MCP tool call. |
+| `AfterToolFailure` | Observes a failed or rejected workspace-scoped MCP tool call, including a `BeforeTool` rejection. |
+| `AfterFileChange` | Observes successful explicit file mutations such as `write`, `edit`, `apply_patch`, and native artifact publication. Shell side effects are not inferred. |
+| `BeforeWorktreeClose` | Runs before commit, fast-forward integration, or cleanup. Failure preserves the managed worktree and blocks close. |
+| `AfterWorktreeClose` | Observes a successful managed-worktree close. Its command runs from the source checkout because the managed worktree may already be removed. |
+| `SubagentStart` | Observes a local subagent worker entering execution. |
+| `SubagentStop` | Observes a local subagent worker completing or entering an error state. |
+
+`WorkspaceOpen`, `AfterTool`, `AfterToolFailure`, `AfterFileChange`,
+`AfterWorktreeClose`, `SubagentStart`, and `SubagentStop` are observational. A
+failure in one of those handlers is logged and does not roll back an operation
+that has already happened; later handlers for the same event still run.
+
+Blocking is not transactional. A failing `BeforeTool` or `BeforeWorktreeClose`
+handler prevents the pending ForgeRelay operation, but any filesystem, process,
+or network side effects produced by the hook command itself remain the user's
+responsibility.
+
+Hook commands inherit the ForgeRelay process environment and receive lifecycle
+context through these variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `FORGERELAY_HOOK_EVENT` | Current event name. |
+| `FORGERELAY_HOOK_PAYLOAD` | JSON object containing event-specific metadata. |
+| `FORGERELAY_WORKSPACE_ROOT` | Workspace root associated with the event. |
+| `FORGERELAY_WORKSPACE_ID` | Workspace ID when the caller has one. Direct CLI subagent runs may omit it. |
+| `FORGERELAY_WORKSPACE_MODE` | `checkout` or `worktree` when known. |
+| `FORGERELAY_SOURCE_ROOT` | Source checkout for managed-worktree events when applicable. |
+| `FORGERELAY_TOOL_NAME` | MCP tool name for tool lifecycle events. |
+
+Payloads contain metadata needed for policy and automation, not file contents,
+native file credentials, or subagent prompts. Additional metadata keys may be
+added while ForgeRelay remains pre-1.0; handlers should ignore keys they do not
+use.
+
+Hook commands execute with the same local-user authority as ForgeRelay itself.
+See [Security Model](security.md) before enabling commands from shared machine
+configuration.
+
 ## System instructions
 
 ForgeRelay loads exactly one global system-instructions file. The default is

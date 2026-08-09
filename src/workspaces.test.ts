@@ -68,6 +68,27 @@ test("a checkout loads one configured system instruction plus project context", 
   }
 });
 
+test("WorkspaceOpen hook runs once when a workspace session is created", async (t) => {
+  const context = await fixture(t);
+  const hookScript = join(context.root, "workspace-open-hook.mjs");
+  await writeFile(
+    hookScript,
+    'import { appendFileSync } from "node:fs"; appendFileSync("workspace-open.log", process.env.FORGERELAY_HOOK_EVENT + "\\n");\n',
+  );
+  const registry = new WorkspaceRegistry({
+    ...context.config,
+    hooks: {
+      WorkspaceOpen: [{ command: `node "${hookScript}"`, timeoutSeconds: 30 }],
+    },
+  });
+
+  const first = await registry.openWorkspace(context.root);
+  const second = await registry.openWorkspace(context.root);
+
+  assert.equal(second.workspace.id, first.workspace.id);
+  assert.equal(await readFile(join(context.root, "workspace-open.log"), "utf8"), "WorkspaceOpen\n");
+});
+
 test("opening a missing checkout creates its workspace root", async (t) => {
   const context = await fixture(t);
   const missingRoot = join(context.root, "missing", "workspace");
@@ -144,6 +165,55 @@ test("closing a managed worktree commits, fast-forwards the target branch, and c
   await assert.rejects(() => stat(worktreePath), /ENOENT/);
   assert.equal((await gitOutput(gitRoot, ["branch", "--list", branch])).trim(), "");
   assert.throws(() => context.registry.getWorkspace(opened.workspace.id), /Unknown workspaceId/);
+});
+
+test("worktree close hooks block before integration and observe successful close", async (t) => {
+  const context = await fixture(t);
+  const gitRoot = await createGitProject(context.root);
+  const beforeScript = join(gitRoot, "before-close.mjs");
+  const afterScript = join(gitRoot, "after-close.mjs");
+  await writeFile(
+    beforeScript,
+    'import { appendFileSync } from "node:fs"; appendFileSync("close-hooks.log", "before\\n"); if (process.env.FORGERELAY_HOOK_PAYLOAD?.includes("deny")) process.exit(12);\n',
+  );
+  await writeFile(
+    afterScript,
+    'import { appendFileSync } from "node:fs"; appendFileSync("close-hooks.log", "after\\n");\n',
+  );
+  await git(gitRoot, ["add", "."]);
+  await git(gitRoot, ["commit", "-m", "Add hook fixtures"]);
+
+  const blockingRegistry = new WorkspaceRegistry({
+    ...context.config,
+    hooks: {
+      BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
+    },
+  });
+  const blocked = await blockingRegistry.openWorkspace({ path: gitRoot, mode: "worktree" });
+  await writeFile(join(blocked.workspace.root, "feature.txt"), "blocked\n");
+
+  await assert.rejects(
+    () => blockingRegistry.closeWorktree(blocked.workspace.id, "deny close"),
+    /BeforeWorktreeClose handler 1 exited with code 12/,
+  );
+  assert.equal((await stat(blocked.workspace.root)).isDirectory(), true);
+  assert.equal((await gitOutput(gitRoot, ["status", "--porcelain=v1"])).trim(), "");
+
+  const observingRegistry = new WorkspaceRegistry({
+    ...context.config,
+    hooks: {
+      BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
+      AfterWorktreeClose: [{ command: `node "${afterScript}"`, timeoutSeconds: 30 }],
+    },
+  });
+  const opened = await observingRegistry.openWorkspace({ path: gitRoot, mode: "worktree", newWorktree: true });
+  await writeFile(join(opened.workspace.root, "feature.txt"), "finished\n");
+  await observingRegistry.closeWorktree(opened.workspace.id, "feat: close with hooks");
+
+  assert.equal(
+    (await readFile(join(gitRoot, "close-hooks.log"), "utf8")).replace(/\r\n/g, "\n"),
+    "before\nafter\n",
+  );
 });
 
 test("closing a managed worktree refuses a dirty source checkout and preserves the worktree", async (t) => {

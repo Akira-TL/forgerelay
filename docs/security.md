@@ -99,6 +99,30 @@ The security model is therefore based on:
 
 Do not describe ForgeRelay as a sandboxed coding environment.
 
+## Lifecycle hooks
+
+Hook commands are local code execution. They run with the same operating-system
+user authority as ForgeRelay and inherit its process environment, so only put
+commands you trust in the active ForgeRelay `config.json`.
+
+ForgeRelay Hooks v1 deliberately does **not** auto-discover hook configuration
+from an opened repository. Opening an untrusted checkout therefore does not, by
+itself, grant that checkout a new command-execution path through lifecycle
+hooks. Repository-local hooks would require a separate explicit trust or approval
+model before they could be supported safely.
+
+`BeforeTool` and `BeforeWorktreeClose` are enforcement points: failure or timeout
+blocks the pending operation. The remaining v1 events are observational; their
+failures are logged instead of rolling back work that has already completed.
+
+Hook payloads expose lifecycle metadata but intentionally avoid file contents,
+native-file credentials, and subagent prompts. Shell command metadata may still
+contain sensitive arguments when a tool hook observes a shell tool, so hook
+handlers and their own logging should treat payloads as potentially sensitive.
+
+See [Configuration Reference](configuration.md#lifecycle-hooks) for the event and
+environment contract.
+
 ## Git and managed worktrees
 
 Managed worktrees are branch-backed and visible in the source repository.

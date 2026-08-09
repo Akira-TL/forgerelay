@@ -8,6 +8,7 @@ import type {
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { ServerConfig } from "./config.js";
+import { HookRunner } from "./hooks.js";
 import {
   closeManagedWorktree,
   createManagedWorktree,
@@ -110,11 +111,14 @@ type DirectoryOps = {
 export class WorkspaceRegistry {
   private readonly workspaces = new Map<string, Workspace>();
   private readonly pendingOpens = new Map<string, Promise<WorkspaceContext>>();
+  private readonly hooks: HookRunner;
 
   constructor(
     private readonly config: ServerConfig,
     private readonly store?: WorkspaceStore,
-  ) {}
+  ) {
+    this.hooks = new HookRunner(config.hooks, config.logging);
+  }
 
   async openWorkspace(
     input: string | OpenWorkspaceInput,
@@ -183,10 +187,39 @@ export class WorkspaceRegistry {
       detached: false,
       managed: true,
     };
+    await this.hooks.run("BeforeWorktreeClose", {
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.root,
+      workspaceMode: workspace.mode,
+      sourceRoot: workspace.sourceRoot,
+      payload: {
+        commitMessage,
+        branch: managedWorktree.branch,
+        targetBranch: managedWorktree.targetBranch,
+      },
+    });
+
     const result = await closeManagedWorktree({
       worktree: managedWorktree,
       commitMessage,
       config: this.config,
+    });
+
+    await this.hooks.run("AfterWorktreeClose", {
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.root,
+      workspaceMode: workspace.mode,
+      sourceRoot: workspace.sourceRoot,
+      cwd: result.sourceRoot,
+      payload: {
+        commitMessage,
+        branch: result.branch,
+        targetBranch: result.targetBranch,
+        commitSha: result.commitSha,
+        mergedSha: result.mergedSha,
+        committed: result.committed,
+        cleanupWarning: result.cleanupWarning,
+      },
     });
 
     this.store?.setSessionStatus(workspace.id, "closed");
@@ -526,6 +559,18 @@ export class WorkspaceRegistry {
       managed: workspace.worktree?.managed,
     });
     this.workspaces.set(workspace.id, workspace);
+    await this.hooks.run("WorkspaceOpen", {
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.root,
+      workspaceMode: workspace.mode,
+      sourceRoot: workspace.sourceRoot,
+      payload: {
+        mode: workspace.mode,
+        sourceRoot: workspace.sourceRoot,
+        branch: workspace.worktree?.branch,
+        targetBranch: workspace.worktree?.targetBranch,
+      },
+    });
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
 

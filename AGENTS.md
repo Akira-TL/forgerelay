@@ -37,6 +37,20 @@ These ideas should stay true as the project evolves:
 
 Use these terms precisely. In particular, do not use workspace, allowed root, checkout, and worktree interchangeably.
 
+## Agent skills
+
+### Issue tracker
+
+Work is tracked in GitHub Issues for `Akira-TL/forgerelay`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the canonical triage label vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+ForgeRelay uses a single domain context. Read `CONTEXT.md` and relevant ADRs under `docs/adr/` before feature or architecture work. See `docs/agents/domain.md`.
+
 ## Security boundaries
 
 Filesystem tools enforce approved-root containment. Shell commands run with the local user's authority and are not a general sandbox. Never imply that shell execution is contained merely because file tools are contained.

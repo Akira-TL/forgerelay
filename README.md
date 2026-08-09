@@ -90,7 +90,9 @@ Once a workspace is open, the host can:
   parallel work;
 - close a managed worktree by committing its remaining changes and
   fast-forwarding the target branch when that can be done safely;
-- show aggregate changes through optional ChatGPT Apps-compatible UI cards.
+- show aggregate changes through optional ChatGPT Apps-compatible UI cards;
+- run user-configured lifecycle hooks around tool calls, file changes, managed
+  worktree close, and local subagent execution.
 
 Normal work happens in your existing checkout. ForgeRelay does not silently move
 every task into a worktree.
@@ -116,6 +118,32 @@ When `close_worktree` succeeds, ForgeRelay:
 If the histories have diverged, the close is refused and the worktree is left in
 place. ForgeRelay does not put the source checkout into a merge-conflict state.
 You can rebase and verify inside the worktree, then retry the close.
+
+## Lifecycle hooks
+
+Hooks let you put local policy and automation around ForgeRelay without turning
+the project into a plugin host. They live in your ForgeRelay config, not in the
+repository being opened.
+
+For example, you can require tests before a managed worktree is integrated:
+
+```json
+{
+  "hooks": {
+    "BeforeWorktreeClose": [
+      { "command": "npm test", "timeoutSeconds": 120 }
+    ]
+  }
+}
+```
+
+`BeforeTool` and `BeforeWorktreeClose` can block the operation. Events that run
+after something has happened are observational: a broken notification or cleanup
+hook is logged, but it does not pretend to undo an already-completed edit or Git
+operation.
+
+See [Configuration Reference](docs/configuration.md#lifecycle-hooks) for the full
+event list and hook environment.
 
 ## Local coding agents
 
@@ -200,11 +228,10 @@ forgerelay doctor
 The next additions are focused on making the local execution layer more useful,
 not on turning ForgeRelay into another all-in-one agent framework:
 
-1. lifecycle hooks;
-2. LSP-backed code intelligence;
-3. first-class MCP subagent delegation;
-4. stronger worktree verification and recovery;
-5. checkpoint/rewind and retention improvements.
+1. LSP-backed code intelligence;
+2. first-class MCP subagent delegation;
+3. stronger worktree verification and recovery;
+4. checkpoint/rewind and retention improvements.
 
 ForgeRelay does not plan to add its own shell sandbox, long-term memory system,
 or plugin marketplace. Conversation, planning, web access, and other host-native

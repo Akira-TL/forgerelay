@@ -8,6 +8,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
+import type { HookConfigInput } from "./hooks.js";
 
 export interface ForgeRelayUserConfig {
   host?: string;
@@ -24,6 +25,7 @@ export interface ForgeRelayUserConfig {
   agentDir?: string;
   systemInstructionsPath?: string;
   subagents?: boolean;
+  hooks?: HookConfigInput;
 }
 
 export interface ForgeRelayAuthConfig {

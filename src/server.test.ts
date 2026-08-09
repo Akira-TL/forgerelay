@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadConfig, type ServerConfig } from "./config.js";
+import type { HookConfig } from "./hooks.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { ProcessSessionManager } from "./process-sessions.js";
 import { createMcpServer } from "./server.js";
@@ -154,6 +155,76 @@ test("worktree mode reuses by default and only creates another worktree explicit
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
+test("tool hooks observe success, failure, and file changes through the MCP surface", async (t) => {
+  const recordCommand = `node -e "require('node:fs').appendFileSync('tool-hooks.log', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')"`;
+  const handler = { command: recordCommand, timeoutSeconds: 30 };
+  const context = await fixture(t, {
+    hooks: {
+      BeforeTool: [handler],
+      AfterTool: [handler],
+      AfterToolFailure: [handler],
+      AfterFileChange: [handler],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "chat-hooks");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId, path: "hooked.txt", content: "hello\n" },
+  });
+  const failedEdit = await context.client.callTool({
+    name: "edit",
+    arguments: {
+      workspaceId,
+      path: "hooked.txt",
+      edits: [{ oldText: "missing", newText: "replacement" }],
+    },
+  });
+
+  assert.equal(failedEdit.isError, true);
+  assert.equal(
+    (await readFile(join(context.project, "tool-hooks.log"), "utf8")).replace(/\r\n/g, "\n"),
+    [
+      "BeforeTool:write",
+      "AfterTool:write",
+      "AfterFileChange:write",
+      "BeforeTool:edit",
+      "AfterToolFailure:edit",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("BeforeTool hook failure prevents the tool operation", async (t) => {
+  const context = await fixture(t, {
+    hooks: {
+      BeforeTool: [{
+        command: `node -e "if (process.env.FORGERELAY_TOOL_NAME === 'write') process.exit(13)"`,
+        timeoutSeconds: 30,
+      }],
+      AfterToolFailure: [{
+        command: `node -e "require('node:fs').appendFileSync('blocked-hook.log', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')"`,
+        timeoutSeconds: 30,
+      }],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "chat-hook-block");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const blocked = await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId, path: "blocked.txt", content: "must not exist\n" },
+  });
+  assert.equal(blocked.isError, true);
+  assert.match(responseText(blocked), /BeforeTool handler 1 exited with code 13/);
+  await assert.rejects(() => readFile(join(context.project, "blocked.txt"), "utf8"), /ENOENT/);
+  assert.equal(
+    (await readFile(join(context.project, "blocked-hook.log"), "utf8")).replace(/\r\n/g, "\n"),
+    "AfterToolFailure:write\n",
+  );
+});
+
 test("close_worktree commits and fast-forwards a managed worktree through the MCP surface", async (t) => {
   const context = await fixture(t, { git: true });
   const opened = await callOpen(context.client, context.project, "chat-1", "worktree");
@@ -273,7 +344,7 @@ interface ServerFixture {
 
 async function fixture(
   t: TestContext,
-  options: { git?: boolean; env?: NodeJS.ProcessEnv } = {},
+  options: { git?: boolean; env?: NodeJS.ProcessEnv; hooks?: HookConfig } = {},
 ): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
   const project = join(root, "project");
@@ -302,7 +373,7 @@ async function fixture(
     await git(project, ["commit", "-m", "Initial commit"]);
   }
 
-  const config = loadConfig({
+  const loadedConfig = loadConfig({
     DEVSPACE_CONFIG_DIR: join(root, ".config"),
     DEVSPACE_ALLOWED_ROOTS: root,
     DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
@@ -313,6 +384,9 @@ async function fixture(
     PORT: "1",
     ...options.env,
   });
+  const config: ServerConfig = options.hooks
+    ? { ...loadedConfig, hooks: options.hooks }
+    : loadedConfig;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const server = createMcpServer(

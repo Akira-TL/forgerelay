@@ -27,6 +27,16 @@ try {
   mkdirSync(stateDir, { recursive: true });
   mkdirSync(join(configDir, "agents"), { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
+  const subagentHookCommand = `node -e "require('node:fs').appendFileSync('subagent-hooks.log', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_WORKSPACE_ID + '\\n')"`;
+  writeFileSync(
+    join(configDir, "config.json"),
+    JSON.stringify({
+      hooks: {
+        SubagentStart: [{ command: subagentHookCommand }],
+        SubagentStop: [{ command: subagentHookCommand }],
+      },
+    }),
+  );
   writeFileSync(
     join(configDir, "agents", "reviewer.md"),
     [
@@ -91,6 +101,44 @@ try {
     DEVSPACE_SUBAGENTS: "1",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   }).subagents, true);
+
+  const workerStore = new LocalAgentStore(stateDir);
+  const failing = workerStore.create({
+    workspaceId: "ws_hooked",
+    workspaceRoot: projectRoot,
+    profileName: "missing-profile",
+    provider: "codex",
+  });
+  workerStore.close();
+  const promptFile = join(root, "worker-prompt.txt");
+  writeFileSync(promptFile, "secret worker prompt that hooks must not receive\n");
+
+  execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "agents", "__worker", failing.id, "--prompt-file", promptFile],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DEVSPACE_CONFIG_DIR: configDir,
+        DEVSPACE_ALLOWED_ROOTS: projectRoot,
+        DEVSPACE_STATE_DIR: stateDir,
+        DEVSPACE_SUBAGENTS: "1",
+        DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      },
+    },
+  );
+
+  assert.equal(
+    readFileSync(join(projectRoot, "subagent-hooks.log"), "utf8").replace(/\r\n/g, "\n"),
+    "SubagentStart:ws_hooked\nSubagentStop:ws_hooked\n",
+  );
+  const completedStore = new LocalAgentStore(stateDir);
+  const failedRecord = completedStore.get(failing.id);
+  completedStore.close();
+  assert.equal(failedRecord?.status, "error");
+  assert.match(failedRecord?.error ?? "", /Subagent profile not found: missing-profile/);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -11,6 +11,7 @@ import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
+import { HookRunner } from "./hooks.js";
 import { runLocalAgentProvider } from "./local-agent-adapters.js";
 import {
   isLocalAgentProvider,
@@ -457,8 +458,21 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   const store = createLocalAgentStore(config);
   const record = store.get(id);
   if (!record) throw new Error(`Unknown subagent id: ${id}`);
+  const hooks = new HookRunner(config.hooks, config.logging);
+  const hookInvocation = {
+    workspaceId: record.workspaceId,
+    workspaceRoot: record.workspaceRoot,
+    payload: {
+      agentId: record.id,
+      profile: record.profileName,
+      provider: record.provider,
+      model: record.model,
+      thinking: record.thinking,
+    },
+  };
 
   store.update(record.id, { status: "running", error: undefined });
+  await hooks.run("SubagentStart", hookInvocation);
   try {
     const profiles = await loadLocalAgentProfiles(config, record.workspaceRoot);
     const profile = profiles.find((candidate) => candidate.name === record.profileName);
@@ -472,10 +486,26 @@ async function runAgentsWorker(args: string[]): Promise<void> {
       latestResponse: result.finalResponse,
       error: undefined,
     });
+    await hooks.run("SubagentStop", {
+      ...hookInvocation,
+      payload: {
+        ...hookInvocation.payload,
+        status: "idle",
+        providerSessionId: result.providerSessionId,
+      },
+    });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     store.update(record.id, {
       status: "error",
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
+    });
+    await hooks.run("SubagentStop", {
+      ...hookInvocation,
+      payload: {
+        ...hookInvocation.payload,
+        status: "error",
+      },
     });
   }
 }

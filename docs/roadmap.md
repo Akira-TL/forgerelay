@@ -60,10 +60,12 @@ The initial independent release establishes:
 
 ## 0.2 — Hooks v1
 
-Hooks are the next priority because they provide a general policy extension point
-without hardcoding project-specific commands into Git/workspace logic.
+Hooks provide a general policy extension point without hardcoding
+project-specific commands into Git/workspace logic. Hooks v1 is configured from
+user-controlled ForgeRelay configuration; repository contents are not treated as
+an implicit command-execution source.
 
-Initial events:
+Events:
 
 - `WorkspaceOpen`
 - `BeforeTool`
@@ -75,17 +77,19 @@ Initial events:
 - `SubagentStart`
 - `SubagentStop`
 
-Initial handler type:
+Handler type:
 
-- local command
+- local command, sequentially executed with bounded timeouts and lifecycle
+  context supplied through environment variables.
 
-The first implementation should define a deep hook engine contract and keep MCP
-tool handlers thin. HTTP/prompt/agent-style handlers can be evaluated later if
-there is a concrete need.
+The implementation keeps the hook engine contract separate from MCP tool
+handlers. `BeforeTool` and `BeforeWorktreeClose` are blocking enforcement points;
+after-events are observational and never pretend to roll back completed work.
+HTTP/prompt/agent-style handlers can be evaluated later if there is a concrete
+need.
 
-`BeforeWorktreeClose` should become the natural place for user-configured test,
-typecheck, formatting, or security verification before a managed branch is
-integrated.
+`BeforeWorktreeClose` is the natural place for user-configured test, typecheck,
+formatting, or security verification before a managed branch is integrated.
 
 ## 0.3 — LSP code intelligence v1
 

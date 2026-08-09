@@ -23,6 +23,7 @@ import {
   registerArtifactTools,
 } from "./artifact-tools.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
+import { HookRunner, runToolWithHooks } from "./hooks.js";
 import {
   buildServerInstructions,
   buildToolDescriptions,
@@ -59,7 +60,7 @@ import { openAiConversationScopeId } from "./request-meta.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
-import { formatAgentsPath, WorkspaceRegistry } from "./workspaces.js";
+import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
 import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
@@ -518,11 +519,25 @@ function processToolResponse(
   };
 }
 
+function workspaceHookInvocation(workspace: Workspace) {
+  return {
+    workspaceId: workspace.id,
+    workspaceRoot: workspace.root,
+    workspaceMode: workspace.mode,
+    sourceRoot: workspace.sourceRoot,
+  };
+}
+
+function toolResultIsError(result: unknown): boolean {
+  return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
+}
+
 function registerCodexProcessTools(
   server: McpServer,
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
   processSessions: ProcessSessionManager,
+  hooks: HookRunner,
 ): void {
   registerAppTool(
     server,
@@ -564,37 +579,44 @@ function registerCodexProcessTools(
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }) => {
-      const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-      const snapshot = await processSessions.start({
-        workspaceId,
-        command: cmd,
-        cwd,
-        workspaceRoot: workspace.root,
-        tty,
-        columns,
-        rows,
-        yieldTimeMs,
-        maxOutputTokens,
-      });
-
-      logToolCall(config, {
+      return runToolWithHooks(hooks, {
         tool: "exec_command",
-        workspaceId,
-        workingDirectory: workingDirectory ?? ".",
-        command: cmd,
-        commandLength: cmd.length,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: { command: cmd, workingDirectory: workingDirectory ?? "." },
+        operation: async () => {
+          const startedAt = performance.now();
+          const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+          const snapshot = await processSessions.start({
+            workspaceId,
+            command: cmd,
+            cwd,
+            workspaceRoot: workspace.root,
+            tty,
+            columns,
+            rows,
+            yieldTimeMs,
+            maxOutputTokens,
+          });
 
-      return processToolResponse("exec_command", workspaceId, snapshot, {
-        command: cmd,
-        workingDirectory: workingDirectory ?? ".",
-        running: snapshot.running,
-        exitCode: snapshot.exitCode,
-        wallTimeMs: snapshot.wallTimeMs,
+          logToolCall(config, {
+            tool: "exec_command",
+            workspaceId,
+            workingDirectory: workingDirectory ?? ".",
+            command: cmd,
+            commandLength: cmd.length,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return processToolResponse("exec_command", workspaceId, snapshot, {
+            command: cmd,
+            workingDirectory: workingDirectory ?? ".",
+            running: snapshot.running,
+            exitCode: snapshot.exitCode,
+            wallTimeMs: snapshot.wallTimeMs,
+          });
+        },
       });
     },
   );
@@ -632,31 +654,43 @@ function registerCodexProcessTools(
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }) => {
-      const startedAt = performance.now();
-      workspaces.getWorkspace(workspaceId);
-      const snapshot = await processSessions.write({
-        workspaceId,
-        sessionId,
-        chars,
-        columns,
-        rows,
-        yieldTimeMs,
-        maxOutputTokens,
-      });
-
-      logToolCall(config, {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
         tool: "write_stdin",
-        workspaceId,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: {
+          sessionId,
+          charactersWritten: chars?.length ?? 0,
+          columns,
+          rows,
+        },
+        operation: async () => {
+          const startedAt = performance.now();
+          const snapshot = await processSessions.write({
+            workspaceId,
+            sessionId,
+            chars,
+            columns,
+            rows,
+            yieldTimeMs,
+            maxOutputTokens,
+          });
 
-      return processToolResponse("write_stdin", workspaceId, snapshot, {
-        sessionId,
-        charactersWritten: chars?.length ?? 0,
-        running: snapshot.running,
-        exitCode: snapshot.exitCode,
-        wallTimeMs: snapshot.wallTimeMs,
+          logToolCall(config, {
+            tool: "write_stdin",
+            workspaceId,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return processToolResponse("write_stdin", workspaceId, snapshot, {
+            sessionId,
+            charactersWritten: chars?.length ?? 0,
+            running: snapshot.running,
+            exitCode: snapshot.exitCode,
+            wallTimeMs: snapshot.wallTimeMs,
+          });
+        },
       });
     },
   );
@@ -671,6 +705,7 @@ export function createMcpServer(
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
+  const hooks = new HookRunner(config.hooks, config.logging);
   const server = new McpServer(
     {
       name: "forgerelay",
@@ -985,40 +1020,49 @@ export function createMcpServer(
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, commitMessage }) => {
-      const startedAt = performance.now();
-      const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
-      const result = [
-        `Closed managed worktree ${workspaceId}.`,
-        `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
-        `Source checkout: ${closed.sourceRoot}`,
-        `Commit: ${closed.commitSha}`,
-        closed.cleanupWarning
-          ? `Cleanup warning: ${closed.cleanupWarning}`
-          : "The worktree directory and managed branch were removed.",
-      ].join("\n");
-
-      logToolCall(config, {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
         tool: toolNames.closeWorktree,
-        workspaceId,
-        path: closed.sourceRoot,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: { commitMessage },
+        afterCwd: (response) => response.structuredContent.sourceRoot,
+        operation: async () => {
+          const startedAt = performance.now();
+          const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+          const result = [
+            `Closed managed worktree ${workspaceId}.`,
+            `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
+            `Source checkout: ${closed.sourceRoot}`,
+            `Commit: ${closed.commitSha}`,
+            closed.cleanupWarning
+              ? `Cleanup warning: ${closed.cleanupWarning}`
+              : "The worktree directory and managed branch were removed.",
+          ].join("\n");
 
-      return {
-        content: [{ type: "text" as const, text: result }],
-        structuredContent: {
-          result,
-          workspaceId,
-          sourceRoot: closed.sourceRoot,
-          branch: closed.branch,
-          targetBranch: closed.targetBranch,
-          commitSha: closed.commitSha,
-          mergedSha: closed.mergedSha,
-          committed: closed.committed,
-          cleanupWarning: closed.cleanupWarning,
+          logToolCall(config, {
+            tool: toolNames.closeWorktree,
+            workspaceId,
+            path: closed.sourceRoot,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return {
+            content: [{ type: "text" as const, text: result }],
+            structuredContent: {
+              result,
+              workspaceId,
+              sourceRoot: closed.sourceRoot,
+              branch: closed.branch,
+              targetBranch: closed.targetBranch,
+              commitSha: closed.commitSha,
+              mergedSha: closed.mergedSha,
+              committed: closed.committed,
+              cleanupWarning: closed.cleanupWarning,
+            },
+          };
         },
-      };
+      });
     },
   );
 
@@ -1057,56 +1101,64 @@ export function createMcpServer(
       annotations: { readOnlyHint: true },
     },
     async ({ workspaceId, ...input }) => {
-      const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      const readPath = workspaces.resolveReadPath(workspace, input.path);
-      const response = await readFileTool(
-        { ...input, path: readPath.absolutePath },
-        {
-          cwd: workspace.root,
-          root: workspace.root,
-          readRoots: readPath.readRoots,
-        },
-      );
-
-      if (response.isError) {
-        logFailedToolResponse(config, {
-          tool: toolNames.read,
-          workspaceId,
-          path: input.path,
-        }, response.content, startedAt);
-        return response;
-      }
-      workspaces.markReadPathLoaded(workspace, readPath);
-
-      const summary = {
-        ...textSummary(response.content),
-        offset: input.offset ?? 1,
-        limited: input.limit !== undefined,
-      };
-      logToolCall(config, {
+      return runToolWithHooks(hooks, {
         tool: toolNames.read,
-        workspaceId,
-        path: input.path,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: { path: input.path, offset: input.offset, limit: input.limit },
+        isFailure: toolResultIsError,
+        operation: async () => {
+          const startedAt = performance.now();
+          const readPath = workspaces.resolveReadPath(workspace, input.path);
+          const response = await readFileTool(
+            { ...input, path: readPath.absolutePath },
+            {
+              cwd: workspace.root,
+              root: workspace.root,
+              readRoots: readPath.readRoots,
+            },
+          );
 
-      return {
-        ...response,
-        _meta: {
-          tool: toolNames.read,
-          card: {
+          if (response.isError) {
+            logFailedToolResponse(config, {
+              tool: toolNames.read,
+              workspaceId,
+              path: input.path,
+            }, response.content, startedAt);
+            return response;
+          }
+          workspaces.markReadPathLoaded(workspace, readPath);
+
+          const summary = {
+            ...textSummary(response.content),
+            offset: input.offset ?? 1,
+            limited: input.limit !== undefined,
+          };
+          logToolCall(config, {
+            tool: toolNames.read,
             workspaceId,
             path: input.path,
-            summary,
-            payload: { content: response.content },
-          },
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return {
+            ...response,
+            _meta: {
+              tool: toolNames.read,
+              card: {
+                workspaceId,
+                path: input.path,
+                summary,
+                payload: { content: response.content },
+              },
+            },
+            structuredContent: {
+              result: contentText(response.content),
+            },
+          };
         },
-        structuredContent: {
-          result: contentText(response.content),
-        },
-      };
+      });
     },
   );
 
@@ -1131,56 +1183,65 @@ export function createMcpServer(
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, ...input }) => {
-      const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      workspaces.resolvePath(workspace, input.path);
-      const response = await writeFileTool(input, {
-        cwd: workspace.root,
-        root: workspace.root,
-      });
-
-      if (response.isError) {
-        logFailedToolResponse(config, {
-          tool: toolNames.write,
-          workspaceId,
-          path: input.path,
-        }, response.content, startedAt);
-        return response;
-      }
-
-      const patch = newFilePatch(input.path, input.content);
-      const stats = countDiffStats(patch);
-      const summary = {
-        ...stats,
-        lines: contentLineCount(input.content),
-        characters: input.content.length,
-      };
-      logToolCall(config, {
+      return runToolWithHooks(hooks, {
         tool: toolNames.write,
-        workspaceId,
-        path: input.path,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: { path: input.path },
+        isFailure: toolResultIsError,
+        changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
+        operation: async () => {
+          const startedAt = performance.now();
+          workspaces.resolvePath(workspace, input.path);
+          const response = await writeFileTool(input, {
+            cwd: workspace.root,
+            root: workspace.root,
+          });
 
-      return {
-        ...response,
-        _meta: {
-          tool: toolNames.write,
-          card: {
+          if (response.isError) {
+            logFailedToolResponse(config, {
+              tool: toolNames.write,
+              workspaceId,
+              path: input.path,
+            }, response.content, startedAt);
+            return response;
+          }
+
+          const patch = newFilePatch(input.path, input.content);
+          const stats = countDiffStats(patch);
+          const summary = {
+            ...stats,
+            lines: contentLineCount(input.content),
+            characters: input.content.length,
+          };
+          logToolCall(config, {
+            tool: toolNames.write,
             workspaceId,
             path: input.path,
-            summary,
-            payload: {
-              content: response.content,
-              patch,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return {
+            ...response,
+            _meta: {
+              tool: toolNames.write,
+              card: {
+                workspaceId,
+                path: input.path,
+                summary,
+                payload: {
+                  content: response.content,
+                  patch,
+                },
+              },
             },
-          },
+            structuredContent: {
+              result: contentText(response.content),
+            },
+          };
         },
-        structuredContent: {
-          result: contentText(response.content),
-        },
-      };
+      });
     },
   );
 
@@ -1217,59 +1278,68 @@ export function createMcpServer(
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, ...input }) => {
-      const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      workspaces.resolvePath(workspace, input.path);
-      const response = await editFileTool(input, {
-        cwd: workspace.root,
-        root: workspace.root,
-      });
-
-      if (response.isError) {
-        logFailedToolResponse(config, {
-          tool: toolNames.edit,
-          workspaceId,
-          path: input.path,
-        }, response.content, startedAt);
-        return response;
-      }
-
-      const stats = countDiffStats(
-        response.details?.patch ?? response.details?.diff,
-      );
-      const summary = {
-        ...stats,
-        editCount: input.edits.length,
-      };
-      const editResultText = `Edited ${input.path} (+${stats.additions} -${stats.removals}).`;
-      const editContent = [textBlock(editResultText)];
-      logToolCall(config, {
+      return runToolWithHooks(hooks, {
         tool: toolNames.edit,
-        workspaceId,
-        path: input.path,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: { path: input.path, editCount: input.edits.length },
+        isFailure: toolResultIsError,
+        changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
+        operation: async () => {
+          const startedAt = performance.now();
+          workspaces.resolvePath(workspace, input.path);
+          const response = await editFileTool(input, {
+            cwd: workspace.root,
+            root: workspace.root,
+          });
 
-      return {
-        content: editContent,
-        _meta: {
-          tool: toolNames.edit,
-          card: {
+          if (response.isError) {
+            logFailedToolResponse(config, {
+              tool: toolNames.edit,
+              workspaceId,
+              path: input.path,
+            }, response.content, startedAt);
+            return response;
+          }
+
+          const stats = countDiffStats(
+            response.details?.patch ?? response.details?.diff,
+          );
+          const summary = {
+            ...stats,
+            editCount: input.edits.length,
+          };
+          const editResultText = `Edited ${input.path} (+${stats.additions} -${stats.removals}).`;
+          const editContent = [textBlock(editResultText)];
+          logToolCall(config, {
+            tool: toolNames.edit,
             workspaceId,
             path: input.path,
-            summary,
-            payload: {
-              diff: response.details?.diff,
-              patch: response.details?.patch,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return {
+            content: editContent,
+            _meta: {
+              tool: toolNames.edit,
+              card: {
+                workspaceId,
+                path: input.path,
+                summary,
+                payload: {
+                  diff: response.details?.diff,
+                  patch: response.details?.patch,
+                },
+              },
             },
-          },
+            structuredContent: {
+              status: "applied" as const,
+              result: contentText(editContent),
+            },
+          };
         },
-        structuredContent: {
-          status: "applied",
-          result: contentText(editContent),
-        },
-      };
+      });
     },
   );
   }
@@ -1304,46 +1374,57 @@ export function createMcpServer(
         annotations: EDIT_TOOL_ANNOTATIONS,
       },
       async ({ workspaceId, patch }) => {
-        const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        const applied = await applyPatch(workspace.root, patch);
-        const paths = applied.files.map((file) => file.path).join(", ");
-        const result = `Applied patch to ${applied.files.length} file(s): ${paths}`;
-        const content = [textBlock(result)];
-        const displayPath = applied.files.length === 1
-          ? applied.files[0]?.path
-          : `${applied.files.length} files`;
-
-        logToolCall(config, {
+        return runToolWithHooks(hooks, {
           tool: "apply_patch",
-          workspaceId,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
+          invocation: workspaceHookInvocation(workspace),
+          payload: { patchBytes: Buffer.byteLength(patch) },
+          changedPaths: (response) => Array.from(new Set(
+            response.structuredContent.files.flatMap((file) => [file.previousPath, file.path])
+              .filter((path): path is string => Boolean(path)),
+          )),
+          operation: async () => {
+            const startedAt = performance.now();
+            const applied = await applyPatch(workspace.root, patch);
+            const paths = applied.files.map((file) => file.path).join(", ");
+            const result = `Applied patch to ${applied.files.length} file(s): ${paths}`;
+            const content = [textBlock(result)];
+            const displayPath = applied.files.length === 1
+              ? applied.files[0]?.path
+              : `${applied.files.length} files`;
 
-        return {
-          content,
-          _meta: {
-            tool: "apply_patch",
-            card: {
+            logToolCall(config, {
+              tool: "apply_patch",
               workspaceId,
-              path: displayPath,
-              summary: {
-                files: applied.files.length,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              content,
+              _meta: {
+                tool: "apply_patch",
+                card: {
+                  workspaceId,
+                  path: displayPath,
+                  summary: {
+                    files: applied.files.length,
+                    additions: applied.additions,
+                    removals: applied.removals,
+                  },
+                  files: applied.files,
+                  payload: { patch: applied.patch },
+                },
+              },
+              structuredContent: {
+                result,
                 additions: applied.additions,
                 removals: applied.removals,
+                files: applied.files,
               },
-              files: applied.files,
-              payload: { patch: applied.patch },
-            },
+            };
           },
-          structuredContent: {
-            result,
-            additions: applied.additions,
-            removals: applied.removals,
-            files: applied.files,
-          },
-        };
+        });
       },
     );
   }
@@ -1366,39 +1447,45 @@ export function createMcpServer(
         annotations: { readOnlyHint: true },
       },
       async ({ workspaceId }) => {
-        const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        const review = await reviewCheckpoints.reviewChanges({
-          workspaceId,
-          root: workspace.root,
-          markReviewed: true,
-        });
-
-        const content = [textBlock(review.result)];
-        logToolCall(config, {
+        return runToolWithHooks(hooks, {
           tool: "show_changes",
-          workspaceId,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
-
-        return {
-          content,
-          _meta: {
-            tool: "show_changes",
-            card: {
+          invocation: workspaceHookInvocation(workspace),
+          operation: async () => {
+            const startedAt = performance.now();
+            const review = await reviewCheckpoints.reviewChanges({
               workspaceId,
-              summary: review.summary,
-              files: review.files,
-              payload: {
-                patch: review.patch,
+              root: workspace.root,
+              markReviewed: true,
+            });
+
+            const content = [textBlock(review.result)];
+            logToolCall(config, {
+              tool: "show_changes",
+              workspaceId,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              content,
+              _meta: {
+                tool: "show_changes",
+                card: {
+                  workspaceId,
+                  summary: review.summary,
+                  files: review.files,
+                  payload: {
+                    patch: review.patch,
+                  },
+                },
               },
-            },
+              structuredContent: {
+                result: contentText(content),
+              },
+            };
           },
-          structuredContent: {
-            result: contentText(content),
-          },
-        };
+        });
       },
     );
   }
@@ -1429,51 +1516,59 @@ export function createMcpServer(
         annotations: { readOnlyHint: true },
       },
       async ({ workspaceId, ...input }) => {
-        const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        if (input.path) workspaces.resolvePath(workspace, input.path);
-        const response = await grepFilesTool(input, {
-          cwd: workspace.root,
-          root: workspace.root,
-        });
-
-        if (response.isError) {
-          logFailedToolResponse(config, {
-            tool: toolNames.grep,
-            workspaceId,
-            path: input.path,
-          }, response.content, startedAt);
-          return response;
-        }
-
-        const summary = {
-          pattern: input.pattern,
-          scope: input.path ?? ".",
-          ...textSummary(response.content),
-        };
-        logToolCall(config, {
+        return runToolWithHooks(hooks, {
           tool: toolNames.grep,
-          workspaceId,
-          path: input.path,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
+          invocation: workspaceHookInvocation(workspace),
+          payload: { pattern: input.pattern, path: input.path, include: input.include },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            if (input.path) workspaces.resolvePath(workspace, input.path);
+            const response = await grepFilesTool(input, {
+              cwd: workspace.root,
+              root: workspace.root,
+            });
 
-        return {
-          ...response,
-          _meta: {
-            tool: toolNames.grep,
-            card: {
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.grep,
+                workspaceId,
+                path: input.path,
+              }, response.content, startedAt);
+              return response;
+            }
+
+            const summary = {
+              pattern: input.pattern,
+              scope: input.path ?? ".",
+              ...textSummary(response.content),
+            };
+            logToolCall(config, {
+              tool: toolNames.grep,
               workspaceId,
               path: input.path,
-              summary,
-              payload: { content: response.content },
-            },
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              ...response,
+              _meta: {
+                tool: toolNames.grep,
+                card: {
+                  workspaceId,
+                  path: input.path,
+                  summary,
+                  payload: { content: response.content },
+                },
+              },
+              structuredContent: {
+                result: contentText(response.content),
+              },
+            };
           },
-          structuredContent: {
-            result: contentText(response.content),
-          },
-        };
+        });
       },
     );
 
@@ -1499,51 +1594,59 @@ export function createMcpServer(
         annotations: { readOnlyHint: true },
       },
       async ({ workspaceId, ...input }) => {
-        const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        if (input.path) workspaces.resolvePath(workspace, input.path);
-        const response = await findFilesTool(input, {
-          cwd: workspace.root,
-          root: workspace.root,
-        });
-
-        if (response.isError) {
-          logFailedToolResponse(config, {
-            tool: toolNames.glob,
-            workspaceId,
-            path: input.path,
-          }, response.content, startedAt);
-          return response;
-        }
-
-        const summary = {
-          pattern: input.pattern,
-          scope: input.path ?? ".",
-          ...textSummary(response.content),
-        };
-        logToolCall(config, {
+        return runToolWithHooks(hooks, {
           tool: toolNames.glob,
-          workspaceId,
-          path: input.path,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
+          invocation: workspaceHookInvocation(workspace),
+          payload: { pattern: input.pattern, path: input.path },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            if (input.path) workspaces.resolvePath(workspace, input.path);
+            const response = await findFilesTool(input, {
+              cwd: workspace.root,
+              root: workspace.root,
+            });
 
-        return {
-          ...response,
-          _meta: {
-            tool: toolNames.glob,
-            card: {
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.glob,
+                workspaceId,
+                path: input.path,
+              }, response.content, startedAt);
+              return response;
+            }
+
+            const summary = {
+              pattern: input.pattern,
+              scope: input.path ?? ".",
+              ...textSummary(response.content),
+            };
+            logToolCall(config, {
+              tool: toolNames.glob,
               workspaceId,
               path: input.path,
-              summary,
-              payload: { content: response.content },
-            },
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              ...response,
+              _meta: {
+                tool: toolNames.glob,
+                card: {
+                  workspaceId,
+                  path: input.path,
+                  summary,
+                  payload: { content: response.content },
+                },
+              },
+              structuredContent: {
+                result: contentText(response.content),
+              },
+            };
           },
-          structuredContent: {
-            result: contentText(response.content),
-          },
-        };
+        });
       },
     );
 
@@ -1569,47 +1672,55 @@ export function createMcpServer(
         annotations: { readOnlyHint: true },
       },
       async ({ workspaceId, ...input }) => {
-        const startedAt = performance.now();
         const workspace = workspaces.getWorkspace(workspaceId);
-        workspaces.resolvePath(workspace, input.path);
-        const response = await listDirectoryTool(input, {
-          cwd: workspace.root,
-          root: workspace.root,
-        });
-
-        if (response.isError) {
-          logFailedToolResponse(config, {
-            tool: toolNames.ls,
-            workspaceId,
-            path: input.path,
-          }, response.content, startedAt);
-          return response;
-        }
-
-        const summary = textSummary(response.content);
-        logToolCall(config, {
+        return runToolWithHooks(hooks, {
           tool: toolNames.ls,
-          workspaceId,
-          path: input.path,
-          success: true,
-          durationMs: Math.round(performance.now() - startedAt),
-        });
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path: input.path },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            workspaces.resolvePath(workspace, input.path);
+            const response = await listDirectoryTool(input, {
+              cwd: workspace.root,
+              root: workspace.root,
+            });
 
-        return {
-          ...response,
-          _meta: {
-            tool: toolNames.ls,
-            card: {
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.ls,
+                workspaceId,
+                path: input.path,
+              }, response.content, startedAt);
+              return response;
+            }
+
+            const summary = textSummary(response.content);
+            logToolCall(config, {
+              tool: toolNames.ls,
               workspaceId,
               path: input.path,
-              summary,
-              payload: { content: response.content },
-            },
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              ...response,
+              _meta: {
+                tool: toolNames.ls,
+                card: {
+                  workspaceId,
+                  path: input.path,
+                  summary,
+                  payload: { content: response.content },
+                },
+              },
+              structuredContent: {
+                result: contentText(response.content),
+              },
+            };
           },
-          structuredContent: {
-            result: contentText(response.content),
-          },
-        };
+        });
       },
     );
   }
@@ -1646,70 +1757,83 @@ export function createMcpServer(
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, workingDirectory, ...input }) => {
-      const startedAt = performance.now();
       const workspace = workspaces.getWorkspace(workspaceId);
-      const cwd = workspaces.resolveWorkingDirectory(
-        workspace,
-        workingDirectory,
-      );
-      const response = await runShellTool(input, {
-        cwd,
-        root: workspace.root,
-      });
-
-      if (response.isError) {
-        logFailedToolResponse(config, {
-          tool: toolNames.shell,
-          workspaceId,
-          workingDirectory: workingDirectory ?? ".",
-          command: input.command,
-          commandLength: input.command.length,
-        }, response.content, startedAt);
-        return response;
-      }
-
-      const summary = {
-        command: input.command,
-        workingDirectory: workingDirectory ?? ".",
-        ...textSummary(response.content),
-      };
-      logToolCall(config, {
+      return runToolWithHooks(hooks, {
         tool: toolNames.shell,
-        workspaceId,
-        workingDirectory: workingDirectory ?? ".",
-        command: input.command,
-        commandLength: input.command.length,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
+        invocation: workspaceHookInvocation(workspace),
+        payload: {
+          command: input.command,
+          workingDirectory: workingDirectory ?? ".",
+          timeoutSeconds: input.timeout,
+        },
+        isFailure: toolResultIsError,
+        operation: async () => {
+          const startedAt = performance.now();
+          const cwd = workspaces.resolveWorkingDirectory(
+            workspace,
+            workingDirectory,
+          );
+          const response = await runShellTool(input, {
+            cwd,
+            root: workspace.root,
+          });
 
-      return {
-        ...response,
-        _meta: {
-          tool: toolNames.shell,
-          card: {
+          if (response.isError) {
+            logFailedToolResponse(config, {
+              tool: toolNames.shell,
+              workspaceId,
+              workingDirectory: workingDirectory ?? ".",
+              command: input.command,
+              commandLength: input.command.length,
+            }, response.content, startedAt);
+            return response;
+          }
+
+          const summary = {
+            command: input.command,
+            workingDirectory: workingDirectory ?? ".",
+            ...textSummary(response.content),
+          };
+          logToolCall(config, {
+            tool: toolNames.shell,
             workspaceId,
-            path: workingDirectory,
-            summary,
-            payload: { content: response.content },
-          },
+            workingDirectory: workingDirectory ?? ".",
+            command: input.command,
+            commandLength: input.command.length,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+
+          return {
+            ...response,
+            _meta: {
+              tool: toolNames.shell,
+              card: {
+                workspaceId,
+                path: workingDirectory,
+                summary,
+                payload: { content: response.content },
+              },
+            },
+            structuredContent: {
+              result: contentText(response.content),
+            },
+          };
         },
-        structuredContent: {
-          result: contentText(response.content),
-        },
-      };
+      });
     },
   );
   }
 
   if (config.toolMode === "codex") {
-    registerCodexProcessTools(server, config, workspaces, processSessions);
+    registerCodexProcessTools(server, config, workspaces, processSessions, hooks);
   }
 
   if (config.artifactsEnabled && isArtifactDownloadSupportedPlatform()) {
     registerArtifactTools(server, {
       config,
       workspaces,
+      hooks,
       incomingArtifactAdapters,
     });
   }

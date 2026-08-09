@@ -15,6 +15,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import { ArtifactError } from "./artifact-error.js";
 import type { ServerConfig } from "./config.js";
+import { HookRunner, runToolWithHooks } from "./hooks.js";
 import {
   describeIncomingArtifactValue,
   IncomingArtifactAdapterRegistry,
@@ -49,6 +50,7 @@ const openAIFileReferenceInputSchema = z.strictObject({
 export interface ArtifactToolRegistrationOptions {
   config: ServerConfig;
   workspaces: WorkspaceRegistry;
+  hooks: HookRunner;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
 }
 
@@ -87,6 +89,7 @@ export function registerArtifactTools(
   {
     config,
     workspaces,
+    hooks,
     incomingArtifactAdapters = [],
   }: ArtifactToolRegistrationOptions,
 ): void {
@@ -116,21 +119,34 @@ export function registerArtifactTools(
       _meta: { "openai/fileParams": ["file"] },
       annotations: ARTIFACT_WRITE_ANNOTATIONS,
     },
-    async (input) => executeArtifactTool(config, input, async () => {
+    async (input) => {
       const workspace = workspaces.getWorkspace(input.workspaceId);
-      const downloaded = await downloadIncomingArtifact({
-        registry: incomingRegistry,
-        workspaceId: workspace.id,
-        workspaceRoot: workspace.root,
-        maxFileBytes: config.artifactMaxFileBytes,
-        file: input.file,
-        path: input.path,
+      return runToolWithHooks(hooks, {
+        tool: "download_artifact",
+        invocation: {
+          workspaceId: workspace.id,
+          workspaceRoot: workspace.root,
+          workspaceMode: workspace.mode,
+          sourceRoot: workspace.sourceRoot,
+        },
+        payload: { path: input.path },
+        changedPaths: (result) => [result.structuredContent.path],
+        operation: () => executeArtifactTool(config, input, async () => {
+          const downloaded = await downloadIncomingArtifact({
+            registry: incomingRegistry,
+            workspaceId: workspace.id,
+            workspaceRoot: workspace.root,
+            maxFileBytes: config.artifactMaxFileBytes,
+            file: input.file,
+            path: input.path,
+          });
+          return {
+            publicResult: { path: downloaded.path },
+            logResult: downloaded,
+          };
+        }),
       });
-      return {
-        publicResult: { path: downloaded.path },
-        logResult: downloaded,
-      };
-    }),
+    },
   );
 }
 

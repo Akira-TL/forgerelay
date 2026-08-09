@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
+import { parseHookConfig, type HookConfig } from "./hooks.js";
 import { forgerelayAgentsDir, forgerelaySkillsDir, loadForgeRelayFiles } from "./user-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
@@ -34,6 +35,7 @@ export interface ServerConfig {
   subagents: boolean;
   agentDir: string;
   systemInstructionsPath: string;
+  hooks: HookConfig;
   logging: LoggingConfig;
 }
 
@@ -309,6 +311,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     systemInstructionsPath: parseSystemInstructionsPath(
       productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,
     ),
+    hooks: parseHookConfig(files.config.hooks),
     logging: parseLoggingConfig(env),
   };
 }

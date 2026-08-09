@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- User-configured lifecycle hooks for workspace creation, MCP tool execution, explicit file changes, managed-worktree close, and local subagent execution.
+- Blocking `BeforeTool` and `BeforeWorktreeClose` policy gates with bounded command timeouts, plus observational after-events that log failures without rolling back completed work.
+- Hook lifecycle context through `FORGERELAY_HOOK_*` and workspace environment variables without exposing native-file credentials or subagent prompts.
+
+### Security
+
+- Hook definitions are loaded only from user-controlled ForgeRelay configuration; repositories do not gain implicit local-command execution by containing hook files.
+
 ## [0.1.1] - 2026-08-09
 
 ### Changed
