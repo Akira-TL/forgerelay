@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-08-10
+
 ### Changed
 
 - Human-facing `pretty` logs are workspace-first: normal tool and hook lines no longer show transient MCP transport session IDs, MCP session create/close lifecycle events are debug-only, and project names receive stable per-project terminal colors while the logical `ws_...` identifier remains visible.
