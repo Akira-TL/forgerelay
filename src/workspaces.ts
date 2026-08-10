@@ -203,6 +203,10 @@ export class WorkspaceRegistry {
     this.pruneIdleWorkspaceSessions(new Set(), true);
   }
 
+  get cachedWorkspaceCount(): number {
+    return this.workspaces.size;
+  }
+
   async openWorkspace(
     input: string | OpenWorkspaceInput,
     openOptions: OpenWorkspaceOptions = {},

@@ -58,6 +58,12 @@ export interface CompletedProcessSnapshot extends ProcessSnapshot {
   command: string;
 }
 
+export interface ProcessManagerStats {
+  total: number;
+  running: number;
+  completed: number;
+}
+
 interface ManagedProcess {
   write(data: string): void;
   kill(signal?: NodeJS.Signals): void;
@@ -380,6 +386,16 @@ export class ProcessManager {
 
   activeWorkspaceIds(): Set<string> {
     return new Set([...this.processes.values()].map((processEntry) => processEntry.workspaceId));
+  }
+
+  stats(): ProcessManagerStats {
+    let running = 0;
+    let completed = 0;
+    for (const processEntry of this.processes.values()) {
+      if (processEntry.running) running += 1;
+      else completed += 1;
+    }
+    return { total: this.processes.size, running, completed };
   }
 
   takeCompleted(

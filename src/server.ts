@@ -2586,12 +2586,31 @@ export function createServer(
     }
   };
 
+  const logRuntimeResources = (): void => {
+    const memory = process.memoryUsage();
+    const processStats = processSessions.stats();
+    logEvent(config.logging, "debug", "runtime_resources", {
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      heapTotalBytes: memory.heapTotal,
+      externalBytes: memory.external,
+      arrayBuffersBytes: memory.arrayBuffers,
+      mcpTransports: transports.size,
+      processesTotal: processStats.total,
+      processesRunning: processStats.running,
+      processesCompleted: processStats.completed,
+      cachedWorkspaces: workspaces.cachedWorkspaceCount,
+      reviewStates: reviewCheckpoints.stateCount,
+    });
+  };
   const transportCleanupTimer = setInterval(() => {
     void transports
       .closeIdle(MCP_TRANSPORT_IDLE_TIMEOUT_MS)
-      .then((results) => logTransportCloseResults("idle_timeout", results));
+      .then((results) => logTransportCloseResults("idle_timeout", results))
+      .finally(logRuntimeResources);
   }, MCP_TRANSPORT_CLEANUP_INTERVAL_MS);
   transportCleanupTimer.unref();
+  logRuntimeResources();
 
   if (config.logging.trustProxy) {
     app.set("trust proxy", 1);

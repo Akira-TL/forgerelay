@@ -158,6 +158,8 @@ function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): st
     case "mcp_transport_session_close_failed":
     case "mcp_session_close_failed":
       return `transport session ${transportSessionPrefix(entry) ?? "unknown"} close -> ${style("red", "error", options)}`;
+    case "runtime_resources":
+      return formatRuntimeResources(entry);
     case "auth_denied":
       return `auth denied${entry.reason ? `: ${String(entry.reason)}` : ""}`;
     case "mcp_request_error":
@@ -270,6 +272,22 @@ function stableColorIndex(value: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0) % WORKSPACE_PROJECT_COLORS.length;
+}
+
+function formatRuntimeResources(entry: LogFields): string {
+  const rssMb = bytesToMegabytes(numberField(entry.rssBytes));
+  const heapUsedMb = bytesToMegabytes(numberField(entry.heapUsedBytes));
+  const heapTotalMb = bytesToMegabytes(numberField(entry.heapTotalBytes));
+  const transports = numberField(entry.mcpTransports) ?? 0;
+  const running = numberField(entry.processesRunning) ?? 0;
+  const completed = numberField(entry.processesCompleted) ?? 0;
+  const workspaces = numberField(entry.cachedWorkspaces) ?? 0;
+  const reviewStates = numberField(entry.reviewStates) ?? 0;
+  return `runtime rss=${rssMb}MB heap=${heapUsedMb}/${heapTotalMb}MB transports=${transports} processes=${running} running/${completed} completed workspaces=${workspaces} review=${reviewStates}`;
+}
+
+function bytesToMegabytes(value: number | undefined): number {
+  return value === undefined ? 0 : Math.round(value / (1024 * 1024));
 }
 
 function formatGenericMessage(entry: LogFields): string {

@@ -315,6 +315,9 @@ const boundedManager = new ProcessManager({
   maxCompletedProcesses: 2,
 });
 const boundedProcessIds: number[] = [];
+const boundedInternals = boundedManager as unknown as {
+  processes: Map<number, { running: boolean }>;
+};
 for (let index = 0; index < 3; index += 1) {
   const started = await boundedManager.start({
     workspaceId: "workspace-bounded",
@@ -325,16 +328,14 @@ for (let index = 0; index < 3; index += 1) {
   assert.equal(started.running, true);
   assert.ok(started.processId);
   boundedProcessIds.push(started.processId);
-}
-const boundedInternals = boundedManager as unknown as {
-  processes: Map<number, { running: boolean }>;
-};
-const boundedDeadline = Date.now() + 2_000;
-while (
-  [...boundedInternals.processes.values()].some((entry) => entry.running) &&
-  Date.now() < boundedDeadline
-) {
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  const completionDeadline = Date.now() + 2_000;
+  while (
+    boundedInternals.processes.get(started.processId)?.running &&
+    Date.now() < completionDeadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(boundedInternals.processes.get(started.processId)?.running, false);
 }
 assert.equal(boundedInternals.processes.size, 2);
 assert.equal(boundedInternals.processes.has(boundedProcessIds[0]!), false);
