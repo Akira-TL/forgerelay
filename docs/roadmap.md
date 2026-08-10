@@ -99,7 +99,7 @@ Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生�
 - `workspaceId` 是唯一持久的逻辑工作身份，跨请求和 transport 重连保持连续；
 - `requestId` 只追踪单次 HTTP/JSON-RPC 请求，不持久化；
 - MCP 协议层 session 在内部和 debug 输出中明确称为 `transportSessionId`，业务状态不得依赖它；
-- 后台命令句柄逐步迁移为 `processId` / process handle；若公开 schema 改名需要兼容窗口，则在明确的版本边界完成；
+- 后台命令句柄以 `processId` / process handle 为 canonical 名称，旧 `sessionId` 在 0.2.x 保留 deprecated alias 兼容窗口；
 - 为 stateless MCP transport 做准备，同时保留旧协议兼容 adapter，避免把 transport 生命周期重新提升成 ForgeRelay 会话模型。
 
 ## 0.3 — LSP code intelligence v1

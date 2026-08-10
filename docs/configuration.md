@@ -132,16 +132,17 @@ receives a different ID for the same physical checkout/worktree. Pass
 `workspaceId` to `open_workspace` to explicitly resume an existing handle in the
 current conversation. `newWorkspace: true` allocates a new logical handle without
 creating another checkout or Git worktree and should be used only on explicit user
-request. Sessions idle for more than two days are returned in `staleWorkspaces` so
+request. Logical workspaces idle for more than two days are returned in `staleWorkspaces` so
 the user can choose whether to resume or release them. `close_workspace` removes a
 logical handle without deleting checkout files; it refuses to remove the last
 handle anchoring a physical worktree.
 
 `bash` has no execution-timeout input. It waits in the foreground for at most 300
 seconds; if the process is still alive, the result contains `running: true` and a
-`sessionId`. `write_stdin` can poll or interact with that session for up to another
-300 seconds per call. ForgeRelay does not kill a process merely because a wait
-window expires. Completed background processes are delivered once with a later
+canonical `processId`. `write_stdin` can poll or interact with that process for up
+to another 300 seconds per call. The former `sessionId` field remains a deprecated
+alias during the 0.2.x compatibility window. ForgeRelay does not kill a process
+merely because a wait window expires. Completed background processes are delivered once with a later
 tool result for the same logical workspace ID.
 
 ## Widgets
@@ -339,8 +340,9 @@ forgerelay agents show <id>
 short timestamps, workspace-first context, and compact operation results while
 keeping HTTP request records off by default. Project names receive stable
 per-project colors and logical `ws_...` identifiers remain visible; transient MCP
-transport session IDs and normal session lifecycle events are shown only at
-`debug` level. Shell command previews are enabled
+transport session IDs and normal transport lifecycle events are shown only at
+`debug` level, where they are labeled as `transport` rather than workspace/process
+identity. Shell command previews are enabled
 in this mode and truncated to 120 characters; set
 `FORGERELAY_LOG_SHELL_COMMANDS=0` when command arguments may contain secrets.
 

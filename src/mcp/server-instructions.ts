@@ -63,7 +63,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     delete: `Delete one file or directory inside an open workspace or the OS temp directory. Non-empty directories require recursive=true. An allowed root itself cannot be deleted. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. ForgeRelay waits up to 300 seconds for bash, then returns a running process session without killing it; use ${toolNames.writeStdin} to poll, keep waiting, interact, or send Ctrl-C. Completed background commands are also reported with a later tool result for the same workspaceId. ${shellMutationPolicy} Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
+    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. ForgeRelay waits up to 300 seconds for bash, then returns a running process with a processId without killing it; use ${toolNames.writeStdin} with that processId to poll, keep waiting, interact, or send Ctrl-C. Completed background commands are also reported with a later tool result for the same workspaceId. ${shellMutationPolicy} Call ${toolNames.openWorkspace} first and pass workspaceId. This capability should only be exposed behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -99,10 +99,10 @@ function toolSurfaceInstructions(config: ServerConfig): string {
   }
 
   if (config.toolMode === "full") {
-    return `In full tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are available alongside the core workspace tools. ${toolNames.writeStdin} is available for running bash sessions.`;
+    return `In full tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are available alongside the core workspace tools. ${toolNames.writeStdin} is available for running bash processes.`;
   }
 
-  return `In minimal tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are disabled; the core workspace tools remain available, including ${toolNames.writeStdin} for running bash sessions.`;
+  return `In minimal tool mode, dedicated ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} inspection tools are disabled; the core workspace tools remain available, including ${toolNames.writeStdin} for running bash processes.`;
 }
 
 function selectedWorkflowInstructions(config: ServerConfig): string {
@@ -122,7 +122,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running session, use ${toolNames.writeStdin} only when you need to poll, wait, interact, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running process with a processId, use ${toolNames.writeStdin} only when you need to poll, wait, interact, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
   );
 }
 

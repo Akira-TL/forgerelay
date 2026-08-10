@@ -41,7 +41,7 @@ import {
   requestIp,
   requestPath,
   commandPreview,
-  sessionIdPrefix,
+  transportSessionIdPrefix,
   workspaceLogLabel,
 } from "./logger.js";
 import {
@@ -54,11 +54,12 @@ import {
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import {
-  McpSessionRegistry,
-  type McpSessionCloseResult,
+  McpTransportRegistry,
+  type McpTransportCloseResult,
 } from "./mcp-sessions.js";
 import {
-  ProcessSessionManager,
+  ProcessManager,
+  resolveProcessId,
   type CompletedProcessSnapshot,
   type ProcessSnapshot,
 } from "./process-sessions.js";
@@ -83,11 +84,12 @@ import {
 } from "./local-agent-availability.js";
 
 type Transport = StreamableHTTPServerTransport;
-// MCP clients can reconnect without closing the previous transport. Bound stale
-// session retention so abandoned MCP servers do not accumulate for the life of the process.
-const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+// Legacy MCP Streamable HTTP clients can reconnect without closing the previous
+// transport. Bound stale transport-session retention so abandoned transports do
+// not accumulate for the life of the process.
+const MCP_TRANSPORT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const FORGERELAY_VERSION = readForgeRelayVersion();
-const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
+const MCP_TRANSPORT_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -188,7 +190,7 @@ interface ToolLogFields {
   commandLength?: number;
   exitCode?: number;
   running?: boolean;
-  processSessionId?: number;
+  processId?: number;
   success: boolean;
   durationMs: number;
   error?: string;
@@ -196,7 +198,7 @@ interface ToolLogFields {
 
 function workspaceLogContext(
   workspace: Workspace,
-  _sessionId?: string,
+  _transportSessionId?: string,
 ): Pick<ToolLogFields, "workspaceId" | "workspace"> {
   return {
     workspaceId: workspace.id,
@@ -549,7 +551,7 @@ async function readWorkspaceAppResource(
       requestedUri,
       currentUri,
       compatibility,
-      sessionIdPrefix: sessionIdPrefix(transportSessionId),
+      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
     });
     return result;
   } catch (error) {
@@ -558,7 +560,7 @@ async function readWorkspaceAppResource(
       currentUri,
       compatibility,
       error: error instanceof Error ? error.message : String(error),
-      sessionIdPrefix: sessionIdPrefix(transportSessionId),
+      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
     });
     throw error;
   }
@@ -566,7 +568,7 @@ async function readWorkspaceAppResource(
 
 function processResult(snapshot: ProcessSnapshot): string {
   const status = snapshot.running
-    ? `Process running with session ID ${snapshot.sessionId}.`
+    ? `Process running with process ID ${snapshot.processId}.`
     : snapshot.signal
       ? `Process exited after signal ${snapshot.signal}.`
       : `Process exited with code ${snapshot.exitCode ?? "unknown"}.`;
@@ -575,15 +577,15 @@ function processResult(snapshot: ProcessSnapshot): string {
 
 function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
   const status = snapshot.signal
-    ? `Background process ${snapshot.sessionId} exited after signal ${snapshot.signal}.`
-    : `Background process ${snapshot.sessionId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
+    ? `Background process ${snapshot.processId} exited after signal ${snapshot.signal}.`
+    : `Background process ${snapshot.processId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
   const command = `Command: ${snapshot.command}`;
   const output = snapshot.output ? `\n${snapshot.output.replace(/\n$/, "")}` : "";
   return `${status}\n${command}${output}`;
 }
 
 function attachCompletedProcessNotices<T>(
-  processSessions: ProcessSessionManager,
+  processSessions: ProcessManager,
   workspaceId: string,
   result: T,
 ): T {
@@ -602,10 +604,14 @@ function attachCompletedProcessNotices<T>(
   if (!Array.isArray(content)) return result;
 
   const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
-  const currentSessionId = structured?.running === true && typeof structured.sessionId === "number"
-    ? structured.sessionId
+  const currentProcessId = structured?.running === true
+    ? typeof structured.processId === "number"
+      ? structured.processId
+      : typeof structured.sessionId === "number"
+        ? structured.sessionId
+        : undefined
     : undefined;
-  const completed = processSessions.takeCompleted(workspaceId, undefined, currentSessionId);
+  const completed = processSessions.takeCompleted(workspaceId, undefined, currentProcessId);
   if (completed.length === 0) return result;
 
   return {
@@ -619,7 +625,8 @@ function attachCompletedProcessNotices<T>(
 
 function processOutputSchema(): z.ZodRawShape {
   return resultOutputSchema({
-    sessionId: z.number().optional(),
+    processId: z.number().int().positive().optional().describe("Canonical process handle for write_stdin."),
+    sessionId: z.number().int().positive().optional().describe("Deprecated alias of processId for compatibility."),
     running: z.boolean(),
     exitCode: z.number().int().optional(),
     signal: z.string().optional(),
@@ -659,6 +666,7 @@ function processToolResponse(
     },
     structuredContent: {
       result,
+      processId: snapshot.processId,
       sessionId: snapshot.sessionId,
       running: snapshot.running,
       exitCode: snapshot.exitCode,
@@ -686,7 +694,7 @@ function registerProcessTools(
   server: McpServer,
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
-  processSessions: ProcessSessionManager,
+  processSessions: ProcessManager,
   hooks: HookRunner,
 ): void {
   if (config.toolMode === "codex") {
@@ -696,7 +704,7 @@ function registerProcessTools(
     {
       title: "Execute command",
       description:
-        `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a sessionId for write_stdin. Use this for file inspection, tests, builds, package scripts, generators, formatters, and long-running processes. ${buildShellMutationPolicy()} Call open_workspace first and pass workspaceId.`,
+        `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a processId for write_stdin. Use this for file inspection, tests, builds, package scripts, generators, formatters, and long-running processes. ${buildShellMutationPolicy()} Call open_workspace first and pass workspaceId.`,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
         cmd: z.string().min(1).describe("Shell command to execute."),
@@ -716,7 +724,7 @@ function registerProcessTools(
           .min(0)
           .max(30_000)
           .optional()
-          .describe("Milliseconds to wait before returning a running session. Defaults to 10000."),
+          .describe("Milliseconds to wait before returning a running process. Defaults to 10000."),
         maxOutputTokens: z
           .number()
           .int()
@@ -759,7 +767,7 @@ function registerProcessTools(
             commandLength: cmd.length,
             exitCode: snapshot.exitCode,
             running: snapshot.running,
-            processSessionId: snapshot.sessionId,
+            processId: snapshot.processId,
             success: snapshot.running || snapshot.exitCode === 0,
             durationMs: Math.round(performance.now() - startedAt),
           });
@@ -786,7 +794,8 @@ function registerProcessTools(
         "Poll or write characters to a running process returned by bash or exec_command. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
-        sessionId: z.number().describe("Process session identifier returned by exec_command."),
+        processId: z.number().int().positive().optional().describe("Canonical process identifier returned by bash or exec_command."),
+        sessionId: z.number().int().positive().optional().describe("Deprecated alias for processId. Retained for compatibility."),
         chars: z.string().optional().describe("Characters to write. Omit or pass an empty string to poll."),
         columns: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this width."),
         rows: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this height."),
@@ -809,13 +818,14 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
+    async ({ workspaceId, processId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
+      const resolvedProcessId = resolveProcessId(processId, sessionId);
       return runToolWithHooks(hooks, {
         tool: "write_stdin",
         invocation: workspaceHookInvocation(workspace),
         payload: {
-          sessionId,
+          processId: resolvedProcessId,
           charactersWritten: chars?.length ?? 0,
           columns,
           rows,
@@ -824,7 +834,7 @@ function registerProcessTools(
           const startedAt = performance.now();
           const snapshot = await processSessions.write({
             workspaceId,
-            sessionId,
+            processId: resolvedProcessId,
             chars,
             columns,
             rows,
@@ -837,13 +847,13 @@ function registerProcessTools(
             ...workspaceLogContext(workspace, extra.sessionId),
             exitCode: snapshot.exitCode,
             running: snapshot.running,
-            processSessionId: snapshot.sessionId,
+            processId: snapshot.processId,
             success: snapshot.running || snapshot.exitCode === 0,
             durationMs: Math.round(performance.now() - startedAt),
           });
 
           return processToolResponse("write_stdin", workspaceId, snapshot, {
-            sessionId,
+            processId: resolvedProcessId,
             charactersWritten: chars?.length ?? 0,
             running: snapshot.running,
             exitCode: snapshot.exitCode,
@@ -859,7 +869,7 @@ export function createMcpServer(
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
   reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>,
-  processSessions: ProcessSessionManager,
+  processSessions: ProcessManager,
   localAgentProviders: LocalAgentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
 ): McpServer {
@@ -2193,7 +2203,7 @@ export function createMcpServer(
               commandLength: command.length,
               exitCode: snapshot.exitCode,
               running: snapshot.running,
-              processSessionId: snapshot.sessionId,
+              processId: snapshot.processId,
               success: snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
               durationMs: Math.round(performance.now() - startedAt),
             });
@@ -2245,7 +2255,7 @@ export function createServer(
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new McpSessionRegistry<Transport>();
+  const transports = new McpTransportRegistry<Transport>();
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2257,22 +2267,22 @@ export function createServer(
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
-  const processSessions = new ProcessSessionManager();
+  const processSessions = new ProcessManager();
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];
 
-  const logSessionCloseResults = (
+  const logTransportCloseResults = (
     reason: "idle_timeout" | "server_shutdown",
-    results: McpSessionCloseResult[],
+    results: McpTransportCloseResult[],
   ) => {
     let closedCount = 0;
 
     for (const result of results) {
       if (result.error) {
-        logEvent(config.logging, "warn", "mcp_session_close_failed", {
+        logEvent(config.logging, "warn", "mcp_transport_session_close_failed", {
           reason,
-          sessionIdPrefix: sessionIdPrefix(result.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(result.transportSessionId),
           error:
             result.error instanceof Error
               ? result.error.message
@@ -2283,27 +2293,27 @@ export function createServer(
 
       closedCount += 1;
       if (reason === "idle_timeout") {
-        logEvent(config.logging, "debug", "mcp_session_closed", {
+        logEvent(config.logging, "debug", "mcp_transport_session_closed", {
           reason,
-          sessionIdPrefix: sessionIdPrefix(result.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(result.transportSessionId),
         });
       }
     }
 
     if (reason === "server_shutdown" && closedCount > 0) {
-      logEvent(config.logging, "debug", "mcp_sessions_closed", {
+      logEvent(config.logging, "debug", "mcp_transport_sessions_closed", {
         reason,
         count: closedCount,
       });
     }
   };
 
-  const sessionCleanupTimer = setInterval(() => {
+  const transportCleanupTimer = setInterval(() => {
     void transports
-      .closeIdle(MCP_SESSION_IDLE_TIMEOUT_MS)
-      .then((results) => logSessionCloseResults("idle_timeout", results));
-  }, MCP_SESSION_CLEANUP_INTERVAL_MS);
-  sessionCleanupTimer.unref();
+      .closeIdle(MCP_TRANSPORT_IDLE_TIMEOUT_MS)
+      .then((results) => logTransportCloseResults("idle_timeout", results));
+  }, MCP_TRANSPORT_CLEANUP_INTERVAL_MS);
+  transportCleanupTimer.unref();
 
   if (config.logging.trustProxy) {
     app.set("trust proxy", true);
@@ -2364,7 +2374,7 @@ export function createServer(
 
   app.all("/mcp", async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;
-    const sessionId = req.header("mcp-session-id");
+    const transportSessionId = req.header("mcp-session-id");
     const initializeRequest = req.method === "POST" && isInitializeRequest(req.body);
 
     await new Promise<void>((resolve, reject) => {
@@ -2390,8 +2400,8 @@ export function createServer(
     logEvent(config.logging, "debug", "mcp_request", {
       requestId,
       httpMethod: req.method,
-      sessionIdPresent: Boolean(sessionId),
-      sessionIdPrefix: sessionIdPrefix(sessionId),
+      transportSessionIdPresent: Boolean(transportSessionId),
+      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
       isInitialize: initializeRequest,
       ...mcpRequestDebugFields(req.body),
     });
@@ -2399,31 +2409,31 @@ export function createServer(
     try {
       let transport: Transport | undefined;
 
-      if (sessionId) {
-        transport = transports.get(sessionId);
+      if (transportSessionId) {
+        transport = transports.get(transportSessionId);
         if (!transport) {
-          sendJsonRpcError(res, 404, -32000, "Unknown MCP session");
+          sendJsonRpcError(res, 404, -32000, "Unknown MCP transport session");
           return;
         }
       } else if (initializeRequest) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (newSessionId) => {
-            if (transport) transports.register(newSessionId, transport);
-            logEvent(config.logging, "debug", "mcp_session_created", {
+          onsessioninitialized: (newTransportSessionId) => {
+            if (transport) transports.register(newTransportSessionId, transport);
+            logEvent(config.logging, "debug", "mcp_transport_session_created", {
               requestId,
-              sessionIdPrefix: sessionIdPrefix(newSessionId),
+              transportSessionIdPrefix: transportSessionIdPrefix(newTransportSessionId),
               ...requestLogFields(req, config),
             });
           },
         });
 
         transport.onclose = () => {
-          const closedSessionId = transport?.sessionId;
-          if (closedSessionId && transports.remove(closedSessionId)) {
-            logEvent(config.logging, "debug", "mcp_session_closed", {
+          const closedTransportSessionId = transport?.sessionId;
+          if (closedTransportSessionId && transports.remove(closedTransportSessionId)) {
+            logEvent(config.logging, "debug", "mcp_transport_session_closed", {
               reason: "transport_close",
-              sessionIdPrefix: sessionIdPrefix(closedSessionId),
+              transportSessionIdPrefix: transportSessionIdPrefix(closedTransportSessionId),
             });
           }
         };
@@ -2438,7 +2448,7 @@ export function createServer(
         );
         await server.connect(transport);
       } else {
-        sendJsonRpcError(res, 400, -32000, "No valid MCP session");
+        sendJsonRpcError(res, 400, -32000, "No valid MCP transport session");
         return;
       }
 
@@ -2461,9 +2471,9 @@ export function createServer(
     localAgentProviders,
     close: () => {
       closePromise ??= (async () => {
-        clearInterval(sessionCleanupTimer);
+        clearInterval(transportCleanupTimer);
         const results = await transports.closeAll();
-        logSessionCloseResults("server_shutdown", results);
+        logTransportCloseResults("server_shutdown", results);
         processSessions.shutdown();
         oauthProvider.close();
         workspaceStore.close?.();

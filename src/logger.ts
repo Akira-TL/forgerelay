@@ -95,9 +95,14 @@ export function requestPath(req: Request): string {
   return req.path || req.url.split("?")[0] || req.url;
 }
 
-export function sessionIdPrefix(sessionId: string | undefined): string | undefined {
-  return sessionId ? sessionId.slice(0, 8) : undefined;
+export function transportSessionIdPrefix(
+  transportSessionId: string | undefined,
+): string | undefined {
+  return transportSessionId ? transportSessionId.slice(0, 8) : undefined;
 }
+
+/** @deprecated Use transportSessionIdPrefix. */
+export const sessionIdPrefix = transportSessionIdPrefix;
 
 export function workspaceLogLabel(root: string, workspaceId: string): string {
   const shortWorkspaceId = workspaceId.startsWith("ws_")
@@ -118,14 +123,16 @@ export function formatPrettyLogEntry(
   const level = logLevel(entry.level);
   const time = formatTimestamp(entry.ts);
   const source = stringField(entry.workspace) ?? stringField(entry.workspaceId) ?? "forgerelay";
-  const session = level === "debug"
-    ? stringField(entry.session) ?? stringField(entry.sessionIdPrefix)
+  const transportSession = level === "debug"
+    ? stringField(entry.transportSessionIdPrefix)
+      ?? stringField(entry.session)
+      ?? stringField(entry.sessionIdPrefix)
     : undefined;
   const prefix = [
     style("gray", time, options),
     `[${style(LEVEL_STYLE[level], level.toUpperCase(), options)}]`,
     formatPrettySource(source, options),
-    session ? style("gray", `session:${session}`, options) : undefined,
+    transportSession ? style("gray", `transport:${transportSession}`, options) : undefined,
     style("gray", "|", options),
   ].filter((value): value is string => Boolean(value)).join(" ");
 
@@ -151,14 +158,18 @@ function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): st
       return formatAppTemplateMessage(entry, options, false);
     case "mcp_app_template_read_failed":
       return formatAppTemplateMessage(entry, options, true);
+    case "mcp_transport_session_created":
     case "mcp_session_created":
-      return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} created`;
+      return `transport session ${transportSessionPrefix(entry) ?? "unknown"} created`;
+    case "mcp_transport_session_closed":
     case "mcp_session_closed":
-      return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} closed`;
+      return `transport session ${transportSessionPrefix(entry) ?? "unknown"} closed`;
+    case "mcp_transport_sessions_closed":
     case "mcp_sessions_closed":
-      return `${numberField(entry.count) ?? 0} sessions closed`;
+      return `${numberField(entry.count) ?? 0} transport sessions closed`;
+    case "mcp_transport_session_close_failed":
     case "mcp_session_close_failed":
-      return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} close -> ${style("red", "error", options)}`;
+      return `transport session ${transportSessionPrefix(entry) ?? "unknown"} close -> ${style("red", "error", options)}`;
     case "auth_denied":
       return `auth denied${entry.reason ? `: ${String(entry.reason)}` : ""}`;
     case "mcp_request_error":
@@ -185,8 +196,8 @@ function toolTarget(entry: LogFields, tool: string): string | undefined {
 
 function toolResult(entry: LogFields, tool: string, options: PrettyFormatOptions): string {
   if (entry.running === true) {
-    const processSessionId = entry.processSessionId;
-    return style("yellow", processSessionId === undefined ? "running" : `running process:${String(processSessionId)}`, options);
+    const processId = entry.processId ?? entry.processSessionId;
+    return style("yellow", processId === undefined ? "running" : `running process:${String(processId)}`, options);
   }
 
   const exitCode = numberField(entry.exitCode) ?? exitCodeFromError(entry.error);
@@ -294,6 +305,12 @@ function logLevel(value: unknown): Exclude<LogLevel, "silent"> {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function transportSessionPrefix(entry: LogFields): string | undefined {
+  return stringField(entry.transportSessionIdPrefix)
+    ?? stringField(entry.sessionIdPrefix)
+    ?? stringField(entry.session);
 }
 
 function numberField(value: unknown): number | undefined {

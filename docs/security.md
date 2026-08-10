@@ -124,8 +124,9 @@ Do not describe ForgeRelay as a sandboxed coding environment.
 
 Shell execution has a 300-second foreground wait ceiling, not a 300-second
 process lifetime. When `bash` is still running after that window, ForgeRelay
-returns a process `sessionId` and leaves the process alive. `write_stdin` can poll,
-wait, interact, or explicitly interrupt it. An asynchronously completed process
+returns a canonical `processId` and leaves the process alive. `write_stdin` can
+poll, wait, interact, or explicitly interrupt it. The former process `sessionId`
+remains a deprecated compatibility alias during 0.2.x. An asynchronously completed process
 is reported on a later tool result for the same logical workspace ID, including
 error-result paths, and is never broadcast to another workspace ID. Explicitly
 resuming the same workspace ID in another conversation intentionally transfers

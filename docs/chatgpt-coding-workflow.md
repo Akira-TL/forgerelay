@@ -168,10 +168,11 @@ The exact lifecycle tools available depend on the active server configuration.
 In minimal mode, normal shell inspection commands such as `rg`, `find`, and `ls`
 can be used rather than dedicated MCP search tools. `bash` waits in the foreground
 for at most 300 seconds. If the command is still running, ForgeRelay returns a
-process `sessionId` without killing it. The Agent can use `write_stdin` to poll,
+canonical `processId` without killing it. The Agent can use `write_stdin` to poll,
 wait again, interact, or explicitly send Ctrl-C, or continue other work; once the
 command finishes, its completion is attached to a later tool result using the
-same workspace ID.
+same workspace ID. The former process `sessionId` remains a deprecated alias in
+0.2.x for compatibility with existing clients.
 
 `FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
 

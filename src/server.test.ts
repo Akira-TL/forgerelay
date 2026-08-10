@@ -11,7 +11,7 @@ import { loadConfig, type ServerConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
-import { ProcessSessionManager } from "./process-sessions.js";
+import { ProcessManager } from "./process-sessions.js";
 import { createMcpServer } from "./server.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
@@ -27,6 +27,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   const defaultTools = await defaultContext.client.listTools();
   assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
+  const writeStdinTool = defaultTools.tools.find((tool) => tool.name === "write_stdin");
   const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
   const shellToolMeta = shellTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
@@ -60,6 +61,11 @@ test("MCP instructions separate capability contract from configurable workflow p
     "Shell command to run with the local user's authority.",
   );
   assert.equal(shellInputProperties?.timeout, undefined);
+  const writeStdinInputProperties = (writeStdinTool?.inputSchema as {
+    properties?: Record<string, { description?: string }>;
+  } | undefined)?.properties;
+  assert.match(writeStdinInputProperties?.processId?.description ?? "", /Canonical process identifier/);
+  assert.match(writeStdinInputProperties?.sessionId?.description ?? "", /Deprecated alias for processId/);
   assert.match(
     shellToolMeta?.ui?.resourceUri ?? "",
     /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
@@ -632,10 +638,10 @@ test("WorkspaceOpen hook reports are visible on the open_workspace result", asyn
   );
 });
 
-test("bash returns a running session instead of killing a command after the foreground wait", async (t) => {
-  const processSessions = new ProcessSessionManager({
+test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
+  const processSessions = new ProcessManager({
     maxStartYieldMs: 20,
-    completedSessionTtlMs: 2_000,
+    completedProcessTtlMs: 2_000,
   });
   const context = await fixture(t, { processSessions });
   const opened = await callOpen(context.client, context.project, "chat-shell-background");
@@ -651,8 +657,9 @@ test("bash returns a running session instead of killing a command after the fore
 
   assert.equal(shell.isError, undefined, allResponseText(shell));
   assert.equal(structuredContent(shell).running, true);
-  assert.equal(typeof structuredContent(shell).sessionId, "number");
-  assert.match(allResponseText(shell), /Process running with session ID/);
+  assert.equal(typeof structuredContent(shell).processId, "number");
+  assert.equal(structuredContent(shell).sessionId, structuredContent(shell).processId);
+  assert.match(allResponseText(shell), /Process running with process ID/);
 
   const read = await waitForToolText(
     context.client,
@@ -673,9 +680,9 @@ test("bash returns a running session instead of killing a command after the fore
 });
 
 test("a failed workspace tool call still carries a completed background process notice", async (t) => {
-  const processSessions = new ProcessSessionManager({
+  const processSessions = new ProcessManager({
     maxStartYieldMs: 20,
-    completedSessionTtlMs: 2_000,
+    completedProcessTtlMs: 2_000,
   });
   const context = await fixture(t, { processSessions });
   const opened = await callOpen(context.client, context.project, "chat-shell-error-notice");
@@ -704,7 +711,7 @@ test("a failed workspace tool call still carries a completed background process 
 });
 
 test("close_workspace refuses a logical workspace with a running process", async (t) => {
-  const processSessions = new ProcessSessionManager({ maxStartYieldMs: 10 });
+  const processSessions = new ProcessManager({ maxStartYieldMs: 10 });
   const context = await fixture(t, { processSessions });
   const opened = await callOpen(context.client, context.project, "chat-shell-close-guard");
   const workspaceId = String(structuredContent(opened).workspaceId);
@@ -716,8 +723,8 @@ test("close_workspace refuses a logical workspace with a running process", async
       command: `${node} -e "setTimeout(() => console.log('close-guard-done'), 80)"`,
     },
   });
-  const sessionId = Number(structuredContent(shell).sessionId);
-  assert.ok(sessionId > 0);
+  const processId = Number(structuredContent(shell).processId);
+  assert.ok(processId > 0);
 
   const blockedClose = await context.client.callTool({
     name: "close_workspace",
@@ -728,7 +735,8 @@ test("close_workspace refuses a logical workspace with a running process", async
 
   await context.client.callTool({
     name: "write_stdin",
-    arguments: { workspaceId, sessionId, yieldTimeMs: 5_000 },
+    // Deprecated sessionId remains accepted at the MCP boundary during 0.2.x.
+    arguments: { workspaceId, sessionId: processId, yieldTimeMs: 5_000 },
   });
   const closed = await context.client.callTool({
     name: "close_workspace",
@@ -738,7 +746,7 @@ test("close_workspace refuses a logical workspace with a running process", async
 });
 
 test("write_stdin can explicitly keep waiting for a bash process", async (t) => {
-  const processSessions = new ProcessSessionManager({ maxStartYieldMs: 10 });
+  const processSessions = new ProcessManager({ maxStartYieldMs: 10 });
   const context = await fixture(t, { processSessions });
   const opened = await callOpen(context.client, context.project, "chat-shell-poll");
   const workspaceId = String(structuredContent(opened).workspaceId);
@@ -750,12 +758,12 @@ test("write_stdin can explicitly keep waiting for a bash process", async (t) => 
       command: `${node} -e "setTimeout(() => console.log('polled-done'), 80)"`,
     },
   });
-  const sessionId = Number(structuredContent(shell).sessionId);
-  assert.ok(sessionId > 0);
+  const processId = Number(structuredContent(shell).processId);
+  assert.ok(processId > 0);
 
   const polled = await context.client.callTool({
     name: "write_stdin",
-    arguments: { workspaceId, sessionId, yieldTimeMs: 5_000 },
+    arguments: { workspaceId, processId, yieldTimeMs: 5_000 },
   });
   assert.equal(structuredContent(polled).running, false);
   assert.equal(structuredContent(polled).exitCode, 0);
@@ -1025,7 +1033,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     context.config,
     new WorkspaceRegistry(context.config, restoredStore),
     createReviewCheckpointManager(),
-    new ProcessSessionManager(),
+    new ProcessManager(),
     [],
     [],
   );
@@ -1061,7 +1069,7 @@ interface ServerFixture {
   project: string;
   config: ServerConfig;
   stateDir: string;
-  processSessions: ProcessSessionManager;
+  processSessions: ProcessManager;
   close: () => Promise<void>;
 }
 
@@ -1071,7 +1079,7 @@ async function fixture(
     git?: boolean;
     env?: NodeJS.ProcessEnv;
     hooks?: HookConfigInput;
-    processSessions?: ProcessSessionManager;
+    processSessions?: ProcessManager;
   } = {},
 ): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
@@ -1117,7 +1125,7 @@ async function fixture(
     : loadedConfig;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
-  const processSessions = options.processSessions ?? new ProcessSessionManager();
+  const processSessions = options.processSessions ?? new ProcessManager();
   const server = createMcpServer(
     config,
     workspaces,

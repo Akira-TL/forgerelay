@@ -2,86 +2,93 @@ export interface ClosableMcpTransport {
   close(): Promise<void>;
 }
 
-export interface McpSessionCloseResult {
-  sessionId: string;
+export interface McpTransportCloseResult {
+  transportSessionId: string;
   error?: unknown;
 }
 
-interface McpSessionEntry<TTransport> {
+interface McpTransportEntry<TTransport> {
   transport: TTransport;
   lastActivityAt: number;
 }
 
-export interface McpSessionRegistryOptions {
+export interface McpTransportRegistryOptions {
   now?: () => number;
 }
 
-export class McpSessionRegistry<TTransport extends ClosableMcpTransport> {
-  private readonly sessions = new Map<string, McpSessionEntry<TTransport>>();
+export class McpTransportRegistry<TTransport extends ClosableMcpTransport> {
+  private readonly transports = new Map<string, McpTransportEntry<TTransport>>();
   private readonly now: () => number;
 
-  constructor(options: McpSessionRegistryOptions = {}) {
+  constructor(options: McpTransportRegistryOptions = {}) {
     this.now = options.now ?? Date.now;
   }
 
   get size(): number {
-    return this.sessions.size;
+    return this.transports.size;
   }
 
-  register(sessionId: string, transport: TTransport): void {
-    this.sessions.set(sessionId, {
+  register(transportSessionId: string, transport: TTransport): void {
+    this.transports.set(transportSessionId, {
       transport,
       lastActivityAt: this.now(),
     });
   }
 
-  get(sessionId: string): TTransport | undefined {
-    const entry = this.sessions.get(sessionId);
+  get(transportSessionId: string): TTransport | undefined {
+    const entry = this.transports.get(transportSessionId);
     if (!entry) return undefined;
 
     entry.lastActivityAt = this.now();
     return entry.transport;
   }
 
-  remove(sessionId: string): boolean {
-    return this.sessions.delete(sessionId);
+  remove(transportSessionId: string): boolean {
+    return this.transports.delete(transportSessionId);
   }
 
-  async closeIdle(idleTimeoutMs: number): Promise<McpSessionCloseResult[]> {
+  async closeIdle(idleTimeoutMs: number): Promise<McpTransportCloseResult[]> {
     const cutoff = this.now() - idleTimeoutMs;
-    const idleSessions: Array<{ sessionId: string; transport: TTransport }> = [];
+    const idleTransports: Array<{ transportSessionId: string; transport: TTransport }> = [];
 
-    for (const [sessionId, entry] of this.sessions) {
+    for (const [transportSessionId, entry] of this.transports) {
       if (entry.lastActivityAt > cutoff) continue;
 
-      this.sessions.delete(sessionId);
-      idleSessions.push({ sessionId, transport: entry.transport });
+      this.transports.delete(transportSessionId);
+      idleTransports.push({ transportSessionId, transport: entry.transport });
     }
 
-    return closeSessions(idleSessions);
+    return closeTransports(idleTransports);
   }
 
-  async closeAll(): Promise<McpSessionCloseResult[]> {
-    const sessions = Array.from(this.sessions, ([sessionId, entry]) => ({
-      sessionId,
+  async closeAll(): Promise<McpTransportCloseResult[]> {
+    const transports = Array.from(this.transports, ([transportSessionId, entry]) => ({
+      transportSessionId,
       transport: entry.transport,
     }));
-    this.sessions.clear();
-    return closeSessions(sessions);
+    this.transports.clear();
+    return closeTransports(transports);
   }
 }
 
-async function closeSessions<TTransport extends ClosableMcpTransport>(
-  sessions: Array<{ sessionId: string; transport: TTransport }>,
-): Promise<McpSessionCloseResult[]> {
+async function closeTransports<TTransport extends ClosableMcpTransport>(
+  transports: Array<{ transportSessionId: string; transport: TTransport }>,
+): Promise<McpTransportCloseResult[]> {
   return Promise.all(
-    sessions.map(async ({ sessionId, transport }) => {
+    transports.map(async ({ transportSessionId, transport }) => {
       try {
         await transport.close();
-        return { sessionId };
+        return { transportSessionId };
       } catch (error) {
-        return { sessionId, error };
+        return { transportSessionId, error };
       }
     }),
   );
 }
+
+/** @deprecated Use McpTransportCloseResult. */
+export type McpSessionCloseResult = McpTransportCloseResult;
+/** @deprecated Use McpTransportRegistryOptions. */
+export type McpSessionRegistryOptions = McpTransportRegistryOptions;
+/** @deprecated Use McpTransportRegistry. */
+export { McpTransportRegistry as McpSessionRegistry };

@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { HeadTailBuffer, ProcessSessionManager } from "./process-sessions.js";
+import {
+  HeadTailBuffer,
+  ProcessManager,
+  ProcessSessionManager,
+  resolveProcessId,
+} from "./process-sessions.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -28,9 +33,16 @@ assert.equal(unicodeResult.truncated, true);
 assert.match(unicodeResult.output, /^a🙂/);
 assert.match(unicodeResult.output, /🙂c$/);
 
-const manager = new ProcessSessionManager({
+assert.equal(ProcessSessionManager, ProcessManager);
+assert.equal(resolveProcessId(7, undefined), 7);
+assert.equal(resolveProcessId(undefined, 7), 7);
+assert.equal(resolveProcessId(7, 7), 7);
+assert.throws(() => resolveProcessId(undefined, undefined), /processId is required/);
+assert.throws(() => resolveProcessId(7, 8), /must identify the same process/);
+
+const manager = new ProcessManager({
   maxBufferCharacters: 1_024,
-  completedSessionTtlMs: 1_000,
+  completedProcessTtlMs: 1_000,
 });
 
 const node = process.platform === "win32"
@@ -38,17 +50,17 @@ const node = process.platform === "win32"
   : JSON.stringify(process.execPath);
 
 async function waitForCompleted(
-  sessionManager: ProcessSessionManager,
+  processManager: ProcessManager,
   workspaceId: string,
   timeoutMs = 5_000,
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const completed = sessionManager.takeCompleted(workspaceId);
+    const completed = processManager.takeCompleted(workspaceId);
     if (completed.length > 0) return completed;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  return sessionManager.takeCompleted(workspaceId);
+  return processManager.takeCompleted(workspaceId);
 }
 
 const foreground = await manager.start({
@@ -60,7 +72,9 @@ const foreground = await manager.start({
 assert.equal(foreground.running, false);
 assert.equal(foreground.exitCode, 0);
 assert.match(foreground.output, /foreground/);
+assert.equal(foreground.processId, undefined);
 assert.equal(foreground.sessionId, undefined);
+assert.ok(foreground.wallTimeMs >= 0);
 
 const regularEnvironment = await manager.start({
   workspaceId: "workspace-a",
@@ -89,21 +103,23 @@ const background = await manager.start({
   yieldTimeMs: 5,
 });
 assert.equal(background.running, true);
-assert.ok(background.sessionId);
-assert.equal(typeof background.sessionId, "number");
+assert.ok(background.processId);
+assert.equal(typeof background.processId, "number");
+assert.equal(background.sessionId, background.processId);
 
 await assert.rejects(
   manager.write({
     workspaceId: "workspace-b",
-    sessionId: background.sessionId,
+    processId: background.processId,
     yieldTimeMs: 1,
   }),
   /does not belong to workspace/,
 );
 
+// Deprecated sessionId remains accepted during the compatibility window.
 const completed = await manager.write({
   workspaceId: "workspace-a",
-  sessionId: background.sessionId,
+  sessionId: background.processId,
   yieldTimeMs: 2_000,
 });
 assert.equal(completed.running, false);
@@ -118,11 +134,12 @@ const autoCompleted = await manager.start({
   yieldTimeMs: 1,
 });
 assert.equal(autoCompleted.running, true);
-assert.ok(autoCompleted.sessionId);
+assert.ok(autoCompleted.processId);
 assert.equal(manager.activeWorkspaceIds().has("workspace-a"), true);
 const notices = await waitForCompleted(manager, "workspace-a");
 assert.equal(notices.length, 1);
-assert.equal(notices[0]?.sessionId, autoCompleted.sessionId);
+assert.equal(notices[0]?.processId, autoCompleted.processId);
+assert.equal(notices[0]?.sessionId, autoCompleted.processId);
 assert.match(notices[0]?.command ?? "", /auto-finished/);
 assert.match(notices[0]?.output ?? "", /auto-finished/);
 
@@ -133,12 +150,12 @@ const interactive = await manager.start({
   yieldTimeMs: 5,
 });
 assert.equal(interactive.running, true);
-assert.ok(interactive.sessionId);
-assert.equal(typeof interactive.sessionId, "number");
+assert.ok(interactive.processId);
+assert.equal(typeof interactive.processId, "number");
 
 const inputResult = await manager.write({
   workspaceId: "workspace-a",
-  sessionId: interactive.sessionId,
+  processId: interactive.processId,
   chars: "hello\n",
   yieldTimeMs: 2_000,
 });
@@ -152,11 +169,11 @@ const defaultInteractive = await manager.start({
   yieldTimeMs: 5,
 });
 assert.equal(defaultInteractive.running, true);
-assert.ok(defaultInteractive.sessionId);
+assert.ok(defaultInteractive.processId);
 
 const defaultInputResult = await manager.write({
   workspaceId: "workspace-a",
-  sessionId: defaultInteractive.sessionId,
+  processId: defaultInteractive.processId,
   chars: "hello\n",
 });
 assert.equal(defaultInputResult.running, false);
@@ -169,12 +186,12 @@ const noisyInteractive = await manager.start({
   yieldTimeMs: 100,
 });
 assert.equal(noisyInteractive.running, true);
-assert.ok(noisyInteractive.sessionId);
+assert.ok(noisyInteractive.processId);
 
 await new Promise((resolve) => setTimeout(resolve, 50));
 const noisyInputResult = await manager.write({
   workspaceId: "workspace-a",
-  sessionId: noisyInteractive.sessionId,
+  processId: noisyInteractive.processId,
   chars: "hello\n",
   yieldTimeMs: 2_000,
 });
@@ -188,12 +205,12 @@ const interruptible = await manager.start({
   yieldTimeMs: 100,
 });
 assert.equal(interruptible.running, true);
-assert.ok(interruptible.sessionId);
+assert.ok(interruptible.processId);
 
 await new Promise((resolve) => setTimeout(resolve, 50));
 const interrupted = await manager.write({
   workspaceId: "workspace-a",
-  sessionId: interruptible.sessionId,
+  processId: interruptible.processId,
   chars: "\u0003",
   yieldTimeMs: 2_000,
 });
@@ -207,16 +224,16 @@ let buffered = await manager.start({
   yieldTimeMs: 50,
   maxOutputTokens: 100,
 });
-if (!buffered.outputTruncated && buffered.sessionId) {
+if (!buffered.outputTruncated && buffered.processId) {
   buffered = await manager.write({
     workspaceId: "workspace-a",
-    sessionId: buffered.sessionId,
+    processId: buffered.processId,
     yieldTimeMs: 2_000,
     maxOutputTokens: 100,
   });
 }
 assert.equal(buffered.outputTruncated, true);
-if (buffered.sessionId) manager.terminate("workspace-a", buffered.sessionId);
+if (buffered.processId) manager.terminate("workspace-a", buffered.processId);
 
 try {
   if (process.platform === "win32") {
@@ -240,11 +257,11 @@ try {
       yieldTimeMs: 10,
     });
     assert.equal(pty.running, true);
-    assert.ok(pty.sessionId);
+    assert.ok(pty.processId);
 
     const resizedPty = await manager.write({
       workspaceId: "workspace-a",
-      sessionId: pty.sessionId,
+      processId: pty.processId,
       columns: 120,
       rows: 30,
       yieldTimeMs: 2_000,
@@ -255,3 +272,16 @@ try {
 } finally {
   manager.shutdown();
 }
+
+let monotonicNow = 100;
+const timingManager = new ProcessManager({ monotonicNow: () => monotonicNow });
+const timingResultPromise = timingManager.start({
+  workspaceId: "workspace-time",
+  cwd: process.cwd(),
+  command: `${node} -e "process.exit(0)"`,
+  yieldTimeMs: 2_000,
+});
+monotonicNow = 90;
+const timingResult = await timingResultPromise;
+assert.equal(timingResult.wallTimeMs, 0);
+timingManager.shutdown();

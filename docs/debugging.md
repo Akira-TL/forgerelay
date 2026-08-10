@@ -59,10 +59,10 @@ The acceptance checks:
 3. unauthenticated `/mcp` rejection;
 4. dynamic OAuth client registration, PKCE Owner-password approval, and access-token exchange;
 5. MCP `initialize`, including package/server version consistency and the shell mutation safety contract;
-6. `tools/list` for the full debug tool surface, including `close_workspace`, `write_stdin`, the non-blanket `bash` mutation policy, no kill-timeout input, the 300-second foreground-wait contract, workspace resume/stale-session schema, and MCP App tool metadata;
+6. `tools/list` for the full debug tool surface, including `close_workspace`, `write_stdin`, canonical `processId` plus the deprecated `sessionId` compatibility alias, the non-blanket `bash` mutation policy, no kill-timeout input, the 300-second foreground-wait contract, workspace resume/stale-workspace schema, and MCP App tool metadata;
 7. the full MCP App template chain: `resources/list`, `resources/templates/list`, current content-hashed `resources/read`, legacy/historical template compatibility reads, `text/html;profile=mcp-app`, CSP resource domains, and an HTTP fetch of the JavaScript asset referenced by the template;
-8. a real checkout workspace with `write`, `read`, `rename`, `delete`, foreground `bash` through `ProcessSessionManager`, and a deliberate failed `edit`;
-9. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
+8. a real checkout workspace with `write`, `read`, `rename`, `delete`, foreground `bash` through `ProcessManager`, and a deliberate failed `edit`;
+9. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP transport session, plus rejection of an arbitrary path outside the workspace/temp roots;
 10. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
 11. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
 12. deterministic local subagent error path，不联系任何模型 provider；

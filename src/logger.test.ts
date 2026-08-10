@@ -4,7 +4,7 @@ import { formatPrettyLogEntry } from "./logger.js";
 
 const timestamp = new Date(2026, 7, 9, 20, 41, 3).toISOString();
 
-test("pretty tool logs emphasize workspace, session, operation, target, and result", () => {
+test("pretty tool logs emphasize workspace, operation, target, and result", () => {
   const line = formatPrettyLogEntry({
     ts: timestamp,
     level: "info",
@@ -95,12 +95,12 @@ test("debug MCP logs retain transport session details without polluting info too
     ts: timestamp,
     level: "debug",
     event: "mcp_request",
-    sessionIdPrefix: "7f7ce1d1",
+    transportSessionIdPrefix: "7f7ce1d1",
     rpcMethod: "resources/read",
     rpcTarget: "ui://forgerelay/workspace-app-test.html",
   }, { colorize: false });
 
-  assert.match(line, /session:7f7ce1d1 \| mcp resources\/read ui:\/\/forgerelay\/workspace-app-test\.html$/);
+  assert.match(line, /transport:7f7ce1d1 \| mcp resources\/read ui:\/\/forgerelay\/workspace-app-test\.html$/);
 });
 
 test("debug app template logs distinguish current and compatibility reads", () => {
@@ -108,12 +108,12 @@ test("debug app template logs distinguish current and compatibility reads", () =
     ts: timestamp,
     level: "debug",
     event: "mcp_app_template_read",
-    sessionIdPrefix: "7f7ce1d1",
+    transportSessionIdPrefix: "7f7ce1d1",
     requestedUri: "ui://forgerelay/workspace-app-a1b2c3d4e5f6.html",
     currentUri: "ui://forgerelay/workspace-app-a1b2c3d4e5f6.html",
     compatibility: "current",
   }, { colorize: false });
-  assert.match(current, /session:7f7ce1d1 \| app template current .* -> ok$/);
+  assert.match(current, /transport:7f7ce1d1 \| app template current .* -> ok$/);
 
   const legacy = formatPrettyLogEntry({
     ts: timestamp,
@@ -139,16 +139,16 @@ test("failed app template reads stay visible as warnings", () => {
   assert.match(line, /app template historical .* -> error: Missing UI manifest$/);
 });
 
-test("pretty shutdown logs summarize closed MCP sessions", () => {
+test("pretty shutdown logs summarize closed MCP transport sessions", () => {
   const line = formatPrettyLogEntry({
     ts: timestamp,
-    level: "info",
-    event: "mcp_sessions_closed",
+    level: "debug",
+    event: "mcp_transport_sessions_closed",
     reason: "server_shutdown",
     count: 4,
   }, { colorize: false });
 
-  assert.match(line, /\| 4 sessions closed$/);
+  assert.match(line, /\| 4 transport sessions closed$/);
   assert.doesNotMatch(line, /sessionIdPrefix/);
 });
 

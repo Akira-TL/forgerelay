@@ -126,6 +126,14 @@ try {
   assert.match(bashTool?.description ?? "", /write_stdin/);
   const writeStdinTool = tools.find((tool) => tool.name === "write_stdin");
   assert.equal(writeStdinTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
+  assert.match(
+    writeStdinTool?.inputSchema?.properties?.processId?.description ?? "",
+    /Canonical process identifier/,
+  );
+  assert.match(
+    writeStdinTool?.inputSchema?.properties?.sessionId?.description ?? "",
+    /Deprecated alias for processId/,
+  );
   const openWorkspaceTool = tools.find((tool) => tool.name === "open_workspace");
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.workspaceId);
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
@@ -217,7 +225,7 @@ try {
   });
   assert.match(shell.structuredContent.result, /debug-bash-ok/);
   assert.equal(shell.structuredContent.running, false);
-  pass("bash", "foreground command completed through ProcessSessionManager");
+  pass("bash", "foreground command completed through ProcessManager");
 
   const failedEdit = callTool(oauth.accessToken, sessionId, 7, "edit", {
     workspaceId,

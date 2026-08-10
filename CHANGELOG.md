@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Running shell commands now expose canonical `processId` handles; `write_stdin` accepts `processId`, while the former process `sessionId` remains a deprecated compatibility alias throughout 0.2.x.
+- ForgeRelay now names protocol-level MCP state as a transport session in internal/debug terminology. Workspace identity remains `workspaceId`, one-request tracing remains `requestId`, and third-party provider session identifiers are unchanged.
+- Process elapsed time now uses a monotonic clock, preventing negative `wallTimeMs` values when the operating-system wall clock is adjusted while a long-running command or release Hook is executing.
+
 ## [0.2.5] - 2026-08-10
 
 ### Changed

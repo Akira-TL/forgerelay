@@ -21,7 +21,7 @@ import {
   IncomingArtifactAdapterRegistry,
   type IncomingArtifactAdapter,
 } from "./incoming-artifacts.js";
-import { logEvent, sessionIdPrefix, workspaceLogLabel } from "./logger.js";
+import { logEvent, workspaceLogLabel } from "./logger.js";
 import type { WorkspaceRegistry } from "./workspaces.js";
 
 const ARTIFACT_WRITE_ANNOTATIONS = {
@@ -119,7 +119,7 @@ export function registerArtifactTools(
       _meta: { "openai/fileParams": ["file"] },
       annotations: ARTIFACT_WRITE_ANNOTATIONS,
     },
-    async (input, extra) => {
+    async (input) => {
       const workspace = workspaces.getWorkspace(input.workspaceId);
       return runToolWithHooks(hooks, {
         tool: "download_artifact",
@@ -133,7 +133,6 @@ export function registerArtifactTools(
         changedPaths: (result) => [result.structuredContent.path],
         operation: () => executeArtifactTool(config, input, {
           workspace: workspaceLogLabel(workspace.root, workspace.id),
-          session: sessionIdPrefix(extra?.sessionId),
         }, async () => {
           const downloaded = await downloadIncomingArtifact({
             registry: incomingRegistry,
@@ -319,7 +318,7 @@ export function artifactToolLogFields(
 async function executeArtifactTool(
   config: ServerConfig,
   input: Record<string, unknown>,
-  logContext: { workspace: string; session?: string },
+  logContext: { workspace: string },
   operation: () => Promise<{
     publicResult: { path: string };
     logResult: DownloadIncomingArtifactResult;
