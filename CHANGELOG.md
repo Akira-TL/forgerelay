@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-08-10
+
 ### Added
 
 - `open_workspace(action="list")` now provides paginated logical-workspace inventory without adding a tenth Core tool. Inventory entries include a compact `project/workspaceId` label, persisted status, derived lifecycle state, checkout/worktree backing metadata, creation/last-used timestamps, idle duration, root validity, current-conversation selection, and filters for workspace ID, status, state, mode, root, and stale-only views.
