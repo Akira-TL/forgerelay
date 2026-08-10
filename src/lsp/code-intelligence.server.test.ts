@@ -78,6 +78,7 @@ test("code.intelligence definition resolves through a real stdio LSP child proce
     },
   });
 
+  await context.close();
   const fakeLog = await readFile(fakeLogPath, "utf8");
   assert.ok(fakeLog.includes('"method":"initialize"'));
   assert.ok(fakeLog.includes('"synchronization":{"dynamicRegistration":false'));
@@ -85,6 +86,8 @@ test("code.intelligence definition resolves through a real stdio LSP child proce
   assert.ok(fakeLog.includes('"method":"textDocument/didOpen"'));
   assert.ok(fakeLog.includes('"method":"textDocument/definition"'));
   assert.ok(fakeLog.includes('"position":{"line":0,"character":8}'));
+  assert.ok(fakeLog.includes('"method":"shutdown"'));
+  assert.ok(fakeLog.includes('"method":"exit"'));
 });
 
 test("code.intelligence shares one Language service across logical workspaces for the same project", async (t) => {
@@ -537,6 +540,7 @@ test("code.intelligence reports stable unavailable, unsupported, invalid-positio
 interface ServerFixture {
   client: Client;
   project: string;
+  close: () => Promise<void>;
 }
 
 async function fixture(
@@ -579,16 +583,23 @@ async function fixture(
   const client = new Client({ name: "forgerelay-code-intelligence-test-client", version: "1.0.0" });
   await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-  t.after(async () => {
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
     await client.close();
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
     store.close();
+  };
+
+  t.after(async () => {
+    await close();
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project };
+  return { client, project, close };
 }
 
 async function callOpen(
