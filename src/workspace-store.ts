@@ -1,8 +1,10 @@
 import { and, desc, eq } from "drizzle-orm";
 import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
+  workspaceContextDeliveries,
   workspaceConversationBindings,
   workspaceSessions,
+  type WorkspaceContextDeliveryRow,
   type WorkspaceConversationBindingRow,
   type WorkspaceSessionRow,
 } from "./db/schema.js";
@@ -28,9 +30,15 @@ export interface WorkspaceConversationBinding {
   conversationScopeId: string;
   targetKey: string;
   workspaceSessionId: string;
-  contextFingerprint?: string;
   createdAt: string;
   lastUsedAt: string;
+}
+
+export interface WorkspaceContextDelivery {
+  conversationScopeId: string;
+  targetKey: string;
+  contextFingerprint: string;
+  deliveredAt: string;
 }
 
 export interface WorkspaceStore {
@@ -59,10 +67,20 @@ export interface WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
-    contextFingerprint?: string;
   }): WorkspaceConversationBinding;
   touchConversationBinding(conversationScopeId: string, targetKey: string): void;
   deleteConversationBinding(conversationScopeId: string, targetKey: string): void;
+  listContextDeliveries(): WorkspaceContextDelivery[];
+  getContextDelivery(
+    conversationScopeId: string,
+    targetKey: string,
+  ): WorkspaceContextDelivery | undefined;
+  setContextDelivery(input: {
+    conversationScopeId: string;
+    targetKey: string;
+    contextFingerprint: string;
+  }): WorkspaceContextDelivery;
+  deleteContextDelivery(conversationScopeId: string, targetKey: string): void;
   close?(): void;
 }
 
@@ -203,23 +221,14 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
-    contextFingerprint?: string;
   }): WorkspaceConversationBinding {
     const now = new Date().toISOString();
-    const update = {
-      workspaceSessionId: input.workspaceSessionId,
-      lastUsedAt: now,
-      ...(input.contextFingerprint !== undefined
-        ? { contextFingerprint: input.contextFingerprint }
-        : {}),
-    };
     const row = this.database.db
       .insert(workspaceConversationBindings)
       .values({
         conversationScopeId: input.conversationScopeId,
         targetKey: input.targetKey,
         workspaceSessionId: input.workspaceSessionId,
-        contextFingerprint: input.contextFingerprint ?? null,
         createdAt: now,
         lastUsedAt: now,
       })
@@ -228,7 +237,10 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
           workspaceConversationBindings.conversationScopeId,
           workspaceConversationBindings.targetKey,
         ],
-        set: update,
+        set: {
+          workspaceSessionId: input.workspaceSessionId,
+          lastUsedAt: now,
+        },
       })
       .returning()
       .get();
@@ -260,6 +272,69 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         and(
           eq(workspaceConversationBindings.conversationScopeId, conversationScopeId),
           eq(workspaceConversationBindings.targetKey, targetKey),
+        ),
+      )
+      .run();
+  }
+
+  listContextDeliveries(): WorkspaceContextDelivery[] {
+    return this.database.db
+      .select()
+      .from(workspaceContextDeliveries)
+      .orderBy(desc(workspaceContextDeliveries.deliveredAt))
+      .all()
+      .map(rowToWorkspaceContextDelivery);
+  }
+
+  getContextDelivery(
+    conversationScopeId: string,
+    targetKey: string,
+  ): WorkspaceContextDelivery | undefined {
+    const row = this.database.db
+      .select()
+      .from(workspaceContextDeliveries)
+      .where(
+        and(
+          eq(workspaceContextDeliveries.conversationScopeId, conversationScopeId),
+          eq(workspaceContextDeliveries.targetKey, targetKey),
+        ),
+      )
+      .get();
+    return row ? rowToWorkspaceContextDelivery(row) : undefined;
+  }
+
+  setContextDelivery(input: {
+    conversationScopeId: string;
+    targetKey: string;
+    contextFingerprint: string;
+  }): WorkspaceContextDelivery {
+    const deliveredAt = new Date().toISOString();
+    const row = this.database.db
+      .insert(workspaceContextDeliveries)
+      .values({ ...input, deliveredAt })
+      .onConflictDoUpdate({
+        target: [
+          workspaceContextDeliveries.conversationScopeId,
+          workspaceContextDeliveries.targetKey,
+        ],
+        set: {
+          contextFingerprint: input.contextFingerprint,
+          deliveredAt,
+        },
+      })
+      .returning()
+      .get();
+    if (!row) throw new Error("Workspace context delivery upsert returned no row.");
+    return rowToWorkspaceContextDelivery(row);
+  }
+
+  deleteContextDelivery(conversationScopeId: string, targetKey: string): void {
+    this.database.db
+      .delete(workspaceContextDeliveries)
+      .where(
+        and(
+          eq(workspaceContextDeliveries.conversationScopeId, conversationScopeId),
+          eq(workspaceContextDeliveries.targetKey, targetKey),
         ),
       )
       .run();
@@ -299,8 +374,18 @@ function rowToWorkspaceConversationBinding(
     conversationScopeId: row.conversationScopeId,
     targetKey: row.targetKey,
     workspaceSessionId: row.workspaceSessionId,
-    contextFingerprint: row.contextFingerprint ?? undefined,
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,
+  };
+}
+
+function rowToWorkspaceContextDelivery(
+  row: WorkspaceContextDeliveryRow,
+): WorkspaceContextDelivery {
+  return {
+    conversationScopeId: row.conversationScopeId,
+    targetKey: row.targetKey,
+    contextFingerprint: row.contextFingerprint,
+    deliveredAt: row.deliveredAt,
   };
 }

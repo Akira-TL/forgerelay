@@ -91,6 +91,25 @@ test("a new logical workspace suppresses unchanged bootstrap already delivered t
   assert.equal(fresh.includeBootstrapContext, false);
 });
 
+test("closing one logical workspace does not forget delivered project context", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  const fresh = await registry.openWorkspace(
+    { path: project, newWorkspace: true },
+    { conversationScopeId: "chat-1" },
+  );
+  assert.equal(fresh.includeBootstrapContext, false);
+
+  registry.closeWorkspace(fresh.workspace.id);
+  const resumed = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-1" },
+  );
+
+  assert.equal(resumed.includeBootstrapContext, false);
+});
+
 test("changed project instructions invalidate the delivered bootstrap fingerprint", async (t) => {
   const { project, registry } = await fixture(t);
 

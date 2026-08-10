@@ -48,13 +48,26 @@ export const workspaceConversationBindings = sqliteTable(
     workspaceSessionId: text("workspace_session_id")
       .notNull()
       .references(() => workspaceSessions.id, { onDelete: "cascade" }),
-    contextFingerprint: text("context_fingerprint"),
     createdAt: text("created_at").notNull(),
     lastUsedAt: text("last_used_at").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.conversationScopeId, table.targetKey] }),
     index("workspace_conversation_bindings_workspace_idx").on(table.workspaceSessionId),
+  ],
+);
+
+export const workspaceContextDeliveries = sqliteTable(
+  "workspace_context_deliveries",
+  {
+    conversationScopeId: text("conversation_scope_id").notNull(),
+    targetKey: text("target_key").notNull(),
+    contextFingerprint: text("context_fingerprint").notNull(),
+    deliveredAt: text("delivered_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationScopeId, table.targetKey] }),
+    index("workspace_context_deliveries_delivered_idx").on(table.deliveredAt),
   ],
 );
 
@@ -124,5 +137,7 @@ export type LoadedAgentFileRow = typeof loadedAgentFiles.$inferSelect;
 export type NewLoadedAgentFileRow = typeof loadedAgentFiles.$inferInsert;
 export type WorkspaceConversationBindingRow = typeof workspaceConversationBindings.$inferSelect;
 export type NewWorkspaceConversationBindingRow = typeof workspaceConversationBindings.$inferInsert;
+export type WorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferSelect;
+export type NewWorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferInsert;
 export type LocalAgentSessionRow = typeof localAgentSessions.$inferSelect;
 export type NewLocalAgentSessionRow = typeof localAgentSessions.$inferInsert;

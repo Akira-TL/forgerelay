@@ -360,7 +360,7 @@ export class WorkspaceRegistry {
 
     const targetKeys = await this.workspaceTargetKeys(workspace);
     const contextAlreadyDelivered = targetKeys.some((targetKey) =>
-      this.store?.getConversationBinding(conversationScopeId, targetKey)?.contextFingerprint ===
+      this.store?.getContextDelivery(conversationScopeId, targetKey)?.contextFingerprint ===
         context.contextFingerprint
     );
     const includeBootstrapContext = resolveBootstrapContextVisibility(
@@ -372,8 +372,14 @@ export class WorkspaceRegistry {
         conversationScopeId,
         targetKey,
         workspaceSessionId: workspace.id,
-        ...(includeBootstrapContext ? { contextFingerprint: context.contextFingerprint } : {}),
       });
+      if (includeBootstrapContext) {
+        this.store.setContextDelivery({
+          conversationScopeId,
+          targetKey,
+          contextFingerprint: context.contextFingerprint,
+        });
+      }
     }
     return { ...context, includeBootstrapContext };
   }
@@ -815,17 +821,23 @@ export class WorkspaceRegistry {
       };
     }
 
-    const binding = this.store.getConversationBinding(conversationScopeId, targetKey);
+    const delivery = this.store.getContextDelivery(conversationScopeId, targetKey);
     const includeBootstrapContext = resolveBootstrapContextVisibility(
       bootstrapContext,
-      binding?.contextFingerprint === context.contextFingerprint,
+      delivery?.contextFingerprint === context.contextFingerprint,
     );
     this.store.setConversationBinding({
       conversationScopeId,
       targetKey,
       workspaceSessionId: context.workspace.id,
-      ...(includeBootstrapContext ? { contextFingerprint: context.contextFingerprint } : {}),
     });
+    if (includeBootstrapContext) {
+      this.store.setContextDelivery({
+        conversationScopeId,
+        targetKey,
+        contextFingerprint: context.contextFingerprint,
+      });
+    }
     return { ...context, includeBootstrapContext };
   }
 
@@ -849,6 +861,15 @@ export class WorkspaceRegistry {
       const session = sessionsById.get(binding.workspaceSessionId);
       if (!session) {
         this.store.deleteConversationBinding(binding.conversationScopeId, binding.targetKey);
+      }
+    }
+    for (const delivery of this.store.listContextDeliveries()) {
+      const deliveredAt = Date.parse(delivery.deliveredAt);
+      if (
+        Number.isFinite(deliveredAt) &&
+        now - deliveredAt >= WORKSPACE_SESSION_IDLE_TTL_MS
+      ) {
+        this.store.deleteContextDelivery(delivery.conversationScopeId, delivery.targetKey);
       }
     }
 
