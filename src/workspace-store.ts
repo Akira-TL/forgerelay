@@ -28,6 +28,7 @@ export interface WorkspaceConversationBinding {
   conversationScopeId: string;
   targetKey: string;
   workspaceSessionId: string;
+  contextFingerprint?: string;
   createdAt: string;
   lastUsedAt: string;
 }
@@ -58,6 +59,7 @@ export interface WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
+    contextFingerprint?: string;
   }): WorkspaceConversationBinding;
   touchConversationBinding(conversationScopeId: string, targetKey: string): void;
   deleteConversationBinding(conversationScopeId: string, targetKey: string): void;
@@ -201,14 +203,23 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     workspaceSessionId: string;
+    contextFingerprint?: string;
   }): WorkspaceConversationBinding {
     const now = new Date().toISOString();
+    const update = {
+      workspaceSessionId: input.workspaceSessionId,
+      lastUsedAt: now,
+      ...(input.contextFingerprint !== undefined
+        ? { contextFingerprint: input.contextFingerprint }
+        : {}),
+    };
     const row = this.database.db
       .insert(workspaceConversationBindings)
       .values({
         conversationScopeId: input.conversationScopeId,
         targetKey: input.targetKey,
         workspaceSessionId: input.workspaceSessionId,
+        contextFingerprint: input.contextFingerprint ?? null,
         createdAt: now,
         lastUsedAt: now,
       })
@@ -217,10 +228,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
           workspaceConversationBindings.conversationScopeId,
           workspaceConversationBindings.targetKey,
         ],
-        set: {
-          workspaceSessionId: input.workspaceSessionId,
-          lastUsedAt: now,
-        },
+        set: update,
       })
       .returning()
       .get();
@@ -291,6 +299,7 @@ function rowToWorkspaceConversationBinding(
     conversationScopeId: row.conversationScopeId,
     targetKey: row.targetKey,
     workspaceSessionId: row.workspaceSessionId,
+    contextFingerprint: row.contextFingerprint ?? undefined,
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,
   };

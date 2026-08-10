@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Stats } from "node:fs";
 import type {
   WorkspaceMode,
@@ -76,10 +76,13 @@ export interface Workspace {
   activatedCapabilityGuideDirs: Set<string>;
 }
 
+export type WorkspaceBootstrapContextMode = "auto" | "full" | "none";
+
 export interface WorkspaceContext extends HookReportContainer {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
+  contextFingerprint: string;
   workspaceReused: boolean;
   includeBootstrapContext: boolean;
 }
@@ -98,6 +101,7 @@ export interface OpenWorkspaceInput {
   baseRef?: string;
   newWorktree?: boolean;
   newWorkspace?: boolean;
+  context?: WorkspaceBootstrapContextMode;
 }
 
 export interface StaleWorkspaceSession {
@@ -158,8 +162,14 @@ export class WorkspaceRegistry {
     this.pruneIdleWorkspaceSessions(openOptions.protectedWorkspaceIds ?? new Set());
     const workspaceInput = typeof input === "string" ? { path: input } : input;
 
+    const bootstrapContext = workspaceInput.context ?? "auto";
+
     if (workspaceInput.workspaceId) {
-      return this.resumeWorkspace(workspaceInput.workspaceId, openOptions.conversationScopeId);
+      return this.resumeWorkspace(
+        workspaceInput.workspaceId,
+        openOptions.conversationScopeId,
+        bootstrapContext,
+      );
     }
     if (!workspaceInput.path) {
       throw new Error("open_workspace requires either path or workspaceId.");
@@ -174,31 +184,42 @@ export class WorkspaceRegistry {
       workspaceInput.path,
       openOptions.conversationScopeId,
       workspaceInput.newWorkspace ?? false,
+      bootstrapContext,
     );
   }
 
   async resumeWorkspace(
     workspaceId: string,
     conversationScopeId: string | undefined,
+    bootstrapContext: WorkspaceBootstrapContextMode = "auto",
   ): Promise<WorkspaceContext> {
     const workspace = this.getWorkspace(workspaceId);
     const context = await this.reusedWorkspaceContext(workspace);
     if (!conversationScopeId || !this.store) {
-      return { ...context, includeBootstrapContext: true };
+      return {
+        ...context,
+        includeBootstrapContext: bootstrapContext !== "none",
+      };
     }
 
     const targetKeys = await this.workspaceTargetKeys(workspace);
-    const alreadyBound = targetKeys.some((targetKey) =>
-      this.store?.getConversationBinding(conversationScopeId, targetKey)?.workspaceSessionId === workspace.id
+    const contextAlreadyDelivered = targetKeys.some((targetKey) =>
+      this.store?.getConversationBinding(conversationScopeId, targetKey)?.contextFingerprint ===
+        context.contextFingerprint
+    );
+    const includeBootstrapContext = resolveBootstrapContextVisibility(
+      bootstrapContext,
+      contextAlreadyDelivered,
     );
     for (const targetKey of targetKeys) {
       this.store.setConversationBinding({
         conversationScopeId,
         targetKey,
         workspaceSessionId: workspace.id,
+        ...(includeBootstrapContext ? { contextFingerprint: context.contextFingerprint } : {}),
       });
     }
-    return { ...context, includeBootstrapContext: !alreadyBound };
+    return { ...context, includeBootstrapContext };
   }
 
   async listStaleWorkspaces(workspace: Workspace): Promise<StaleWorkspaceSession[]> {
@@ -369,6 +390,7 @@ export class WorkspaceRegistry {
     path: string,
     conversationScopeId: string | undefined,
     newWorkspace: boolean,
+    bootstrapContext: WorkspaceBootstrapContextMode,
   ): Promise<WorkspaceContext> {
     const allowedPath = assertAllowedPath(path, this.config.allowedRoots);
     const projectKey = await canonicalPath(allowedPath);
@@ -381,6 +403,7 @@ export class WorkspaceRegistry {
         "checkout",
         async (session, root) =>
           session.mode === "checkout" && await canonicalPath(root) === projectKey,
+        bootstrapContext,
       );
       if (boundContext) return boundContext;
     }
@@ -390,7 +413,12 @@ export class WorkspaceRegistry {
       const freshContext = reusableWorkspace
         ? await this.cloneWorkspaceContext(reusableWorkspace)
         : await this.openCheckoutWorkspace(path);
-      return this.withConversationContext(freshContext, conversationScopeId, targetKey);
+      return this.withConversationContext(
+        freshContext,
+        conversationScopeId,
+        targetKey,
+        bootstrapContext,
+      );
     }
 
     const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
@@ -401,7 +429,12 @@ export class WorkspaceRegistry {
         ? this.cloneWorkspaceContext(reusableWorkspace)
         : this.reusedWorkspaceContext(reusableWorkspace);
     });
-    return this.withConversationContext(context, conversationScopeId, targetKey);
+    return this.withConversationContext(
+      context,
+      conversationScopeId,
+      targetKey,
+      bootstrapContext,
+    );
   }
 
   private async openReusableWorktree(
@@ -410,6 +443,7 @@ export class WorkspaceRegistry {
   ): Promise<WorkspaceContext> {
     const path = input.path;
     if (!path) throw new Error("Worktree mode requires path.");
+    const bootstrapContext = input.context ?? "auto";
     const managedPath = this.tryManagedWorktreePath(path);
     if (managedPath) {
       const worktreeKey = await canonicalPath(managedPath);
@@ -421,6 +455,7 @@ export class WorkspaceRegistry {
           "worktree",
           async (session, root) =>
             session.mode === "worktree" && await canonicalPath(root) === worktreeKey,
+          bootstrapContext,
         );
         if (boundContext) return boundContext;
       }
@@ -436,6 +471,7 @@ export class WorkspaceRegistry {
           await this.cloneWorkspaceContext(reusableWorkspace),
           conversationScopeId,
           targetKey,
+          bootstrapContext,
         );
       }
 
@@ -451,7 +487,12 @@ export class WorkspaceRegistry {
           ? this.cloneWorkspaceContext(reusableWorkspace)
           : this.reusedWorkspaceContext(reusableWorkspace);
       });
-      return this.withConversationContext(context, conversationScopeId, targetKey);
+      return this.withConversationContext(
+        context,
+        conversationScopeId,
+        targetKey,
+        bootstrapContext,
+      );
     }
 
     const resolvedBase = await resolveManagedWorktreeBase({
@@ -464,7 +505,12 @@ export class WorkspaceRegistry {
 
     if (input.newWorktree) {
       const context = await this.openWorktreeWorkspace(path, input.baseRef);
-      return this.withConversationContext(context, conversationScopeId, targetKey);
+      return this.withConversationContext(
+        context,
+        conversationScopeId,
+        targetKey,
+        bootstrapContext,
+      );
     }
 
     if (!input.newWorkspace) {
@@ -477,6 +523,7 @@ export class WorkspaceRegistry {
           session.sourceRoot !== undefined &&
           await canonicalPath(session.sourceRoot) === sourceKey &&
           session.targetBranch === resolvedBase.targetBranch,
+        bootstrapContext,
       );
       if (boundContext) return boundContext;
     }
@@ -489,7 +536,12 @@ export class WorkspaceRegistry {
       const freshContext = reusableWorkspace
         ? await this.cloneWorkspaceContext(reusableWorkspace)
         : await this.openWorktreeWorkspace(path, input.baseRef);
-      return this.withConversationContext(freshContext, conversationScopeId, targetKey);
+      return this.withConversationContext(
+        freshContext,
+        conversationScopeId,
+        targetKey,
+        bootstrapContext,
+      );
     }
 
     const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
@@ -503,7 +555,12 @@ export class WorkspaceRegistry {
         ? this.cloneWorkspaceContext(reusableWorkspace)
         : this.reusedWorkspaceContext(reusableWorkspace);
     });
-    return this.withConversationContext(context, conversationScopeId, targetKey);
+    return this.withConversationContext(
+      context,
+      conversationScopeId,
+      targetKey,
+      bootstrapContext,
+    );
   }
 
   private async openOnce(
@@ -557,6 +614,7 @@ export class WorkspaceRegistry {
     targetKey: string,
     mode: WorkspaceMode,
     matches: (session: WorkspaceSession, root: string) => Promise<boolean>,
+    bootstrapContext: WorkspaceBootstrapContextMode,
   ): Promise<WorkspaceContext | undefined> {
     if (!conversationScopeId || !this.store) return undefined;
 
@@ -580,31 +638,39 @@ export class WorkspaceRegistry {
     }
 
     const context = await this.reusedWorkspaceContext(this.getWorkspace(session.id));
-    this.store.touchConversationBinding(conversationScopeId, targetKey);
-    return { ...context, includeBootstrapContext: false };
+    return this.withConversationContext(
+      context,
+      conversationScopeId,
+      targetKey,
+      bootstrapContext,
+    );
   }
 
   private withConversationContext(
     context: WorkspaceContext,
     conversationScopeId: string | undefined,
     targetKey: string,
+    bootstrapContext: WorkspaceBootstrapContextMode,
   ): WorkspaceContext {
     if (!conversationScopeId || !this.store) {
-      return { ...context, includeBootstrapContext: true };
+      return {
+        ...context,
+        includeBootstrapContext: bootstrapContext !== "none",
+      };
     }
 
     const binding = this.store.getConversationBinding(conversationScopeId, targetKey);
-    if (binding?.workspaceSessionId === context.workspace.id) {
-      this.store.touchConversationBinding(conversationScopeId, targetKey);
-      return { ...context, includeBootstrapContext: false };
-    }
-
+    const includeBootstrapContext = resolveBootstrapContextVisibility(
+      bootstrapContext,
+      binding?.contextFingerprint === context.contextFingerprint,
+    );
     this.store.setConversationBinding({
       conversationScopeId,
       targetKey,
       workspaceSessionId: context.workspace.id,
+      ...(includeBootstrapContext ? { contextFingerprint: context.contextFingerprint } : {}),
     });
-    return { ...context, includeBootstrapContext: true };
+    return { ...context, includeBootstrapContext };
   }
 
   private pruneIdleWorkspaceSessions(
@@ -742,14 +808,22 @@ export class WorkspaceRegistry {
   }
 
   private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+    Object.assign(workspace, this.loadSkillsForWorkspace(workspace.root));
+    workspace.capabilityGuides = loadCapabilityGuides(this.config);
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const contextFingerprint = bootstrapContextFingerprint(
+      workspace,
+      agentsFiles,
+      availableAgentsFiles,
+    );
 
     return {
       workspace,
       agentsFiles,
       availableAgentsFiles,
+      contextFingerprint,
       hookReports: [],
       workspaceReused: true,
       includeBootstrapContext: true,
@@ -952,11 +1026,17 @@ export class WorkspaceRegistry {
     });
     const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const contextFingerprint = bootstrapContextFingerprint(
+      workspace,
+      agentsFiles,
+      availableAgentsFiles,
+    );
 
     return {
       workspace,
       agentsFiles,
       availableAgentsFiles,
+      contextFingerprint,
       hookReports,
       workspaceReused: false,
       includeBootstrapContext: true,
@@ -1044,6 +1124,61 @@ export class WorkspaceRegistry {
 
     return discovered.sort((a, b) => a.path.localeCompare(b.path));
   }
+}
+
+function resolveBootstrapContextVisibility(
+  mode: WorkspaceBootstrapContextMode,
+  contextAlreadyDelivered: boolean,
+): boolean {
+  if (mode === "full") return true;
+  if (mode === "none") return false;
+  return !contextAlreadyDelivered;
+}
+
+function bootstrapContextFingerprint(
+  workspace: Workspace,
+  agentsFiles: LoadedAgentsFile[],
+  availableAgentsFiles: AvailableAgentsFile[],
+): string {
+  const payload = {
+    agentsFiles: agentsFiles
+      .map((file) => ({ path: resolve(file.path), content: file.content }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    availableAgentsFiles: availableAgentsFiles
+      .map((file) => resolve(file.path))
+      .sort((left, right) => left.localeCompare(right)),
+    skills: workspace.skills
+      .map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        filePath: resolve(skill.filePath),
+        disableModelInvocation: skill.disableModelInvocation ?? false,
+      }))
+      .sort((left, right) =>
+        left.name.localeCompare(right.name) || left.filePath.localeCompare(right.filePath)
+      ),
+    skillDiagnostics: workspace.skillDiagnostics,
+    capabilityGuides: workspace.capabilityGuides
+      .map((guide) => ({
+        name: guide.name,
+        description: guide.description,
+        whenToRead: guide.whenToRead,
+        filePath: resolve(guide.filePath),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    agentProfiles: workspace.agentProfiles
+      .map((profile) => ({
+        name: profile.name,
+        description: profile.description,
+        provider: profile.provider,
+        model: profile.model,
+        thinking: profile.thinking,
+        filePath: resolve(profile.filePath),
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  };
+
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
 async function canonicalPath(path: string): Promise<string> {

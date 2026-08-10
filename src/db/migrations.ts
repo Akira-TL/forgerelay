@@ -37,6 +37,11 @@ const migrations: Migration[] = [
     name: "local-agent-hook-reports",
     up: migrateLocalAgentHookReports,
   },
+  {
+    version: 7,
+    name: "workspace-context-fingerprint",
+    up: migrateWorkspaceContextFingerprint,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -217,9 +222,13 @@ function migrateLocalAgentHookReports(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "local_agent_sessions", "hook_reports_json", "text");
 }
 
+function migrateWorkspaceContextFingerprint(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "workspace_conversation_bindings", "context_fingerprint", "text");
+}
+
 function addColumnIfMissing(
   sqlite: Database.Database,
-  table: "workspace_sessions" | "local_agent_sessions",
+  table: "workspace_sessions" | "local_agent_sessions" | "workspace_conversation_bindings",
   column: string,
   definition: string,
 ): void {

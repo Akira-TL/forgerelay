@@ -433,6 +433,38 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.agents));
 });
 
+test("open_workspace context policy suppresses, automatically delivers, and forces bootstrap context", async (t) => {
+  const context = await fixture(t);
+  const skipped = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { path: context.project, context: "none" },
+    _meta: { "openai/session": "chat-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  const skippedStructured = structuredContent(skipped);
+
+  assert.equal(typeof skippedStructured.contextFingerprint, "string");
+  assert.equal(skippedStructured.agentsFiles, undefined);
+  assert.equal(skippedStructured.skills, undefined);
+
+  const automatic = await callOpen(context.client, context.project, "chat-context-policy");
+  const automaticStructured = structuredContent(automatic);
+  assert.equal(automaticStructured.workspaceId, skippedStructured.workspaceId);
+  assert.equal(automaticStructured.contextFingerprint, skippedStructured.contextFingerprint);
+  assert.ok(Array.isArray(automaticStructured.agentsFiles));
+  assert.ok(Array.isArray(automaticStructured.skills));
+
+  const repeated = await callOpen(context.client, context.project, "chat-context-policy");
+  assert.equal(structuredContent(repeated).agentsFiles, undefined);
+
+  const forced = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: automaticStructured.workspaceId, context: "full" },
+    _meta: { "openai/session": "chat-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.ok(Array.isArray(structuredContent(forced).agentsFiles));
+  assert.match(allResponseText(forced), /context="auto" avoids repeating unchanged bootstrap context/);
+});
+
 test("capability fingerprint reports optional feature availability without copying tools/list", async (t) => {
   const context = await fixture(t, {
     env: {

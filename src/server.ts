@@ -1076,7 +1076,7 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open or resume a local coding workspace. Reuse the returned workspaceId for later calls. Default to checkout; use mode=\"worktree\" only when the user explicitly requests isolated or parallel Git work. Every call returns a capability fingerprint; bootstrap calls also expose project context, skills, and capability guides when needed.",
+        "Open or resume a local coding workspace. Reuse the returned workspaceId for later calls. Default to checkout; use mode=\"worktree\" only when the user explicitly requests isolated or parallel Git work. Every call returns lightweight workspace metadata; bootstrap context is delivered automatically only when needed and can be explicitly suppressed or refreshed.",
       inputSchema: {
         path: z
           .string()
@@ -1111,6 +1111,12 @@ export function createMcpServer(
           .optional()
           .describe(
             "When true, allocate a fresh logical workspaceId for the same physical checkout or worktree and bind this conversation to it. Use only after the user explicitly requests a new logical workspace.",
+          ),
+        context: z
+          .enum(["auto", "full", "none"])
+          .optional()
+          .describe(
+            "Bootstrap context policy. auto (default) sends full project context only when this conversation has not received the current context fingerprint; full forces a refresh; none opens/resumes without returning the full bootstrap context.",
           ),
       },
       outputSchema: {
@@ -1155,6 +1161,7 @@ export function createMcpServer(
           }),
         ),
         capabilityFingerprint: capabilityFingerprintOutputSchema,
+        contextFingerprint: z.string(),
         capabilityCatalog: z.array(capabilityCatalogOutputSchema),
         capabilityGuides: z.array(capabilityGuideOutputSchema).optional(),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
@@ -1173,7 +1180,7 @@ export function createMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ path, workspaceId, mode, baseRef, newWorktree, newWorkspace }, { _meta, sessionId }) => {
+    async ({ path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context }, { _meta, sessionId }) => {
       const startedAt = performance.now();
       const {
         workspace,
@@ -1182,8 +1189,9 @@ export function createMcpServer(
         hookReports,
         workspaceReused,
         includeBootstrapContext,
+        contextFingerprint,
       } = await workspaces.openWorkspace(
-        { path, workspaceId, mode, baseRef, newWorktree, newWorkspace },
+        { path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context },
         {
           conversationScopeId: openAiConversationScopeId(_meta),
           protectedWorkspaceIds: processSessions.activeWorkspaceIds(),
@@ -1237,20 +1245,24 @@ export function createMcpServer(
       const visibleAgents = includeBootstrapContext ? cardAgents : [];
       const loadedAgentsFiles = includeBootstrapContext ? cardAgentsFiles : [];
       const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
+      const workspaceContextInstruction =
+        "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const cardInstruction = config.skillsEnabled
-        ? "Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding."
-        : "Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding.";
+        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding. ${workspaceContextInstruction}`
+        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction}`;
       const instruction = workspaceReused
         ? includeBootstrapContext
           ? [
               `Workspace already exists as ${workspace.id} for this directory.`,
               "Reuse this workspaceId for subsequent tool calls.",
               "The complete project context is included because it has not yet been provided in this conversation or host context.",
+              workspaceContextInstruction,
             ].join("\n\n")
           : [
               `Workspace already open as ${workspace.id}.`,
               "Reuse this workspaceId for subsequent tool calls. This is the same directory previously opened in this conversation.",
               "Continue following the project instructions, nested instruction files, skills, capability guides, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
+              workspaceContextInstruction,
             ].join("\n\n")
         : workspace.mode === "worktree"
           ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
@@ -1325,6 +1337,7 @@ export function createMcpServer(
             worktrees: knownWorktrees,
             staleWorkspaces,
             capabilityFingerprint,
+            contextFingerprint,
             capabilityCatalog,
             agentsFiles: cardAgentsFiles,
             availableAgentsFiles: cardAvailableAgentsFiles,
@@ -1352,6 +1365,7 @@ export function createMcpServer(
           worktrees: knownWorktrees,
           staleWorkspaces,
           capabilityFingerprint,
+          contextFingerprint,
           capabilityCatalog,
           ...(includeBootstrapContext
             ? {

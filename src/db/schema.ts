@@ -48,6 +48,7 @@ export const workspaceConversationBindings = sqliteTable(
     workspaceSessionId: text("workspace_session_id")
       .notNull()
       .references(() => workspaceSessions.id, { onDelete: "cascade" }),
+    contextFingerprint: text("context_fingerprint"),
     createdAt: text("created_at").notNull(),
     lastUsedAt: text("last_used_at").notNull(),
   },

@@ -59,7 +59,7 @@ test("an explicit workspace id can be resumed by another conversation", async (t
 
   assert.equal(resumed.workspace.id, original.workspace.id);
   assert.equal(repeated.workspace.id, original.workspace.id);
-  assert.equal(resumed.includeBootstrapContext, true);
+  assert.equal(resumed.includeBootstrapContext, false);
 });
 
 test("newWorkspace explicitly replaces the current conversation handle", async (t) => {
@@ -75,6 +75,64 @@ test("newWorkspace explicitly replaces the current conversation handle", async (
   assert.notEqual(fresh.workspace.id, first.workspace.id);
   assert.equal(fresh.workspace.root, first.workspace.root);
   assert.equal(repeated.workspace.id, fresh.workspace.id);
+});
+
+test("a new logical workspace suppresses unchanged bootstrap already delivered to the conversation", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  const fresh = await registry.openWorkspace(
+    { path: project, newWorkspace: true },
+    { conversationScopeId: "chat-1" },
+  );
+
+  assert.notEqual(fresh.workspace.id, first.workspace.id);
+  assert.equal(first.includeBootstrapContext, true);
+  assert.equal(fresh.includeBootstrapContext, false);
+});
+
+test("changed project instructions invalidate the delivered bootstrap fingerprint", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  const fresh = await registry.openWorkspace(
+    { path: project, newWorkspace: true },
+    { conversationScopeId: "chat-1" },
+  );
+  assert.equal(fresh.includeBootstrapContext, false);
+
+  await writeFile(join(project, "AGENTS.md"), "updated project instructions\n");
+  const refreshed = await registry.openWorkspace(
+    { workspaceId: fresh.workspace.id },
+    { conversationScopeId: "chat-1" },
+  );
+
+  assert.notEqual(refreshed.contextFingerprint, first.contextFingerprint);
+  assert.equal(refreshed.includeBootstrapContext, true);
+  assert.equal(refreshed.agentsFiles.some((file) => file.content.includes("updated project instructions")), true);
+});
+
+test("bootstrap context policy can skip automatic delivery and force a refresh", async (t) => {
+  const { project, registry } = await fixture(t);
+
+  const skipped = await registry.openWorkspace(
+    { path: project, context: "none" },
+    { conversationScopeId: "chat-1" },
+  );
+  assert.equal(skipped.includeBootstrapContext, false);
+
+  const automatic = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(automatic.workspace.id, skipped.workspace.id);
+  assert.equal(automatic.includeBootstrapContext, true);
+
+  const repeated = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(repeated.includeBootstrapContext, false);
+
+  const forced = await registry.openWorkspace(
+    { workspaceId: repeated.workspace.id, context: "full" },
+    { conversationScopeId: "chat-1" },
+  );
+  assert.equal(forced.includeBootstrapContext, true);
 });
 
 test("opening a project exposes every session idle for more than two days", async (t) => {
