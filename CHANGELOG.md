@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-10
+
 ### Changed
 
 - Running shell commands now expose canonical `processId` handles; `write_stdin` accepts `processId`, while the former process `sessionId` remains a deprecated compatibility alias throughout 0.2.x.
