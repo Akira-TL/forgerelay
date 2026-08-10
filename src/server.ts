@@ -903,9 +903,7 @@ export function createMcpServer(
         "Secure local coding workspace for MCP clients. Provides workspace-scoped file, search, edit, write, and shell tools.",
     },
     {
-      instructions: buildServerInstructions(config, {
-        artifactDownloadSupported: isArtifactDownloadSupportedPlatform(),
-      }),
+      instructions: buildServerInstructions(config),
     },
   );
 
@@ -1077,7 +1075,9 @@ export function createMcpServer(
       );
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
       const staleWorkspaces = await workspaces.listStaleWorkspaces(workspace);
-      const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION);
+      const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION, {
+        artifactDownloadSupported: isArtifactDownloadSupportedPlatform(),
+      });
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,

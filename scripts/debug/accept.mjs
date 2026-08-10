@@ -219,13 +219,18 @@ try {
       "filesystem.rename-move",
       "filesystem.delete",
       "process.write-stdin",
+      "hooks.lifecycle",
+      "capability-guides.read",
       "inspection.search-tools",
+      "ui.mcp-app",
     ],
   });
   const capabilityGuides = opened.structuredContent.capabilityGuides;
   assert.deepEqual(capabilityGuides.map((guide) => guide.name), [
     "lifecycle-hooks",
     "managed-worktrees",
+    "host-integration",
+    "shell-processes",
   ]);
   const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {
     workspaceId,

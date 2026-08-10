@@ -7,6 +7,7 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { buildCapabilityFingerprint } from "./capabilities.js";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";
@@ -136,7 +137,10 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "filesystem.rename-move",
       "filesystem.delete",
       "process.write-stdin",
+      "hooks.lifecycle",
+      "capability-guides.read",
       "inspection.search-tools",
+      "ui.mcp-app",
     ],
   });
   assert.deepEqual(structuredContent(repeated).capabilityFingerprint, firstStructured.capabilityFingerprint);
@@ -177,6 +181,75 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.agents));
 });
 
+test("capability fingerprint reports optional feature availability without copying tools/list", async (t) => {
+  const context = await fixture(t, {
+    env: {
+      DEVSPACE_ARTIFACTS: "1",
+      DEVSPACE_SUBAGENTS: "1",
+      DEVSPACE_WIDGETS: "changes",
+    },
+  });
+
+  assert.deepEqual(
+    buildCapabilityFingerprint(context.config, packageJson.version, { artifactDownloadSupported: true }),
+    {
+      version: packageJson.version,
+      toolMode: "full",
+      capabilities: [
+        "workspace.close",
+        "worktree.managed",
+        "filesystem.rename-move",
+        "filesystem.delete",
+        "process.write-stdin",
+        "hooks.lifecycle",
+        "capability-guides.read",
+        "inspection.search-tools",
+        "subagent.profiles",
+        "artifact.native-download",
+        "ui.mcp-app",
+        "review.show-changes",
+      ],
+    },
+  );
+  assert.equal(
+    buildCapabilityFingerprint(context.config, packageJson.version, { artifactDownloadSupported: false })
+      .capabilities.includes("artifact.native-download"),
+    false,
+  );
+
+  const optionalTools = await context.client.listTools();
+  const showChangesTool = optionalTools.tools.find((tool) => tool.name === "show_changes");
+  assert.match(showChangesTool?.description ?? "", /once after the final related file change/);
+  assert.match(showChangesTool?.description ?? "", /before your final response/);
+
+  const opened = await callOpen(context.client, context.project, "chat-optional-guides");
+  const openedStructured = structuredContent(opened);
+  const guides = openedStructured.capabilityGuides as Array<Record<string, unknown>>;
+  assert.deepEqual(guides.map((guide) => guide.name), [
+    "lifecycle-hooks",
+    "managed-worktrees",
+    "subagents",
+    "artifacts-review",
+    "host-integration",
+    "shell-processes",
+  ]);
+
+  for (const [name, firstPattern, secondPattern] of [
+    ["subagents", /forgerelay agents run/, /first-class MCP subagent/],
+    ["artifacts-review", /download_artifact/, /show_changes/],
+  ] as const) {
+    const guide = guides.find((candidate) => candidate.name === name);
+    assert.ok(guide);
+    const readGuide = await context.client.callTool({
+      name: "read",
+      arguments: { workspaceId: openedStructured.workspaceId, path: guide.path },
+    });
+    assert.equal(readGuide.isError, undefined);
+    assert.match(allResponseText(readGuide), firstPattern);
+    assert.match(allResponseText(readGuide), secondPattern);
+  }
+});
+
 test("open_workspace advertises capability guides that read can load on demand", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-guides");
@@ -186,22 +259,33 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.deepEqual(guides.map((guide) => guide.name), [
     "lifecycle-hooks",
     "managed-worktrees",
+    "host-integration",
+    "shell-processes",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
   assert.match(String(guides[0]?.whenToRead), /Hook/);
   assert.match(String(guides[0]?.path), /capabilities\/lifecycle-hooks\/GUIDE\.md$/);
   assert.match(String(guides[1]?.path), /capabilities\/managed-worktrees\/GUIDE\.md$/);
+  assert.match(String(guides[2]?.path), /capabilities\/host-integration\/GUIDE\.md$/);
+  assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
 
-  const readGuide = await context.client.callTool({
-    name: "read",
-    arguments: {
-      workspaceId: firstStructured.workspaceId,
-      path: guides[0]?.path,
-    },
-  });
-  assert.equal(readGuide.isError, undefined);
-  assert.match(allResponseText(readGuide), /BeforeTool/);
-  assert.match(allResponseText(readGuide), /BeforeWorktreeClose/);
+  const guideExpectations = [
+    [0, /BeforeTool/, /BeforeWorktreeClose/],
+    [2, /oauth-protected-resource/, /Failed to fetch template/],
+    [3, /write_stdin/, /tty: true/],
+  ] as const;
+  for (const [index, firstPattern, secondPattern] of guideExpectations) {
+    const readGuide = await context.client.callTool({
+      name: "read",
+      arguments: {
+        workspaceId: firstStructured.workspaceId,
+        path: guides[index]?.path,
+      },
+    });
+    assert.equal(readGuide.isError, undefined);
+    assert.match(allResponseText(readGuide), firstPattern);
+    assert.match(allResponseText(readGuide), secondPattern);
+  }
 
   const repeated = await callOpen(context.client, context.project, "chat-guides");
   assert.equal(structuredContent(repeated).capabilityGuides, undefined);

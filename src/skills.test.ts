@@ -195,6 +195,25 @@ try {
     false,
   );
 
+  const cleanAgentDir = join(root, "clean-agent");
+  const cleanConfigDir = join(root, "clean-config");
+  await mkdir(cleanAgentDir, { recursive: true });
+  await mkdir(cleanConfigDir, { recursive: true });
+  const capabilityGuideSubagentConfig = loadConfig({
+    DEVSPACE_CONFIG_DIR: cleanConfigDir,
+    DEVSPACE_ALLOWED_ROOTS: projectRoot,
+    DEVSPACE_AGENT_DIR: cleanAgentDir,
+    DEVSPACE_SUBAGENTS: "1",
+    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    PORT: "1",
+  });
+  assert.equal(
+    loadWorkspaceSkills(capabilityGuideSubagentConfig, projectRoot).skills.some(
+      (skill) => skill.name === "subagent-delegation",
+    ),
+    false,
+  );
+
   const experimentalConfig = loadConfig({
     DEVSPACE_ALLOWED_ROOTS: projectRoot,
     DEVSPACE_AGENT_DIR: agentDir,

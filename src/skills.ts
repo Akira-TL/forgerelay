@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   markAdvertisedFileSourceActivated,
   resolveAdvertisedFileReadPath,
@@ -26,26 +25,13 @@ export interface SkillReadResolution {
 }
 
 const SUBAGENT_DELEGATION_NAME = "subagent-delegation";
-const SUBAGENT_DELEGATION_SKILL = join(SUBAGENT_DELEGATION_NAME, "SKILL.md");
-
-function bundledSkillsDir(): string {
-  return fileURLToPath(new URL("../skills", import.meta.url));
-}
-
-function hasSubagentDelegationSkill(skillDir: string): boolean {
-  return existsSync(join(skillDir, SUBAGENT_DELEGATION_SKILL));
-}
 
 export function effectiveSkillPaths(config: ServerConfig, cwd: string): string[] {
-  const bundledSkills = bundledSkillsDir();
   const defaultPathCandidates = [
     join(homedir(), ".agents", "skills"),
     resolve(cwd, ".agents", "skills"),
     config.devspaceSkillsDir,
     join(config.agentDir, "skills"),
-    config.subagents && !hasSubagentDelegationSkill(config.devspaceSkillsDir)
-      ? bundledSkills
-      : undefined,
   ];
   const defaultPaths = defaultPathCandidates.filter(
     (path): path is string => path !== undefined && existsSync(path),

@@ -52,6 +52,20 @@ test("capability contract requires agents to report visible hook results", () =>
   assert.match(result, /tell the user which meaningful hooks ran and whether they passed or blocked the operation/);
 });
 
+test("optional artifact and review features do not expand the core instruction payload", () => {
+  const result = buildServerInstructions(loadConfig({
+    ...baseEnv,
+    DEVSPACE_ARTIFACTS: "1",
+    DEVSPACE_WIDGETS: "changes",
+  }));
+
+  assert.ok(result.length < 3_000, `feature-enabled instructions should stay compact, got ${result.length} characters`);
+  assert.doesNotMatch(result, /signed URLs/);
+  assert.doesNotMatch(result, /show_changes exactly once/);
+  assert.doesNotMatch(result, /native file value/);
+  assert.match(result, /capability guide/);
+});
+
 test("workflow override replaces built-in workflow without replacing the capability contract", () => {
   const result = instructions({
     DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined development and Git workflows.",

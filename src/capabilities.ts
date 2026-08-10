@@ -26,33 +26,72 @@ export interface CapabilityGuideReadResolution {
   isGuideFile: boolean;
 }
 
-const CAPABILITY_GUIDE_DEFINITIONS = [
+export interface CapabilityFingerprintContext {
+  artifactDownloadSupported?: boolean;
+}
+
+type CapabilityGuideConfig = Pick<ServerConfig, "subagents" | "artifactsEnabled" | "widgets">;
+
+type CapabilityGuideDefinition = {
+  name: string;
+  description: string;
+  whenToRead: string;
+  enabled?: (config: CapabilityGuideConfig) => boolean;
+};
+
+const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   {
     name: "lifecycle-hooks",
-    description: "ForgeRelay lifecycle Hook events, blocking semantics, reports, and configuration.",
-    whenToRead: "Read when adding, changing, debugging, or explaining ForgeRelay Hooks.",
+    description: "Hook events, blocking, reports, and configuration.",
+    whenToRead: "Read for ForgeRelay Hook setup or debugging.",
   },
   {
     name: "managed-worktrees",
-    description: "Advanced managed-worktree lifecycle, close behavior, safety checks, and recovery.",
-    whenToRead: "Read when using or troubleshooting mode=\"worktree\" beyond the basic open/close flow.",
+    description: "Managed-worktree lifecycle, close safety, and recovery.",
+    whenToRead: "Read for advanced mode=\"worktree\" flows.",
   },
-] as const;
+  {
+    name: "subagents",
+    description: "Local subagent delegation and session follow-up.",
+    whenToRead: "Read when the user asks to delegate or use another coding agent.",
+    enabled: (config) => config.subagents,
+  },
+  {
+    name: "artifacts-review",
+    description: "Native artifact transfer and aggregate change review.",
+    whenToRead: "Read for host-provided files or show_changes.",
+    enabled: (config) => config.artifactsEnabled || config.widgets === "changes",
+  },
+  {
+    name: "host-integration",
+    description: "OAuth, public endpoint, stale Host metadata, and MCP App debugging.",
+    whenToRead: "Read for MCP connection, OAuth, deployment, or UI failures.",
+  },
+  {
+    name: "shell-processes",
+    description: "Long-running processes, write_stdin, PTY, and platform edges.",
+    whenToRead: "Read for running or interactive command issues.",
+  },
+];
 
 function capabilityGuidesDir(): string {
   return fileURLToPath(new URL("../capabilities", import.meta.url));
 }
 
-export function loadCapabilityGuides(): CapabilityGuide[] {
+export function loadCapabilityGuides(config: CapabilityGuideConfig): CapabilityGuide[] {
   const root = capabilityGuidesDir();
-  return CAPABILITY_GUIDE_DEFINITIONS.map((definition) => {
-    const baseDir = join(root, definition.name);
-    return {
-      ...definition,
-      baseDir,
-      filePath: join(baseDir, "GUIDE.md"),
-    };
-  });
+  return CAPABILITY_GUIDE_DEFINITIONS
+    .filter((definition) => definition.enabled?.(config) ?? true)
+    .map((definition) => {
+      const baseDir = join(root, definition.name);
+      return {
+        name: definition.name,
+        description: definition.description,
+        whenToRead: definition.whenToRead,
+        baseDir,
+        filePath: join(baseDir, "GUIDE.md"),
+      };
+    });
 }
 
 export function resolveCapabilityGuideReadPath(
@@ -80,6 +119,7 @@ export function markCapabilityGuideActivated(
 export function buildCapabilityFingerprint(
   config: ServerConfig,
   version: string,
+  context: CapabilityFingerprintContext = {},
 ): CapabilityFingerprint {
   const capabilities = [
     "workspace.close",
@@ -87,10 +127,24 @@ export function buildCapabilityFingerprint(
     "filesystem.rename-move",
     "filesystem.delete",
     "process.write-stdin",
+    "hooks.lifecycle",
+    "capability-guides.read",
   ];
 
   if (config.toolMode === "full") {
     capabilities.push("inspection.search-tools");
+  }
+  if (config.subagents) {
+    capabilities.push("subagent.profiles");
+  }
+  if (config.artifactsEnabled && context.artifactDownloadSupported) {
+    capabilities.push("artifact.native-download");
+  }
+  if (config.widgets !== "off") {
+    capabilities.push("ui.mcp-app");
+  }
+  if (config.widgets === "changes") {
+    capabilities.push("review.show-changes");
   }
 
   return {

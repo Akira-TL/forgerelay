@@ -16,10 +16,6 @@ export const toolNames = {
   writeStdin: "write_stdin",
 } as const;
 
-interface ServerInstructionContext {
-  artifactDownloadSupported?: boolean;
-}
-
 export interface ToolDescriptions {
   read: string;
   write: string;
@@ -35,12 +31,9 @@ export function buildShellMutationPolicy(): string {
   return "Shell commands may modify ordinary project files when that is a natural part of the user's requested development task. They may also perform external device or hardware mutations when the user's current request explicitly asks for the actual device-changing operation, including firmware flashing or equivalent persistent device updates; do not infer such authorization from a check, audit, probe, backup, verification, dry-run, or build-only request. Never use shell commands to modify security- or privilege-sensitive operating-system files or credential material such as /etc/sudoers, /etc/passwd, /etc/shadow, PAM or authentication policy, SSH private keys, or equivalent privileged system files. Modify configuration files through shell only when the user's request explicitly calls for that configuration change; do not infer permission merely because changing configuration would be convenient.";
 }
 
-export function buildServerInstructions(
-  config: ServerConfig,
-  context: ServerInstructionContext = {},
-): string {
+export function buildServerInstructions(config: ServerConfig): string {
   return joinInstructions(
-    capabilityContractInstructions(config, context),
+    capabilityContractInstructions(config),
     selectedWorkflowInstructions(config),
     config.appendInstructions,
   );
@@ -66,10 +59,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
   };
 }
 
-function capabilityContractInstructions(
-  config: ServerConfig,
-  context: ServerInstructionContext,
-): string {
+function capabilityContractInstructions(config: ServerConfig): string {
   const staleWorkspacePolicy = config.toolMode === "codex"
     ? ""
     : ` If ${toolNames.openWorkspace} reports logical workspaces idle for more than two days, let the user choose whether to resume or close them with ${toolNames.closeWorkspace}; never close them automatically.`;
@@ -82,14 +72,8 @@ function capabilityContractInstructions(
     : "";
   const shellMutationPolicy = buildShellMutationPolicy();
   const hooks = "When a ForgeRelay tool result reports Hook results, tell the user which meaningful hooks ran and whether they passed or blocked the operation. Do not claim the requested operation succeeded when a blocking hook prevented it.";
-  const artifact = config.artifactsEnabled && context.artifactDownloadSupported
-    ? "When the user supplies or generates a file that is not present on the ForgeRelay host, use download_artifact with its native file value, the existing workspace ID, and a suitable relative destination path chosen from the user's request and project structure. The tool refuses to overwrite an existing destination and returns the normalized workspace-relative path. Use normal workspace tools when explicit inspection, replacement, movement, renaming, or deletion is needed. Do not recreate binary files with write/edit calls or place signed URLs, native file objects, base64 content, or invented host paths in shell commands or logs."
-    : "";
-  const showChanges = config.widgets === "changes"
-    ? "If the turn successfully modifies files by creating, editing, overwriting, deleting, moving, or applying patches, call show_changes exactly once for that workspace after the final related file change and before your final response so the user can inspect the aggregate diff for that turn. Do not call it after every individual file change; do not skip it because individual file-change tools already returned diffs."
-    : "";
 
-  return joinInstructions(workspaceLifecycle, agents, capabilityGuides, skills, shellMutationPolicy, hooks, artifact, showChanges);
+  return joinInstructions(workspaceLifecycle, agents, capabilityGuides, skills, shellMutationPolicy, hooks);
 }
 
 function selectedWorkflowInstructions(config: ServerConfig): string {

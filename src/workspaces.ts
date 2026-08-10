@@ -798,7 +798,7 @@ export class WorkspaceRegistry {
             }
           : undefined,
       ...this.loadSkillsForWorkspace(root),
-      capabilityGuides: loadCapabilityGuides(),
+      capabilityGuides: loadCapabilityGuides(this.config),
       agentProfiles: [],
       activatedSkillDirs: new Set(),
       activatedCapabilityGuideDirs: new Set(),
@@ -920,7 +920,7 @@ export class WorkspaceRegistry {
       sourceRoot: input.sourceRoot,
       worktree: input.worktree,
       ...this.loadSkillsForWorkspace(input.root),
-      capabilityGuides: loadCapabilityGuides(),
+      capabilityGuides: loadCapabilityGuides(this.config),
       agentProfiles: await loadLocalAgentProfiles(this.config, input.root),
       activatedSkillDirs: new Set(),
       activatedCapabilityGuideDirs: new Set(),
