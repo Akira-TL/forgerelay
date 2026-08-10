@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
@@ -463,6 +463,190 @@ test("open_workspace context policy suppresses, automatically delivers, and forc
   } as Parameters<Client["callTool"]>[0]);
   assert.ok(Array.isArray(structuredContent(forced).agentsFiles));
   assert.match(allResponseText(forced), /context="auto" avoids repeating unchanged bootstrap context/);
+});
+
+test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-list-1");
+  const second = await callOpen(context.client, context.project, "chat-list-2");
+  const firstId = String(structuredContent(first).workspaceId);
+  const secondId = String(structuredContent(second).workspaceId);
+
+  const listed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", root: context.project },
+    _meta: { "openai/session": "chat-list-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  const structured = structuredContent(listed);
+  const inventory = structured.workspaces as Array<Record<string, unknown>>;
+
+  assert.equal(structured.action, "list");
+  assert.equal(inventory.length, 2);
+  assert.deepEqual(new Set(inventory.map((entry) => entry.workspaceId)), new Set([firstId, secondId]));
+  assert.equal(inventory.find((entry) => entry.workspaceId === firstId)?.current, true);
+  assert.equal(inventory.find((entry) => entry.workspaceId === secondId)?.current, false);
+  assert.equal(inventory.every((entry) => entry.mode === "checkout"), true);
+  assert.equal(inventory.every((entry) => entry.status === "active"), true);
+  assert.equal(inventory.every((entry) => entry.state === "active"), true);
+  assert.equal(inventory.every((entry) => entry.rootValid === true), true);
+  assert.equal(inventory.every((entry) => String(entry.label).startsWith("project/ws_")), true);
+  assert.equal((structured.summary as Record<string, unknown>).matching, 2);
+  assert.equal((structured.page as Record<string, unknown>).hasMore, false);
+  assert.match(allResponseText(listed), /resume.*workspaceId/i);
+  assert.match(allResponseText(listed), /close_workspace/);
+
+  const outside = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", root: "/etc" },
+    _meta: { "openai/session": "chat-list-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(outside.isError, true);
+  assert.match(allResponseText(outside), /outside allowed roots/i);
+});
+
+test("open_workspace list derives stale and invalid states without refreshing last-used time", async (t) => {
+  const context = await fixture(t);
+  const staleOpen = await callOpen(context.client, context.project, "chat-stale");
+  const staleId = String(structuredContent(staleOpen).workspaceId);
+  const missingRoot = join(dirname(context.project), "missing-project");
+  await mkdir(missingRoot);
+  await writeFile(join(missingRoot, "AGENTS.md"), "temporary instructions\n");
+  const missingOpen = await callOpen(context.client, missingRoot, "chat-missing");
+  const missingId = String(structuredContent(missingOpen).workspaceId);
+  await rm(missingRoot, { recursive: true, force: true });
+
+  const staleAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1_000).toISOString();
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite
+      .prepare("update workspace_sessions set last_used_at = ? where id = ?")
+      .run(staleAt, staleId);
+  } finally {
+    database.close();
+  }
+
+  const staleList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", staleOnly: true },
+    _meta: { "openai/session": "chat-inventory" },
+  } as Parameters<Client["callTool"]>[0]);
+  const staleEntries = structuredContent(staleList).workspaces as Array<Record<string, unknown>>;
+  assert.equal(staleEntries.some((entry) => entry.workspaceId === staleId), true);
+  assert.equal(staleEntries.every((entry) => entry.state === "stale"), true);
+
+  const invalidList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", state: "invalid" },
+    _meta: { "openai/session": "chat-inventory" },
+  } as Parameters<Client["callTool"]>[0]);
+  const invalidEntries = structuredContent(invalidList).workspaces as Array<Record<string, unknown>>;
+  const invalid = invalidEntries.find((entry) => entry.workspaceId === missingId);
+  assert.ok(invalid);
+  assert.equal(invalid.status, "active");
+  assert.equal(invalid.state, "invalid");
+  assert.equal(invalid.rootValid, false);
+
+  const verification = openDatabase(context.stateDir);
+  try {
+    const row = verification.sqlite
+      .prepare("select last_used_at from workspace_sessions where id = ?")
+      .get(staleId) as { last_used_at: string };
+    assert.equal(row.last_used_at, staleAt);
+  } finally {
+    verification.close();
+  }
+});
+
+test("open_workspace list exposes managed worktrees and paginates inventory", async (t) => {
+  const context = await fixture(t, { git: true });
+  await callOpen(context.client, context.project, "chat-page");
+  const worktreeOpen = await callOpen(
+    context.client,
+    context.project,
+    "chat-worktree-list",
+    "worktree",
+  );
+  const worktreeId = String(structuredContent(worktreeOpen).workspaceId);
+
+  const worktreeList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", mode: "worktree" },
+    _meta: { "openai/session": "chat-worktree-list" },
+  } as Parameters<Client["callTool"]>[0]);
+  const worktrees = structuredContent(worktreeList).workspaces as Array<Record<string, unknown>>;
+  const managed = worktrees.find((entry) => entry.workspaceId === worktreeId);
+  assert.ok(managed);
+  assert.equal(managed.managed, true);
+  assert.equal(managed.mode, "worktree");
+  assert.equal(managed.sourceRoot, context.project);
+  assert.equal(managed.rootValid, true);
+  assert.equal(typeof managed.branch, "string");
+
+  const firstPage = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", limit: 1 },
+    _meta: { "openai/session": "chat-page" },
+  } as Parameters<Client["callTool"]>[0]);
+  const firstStructured = structuredContent(firstPage);
+  assert.equal((firstStructured.workspaces as unknown[]).length, 1);
+  assert.equal((firstStructured.page as Record<string, unknown>).hasMore, true);
+
+  const secondPage = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", offset: 1, limit: 1 },
+    _meta: { "openai/session": "chat-page" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal((structuredContent(secondPage).workspaces as unknown[]).length, 1);
+});
+
+test("open_workspace list distinguishes closed and externally missing managed worktrees", async (t) => {
+  const context = await fixture(t, { git: true });
+  const closable = await callOpen(
+    context.client,
+    context.project,
+    "chat-worktree-closed",
+    "worktree",
+  );
+  const closableStructured = structuredContent(closable);
+  const closableId = String(closableStructured.workspaceId);
+  const missing = await callOpen(
+    context.client,
+    context.project,
+    "chat-worktree-invalid",
+    "worktree",
+    true,
+  );
+  const missingStructured = structuredContent(missing);
+  const missingId = String(missingStructured.workspaceId);
+  const missingRoot = String(missingStructured.root);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: {
+      workspaceId: closableId,
+      commitMessage: "TEST: (workspace) close managed inventory fixture",
+    },
+  });
+  assert.equal(closed.isError, undefined);
+  await rm(missingRoot, { recursive: true, force: true });
+
+  const listed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", mode: "worktree" },
+    _meta: { "openai/session": "chat-worktree-invalid" },
+  } as Parameters<Client["callTool"]>[0]);
+  const worktrees = structuredContent(listed).workspaces as Array<Record<string, unknown>>;
+  const closedEntry = worktrees.find((entry) => entry.workspaceId === closableId);
+  const invalidEntry = worktrees.find((entry) => entry.workspaceId === missingId);
+
+  assert.ok(closedEntry);
+  assert.equal(closedEntry.status, "closed");
+  assert.equal(closedEntry.state, "closed");
+  assert.equal(closedEntry.rootValid, false);
+  assert.ok(invalidEntry);
+  assert.equal(invalidEntry.status, "active");
+  assert.equal(invalidEntry.state, "invalid");
+  assert.equal(invalidEntry.rootValid, false);
 });
 
 test("capability fingerprint reports optional feature availability without copying tools/list", async (t) => {

@@ -306,6 +306,39 @@ const workspaceAvailableAgentsFileOutputSchema = z.object({
   path: z.string(),
 });
 
+const workspaceInventoryEntryOutputSchema = z.object({
+  label: z.string(),
+  workspaceId: z.string(),
+  root: z.string(),
+  status: z.string(),
+  state: z.enum(["active", "stale", "invalid", "closed"]),
+  mode: z.enum(["checkout", "worktree"]),
+  sourceRoot: z.string().optional(),
+  branch: z.string().optional(),
+  targetBranch: z.string().optional(),
+  managed: z.boolean(),
+  createdAt: z.string(),
+  lastUsedAt: z.string(),
+  idleMs: z.number().nonnegative(),
+  rootValid: z.boolean(),
+  current: z.boolean(),
+});
+
+const workspaceInventorySummaryOutputSchema = z.object({
+  total: z.number().int().nonnegative(),
+  matching: z.number().int().nonnegative(),
+  active: z.number().int().nonnegative(),
+  stale: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  closed: z.number().int().nonnegative(),
+});
+
+const workspaceInventoryPageOutputSchema = z.object({
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  hasMore: z.boolean(),
+});
+
 const reviewFileOutputSchema = z.object({
   path: z.string(),
   previousPath: z.string().optional(),
@@ -1078,23 +1111,27 @@ export function createMcpServer(
       description:
         "Open or resume a local coding workspace. Reuse the returned workspaceId for later calls. Default to checkout; use mode=\"worktree\" only when the user explicitly requests isolated or parallel Git work. Every call returns lightweight workspace metadata; bootstrap context is delivered automatically only when needed and can be explicitly suppressed or refreshed.",
       inputSchema: {
+        action: z
+          .enum(["open", "list"])
+          .optional()
+          .describe("Defaults to open. Use list only when you need to inspect or choose logical workspaces before resuming or cleaning them up."),
         path: z
           .string()
           .optional()
           .describe(
-            "Project path to open. Required unless workspaceId is supplied. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
+            "Project path to open. Required for action=open unless workspaceId is supplied. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
           ),
         workspaceId: z
           .string()
           .optional()
           .describe(
-            "Existing logical workspace ID to resume in this conversation. When supplied, ForgeRelay resumes that workspace rather than allocating another ID.",
+            "For action=open, an existing logical workspace ID to resume in this conversation. For action=list, filters inventory to one workspace ID.",
           ),
         mode: z
           .enum(["checkout", "worktree"])
           .optional()
           .describe(
-            "Defaults to checkout, which works in the actual directory. Use worktree only when the user explicitly requests isolated or parallel Git work.",
+            "For action=open, defaults to checkout and uses the actual directory unless worktree isolation is explicitly requested. For action=list, filters by workspace mode.",
           ),
         baseRef: z
           .string()
@@ -1116,13 +1153,43 @@ export function createMcpServer(
           .enum(["auto", "full", "none"])
           .optional()
           .describe(
-            "Bootstrap context policy. auto (default) sends full project context only when this conversation has not received the current context fingerprint; full forces a refresh; none opens/resumes without returning the full bootstrap context.",
+            "Bootstrap context policy for action=open. auto (default) sends full project context only when this conversation has not received the current context fingerprint; full forces a refresh; none opens/resumes without returning the full bootstrap context.",
           ),
+        root: z
+          .string()
+          .optional()
+          .describe("For action=list, filter by canonical workspace root or source root."),
+        status: z
+          .string()
+          .optional()
+          .describe("For action=list, filter by persisted workspace status such as active or closed."),
+        state: z
+          .enum(["active", "stale", "invalid", "closed"])
+          .optional()
+          .describe("For action=list, filter by derived lifecycle state."),
+        staleOnly: z
+          .boolean()
+          .optional()
+          .describe("For action=list, return only active logical workspaces idle for more than two days."),
+        offset: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe("For action=list, zero-based inventory offset. Defaults to 0."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("For action=list, maximum records to return. Defaults to 50; maximum 100."),
       },
       outputSchema: {
-        workspaceId: z.string(),
-        root: z.string(),
-        mode: z.enum(["checkout", "worktree"]),
+        action: z.enum(["open", "list"]),
+        workspaceId: z.string().optional(),
+        root: z.string().optional(),
+        mode: z.enum(["checkout", "worktree"]).optional(),
         sourceRoot: z.string().optional(),
         worktree: z
           .object({
@@ -1147,7 +1214,7 @@ export function createMcpServer(
             managed: z.boolean(),
             current: z.boolean(),
           }),
-        ),
+        ).optional(),
         staleWorkspaces: z.array(
           z.object({
             workspaceId: z.string(),
@@ -1159,10 +1226,10 @@ export function createMcpServer(
             targetBranch: z.string().optional(),
             managed: z.boolean(),
           }),
-        ),
-        capabilityFingerprint: capabilityFingerprintOutputSchema,
-        contextFingerprint: z.string(),
-        capabilityCatalog: z.array(capabilityCatalogOutputSchema),
+        ).optional(),
+        capabilityFingerprint: capabilityFingerprintOutputSchema.optional(),
+        contextFingerprint: z.string().optional(),
+        capabilityCatalog: z.array(capabilityCatalogOutputSchema).optional(),
         capabilityGuides: z.array(capabilityGuideOutputSchema).optional(),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
@@ -1170,6 +1237,9 @@ export function createMcpServer(
         agentProviders: z.array(workspaceLocalAgentProviderOutputSchema).optional(),
         agents: z.array(workspaceLocalAgentOutputSchema).optional(),
         skillDiagnostics: z.array(z.unknown()).optional(),
+        workspaces: z.array(workspaceInventoryEntryOutputSchema).optional(),
+        summary: workspaceInventorySummaryOutputSchema.optional(),
+        page: workspaceInventoryPageOutputSchema.optional(),
         instruction: z.string(),
       },
       ...toolWidgetDescriptorMeta(config, "workspace"),
@@ -1180,8 +1250,88 @@ export function createMcpServer(
         openWorldHint: false,
       },
     },
-    async ({ path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context }, { _meta, sessionId }) => {
+    async ({
+      action = "open",
+      path,
+      workspaceId,
+      mode,
+      baseRef,
+      newWorktree,
+      newWorkspace,
+      context,
+      root,
+      status,
+      state,
+      staleOnly,
+      offset,
+      limit,
+    }, { _meta, sessionId }) => {
       const startedAt = performance.now();
+      const conversationScopeId = openAiConversationScopeId(_meta);
+      const protectedWorkspaceIds = processSessions.activeWorkspaceIds();
+
+      if (action === "list") {
+        if (
+          path !== undefined || baseRef !== undefined || newWorktree !== undefined ||
+          newWorkspace !== undefined || context !== undefined
+        ) {
+          throw new Error(
+            "open_workspace action=list does not accept path, baseRef, newWorktree, newWorkspace, or context. Use root/workspaceId/mode/status/state/staleOnly for inventory filters.",
+          );
+        }
+        const inventory = await workspaces.listWorkspaces(
+          { workspaceId, mode, root, status, state, staleOnly, offset, limit },
+          { conversationScopeId, protectedWorkspaceIds },
+        );
+        const nextOffset = inventory.page.offset + inventory.page.limit;
+        const instruction = [
+          "Resume a selected workspaceId with open_workspace(action=\"open\", workspaceId=...).",
+          "Use close_workspace only after the user chooses cleanup; never close inventory entries automatically.",
+          inventory.page.hasMore
+            ? `More matching workspaces are available; continue with offset=${nextOffset}.`
+            : undefined,
+        ].filter(Boolean).join(" ");
+        const result = [
+          `Logical workspace inventory: ${inventory.summary.matching} matching of ${inventory.summary.total} stored records.`,
+          `States: active=${inventory.summary.active}, stale=${inventory.summary.stale}, invalid=${inventory.summary.invalid}, closed=${inventory.summary.closed}.`,
+          ...inventory.workspaces.map((entry) => [
+            entry.label,
+            `state=${entry.state}`,
+            `status=${entry.status}`,
+            `mode=${entry.mode}`,
+            entry.managed ? "managed" : undefined,
+            entry.current ? "current" : undefined,
+            `root=${entry.root}`,
+            `last-used=${entry.lastUsedAt}`,
+          ].filter(Boolean).join(" ")),
+          instruction,
+        ].join("\n");
+        logToolCall(config, {
+          tool: "open_workspace",
+          action: "list",
+          path: root,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content: [textBlock(result)],
+          structuredContent: {
+            action: "list" as const,
+            ...inventory,
+            instruction,
+          },
+        };
+      }
+
+      if (
+        root !== undefined || status !== undefined || state !== undefined ||
+        staleOnly !== undefined || offset !== undefined || limit !== undefined
+      ) {
+        throw new Error(
+          "open_workspace inventory filters root, status, state, staleOnly, offset, and limit are only valid with action=list.",
+        );
+      }
+
       const {
         workspace,
         agentsFiles,
@@ -1193,8 +1343,8 @@ export function createMcpServer(
       } = await workspaces.openWorkspace(
         { path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context },
         {
-          conversationScopeId: openAiConversationScopeId(_meta),
-          protectedWorkspaceIds: processSessions.activeWorkspaceIds(),
+          conversationScopeId,
+          protectedWorkspaceIds,
         },
       );
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
@@ -1247,9 +1397,11 @@ export function createMcpServer(
       const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
+      const workspaceManagementInstruction =
+        "When you need to continue an earlier logical workspace or organize workspace state, use open_workspace(action=\"list\") to inspect candidates, then resume a selected workspaceId or ask the user before close_workspace cleanup.";
       const cardInstruction = config.skillsEnabled
-        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding. ${workspaceContextInstruction}`
-        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction}`;
+        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
+        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
       const instruction = workspaceReused
         ? includeBootstrapContext
           ? [
@@ -1257,12 +1409,14 @@ export function createMcpServer(
               "Reuse this workspaceId for subsequent tool calls.",
               "The complete project context is included because it has not yet been provided in this conversation or host context.",
               workspaceContextInstruction,
+              workspaceManagementInstruction,
             ].join("\n\n")
           : [
               `Workspace already open as ${workspace.id}.`,
               "Reuse this workspaceId for subsequent tool calls. This is the same directory previously opened in this conversation.",
               "Continue following the project instructions, nested instruction files, skills, capability guides, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
               workspaceContextInstruction,
+              workspaceManagementInstruction,
             ].join("\n\n")
         : workspace.mode === "worktree"
           ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
@@ -1357,6 +1511,7 @@ export function createMcpServer(
           },
         },
         structuredContent: {
+          action: "open" as const,
           workspaceId: workspace.id,
           root: workspace.root,
           mode: workspace.mode,
