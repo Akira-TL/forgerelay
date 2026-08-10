@@ -16,6 +16,10 @@ All notable ForgeRelay changes are documented here.
 
 - Removed the regular dedicated `grep`, `glob`, `ls`, aggregate-review, and native-artifact MCP adapters after their canonical workflows moved to `bash` or the Capability Gateway.
 
+### Fixed
+
+- Successful `report: true` lifecycle Hook reports are now mirrored into the model-readable structured result as well as MCP text content, so Hosts that surface only structured tool results still expose the Hook outcome to the Agent.
+
 ## [0.3.4] - 2026-08-10
 
 ### Changed
