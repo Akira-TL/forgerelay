@@ -6,6 +6,7 @@ import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import { mergeHookConfigs, parseHookConfig, type HookConfig } from "./hooks.js";
 import { forgerelayAgentsDir, forgerelaySkillsDir, loadForgeRelayFiles } from "./user-config.js";
+import type { LanguageServerConfigInput } from "./lsp/language-server-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -33,6 +34,7 @@ export interface ServerConfig {
   devspaceSkillsDir: string;
   devspaceAgentsDir: string;
   subagents: boolean;
+  languageServers: LanguageServerConfigInput;
   agentDir: string;
   systemInstructionsPath: string;
   hooks: HookConfig;
@@ -319,6 +321,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       productEnv(env, "SUBAGENTS") === undefined
         ? files.config.subagents === true
         : parseBoolean(productEnv(env, "SUBAGENTS")),
+    languageServers: files.config.languageServers ?? {},
     agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
     systemInstructionsPath: parseSystemInstructionsPath(
       productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,

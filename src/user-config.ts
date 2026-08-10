@@ -9,6 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
+import type { LanguageServerConfigInput } from "./lsp/language-server-config.js";
 import {
   mergeHookConfigs,
   parseHookFile,
@@ -31,6 +32,7 @@ export interface ForgeRelayUserConfig {
   agentDir?: string;
   systemInstructionsPath?: string;
   subagents?: boolean;
+  languageServers?: LanguageServerConfigInput;
   hooks?: HookConfigInput;
 }
 

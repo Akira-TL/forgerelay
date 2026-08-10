@@ -5,7 +5,8 @@ export type CapabilityErrorCode =
   | "capability_unavailable"
   | "invalid_arguments"
   | "execution_failed"
-  | `artifact.${string}`;
+  | `artifact.${string}`
+  | `code.${string}`;
 
 export class CapabilityError extends Error {
   constructor(
@@ -97,6 +98,14 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: { file: unknown; path: string },
+      context: CapabilityContext,
+    ) => Promise<CapabilityExecution>;
+  };
+  codeIntelligence?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: { operation: "definition"; path: string; line: number; column: number },
       context: CapabilityContext,
     ) => Promise<CapabilityExecution>;
   };
@@ -240,6 +249,12 @@ export function createCapabilityRegistry(
   dependencies: CapabilityRegistryDependencies,
 ): CapabilityRegistry {
   const hooksCheckInput = z.object({}).strict();
+  const codeIntelligenceInput = z.object({
+    operation: z.literal("definition"),
+    path: z.string().min(1),
+    line: z.number().int(),
+    column: z.number().int(),
+  }).strict();
 
   return new CapabilityRegistry([
     {
@@ -268,6 +283,24 @@ export function createCapabilityRegistry(
             reason: dependencies.reviewChanges?.unavailableReason,
           }),
           run: async (_input: unknown, context: CapabilityContext) => dependencies.reviewChanges!.run(context),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.codeIntelligence
+      ? [{
+          name: "code.intelligence",
+          description: "Read semantic code information through an available Language server without changing the Workspace.",
+          guideName: "code-intelligence",
+          readGuideBeforeFirstUse: true,
+          inputSchema: codeIntelligenceInput,
+          availability: () => ({
+            available: dependencies.codeIntelligence?.available ?? false,
+            reason: dependencies.codeIntelligence?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext) =>
+            dependencies.codeIntelligence!.run(
+              input as { operation: "definition"; path: string; line: number; column: number },
+              context,
+            ),
         } satisfies CapabilityDefinition]
       : []),
     ...(dependencies.downloadArtifact

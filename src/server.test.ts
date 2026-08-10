@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import test, { type TestContext } from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
+import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "./lsp/code-intelligence.js";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";
@@ -171,7 +173,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   const openedStructured = structuredContent(opened);
   const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
   assert.ok(Array.isArray(catalog));
-  assert.equal(catalog.length, 1);
+  assert.equal(catalog.length, 2);
   assert.deepEqual(catalog[0], {
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
@@ -179,6 +181,16 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     guide: {
       name: "lifecycle-hooks",
       path: catalog[0]?.guide && (catalog[0].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  assert.deepEqual(catalog[1], {
+    name: "code.intelligence",
+    description: "Read semantic code information through an available Language server without changing the Workspace.",
+    available: true,
+    guide: {
+      name: "code-intelligence",
+      path: catalog[1]?.guide && (catalog[1].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
@@ -235,6 +247,367 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   assert.equal((structuredContent(unknown).error as Record<string, unknown>).code, "unknown_capability");
 });
 
+test("code.intelligence definition resolves through a real stdio LSP child process", async (t) => {
+  const context = await fixture(t);
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("./lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp.log");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(sourceDir, "main.ts"), "const 😀value = target();\n");
+  await writeFile(join(sourceDir, "target.ts"), "export target;\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      "typescript-test": {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: { FORGERELAY_FAKE_LSP_LOG: fakeLogPath },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const opened = await callOpen(context.client, context.project, "code-intelligence-definition-chat");
+  const openedStructured = structuredContent(opened);
+  const catalog = openedStructured.capabilityCatalog as Array<{ name: string }>;
+  assert.ok(catalog.some((entry) => entry.name === "code.intelligence"));
+  const workspaceId = openedStructured.workspaceId as string;
+
+  const result = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: {
+        operation: "definition",
+        path: "src/main.ts",
+        line: 1,
+        column: 8,
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(structuredContent(result), {
+    name: "code.intelligence",
+    action: "run",
+    result: {
+      operation: "definition",
+      selectedServer: "typescript-test",
+      projectRoot: ".",
+      locations: [{
+        path: "src/target.ts",
+        external: false,
+        range: {
+          start: { line: 1, column: 8 },
+          end: { line: 1, column: 14 },
+        },
+      }],
+    },
+  });
+
+  const fakeLog = await readFile(fakeLogPath, "utf8");
+  assert.ok(fakeLog.includes('"method":"initialize"'));
+  assert.ok(fakeLog.includes('"method":"textDocument/didOpen"'));
+  assert.ok(fakeLog.includes('"method":"textDocument/definition"'));
+  assert.ok(fakeLog.includes('"position":{"line":0,"character":8}'));
+});
+
+test("code.intelligence shares one Language service across logical workspaces for the same project", async (t) => {
+  const context = await fixture(t);
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("./lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp-shared.log");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(sourceDir, "main.ts"), "const value = target();\n");
+  await writeFile(join(sourceDir, "target.ts"), "export target;\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      "typescript-test": {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: { FORGERELAY_FAKE_LSP_LOG: fakeLogPath },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const first = await callOpen(context.client, context.project, "code-intelligence-shared-a");
+  const second = await callOpen(context.client, context.project, "code-intelligence-shared-b");
+  const workspaceIds = [structuredContent(first).workspaceId, structuredContent(second).workspaceId] as string[];
+  assert.notEqual(workspaceIds[0], workspaceIds[1]);
+
+  for (const workspaceId of workspaceIds) {
+    const result = await context.client.callTool({
+      name: "capability",
+      arguments: {
+        workspaceId,
+        name: "code.intelligence",
+        action: "run",
+        arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 15 },
+      },
+    });
+    assert.equal(result.isError, undefined);
+  }
+
+  const fakeLog = await readFile(fakeLogPath, "utf8");
+  assert.equal(fakeLog.match(/"method":"initialize"/g)?.length, 1);
+  assert.equal(fakeLog.match(/"method":"textDocument\/didOpen"/g)?.length, 1);
+  assert.equal(fakeLog.match(/"method":"textDocument\/definition"/g)?.length, 2);
+});
+
+test("code.intelligence keeps nested Language projects in distinct shared services", async (t) => {
+  const context = await fixture(t);
+  const fakeServerPath = fileURLToPath(new URL("./lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp-nested.log");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  for (const projectName of ["frontend", "backend"]) {
+    const projectRoot = join(context.project, projectName);
+    await mkdir(join(projectRoot, "src"), { recursive: true });
+    await writeFile(join(projectRoot, "tsconfig.json"), "{}\n");
+    await writeFile(join(projectRoot, "src", "main.ts"), "const value = target();\n");
+    await writeFile(join(projectRoot, "src", "target.ts"), "export target;\n");
+  }
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      test: {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: { FORGERELAY_FAKE_LSP_LOG: fakeLogPath },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const opened = await callOpen(context.client, context.project, "code-intelligence-nested");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+  for (const projectName of ["frontend", "backend"]) {
+    const result = await context.client.callTool({
+      name: "capability",
+      arguments: {
+        workspaceId,
+        name: "code.intelligence",
+        action: "run",
+        arguments: {
+          operation: "definition",
+          path: `${projectName}/src/main.ts`,
+          line: 1,
+          column: 15,
+        },
+      },
+    });
+    assert.equal(result.isError, undefined);
+    assert.equal((structuredContent(result).result as { projectRoot?: string }).projectRoot, projectName);
+  }
+
+  const fakeLog = await readFile(fakeLogPath, "utf8");
+  assert.equal(fakeLog.match(/"method":"initialize"/g)?.length, 2);
+});
+
+test("code.intelligence normalizes LocationLink results and marks External code locations without expanding file authority", async (t) => {
+  const context = await fixture(t);
+  const outside = await mkdtemp(join(homedir(), ".forgerelay-code-intelligence-external-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("./lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const externalTarget = join(outside, "target.ts");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(sourceDir, "main.ts"), "const value = target();\n");
+  await writeFile(externalTarget, "export target;\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      "typescript-test": {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: {
+          FORGERELAY_FAKE_LSP_MODE: "location-link",
+          FORGERELAY_FAKE_LSP_TARGET: externalTarget,
+        },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const opened = await callOpen(context.client, context.project, "code-intelligence-external-chat");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+  const result = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 15 },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(structuredContent(result).result, {
+    operation: "definition",
+    selectedServer: "typescript-test",
+    projectRoot: ".",
+    locations: [{
+      path: externalTarget,
+      external: true,
+      range: {
+        start: { line: 1, column: 8 },
+        end: { line: 1, column: 14 },
+      },
+    }],
+  });
+
+  const externalRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: externalTarget },
+  });
+  assert.equal(externalRead.isError, true);
+});
+
+test("code.intelligence reports stable unavailable, unsupported, invalid-position, start-failure, and start-timeout errors", async (t) => {
+  const fakeServerPath = fileURLToPath(new URL("./lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+
+  const unavailable = await fixture(t);
+  await mkdir(join(unavailable.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(unavailable.project, "src"), { recursive: true });
+  await writeFile(join(unavailable.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(unavailable.project, "src", "main.ts"), "const value = target();\n");
+  await writeFile(
+    join(unavailable.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({ typescript: { enabled: false } }) + "\n",
+  );
+  const unavailableOpen = await callOpen(unavailable.client, unavailable.project, "code-unavailable");
+  const unavailableResult = await unavailable.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: structuredContent(unavailableOpen).workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 1 },
+    },
+  });
+  assert.equal(unavailableResult.isError, true);
+  assert.equal((structuredContent(unavailableResult).error as { code?: string }).code, "code.language_service_unavailable");
+
+  for (const scenario of [
+    { name: "unsupported", mode: "unsupported-definition", expected: "code.operation_unsupported", line: 1, column: 1 },
+    { name: "invalid-position", mode: "location", expected: "code.invalid_position", line: 0, column: 1 },
+  ] as const) {
+    const context = await fixture(t);
+    await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+    await mkdir(join(context.project, "src"), { recursive: true });
+    await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+    await writeFile(join(context.project, "src", "main.ts"), "const value = target();\n");
+    await writeFile(join(context.project, "src", "target.ts"), "export target;\n");
+    await writeFile(
+      join(context.project, ".forgerelay", "language-servers.json"),
+      JSON.stringify({
+        test: {
+          command: process.execPath,
+          args: [fakeServerPath],
+          env: { FORGERELAY_FAKE_LSP_MODE: scenario.mode },
+          languages: ["typescript"],
+          extensions: [".ts"],
+          projectMarkers: ["tsconfig.json"],
+        },
+      }) + "\n",
+    );
+    const opened = await callOpen(context.client, context.project, `code-${scenario.name}`);
+    const result = await context.client.callTool({
+      name: "capability",
+      arguments: {
+        workspaceId: structuredContent(opened).workspaceId,
+        name: "code.intelligence",
+        action: "run",
+        arguments: {
+          operation: "definition",
+          path: "src/main.ts",
+          line: scenario.line,
+          column: scenario.column,
+        },
+      },
+    });
+    assert.equal(result.isError, true);
+    assert.equal((structuredContent(result).error as { code?: string }).code, scenario.expected);
+  }
+
+  const failedStart = await fixture(t);
+  await mkdir(join(failedStart.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(failedStart.project, "src"), { recursive: true });
+  await writeFile(join(failedStart.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(failedStart.project, "src", "main.ts"), "const value = target();\n");
+  await writeFile(
+    join(failedStart.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      missing: {
+        command: join(failedStart.project, "definitely-missing-language-server"),
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }) + "\n",
+  );
+  const failedStartOpen = await callOpen(failedStart.client, failedStart.project, "code-start-failed");
+  const failedStartResult = await failedStart.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: structuredContent(failedStartOpen).workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 1 },
+    },
+  });
+  assert.equal(failedStartResult.isError, true);
+  assert.equal((structuredContent(failedStartResult).error as { code?: string }).code, "code.language_service_start_failed");
+
+  const timedOut = await fixture(t, { codeIntelligenceOptions: { startTimeoutMs: 100 } });
+  await mkdir(join(timedOut.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(timedOut.project, "src"), { recursive: true });
+  await writeFile(join(timedOut.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(timedOut.project, "src", "main.ts"), "const value = target();\n");
+  await writeFile(
+    join(timedOut.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      slow: {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: { FORGERELAY_FAKE_LSP_MODE: "never-initialize" },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }) + "\n",
+  );
+  const timedOutOpen = await callOpen(timedOut.client, timedOut.project, "code-start-timeout");
+  const timedOutResult = await timedOut.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: structuredContent(timedOutOpen).workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 1 },
+    },
+  });
+  assert.equal(timedOutResult.isError, true);
+  assert.equal((structuredContent(timedOutResult).error as { code?: string }).code, "code.language_service_start_timeout");
+});
+
 test("review.changes capability owns checkpoints, Hook reports, and review-card metadata", async (t) => {
   const context = await fixture(t, {
     git: true,
@@ -249,7 +622,7 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
   const opened = await callOpen(context.client, context.project, "review-capability-chat");
   const workspaceId = structuredContent(opened).workspaceId as string;
   const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
-  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes"]);
+  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes", "code.intelligence"]);
 
   const written = await context.client.callTool({
     name: "write",
@@ -392,6 +765,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
+      "code.intelligence",
       "ui.mcp-app",
     ],
   });
@@ -671,6 +1045,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "process.lifecycle",
         "hooks.lifecycle",
         "capability-guides.read",
+        "code.intelligence",
         "subagent.profiles",
         "artifact.native-download",
         "ui.mcp-app",
@@ -697,11 +1072,13 @@ test("capability fingerprint reports optional feature availability without copyi
     "artifacts-review",
     "host-integration",
     "shell-processes",
+    "code-intelligence",
   ]);
 
   for (const [name, firstPattern, secondPattern] of [
     ["subagents", /forgerelay agents run/, /first-class MCP subagent/],
     ["artifacts-review", /artifact\.download/, /review\.changes/],
+    ["code-intelligence", /definition/, /Language server/],
   ] as const) {
     const guide = guides.find((candidate) => candidate.name === name);
     assert.ok(guide);
@@ -726,6 +1103,7 @@ test("open_workspace advertises capability guides that read can load on demand",
     "managed-worktrees",
     "host-integration",
     "shell-processes",
+    "code-intelligence",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
   assert.match(String(guides[0]?.whenToRead), /Hook/);
@@ -733,11 +1111,13 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[1]?.path), /capabilities\/managed-worktrees\/GUIDE\.md$/);
   assert.match(String(guides[2]?.path), /capabilities\/host-integration\/GUIDE\.md$/);
   assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
+  assert.match(String(guides[4]?.path), /capabilities\/code-intelligence\/GUIDE\.md$/);
 
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
     [2, /oauth-protected-resource/, /Failed to fetch template/],
     [3, /action="process"/, /tty: true/],
+    [4, /definition/, /Language server/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({
@@ -1657,6 +2037,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
   await context.close();
 
   const restoredStore = new SqliteWorkspaceStore(context.stateDir);
+  const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
   const restoredServer = createMcpServer(
     context.config,
     new WorkspaceRegistry(context.config, restoredStore),
@@ -1664,6 +2045,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     new ProcessManager(),
     [],
     [],
+    restoredCodeIntelligence,
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
   const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
@@ -1673,6 +2055,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     restoredClosed = true;
     await restoredClient.close();
     await restoredServer.close();
+    await restoredCodeIntelligence.shutdown();
     restoredStore.close();
   };
   t.after(closeRestored);
@@ -1708,6 +2091,7 @@ async function fixture(
     env?: NodeJS.ProcessEnv;
     hooks?: HookConfigInput;
     processSessions?: ProcessManager;
+    codeIntelligenceOptions?: CodeIntelligenceManagerOptions;
     incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
   } = {},
 ): Promise<ServerFixture> {
@@ -1755,6 +2139,7 @@ async function fixture(
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const processSessions = options.processSessions ?? new ProcessManager();
+  const codeIntelligence = new CodeIntelligenceManager(config, options.codeIntelligenceOptions);
   const server = createMcpServer(
     config,
     workspaces,
@@ -1762,6 +2147,7 @@ async function fixture(
     processSessions,
     [],
     options.incomingArtifactAdapters ?? [],
+    codeIntelligence,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "devspace-test-client", version: "1.0.0" });
@@ -1776,6 +2162,7 @@ async function fixture(
     closed = true;
     await client.close();
     await server.close();
+    await codeIntelligence.shutdown();
     processSessions.shutdown();
     store.close();
   };

@@ -33,6 +33,7 @@ import {
 } from "./artifact-tools.js";
 import { ArtifactError } from "./artifact-error.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
+import { CodeIntelligenceError, CodeIntelligenceManager } from "./lsp/code-intelligence.js";
 import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
 import { checkHookConfiguration } from "./hook-cli.js";
 import {
@@ -1014,6 +1015,7 @@ export function createMcpServer(
   processSessions: ProcessManager,
   localAgentProviders: LocalAgentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
+  codeIntelligence: CodeIntelligenceManager,
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
@@ -1027,6 +1029,21 @@ export function createMcpServer(
   const reviewChangesAvailable = config.widgets === "changes";
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+    codeIntelligence: {
+      available: true,
+      run: async (input, context) => {
+        try {
+          return {
+            value: await codeIntelligence.definition(context.workspaceRoot, input),
+          };
+        } catch (error) {
+          if (error instanceof CodeIntelligenceError) {
+            throw new CapabilityError(error.code, error.message);
+          }
+          throw error;
+        }
+      },
+    },
     reviewChanges: {
       available: reviewChangesAvailable,
       unavailableReason: reviewChangesAvailable
@@ -2631,6 +2648,7 @@ export function createServer(
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessManager();
+  const codeIntelligence = new CodeIntelligenceManager(config);
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
     : [];
@@ -2686,6 +2704,7 @@ export function createServer(
       processesCompleted: processStats.completed,
       cachedWorkspaces: workspaces.cachedWorkspaceCount,
       reviewStates: reviewCheckpoints.stateCount,
+      languageServices: codeIntelligence.size,
     });
   };
   const transportCleanupTimer = setInterval(() => {
@@ -2831,6 +2850,7 @@ export function createServer(
           processSessions,
           localAgentProviders,
           incomingArtifactAdapters,
+          codeIntelligence,
         );
         await server.connect(transport);
       } else {
@@ -2861,6 +2881,7 @@ export function createServer(
         const results = await transports.closeAll();
         logTransportCloseResults("server_shutdown", results);
         processSessions.shutdown();
+        await codeIntelligence.shutdown();
         oauthProvider.close();
         workspaceStore.close?.();
       })();

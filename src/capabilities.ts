@@ -72,6 +72,11 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     description: "Long-running bash processes, processId interaction, PTY, and platform edges.",
     whenToRead: "Read for running or interactive command issues.",
   },
+  {
+    name: "code-intelligence",
+    description: "Read-only semantic code navigation backed by external Language servers.",
+    whenToRead: "Read before using code.intelligence or configuring Language servers.",
+  },
 ];
 
 function capabilityGuidesDir(): string {
@@ -129,6 +134,7 @@ export function buildCapabilityFingerprint(
     "process.lifecycle",
     "hooks.lifecycle",
     "capability-guides.read",
+    "code.intelligence",
   ];
 
   if (config.subagents) {
