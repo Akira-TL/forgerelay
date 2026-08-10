@@ -8,6 +8,13 @@ import type {
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import {
+  loadCapabilityGuides,
+  markCapabilityGuideActivated,
+  resolveCapabilityGuideReadPath,
+  type CapabilityGuide,
+  type CapabilityGuideReadResolution,
+} from "./capabilities.js";
 import type { ServerConfig } from "./config.js";
 import { HookRunner, type HookReportContainer } from "./hooks.js";
 import {
@@ -63,8 +70,10 @@ export interface Workspace {
   worktree?: WorkspaceWorktree;
   skills: LoadedSkills["skills"];
   skillDiagnostics: LoadedSkills["diagnostics"];
+  capabilityGuides: CapabilityGuide[];
   agentProfiles: LocalAgentProfile[];
   activatedSkillDirs: Set<string>;
+  activatedCapabilityGuideDirs: Set<string>;
 }
 
 export interface WorkspaceContext extends HookReportContainer {
@@ -79,6 +88,7 @@ export interface WorkspaceReadPath {
   absolutePath: string;
   readRoots: string[];
   skillRead?: SkillReadResolution;
+  capabilityGuideRead?: CapabilityGuideReadResolution;
 }
 
 export interface OpenWorkspaceInput {
@@ -788,8 +798,10 @@ export class WorkspaceRegistry {
             }
           : undefined,
       ...this.loadSkillsForWorkspace(root),
+      capabilityGuides: loadCapabilityGuides(),
       agentProfiles: [],
       activatedSkillDirs: new Set(),
+      activatedCapabilityGuideDirs: new Set(),
     };
     if (touch) this.store?.touchSession(session.id);
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);
@@ -829,6 +841,19 @@ export class WorkspaceRegistry {
         };
       }
 
+      const capabilityGuideRead = resolveCapabilityGuideReadPath(
+        workspace.capabilityGuides,
+        workspace.activatedCapabilityGuideDirs,
+        inputPath,
+      );
+      if (capabilityGuideRead) {
+        return {
+          absolutePath: capabilityGuideRead.absolutePath,
+          readRoots: [workspace.root, capabilityGuideRead.guide.baseDir],
+          capabilityGuideRead,
+        };
+      }
+
       try {
         return {
           absolutePath: resolveAllowedPath(inputPath, workspace.root, [tmpdir()]),
@@ -843,6 +868,12 @@ export class WorkspaceRegistry {
   markReadPathLoaded(workspace: Workspace, readPath: WorkspaceReadPath): void {
     if (readPath.skillRead?.isSkillFile) {
       markSkillActivated(workspace.activatedSkillDirs, readPath.skillRead.skill);
+    }
+    if (readPath.capabilityGuideRead?.isGuideFile) {
+      markCapabilityGuideActivated(
+        workspace.activatedCapabilityGuideDirs,
+        readPath.capabilityGuideRead.guide,
+      );
     }
   }
 
@@ -889,8 +920,10 @@ export class WorkspaceRegistry {
       sourceRoot: input.sourceRoot,
       worktree: input.worktree,
       ...this.loadSkillsForWorkspace(input.root),
+      capabilityGuides: loadCapabilityGuides(),
       agentProfiles: await loadLocalAgentProfiles(this.config, input.root),
       activatedSkillDirs: new Set(),
+      activatedCapabilityGuideDirs: new Set(),
     };
 
     this.store?.createSession({

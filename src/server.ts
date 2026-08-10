@@ -250,6 +250,13 @@ const capabilityFingerprintOutputSchema = z.object({
   capabilities: z.array(z.string()),
 });
 
+const capabilityGuideOutputSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  whenToRead: z.string(),
+  path: z.string(),
+});
+
 const workspaceAgentsFileOutputSchema = z.object({
   path: z.string(),
   content: z.string(),
@@ -1035,6 +1042,7 @@ export function createMcpServer(
           }),
         ),
         capabilityFingerprint: capabilityFingerprintOutputSchema,
+        capabilityGuides: z.array(capabilityGuideOutputSchema).optional(),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
         skills: z.array(workspaceSkillOutputSchema).optional(),
@@ -1083,6 +1091,12 @@ export function createMcpServer(
           description: skill.description,
           path: formatPathForPrompt(skill.filePath),
         }));
+      const capabilityGuides = workspace.capabilityGuides.map((guide) => ({
+        name: guide.name,
+        description: guide.description,
+        whenToRead: guide.whenToRead,
+        path: formatPathForPrompt(guide.filePath),
+      }));
       const cardAgentProviders = config.subagents ? localAgentProviders : [];
       const cardAgents = workspace.agentProfiles.map((profile) => {
         const summary = summarizeLocalAgentProfile(profile);
@@ -1101,13 +1115,14 @@ export function createMcpServer(
         path: formatAgentsPath(file.path, workspace.root),
       }));
       const visibleSkills = includeBootstrapContext ? cardSkills : [];
+      const visibleCapabilityGuides = includeBootstrapContext ? capabilityGuides : [];
       const visibleAgentProviders = includeBootstrapContext ? cardAgentProviders : [];
       const visibleAgents = includeBootstrapContext ? cardAgents : [];
       const loadedAgentsFiles = includeBootstrapContext ? cardAgentsFiles : [];
       const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
       const cardInstruction = config.skillsEnabled
-        ? "Use this workspaceId in all subsequent tool calls for this project. Default to the user's checkout; only create a worktree when the user explicitly requests isolated or parallel work. Managed worktrees are branch-backed. When a managed worktree task is complete and verified, close it with close_worktree so ForgeRelay can commit, fast-forward the target branch when safe, and clean up the worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file. When a task matches an available skill in skills, read its path before proceeding."
-        : "Use this workspaceId in all subsequent tool calls for this project. Default to the user's checkout; only create a worktree when the user explicitly requests isolated or parallel work. Managed worktrees are branch-backed. When a managed worktree task is complete and verified, close it with close_worktree so ForgeRelay can commit, fast-forward the target branch when safe, and clean up the worktree. Follow loaded agentsFiles instructions. Before working under a path listed in availableAgentsFiles, read that instruction file.";
+        ? "Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding."
+        : "Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding.";
       const instruction = workspaceReused
         ? includeBootstrapContext
           ? [
@@ -1142,6 +1157,9 @@ export function createMcpServer(
               : undefined,
             visibleSkills.length > 0
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
+              : undefined,
+            visibleCapabilityGuides.length > 0
+              ? `Capability guides: ${visibleCapabilityGuides.map((guide) => guide.name).join(", ")}`
               : undefined,
             visibleAgentProviders.some((provider) => provider.available)
               ? `Available subagent providers: ${visibleAgentProviders.filter((provider) => provider.available).map((provider) => provider.name).join(", ")}`
@@ -1214,6 +1232,7 @@ export function createMcpServer(
           capabilityFingerprint,
           ...(includeBootstrapContext
             ? {
+                capabilityGuides: visibleCapabilityGuides,
                 agentsFiles: loadedAgentsFiles,
                 availableAgentsFiles: availableAgentsFileOutputs,
                 skills: visibleSkills,
@@ -1363,8 +1382,8 @@ export function createMcpServer(
           .string()
           .describe(
             config.skillsEnabled
-              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill path from open_workspace skills, including a ~/... home-relative path."
-              : "File path to read, relative to the workspace root or absolute inside the OS temp directory.",
+              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill or capability-guide path from open_workspace, including a ~/... home-relative path."
+              : "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised capability-guide path from open_workspace.",
           ),
         offset: z
           .number()

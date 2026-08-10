@@ -3,12 +3,16 @@ import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  markAdvertisedFileSourceActivated,
+  resolveAdvertisedFileReadPath,
+} from "./advertised-files.js";
+import {
   loadSkills,
   type Skill,
   type LoadSkillsResult,
 } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
-import { expandHomePath, isPathInsideRoot } from "./roots.js";
+import { expandHomePath } from "./roots.js";
 
 export interface LoadedSkills {
   skills: Skill[];
@@ -87,31 +91,21 @@ export function resolveSkillReadPath(
   activatedSkillDirs: Set<string>,
   inputPath: string,
 ): SkillReadResolution | undefined {
-  const absolutePath = resolve(expandHomePath(inputPath));
+  const resolution = resolveAdvertisedFileReadPath(skills, activatedSkillDirs, inputPath);
+  if (!resolution) return undefined;
 
-  for (const skill of skills) {
-    const skillFilePath = resolve(skill.filePath);
-    if (absolutePath === skillFilePath) {
-      return { absolutePath, skill, isSkillFile: true };
-    }
-  }
-
-  for (const skill of skills) {
-    const baseDir = resolve(skill.baseDir);
-    if (!activatedSkillDirs.has(baseDir)) continue;
-    if (!isPathInsideRoot(absolutePath, baseDir)) continue;
-
-    return { absolutePath, skill, isSkillFile: false };
-  }
-
-  return undefined;
+  return {
+    absolutePath: resolution.absolutePath,
+    skill: resolution.source,
+    isSkillFile: resolution.isEntryFile,
+  };
 }
 
 export function markSkillActivated(
   activatedSkillDirs: Set<string>,
   skill: Skill,
 ): void {
-  activatedSkillDirs.add(resolve(skill.baseDir));
+  markAdvertisedFileSourceActivated(activatedSkillDirs, skill);
 }
 
 export function formatPathForPrompt(path: string): string {

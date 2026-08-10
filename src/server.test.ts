@@ -166,6 +166,36 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.ok(Array.isArray(card.agents));
 });
 
+test("open_workspace advertises capability guides that read can load on demand", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-guides");
+  const firstStructured = structuredContent(first);
+  const guides = firstStructured.capabilityGuides as Array<Record<string, unknown>>;
+
+  assert.deepEqual(guides.map((guide) => guide.name), [
+    "lifecycle-hooks",
+    "managed-worktrees",
+  ]);
+  assert.match(String(guides[0]?.description), /Hook/);
+  assert.match(String(guides[0]?.whenToRead), /Hook/);
+  assert.match(String(guides[0]?.path), /capabilities\/lifecycle-hooks\/GUIDE\.md$/);
+  assert.match(String(guides[1]?.path), /capabilities\/managed-worktrees\/GUIDE\.md$/);
+
+  const readGuide = await context.client.callTool({
+    name: "read",
+    arguments: {
+      workspaceId: firstStructured.workspaceId,
+      path: guides[0]?.path,
+    },
+  });
+  assert.equal(readGuide.isError, undefined);
+  assert.match(allResponseText(readGuide), /BeforeTool/);
+  assert.match(allResponseText(readGuide), /BeforeWorktreeClose/);
+
+  const repeated = await callOpen(context.client, context.project, "chat-guides");
+  assert.equal(structuredContent(repeated).capabilityGuides, undefined);
+});
+
 test("different MCP conversations get different stable workspace ids and can explicitly resume one", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");

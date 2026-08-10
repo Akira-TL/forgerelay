@@ -48,7 +48,7 @@ export function buildServerInstructions(
 
 export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
   const skillCapability = config.skillsEnabled
-    ? " Advertised skill paths may be outside the workspace; only advertised SKILL.md files and files under already-loaded skill directories are readable."
+    ? " Advertised skill paths may also be outside the workspace."
     : "";
   const shellSurface = config.toolMode === "minimal"
     ? ` In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled, so shell commands may be used for equivalent search and directory inspection.`
@@ -57,7 +57,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
   const shellMutationPolicy = buildShellMutationPolicy();
 
   return {
-    read: `Read a file inside an open workspace or the OS temp directory. Instruction files returned by ${toolNames.openWorkspace} and advertised skill files are also readable when applicable.${skillCapability} Call ${toolNames.openWorkspace} first and pass workspaceId.`,
+    read: `Read a file inside an open workspace or the OS temp directory. Instruction files and advertised capability guides returned by ${toolNames.openWorkspace} are also readable when applicable.${skillCapability} Only advertised entry files and files under already-loaded advertised directories are readable outside the normal roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     write: `Create or completely overwrite a file inside an open workspace or the OS temp directory. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     edit: `Edit one file inside an open workspace or the OS temp directory by replacing exact text blocks. Each oldText must match a unique, non-overlapping region of the original file. Workspace paths may be relative; OS temp paths may be absolute. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
