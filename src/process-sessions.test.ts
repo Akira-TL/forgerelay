@@ -273,6 +273,30 @@ try {
   manager.shutdown();
 }
 
+const activeLimitManager = new ProcessManager({ maxActiveProcesses: 2 });
+try {
+  for (let index = 0; index < 2; index += 1) {
+    const started = await activeLimitManager.start({
+      workspaceId: "workspace-active-limit",
+      cwd: process.cwd(),
+      command: `${node} -e "setTimeout(() => {}, 5_000)"`,
+      yieldTimeMs: 1,
+    });
+    assert.equal(started.running, true);
+  }
+  await assert.rejects(
+    () => activeLimitManager.start({
+      workspaceId: "workspace-active-limit",
+      cwd: process.cwd(),
+      command: `${node} -e "setTimeout(() => {}, 5_000)"`,
+      yieldTimeMs: 1,
+    }),
+    /Active process limit reached \(2\)/,
+  );
+} finally {
+  activeLimitManager.shutdown();
+}
+
 const retentionManager = new ProcessManager();
 const retainedBackground = await retentionManager.start({
   workspaceId: "workspace-retention",

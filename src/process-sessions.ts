@@ -9,6 +9,7 @@ const MAX_COMMAND_YIELD_MS = 300_000;
 const MAX_POLL_YIELD_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
 const DEFAULT_BUFFER_CHARACTERS = 256_000;
+const DEFAULT_MAX_ACTIVE_PROCESSES = 64;
 const DEFAULT_MAX_COMPLETED_PROCESSES = 128;
 const COMPLETED_PROCESS_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_COLUMNS = 80;
@@ -90,6 +91,7 @@ interface ProcessEntry {
 
 interface ProcessManagerOptions {
   maxBufferCharacters?: number;
+  maxActiveProcesses?: number;
   maxCompletedProcesses?: number;
   completedProcessTtlMs?: number;
   /** @deprecated Use completedProcessTtlMs. */
@@ -309,6 +311,7 @@ export class ProcessManager {
   private readonly completedByWorkspace = new Map<string, number[]>();
   private readonly completedProcessIds: number[] = [];
   private readonly maxBufferCharacters: number;
+  private readonly maxActiveProcesses: number;
   private readonly maxCompletedProcesses: number;
   private readonly completedProcessTtlMs: number;
   private readonly maxStartYieldMs: number;
@@ -317,6 +320,10 @@ export class ProcessManager {
 
   constructor(options: ProcessManagerOptions = {}) {
     this.maxBufferCharacters = options.maxBufferCharacters ?? DEFAULT_BUFFER_CHARACTERS;
+    this.maxActiveProcesses = options.maxActiveProcesses ?? DEFAULT_MAX_ACTIVE_PROCESSES;
+    if (!Number.isInteger(this.maxActiveProcesses) || this.maxActiveProcesses < 1) {
+      throw new Error("Active process limit must be a positive integer.");
+    }
     this.maxCompletedProcesses = options.maxCompletedProcesses ?? DEFAULT_MAX_COMPLETED_PROCESSES;
     if (!Number.isInteger(this.maxCompletedProcesses) || this.maxCompletedProcesses < 1) {
       throw new Error("Completed process limit must be a positive integer.");
@@ -329,6 +336,11 @@ export class ProcessManager {
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
+    if (this.stats().running >= this.maxActiveProcesses) {
+      throw new Error(
+        `Active process limit reached (${this.maxActiveProcesses}). Poll, interrupt, or wait for an existing process before starting another.`,
+      );
+    }
     const processEntry = this.createProcess(input);
     this.processes.set(processEntry.id, processEntry);
 
