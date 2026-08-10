@@ -14,6 +14,7 @@ export const toolNames = {
   ls: "ls",
   shell: "bash",
   writeStdin: "write_stdin",
+  capability: "capability",
 } as const;
 
 export interface ToolDescriptions {
@@ -66,7 +67,7 @@ function capabilityContractInstructions(config: ServerConfig): string {
   const workspaceLifecycle = `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Reuse the workspaceId returned by ${toolNames.openWorkspace} for this conversation; resume another logical workspaceId only when the user wants that workspace, and request a new logical workspace only when explicitly asked.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} releases a logical workspace; ${toolNames.closeWorktree} finalizes a managed worktree. Read the managed-worktrees capability guide for advanced worktree lifecycle and failure semantics.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Read an availableAgentsFiles path before working under it.`;
-  const capabilityGuides = `When ${toolNames.openWorkspace} returns capability guides, use ${toolNames.read} to load only a task-relevant guide; do not preload all guides.`;
+  const capabilityGuides = `For optional capabilities from ${toolNames.openWorkspace}, use ${toolNames.capability}; if unfamiliar, describe first and read its advertised capability guide with ${toolNames.read}.`;
   const skills = config.skillsEnabled
     ? `When a task matches an available skill from ${toolNames.openWorkspace}, read its advertised path before proceeding. Outside normal file roots, ${toolNames.read} permits only advertised entry files and files under already-loaded advertised directories.`
     : "";

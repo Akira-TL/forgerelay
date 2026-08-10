@@ -22,6 +22,27 @@ type HookListEntry = {
   report: boolean;
 };
 
+export interface HookCheckResult {
+  globalHooks: number;
+  projectHooks: number;
+}
+
+export async function checkHookConfiguration(
+  projectRoot: string,
+  globalHooks: HookConfig = loadGlobalHooks(),
+): Promise<HookCheckResult> {
+  const globalEntries = flattenHooks(globalHooks, "global");
+  const project = await loadProjectHookConfig(projectRoot);
+  if (project.diagnostic) {
+    throw new Error(`Hook check failed: ${project.diagnostic}`);
+  }
+  const projectEntries = flattenHooks(project.hooks, "project");
+  return {
+    globalHooks: globalEntries.length,
+    projectHooks: projectEntries.length,
+  };
+}
+
 export async function runHooksCommand(args: string[]): Promise<void> {
   const [subcommand, ...rest] = args;
   if (!subcommand || ["help", "--help", "-h"].includes(subcommand)) {

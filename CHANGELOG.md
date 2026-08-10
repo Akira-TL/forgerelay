@@ -4,6 +4,15 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added a ForgeRelay-owned Capability Registry and the single `capability` MCP gateway with `describe` / `run`, stable dotted names, runtime availability, validated input contracts, guide metadata, and stable diagnostic error codes.
+- `open_workspace` now returns a lightweight Capability catalog on every open. The first tracer capability, `hooks.check`, validates active global/project Hook configuration without requiring Agents to route through shell or the CLI.
+
+### Changed
+
+- Server instructions now direct Agents to use the Capability catalog for low-frequency actions, describing and reading only an unfamiliar capability's advertised guide before first use instead of preloading all low-frequency instructions.
+
 ## [0.3.1] - 2026-08-10
 
 ### Changed

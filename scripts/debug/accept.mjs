@@ -129,7 +129,7 @@ try {
     params: {},
   }).message.result.tools;
   const toolNames = tools.map((tool) => tool.name);
-  for (const expected of ["open_workspace", "close_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "write_stdin"]) {
+  for (const expected of ["open_workspace", "close_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "write_stdin", "capability"]) {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
   const bashTool = tools.find((tool) => tool.name === "bash");
@@ -156,6 +156,7 @@ try {
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.staleWorkspaces);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityFingerprint);
+  assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityCatalog);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityGuides);
   const templateUri = bashTool?._meta?.ui?.resourceUri;
   assert.match(
@@ -240,6 +241,34 @@ try {
       "ui.mcp-app",
     ],
   });
+  const capabilityCatalog = opened.structuredContent.capabilityCatalog;
+  assert.deepEqual(capabilityCatalog.map((entry) => entry.name), ["hooks.check"]);
+  assert.equal(capabilityCatalog[0].available, true);
+  assert.equal(capabilityCatalog[0].guide.name, "lifecycle-hooks");
+  const directCapability = callTool(oauth.accessToken, sessionId, 79, "capability", {
+    workspaceId,
+    name: "hooks.check",
+    action: "run",
+    arguments: {},
+  });
+  assert.equal(directCapability.isError, undefined);
+  assert.equal(directCapability.structuredContent.result.ok, true);
+  const describedCapability = callTool(oauth.accessToken, sessionId, 80, "capability", {
+    workspaceId,
+    name: "hooks.check",
+    action: "describe",
+  });
+  assert.equal(describedCapability.isError, undefined);
+  assert.equal(describedCapability.structuredContent.capability.guide.name, "lifecycle-hooks");
+  assert.equal(describedCapability.structuredContent.capability.inputSchema.type, "object");
+  const unknownCapability = callTool(oauth.accessToken, sessionId, 81, "capability", {
+    workspaceId,
+    name: "unknown.capability",
+    action: "run",
+    arguments: {},
+  });
+  assert.equal(unknownCapability.isError, true);
+  assert.equal(unknownCapability.structuredContent.error.code, "unknown_capability");
   const capabilityGuides = opened.structuredContent.capabilityGuides;
   assert.deepEqual(capabilityGuides.map((guide) => guide.name), [
     "lifecycle-hooks",
@@ -253,7 +282,7 @@ try {
   });
   assert.match(hooksGuide.structuredContent.result, /BeforeTool/);
   assert.match(hooksGuide.structuredContent.result, /BeforeWorktreeClose/);
-  pass("open_workspace", `${workspaceId} -> fingerprint + ${capabilityGuides.length} capability guides`);
+  pass("open_workspace", `${workspaceId} -> ${capabilityCatalog.length} capabilities + ${capabilityGuides.length} capability guides`);
 
   const written = callTool(oauth.accessToken, sessionId, 4, "write", {
     workspaceId,

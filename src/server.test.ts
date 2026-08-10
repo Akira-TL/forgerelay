@@ -137,6 +137,90 @@ test("workspace app resources expose a deployment domain alongside CSP metadata"
 
 });
 
+test("capability gateway supports catalog, describe, guide read, direct run, and stable errors", async (t) => {
+  const context = await fixture(t);
+  await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
+  await writeFile(
+    join(context.project, ".forgerelay", "hooks", "check-fixture.json"),
+    JSON.stringify({
+      event: "BeforeTool",
+      matcher: { tool: "never" },
+      command: "node -e \"process.exit(0)\"",
+    }) + "\n",
+  );
+
+  const tools = await context.client.listTools();
+  assert.ok(tools.tools.some((tool) => tool.name === "capability"));
+  assert.equal(tools.tools.length, 14, "0.3.2 must expand the existing full-mode surface by one gateway tool");
+
+  const opened = await callOpen(context.client, context.project, "capability-chat");
+  const openedStructured = structuredContent(opened);
+  const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
+  assert.ok(Array.isArray(catalog));
+  assert.equal(catalog.length, 1);
+  assert.deepEqual(catalog[0], {
+    name: "hooks.check",
+    description: "Validate the active ForgeRelay Hook configuration for this workspace.",
+    available: true,
+    guide: {
+      name: "lifecycle-hooks",
+      path: catalog[0]?.guide && (catalog[0].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  const workspaceId = openedStructured.workspaceId as string;
+
+  const directRun = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "hooks.check", action: "run", arguments: {} },
+  });
+  assert.equal(directRun.isError, undefined);
+  assert.deepEqual(structuredContent(directRun), {
+    name: "hooks.check",
+    action: "run",
+    result: { ok: true, globalHooks: 0, projectHooks: 1 },
+  });
+
+  const described = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "hooks.check", action: "describe" },
+  });
+  assert.equal(described.isError, undefined);
+  const capability = structuredContent(described).capability as Record<string, unknown>;
+  const guide = capability.guide as Record<string, unknown>;
+  assert.equal(capability.name, "hooks.check");
+  assert.equal(capability.available, true);
+  assert.equal(guide.name, "lifecycle-hooks");
+  assert.equal(guide.readBeforeFirstUse, true);
+  assert.equal((capability.inputSchema as Record<string, unknown>).type, "object");
+
+  const guideRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: guide.path },
+  });
+  assert.equal(guideRead.isError, undefined);
+  assert.match(responseText(guideRead), /BeforeTool/);
+
+  const invalid = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "hooks.check",
+      action: "run",
+      arguments: { arbitrary: "value" },
+    },
+  });
+  assert.equal(invalid.isError, true);
+  assert.equal((structuredContent(invalid).error as Record<string, unknown>).code, "invalid_arguments");
+
+  const unknown = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "shell.anything", action: "run", arguments: {} },
+  });
+  assert.equal(unknown.isError, true);
+  assert.equal((structuredContent(unknown).error as Record<string, unknown>).code, "unknown_capability");
+});
+
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");

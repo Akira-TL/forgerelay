@@ -36,4 +36,6 @@ Hook report 会随工具结果返回给 Host/Agent。`report: false` 只隐藏�
 
 ## 检查入口
 
-使用 `forgerelay hooks list` 查看已发现规则，使用 `forgerelay hooks check` 做只读校验。排查 Hook 时优先确认配置来源、event/matcher 是否命中、handler 的实际退出状态，以及 tool result 中的 Hook report。
+Agent 打开工作区后会在 Capability catalog 中看到 `hooks.check`。已经熟悉 contract 时可直接通过 `capability` 执行；不熟悉时先 `capability(action="describe")` 查看参数与本指南路径，再按需读取本指南。`hooks.check` 是只读检查，只接受空参数对象，并返回当前生效的全局/项目 Hook 数量；无效项目 Hook 会作为稳定的 capability execution error 返回。
+
+CLI 仍保留给人工终端或兼容工作流：使用 `forgerelay hooks list` 查看已发现规则，使用 `forgerelay hooks check` 做只读校验。排查 Hook 时优先确认配置来源、event/matcher 是否命中、handler 的实际退出状态，以及 tool result 中的 Hook report。

@@ -20,6 +20,11 @@ import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
+import {
+  CapabilityError,
+  createCapabilityRegistry,
+  type CapabilityContext,
+} from "./capability-registry.js";
 import { deletePath, renamePath } from "./file-mutations.js";
 import {
   isArtifactDownloadSupportedPlatform,
@@ -27,6 +32,7 @@ import {
 } from "./artifact-tools.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
+import { checkHookConfiguration } from "./hook-cli.js";
 import {
   buildServerInstructions,
   buildShellMutationPolicy,
@@ -192,6 +198,8 @@ interface ToolLogFields {
   exitCode?: number;
   running?: boolean;
   processId?: number;
+  capability?: string;
+  action?: string;
   success: boolean;
   durationMs: number;
   error?: string;
@@ -255,6 +263,25 @@ const capabilityGuideOutputSchema = z.object({
   description: z.string(),
   whenToRead: z.string(),
   path: z.string(),
+});
+
+const capabilityCatalogGuideOutputSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  readBeforeFirstUse: z.boolean(),
+});
+
+const capabilityCatalogOutputSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  available: z.boolean(),
+  unavailableReason: z.string().optional(),
+  guide: capabilityCatalogGuideOutputSchema,
+});
+
+const capabilityErrorOutputSchema = z.object({
+  code: z.string(),
+  message: z.string(),
 });
 
 const workspaceAgentsFileOutputSchema = z.object({
@@ -705,6 +732,19 @@ function workspaceHookInvocation(workspace: Workspace) {
   };
 }
 
+function capabilityContextFor(workspace: Workspace): CapabilityContext {
+  return {
+    workspaceId: workspace.id,
+    workspaceRoot: workspace.root,
+    guides: workspace.capabilityGuides.map((guide) => ({
+      name: guide.name,
+      description: guide.description,
+      whenToRead: guide.whenToRead,
+      path: formatPathForPrompt(guide.filePath),
+    })),
+  };
+}
+
 function toolResultIsError(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
 }
@@ -899,6 +939,9 @@ export function createMcpServer(
     process.env,
     (workspaceId, result) => attachCompletedProcessNotices(processSessions, workspaceId, result),
   );
+  const capabilityRegistry = createCapabilityRegistry({
+    inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+  });
   const server = new McpServer(
     {
       name: "forgerelay",
@@ -1046,6 +1089,7 @@ export function createMcpServer(
           }),
         ),
         capabilityFingerprint: capabilityFingerprintOutputSchema,
+        capabilityCatalog: z.array(capabilityCatalogOutputSchema),
         capabilityGuides: z.array(capabilityGuideOutputSchema).optional(),
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
@@ -1103,6 +1147,7 @@ export function createMcpServer(
         whenToRead: guide.whenToRead,
         path: formatPathForPrompt(guide.filePath),
       }));
+      const capabilityCatalog = capabilityRegistry.catalog(capabilityContextFor(workspace));
       const cardAgentProviders = config.subagents ? localAgentProviders : [];
       const cardAgents = workspace.agentProfiles.map((profile) => {
         const summary = summarizeLocalAgentProfile(profile);
@@ -1164,6 +1209,9 @@ export function createMcpServer(
             visibleSkills.length > 0
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
               : undefined,
+            capabilityCatalog.length > 0
+              ? `Optional capabilities: ${capabilityCatalog.map((entry) => entry.name).join(", ")}`
+              : undefined,
             visibleCapabilityGuides.length > 0
               ? `Capability guides: ${visibleCapabilityGuides.map((guide) => guide.name).join(", ")}`
               : undefined,
@@ -1211,6 +1259,7 @@ export function createMcpServer(
             worktrees: knownWorktrees,
             staleWorkspaces,
             capabilityFingerprint,
+            capabilityCatalog,
             agentsFiles: cardAgentsFiles,
             availableAgentsFiles: cardAvailableAgentsFiles,
             skills: cardSkills,
@@ -1222,6 +1271,7 @@ export function createMcpServer(
               agentsFiles: cardAgentsFiles.length,
               availableAgentsFiles: cardAvailableAgentsFiles.length,
               skills: cardSkills.length,
+              capabilities: capabilityCatalog.length,
               agentProviders: cardAgentProviders.length,
               agents: cardAgents.length,
             },
@@ -1236,6 +1286,7 @@ export function createMcpServer(
           worktrees: knownWorktrees,
           staleWorkspaces,
           capabilityFingerprint,
+          capabilityCatalog,
           ...(includeBootstrapContext
             ? {
                 capabilityGuides: visibleCapabilityGuides,
@@ -1250,6 +1301,121 @@ export function createMcpServer(
           instruction,
         },
       }, hookReports));
+    },
+  );
+
+  registerAppTool(
+    server,
+    toolNames.capability,
+    {
+      title: "Use optional capability",
+      description:
+        "Describe or run one optional ForgeRelay capability advertised by open_workspace. Use describe when the capability contract is unfamiliar, then read its advertised guide if needed. Run dispatches only explicitly registered capabilities; it cannot invoke arbitrary shell commands, URLs, or methods.",
+      inputSchema: {
+        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        name: z
+          .string()
+          .regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)
+          .describe("Stable dotted capability name advertised by open_workspace."),
+        action: z.enum(["describe", "run"]),
+        arguments: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("Capability-specific arguments. Omit for describe and for capabilities with no arguments."),
+      },
+      outputSchema: {
+        name: z.string(),
+        action: z.enum(["describe", "run"]),
+        capability: z.unknown().optional(),
+        result: z.unknown().optional(),
+        error: capabilityErrorOutputSchema.optional(),
+      },
+      _meta: {},
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ workspaceId, name, action, arguments: capabilityArguments }) => {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runToolWithHooks(hooks, {
+        tool: toolNames.capability,
+        invocation: workspaceHookInvocation(workspace),
+        payload: { name, action },
+        isFailure: toolResultIsError,
+        operation: async () => {
+          const startedAt = performance.now();
+          try {
+            if (action === "describe") {
+              const capability = capabilityRegistry.describe(name, capabilityContextFor(workspace));
+              const result = {
+                content: [textBlock([
+                  `${capability.name}: ${capability.description}`,
+                  `Available: ${capability.available}`,
+                  `Guide: ${capability.guide.path}`,
+                  capability.guide.readBeforeFirstUse
+                    ? "Read the guide before first use when this contract is unfamiliar."
+                    : undefined,
+                ].filter(Boolean).join("\n"))],
+                structuredContent: { name, action, capability },
+              };
+              logToolCall(config, {
+                tool: toolNames.capability,
+                ...workspaceLogContext(workspace),
+                capability: name,
+                action,
+                success: true,
+                durationMs: Math.round(performance.now() - startedAt),
+              });
+              return result;
+            }
+
+            const capabilityResult = await capabilityRegistry.run(
+              name,
+              capabilityArguments ?? {},
+              capabilityContextFor(workspace),
+            );
+            const result = {
+              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(capabilityResult, null, 2)}`)],
+              structuredContent: { name, action, result: capabilityResult },
+            };
+            logToolCall(config, {
+              tool: toolNames.capability,
+              ...workspaceLogContext(workspace),
+              capability: name,
+              action,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return result;
+          } catch (error) {
+            const capabilityError = error instanceof CapabilityError
+              ? error
+              : new CapabilityError(
+                  "execution_failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+            const result = {
+              content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+              structuredContent: {
+                name,
+                action,
+                error: { code: capabilityError.code, message: capabilityError.message },
+              },
+              isError: true as const,
+            };
+            logFailedToolResponse(config, {
+              tool: toolNames.capability,
+              ...workspaceLogContext(workspace),
+              capability: name,
+              action,
+            }, result.content, startedAt);
+            return result;
+          }
+        },
+      });
     },
   );
 
