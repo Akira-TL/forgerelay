@@ -60,7 +60,7 @@ The acceptance checks:
 4. dynamic OAuth client registration, PKCE Owner-password approval, and access-token exchange;
 5. MCP `initialize`, including package/server version consistency and the shell mutation safety contract;
 6. `tools/list` for the full debug tool surface, including `close_workspace`, `write_stdin`, the non-blanket `bash` mutation policy, no kill-timeout input, the 300-second foreground-wait contract, workspace resume/stale-session schema, and MCP App tool metadata;
-7. the full MCP App template chain: `resources/list`, `resources/read`, `text/html;profile=mcp-app`, CSP resource domains, and an HTTP fetch of the JavaScript asset referenced by the template;
+7. the full MCP App template chain: `resources/list`, `resources/templates/list`, current content-hashed `resources/read`, legacy/historical template compatibility reads, `text/html;profile=mcp-app`, CSP resource domains, and an HTTP fetch of the JavaScript asset referenced by the template;
 8. a real checkout workspace with `write`, `read`, `rename`, `delete`, foreground `bash` through `ProcessSessionManager`, and a deliberate failed `edit`;
 9. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
 10. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
@@ -88,12 +88,15 @@ npm run dev
 
 At `debug` level, MCP requests include the JSON-RPC method and a safe target for
 `resources/read` and `tools/call`, while transport session IDs remain out of
-normal `info` tool logs. A successful ChatGPT template load should produce a
-sequence containing `resources/list`, `resources/read ui://...`, followed by an
-HTTP `GET /mcp-app-assets/...` request. If `resources/read` never arrives, inspect
-the client/developer-mode connection. If it arrives and fails, inspect the MCP
-resource registration. If it succeeds but the asset request fails, inspect the
-public base URL, CSP, asset route, and browser console.
+normal `info` tool logs. Successful template callbacks also emit `app template`
+entries identifying `current`, `legacy`, or `historical` compatibility reads. A
+successful ChatGPT template load should produce a sequence containing
+`resources/list`, `resources/read ui://...`, an `app template ... -> ok` entry,
+and then an HTTP `GET /mcp-app-assets/...` request. If `resources/read` never
+arrives, inspect the client/developer-mode connection. If it arrives and fails,
+inspect the MCP resource registration/build artifacts. If it succeeds but the
+asset request fails, inspect the public base URL, CSP, asset route, and browser
+console.
 
 ## Debug configuration
 

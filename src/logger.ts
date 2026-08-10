@@ -147,6 +147,10 @@ function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): st
       return formatHttpMessage(entry, options);
     case "mcp_request":
       return formatMcpRequestMessage(entry);
+    case "mcp_app_template_read":
+      return formatAppTemplateMessage(entry, options, false);
+    case "mcp_app_template_read_failed":
+      return formatAppTemplateMessage(entry, options, true);
     case "mcp_session_created":
       return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} created`;
     case "mcp_session_closed":
@@ -227,6 +231,25 @@ function formatMcpRequestMessage(entry: LogFields): string {
   const method = stringField(entry.rpcMethod) ?? stringField(entry.httpMethod) ?? "request";
   const target = stringField(entry.rpcTarget);
   return target ? `mcp ${method} ${target}` : `mcp ${method}`;
+}
+
+function formatAppTemplateMessage(
+  entry: LogFields,
+  options: PrettyFormatOptions,
+  failed: boolean,
+): string {
+  const requestedUri = stringField(entry.requestedUri) ?? "unknown";
+  const compatibility = stringField(entry.compatibility) ?? "unknown";
+  if (failed) {
+    const error = stringField(entry.error);
+    return `app template ${compatibility} ${requestedUri} -> ${style("red", error ? `error: ${error}` : "error", options)}`;
+  }
+
+  const currentUri = stringField(entry.currentUri);
+  const target = compatibility === "current" || !currentUri
+    ? requestedUri
+    : `${requestedUri} => ${currentUri}`;
+  return `app template ${compatibility} ${target} -> ${style("green", "ok", options)}`;
 }
 
 function formatPrettySource(source: string, options: PrettyFormatOptions): string {

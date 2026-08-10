@@ -82,6 +82,26 @@ Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生�
 
 0.2 不引入审批 UI、HTTP/prompt/agent handler、Git 字符串解析器或插件注册表。只有出现真实需求时再扩展 handler 类型。
 
+### 0.2.5 — MCP App template reliability
+
+0.2.5 收敛 ChatGPT/MCP App 模板身份与排障链路：
+
+- 当前 UI resource URI 由实际构建出的 JavaScript/CSS 内容哈希生成，而不是仅依赖 npm 版本；
+- `ui://forgerelay/workspace-app.html` 继续作为 legacy pointer；
+- 历史 `workspace-app-*.html` URI 通过兼容 resource template 继续读取当前模板，避免旧 metadata snapshot 直接变成 missing resource；
+- debug 日志区分 current / legacy / historical template read，并保留 asset request trace；
+- 7677 acceptance 覆盖 tool metadata、resource list/template list、三类 template read 和静态 bundle HTTP fetch。
+
+### 0.2.6 — identity and transport terminology
+
+0.2.6 整理 ForgeRelay 中多个 `session` 含义，不改变 workspace-first 架构：
+
+- `workspaceId` 是唯一持久的逻辑工作身份，跨请求和 transport 重连保持连续；
+- `requestId` 只追踪单次 HTTP/JSON-RPC 请求，不持久化；
+- MCP 协议层 session 在内部和 debug 输出中明确称为 `transportSessionId`，业务状态不得依赖它；
+- 后台命令句柄逐步迁移为 `processId` / process handle；若公开 schema 改名需要兼容窗口，则在明确的版本边界完成；
+- 为 stateless MCP transport 做准备，同时保留旧协议兼容 adapter，避免把 transport 生命周期重新提升成 ForgeRelay 会话模型。
+
 ## 0.3 — LSP code intelligence v1
 
 LSP is moderate implementation complexity if ForgeRelay does not become a
@@ -89,6 +109,12 @@ language-server installer.
 
 The first version should launch only language servers already available on the
 user's machine or explicitly configured by the user/project.
+
+During 0.3 development, MCP App UI hardening can land alongside the LSP work when
+it does not distort the code-intelligence scope. In particular, evaluate a more
+self-contained template/bootstrap bundle, reduce avoidable external chunk fetches,
+and keep the current content-hash/compatibility-resource contract intact. This is
+reliability work, not a requirement to move application state into the UI.
 
 Initial operations:
 

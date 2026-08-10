@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
@@ -64,6 +64,13 @@ import {
 } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { openAiConversationScopeId } from "./request-meta.js";
+import {
+  readWorkspaceAppManifestEntry,
+  resolveWorkspaceAppIdentity,
+  WORKSPACE_APP_LEGACY_URI,
+  WORKSPACE_APP_URI_TEMPLATE,
+  type WorkspaceAppManifestEntry,
+} from "./mcp-app-template.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
@@ -81,8 +88,6 @@ type Transport = StreamableHTTPServerTransport;
 const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const FORGERELAY_VERSION = readForgeRelayVersion();
 const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
-const WORKSPACE_APP_URI = `ui://forgerelay/workspace-app-${FORGERELAY_VERSION}.html`;
-const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -112,14 +117,6 @@ interface RunningServer {
 type ToolContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
-
-interface WorkspaceAppManifestEntry {
-  file: string;
-  css?: string[];
-  isEntry?: boolean;
-}
-
-type WorkspaceAppManifest = Record<string, WorkspaceAppManifestEntry>;
 
 interface DiffStats {
   additions: number;
@@ -169,13 +166,14 @@ function toolWidgetDescriptorMeta(
 ): ToolWidgetDescriptorMeta {
   if (!shouldAttachWidget(config.widgets, kind)) return { _meta: {} };
 
+  const resourceUri = currentWorkspaceAppIdentity().uri;
   return {
     _meta: {
       ui: {
-        resourceUri: WORKSPACE_APP_URI,
+        resourceUri,
         visibility: ["model", "app"],
       },
-      "openai/outputTemplate": WORKSPACE_APP_URI,
+      "openai/outputTemplate": resourceUri,
     },
   };
 }
@@ -431,19 +429,23 @@ function uiManifestUrl(): URL {
   return new URL("../dist/ui/.vite/manifest.json", import.meta.url);
 }
 
-function readWorkspaceAppManifest(): WorkspaceAppManifest {
-  return JSON.parse(readFileSync(uiManifestUrl(), "utf8")) as WorkspaceAppManifest;
+function uiBuildDirectoryUrl(): URL {
+  return new URL("../dist/ui/", import.meta.url);
+}
+
+let cachedWorkspaceAppIdentity: ReturnType<typeof resolveWorkspaceAppIdentity> | undefined;
+
+function currentWorkspaceAppIdentity(): ReturnType<typeof resolveWorkspaceAppIdentity> {
+  cachedWorkspaceAppIdentity ??= resolveWorkspaceAppIdentity({
+    manifestUrl: uiManifestUrl(),
+    buildDirectoryUrl: uiBuildDirectoryUrl(),
+    fallbackRevision: FORGERELAY_VERSION,
+  });
+  return cachedWorkspaceAppIdentity;
 }
 
 function getWorkspaceAppManifestEntry(): WorkspaceAppManifestEntry {
-  const manifest = readWorkspaceAppManifest();
-  const entry = manifest[WORKSPACE_APP_MANIFEST_ENTRY];
-
-  if (!entry?.file) {
-    throw new Error(`Missing ${WORKSPACE_APP_MANIFEST_ENTRY} in UI manifest.`);
-  }
-
-  return entry;
+  return readWorkspaceAppManifestEntry(uiManifestUrl());
 }
 
 function assetUrl(baseUrl: string, assetPath: string): string {
@@ -507,6 +509,58 @@ async function assertWorkspaceAppAssets(): Promise<void> {
 
   for (const candidate of candidates) {
     await access(candidate);
+  }
+}
+
+function workspaceAppCompatibilityKind(
+  requestedUri: string,
+  currentUri: string,
+): "current" | "legacy" | "historical" {
+  if (requestedUri === currentUri) return "current";
+  if (requestedUri === WORKSPACE_APP_LEGACY_URI) return "legacy";
+  return "historical";
+}
+
+async function readWorkspaceAppResource(
+  config: ServerConfig,
+  requestedUri: string,
+  transportSessionId?: string,
+) {
+  const currentUri = currentWorkspaceAppIdentity().uri;
+  const compatibility = workspaceAppCompatibilityKind(requestedUri, currentUri);
+
+  try {
+    await assertWorkspaceAppAssets();
+    const result = {
+      contents: [
+        {
+          uri: requestedUri,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: workspaceAppHtml(config),
+          _meta: {
+            ui: {
+              csp: appCsp(config),
+            },
+          },
+        },
+      ],
+    };
+    logEvent(config.logging, "debug", "mcp_app_template_read", {
+      requestedUri,
+      currentUri,
+      compatibility,
+      sessionIdPrefix: sessionIdPrefix(transportSessionId),
+    });
+    return result;
+  } catch (error) {
+    logEvent(config.logging, "warn", "mcp_app_template_read_failed", {
+      requestedUri,
+      currentUri,
+      compatibility,
+      error: error instanceof Error ? error.message : String(error),
+      sessionIdPrefix: sessionIdPrefix(transportSessionId),
+    });
+    throw error;
   }
 }
 
@@ -831,35 +885,52 @@ export function createMcpServer(
     },
   );
 
+  const currentWorkspaceAppUri = currentWorkspaceAppIdentity().uri;
+  const workspaceAppResourceMetadata = {
+    description: "Interactive card for viewing ForgeRelay file diffs.",
+    _meta: {
+      ui: {
+        csp: appCsp(config),
+      },
+    },
+  };
+
   registerAppResource(
     server,
     "ForgeRelay Diff Card",
-    WORKSPACE_APP_URI,
+    currentWorkspaceAppUri,
+    workspaceAppResourceMetadata,
+    async (uri, extra) => readWorkspaceAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+
+  registerAppResource(
+    server,
+    "ForgeRelay Diff Card legacy",
+    WORKSPACE_APP_LEGACY_URI,
+    workspaceAppResourceMetadata,
+    async (uri, extra) => readWorkspaceAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+
+  server.registerResource(
+    "ForgeRelay Diff Card compatibility",
+    new ResourceTemplate(WORKSPACE_APP_URI_TEMPLATE, { list: undefined }),
     {
-      description: "Interactive card for viewing ForgeRelay file diffs.",
-      _meta: {
-        ui: {
-          csp: appCsp(config),
-        },
-      },
+      ...workspaceAppResourceMetadata,
+      mimeType: RESOURCE_MIME_TYPE,
     },
-    async () => {
-      await assertWorkspaceAppAssets();
-      return {
-        contents: [
-          {
-            uri: WORKSPACE_APP_URI,
-            mimeType: RESOURCE_MIME_TYPE,
-            text: workspaceAppHtml(config),
-            _meta: {
-              ui: {
-                csp: appCsp(config),
-              },
-            },
-          },
-        ],
-      };
-    },
+    async (uri, _variables, extra) => readWorkspaceAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
   );
 
   registerAppTool(

@@ -245,12 +245,16 @@ npm run debug:accept
 ```
 
 The acceptance runner enables full widgets and checks that the tool advertises a
-versioned `ui://forgerelay/workspace-app-<version>.html` resource, that
+content-hashed `ui://forgerelay/workspace-app-<hash>.html` resource, that
 `resources/read` returns `text/html;profile=mcp-app`, and that the referenced
-JavaScript asset is reachable. For a live ChatGPT trace, run the debug server
-with `FORGERELAY_DEBUG_WIDGETS=full`, `FORGERELAY_LOG_LEVEL=debug`,
+JavaScript asset is reachable. ForgeRelay also keeps the legacy
+`ui://forgerelay/workspace-app.html` pointer and historical
+`workspace-app-*.html` pointers readable so an older ChatGPT metadata snapshot
+can still fetch the current template while the connection is being refreshed.
+For a live ChatGPT trace, run the debug server with
+`FORGERELAY_DEBUG_WIDGETS=full`, `FORGERELAY_LOG_LEVEL=debug`,
 `FORGERELAY_LOG_REQUESTS=1`, and `FORGERELAY_LOG_ASSETS=1`; then distinguish a
-missing `resources/read` request from a resource error or a failed
+missing `resources/read` request from a template callback failure or a failed
 `/mcp-app-assets/` fetch.
 
 ## Data retention

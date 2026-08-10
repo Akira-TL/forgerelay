@@ -7,7 +7,7 @@ All notable ForgeRelay changes are documented here.
 ### Changed
 
 - Human-facing `pretty` logs are workspace-first: normal tool and hook lines no longer show transient MCP transport session IDs, MCP session create/close lifecycle events are debug-only, and project names receive stable per-project terminal colors while the logical `ws_...` identifier remains visible.
-- MCP App tool metadata now uses a versioned UI resource URI, advertises both `model` and `app` visibility, and includes the ChatGPT `openai/outputTemplate` compatibility alias. Real debug acceptance now exercises `resources/list`, `resources/read`, the MCP App MIME/CSP contract, and the referenced JavaScript asset.
+- MCP App tool metadata now uses a content-hashed UI resource URI derived from the built JavaScript/CSS, advertises both `model` and `app` visibility, and includes the ChatGPT `openai/outputTemplate` compatibility alias. Legacy `ui://forgerelay/workspace-app.html` and historical `workspace-app-*.html` pointers continue to resolve to the current template so stale ChatGPT metadata snapshots do not fail with a missing resource. Debug logs now distinguish current, legacy, and historical template reads, and real acceptance exercises current/compatibility resources plus the referenced JavaScript asset.
 - `~/...` paths are expanded before allowed-root resolution, so advertised skills rendered with home-relative paths can be read directly instead of being interpreted as a literal `~` directory under the workspace.
 - Successful MCP session shutdown and idle-cleanup lifecycle logs moved to `debug`; individual session close failures remain visible as warnings.
 

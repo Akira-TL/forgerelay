@@ -131,9 +131,9 @@ try {
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.staleWorkspaces);
   const templateUri = bashTool?._meta?.ui?.resourceUri;
-  assert.equal(
-    templateUri,
-    `ui://forgerelay/workspace-app-${packageJson.version}.html`,
+  assert.match(
+    templateUri ?? "",
+    /^ui:\/\/forgerelay\/workspace-app-[0-9a-f]{12}\.html$/,
     JSON.stringify(bashTool ?? {}),
   );
   assert.deepEqual(bashTool?._meta?.ui?.visibility, ["model", "app"]);
@@ -147,12 +147,26 @@ try {
     params: {},
   }).message.result.resources;
   assert.ok(resources.some((resource) => resource.uri === templateUri));
-  const template = mcpRequest(oauth.accessToken, sessionId, {
+  assert.ok(resources.some((resource) => resource.uri === "ui://forgerelay/workspace-app.html"));
+
+  const resourceTemplates = mcpRequest(oauth.accessToken, sessionId, {
     jsonrpc: "2.0",
     id: 22,
+    method: "resources/templates/list",
+    params: {},
+  }).message.result.resourceTemplates;
+  assert.ok(resourceTemplates.some(
+    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/workspace-app-{revision}.html",
+  ));
+
+  const readTemplate = (id, uri) => mcpRequest(oauth.accessToken, sessionId, {
+    jsonrpc: "2.0",
+    id,
     method: "resources/read",
-    params: { uri: templateUri },
+    params: { uri },
   }).message.result.contents[0];
+
+  const template = readTemplate(23, templateUri);
   assert.equal(template.uri, templateUri);
   assert.equal(template.mimeType, "text/html;profile=mcp-app");
   assert.match(template.text ?? "", /<script type="module" crossorigin src="[^"]+\/mcp-app-assets\//);
@@ -161,7 +175,18 @@ try {
   assert.ok(scriptUrl);
   const scriptAsset = curlRequest({ method: "GET", url: scriptUrl });
   assert.equal(scriptAsset.status, 200, scriptAsset.body);
-  pass("MCP app template", `${templateUri} -> ${scriptUrl}`);
+
+  const legacyTemplate = readTemplate(24, "ui://forgerelay/workspace-app.html");
+  assert.equal(legacyTemplate.uri, "ui://forgerelay/workspace-app.html");
+  assert.equal(legacyTemplate.mimeType, "text/html;profile=mcp-app");
+  assert.equal(legacyTemplate.text, template.text);
+
+  const historicalUri = "ui://forgerelay/workspace-app-0.2.4.html";
+  const historicalTemplate = readTemplate(25, historicalUri);
+  assert.equal(historicalTemplate.uri, historicalUri);
+  assert.equal(historicalTemplate.mimeType, "text/html;profile=mcp-app");
+  assert.equal(historicalTemplate.text, template.text);
+  pass("MCP app template", `${templateUri} + legacy/history compatibility -> ${scriptUrl}`);
 
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
     path: checkoutWorkspace,

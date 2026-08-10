@@ -60,9 +60,9 @@ test("MCP instructions separate capability contract from configurable workflow p
     "Shell command to run with the local user's authority.",
   );
   assert.equal(shellInputProperties?.timeout, undefined);
-  assert.equal(
-    shellToolMeta?.ui?.resourceUri,
-    `ui://forgerelay/workspace-app-${packageJson.version}.html`,
+  assert.match(
+    shellToolMeta?.ui?.resourceUri ?? "",
+    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
   );
   assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
   assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
@@ -685,7 +685,7 @@ test("a failed workspace tool call still carries a completed background process 
     name: "bash",
     arguments: {
       workspaceId,
-      command: `${node} -e "setTimeout(() => console.log('notice-on-error'), 80)"`,
+      command: `${node} -e "setTimeout(() => console.log('notice-on-error'), 300)"`,
     },
   });
   assert.equal(structuredContent(shell).running, true);

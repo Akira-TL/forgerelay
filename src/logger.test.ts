@@ -103,6 +103,42 @@ test("debug MCP logs retain transport session details without polluting info too
   assert.match(line, /session:7f7ce1d1 \| mcp resources\/read ui:\/\/forgerelay\/workspace-app-test\.html$/);
 });
 
+test("debug app template logs distinguish current and compatibility reads", () => {
+  const current = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "debug",
+    event: "mcp_app_template_read",
+    sessionIdPrefix: "7f7ce1d1",
+    requestedUri: "ui://forgerelay/workspace-app-a1b2c3d4e5f6.html",
+    currentUri: "ui://forgerelay/workspace-app-a1b2c3d4e5f6.html",
+    compatibility: "current",
+  }, { colorize: false });
+  assert.match(current, /session:7f7ce1d1 \| app template current .* -> ok$/);
+
+  const legacy = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "debug",
+    event: "mcp_app_template_read",
+    requestedUri: "ui://forgerelay/workspace-app.html",
+    currentUri: "ui://forgerelay/workspace-app-a1b2c3d4e5f6.html",
+    compatibility: "legacy",
+  }, { colorize: false });
+  assert.match(legacy, /app template legacy .*workspace-app\.html => .*a1b2c3d4e5f6\.html -> ok$/);
+});
+
+test("failed app template reads stay visible as warnings", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "warn",
+    event: "mcp_app_template_read_failed",
+    requestedUri: "ui://forgerelay/workspace-app-old.html",
+    compatibility: "historical",
+    error: "Missing UI manifest",
+  }, { colorize: false });
+
+  assert.match(line, /app template historical .* -> error: Missing UI manifest$/);
+});
+
 test("pretty shutdown logs summarize closed MCP sessions", () => {
   const line = formatPrettyLogEntry({
     ts: timestamp,
