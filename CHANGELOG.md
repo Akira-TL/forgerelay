@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-10
+
 ### Added
 
 - `open_workspace` now reports a lightweight ForgeRelay version/capability fingerprint on every open, allowing Agents to distinguish a stale Host tool-schema snapshot from a missing server capability.
