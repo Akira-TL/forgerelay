@@ -38,6 +38,15 @@ const LEVEL_STYLE: Record<Exclude<LogLevel, "silent">, InspectColor> = {
   debug: "gray",
 };
 
+const WORKSPACE_PROJECT_COLORS: readonly InspectColor[] = [
+  "cyanBright",
+  "greenBright",
+  "yellowBright",
+  "magentaBright",
+  "blueBright",
+  "whiteBright",
+];
+
 export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silent">): boolean {
   return LEVEL_WEIGHT[config.level] >= LEVEL_WEIGHT[level];
 }
@@ -109,11 +118,13 @@ export function formatPrettyLogEntry(
   const level = logLevel(entry.level);
   const time = formatTimestamp(entry.ts);
   const source = stringField(entry.workspace) ?? stringField(entry.workspaceId) ?? "forgerelay";
-  const session = stringField(entry.session) ?? stringField(entry.sessionIdPrefix);
+  const session = level === "debug"
+    ? stringField(entry.session) ?? stringField(entry.sessionIdPrefix)
+    : undefined;
   const prefix = [
     style("gray", time, options),
     `[${style(LEVEL_STYLE[level], level.toUpperCase(), options)}]`,
-    style(["cyan", "underline"], source, options),
+    formatPrettySource(source, options),
     session ? style("gray", `session:${session}`, options) : undefined,
     style("gray", "|", options),
   ].filter((value): value is string => Boolean(value)).join(" ");
@@ -134,6 +145,8 @@ function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): st
       return formatHookMessage(entry, options);
     case "http_request":
       return formatHttpMessage(entry, options);
+    case "mcp_request":
+      return formatMcpRequestMessage(entry);
     case "mcp_session_created":
       return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} created`;
     case "mcp_session_closed":
@@ -208,6 +221,33 @@ function formatHttpMessage(entry: LogFields, options: PrettyFormatOptions): stri
   const statusText = status === undefined ? "done" : String(status);
   const statusStyle: InspectColor = status !== undefined && status >= 400 ? "red" : "green";
   return `http ${method} ${path} -> ${style(statusStyle, statusText, options)}`;
+}
+
+function formatMcpRequestMessage(entry: LogFields): string {
+  const method = stringField(entry.rpcMethod) ?? stringField(entry.httpMethod) ?? "request";
+  const target = stringField(entry.rpcTarget);
+  return target ? `mcp ${method} ${target}` : `mcp ${method}`;
+}
+
+function formatPrettySource(source: string, options: PrettyFormatOptions): string {
+  const separator = source.lastIndexOf("/");
+  if (separator <= 0 || separator === source.length - 1) {
+    return style(["cyan", "underline"], source, options);
+  }
+
+  const project = source.slice(0, separator);
+  const workspace = source.slice(separator + 1);
+  const projectColor = WORKSPACE_PROJECT_COLORS[stableColorIndex(project)];
+  return `${style([projectColor, "bold"], project, options)}/${style(["cyan", "underline"], workspace, options)}`;
+}
+
+function stableColorIndex(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % WORKSPACE_PROJECT_COLORS.length;
 }
 
 function formatGenericMessage(entry: LogFields): string {

@@ -20,6 +20,7 @@ export function createDebugEnvironment({
   stateDir = resolve(debugRoot, "state"),
   worktreeRoot = resolve(debugRoot, "worktrees"),
   hookLog = debugHookLog,
+  widgets = process.env.FORGERELAY_DEBUG_WIDGETS ?? "off",
 } = {}) {
   const token = ownerToken ?? process.env.FORGERELAY_DEBUG_OWNER_TOKEN ?? createDebugOwnerToken();
   mkdirSync(debugRoot, { recursive: true });
@@ -37,7 +38,7 @@ export function createDebugEnvironment({
       FORGERELAY_WORKTREE_ROOT: worktreeRoot,
       FORGERELAY_OAUTH_OWNER_TOKEN: token,
       FORGERELAY_TOOL_MODE: "full",
-      FORGERELAY_WIDGETS: "off",
+      FORGERELAY_WIDGETS: widgets,
       FORGERELAY_LOG_LEVEL: process.env.FORGERELAY_LOG_LEVEL ?? "info",
       FORGERELAY_LOG_FORMAT: process.env.FORGERELAY_LOG_FORMAT ?? "pretty",
       FORGERELAY_DEBUG_HOOK_RECORDER: debugHookRecorder,

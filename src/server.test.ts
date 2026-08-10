@@ -28,6 +28,10 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
   const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
+  const shellToolMeta = shellTool?._meta as {
+    ui?: { resourceUri?: string; visibility?: string[] };
+    "openai/outputTemplate"?: string;
+  } | undefined;
   const shellInputProperties = (shellTool?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   } | undefined)?.properties;
@@ -56,6 +60,12 @@ test("MCP instructions separate capability contract from configurable workflow p
     "Shell command to run with the local user's authority.",
   );
   assert.equal(shellInputProperties?.timeout, undefined);
+  assert.equal(
+    shellToolMeta?.ui?.resourceUri,
+    `ui://forgerelay/workspace-app-${packageJson.version}.html`,
+  );
+  assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
+  assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
   assert.ok(defaultTools.tools.some((tool) => tool.name === "write_stdin"));
   assert.ok(defaultTools.tools.some((tool) => tool.name === "close_workspace"));
 
@@ -639,7 +649,7 @@ test("bash returns a running session instead of killing a command after the fore
     },
   });
 
-  assert.equal(shell.isError, undefined);
+  assert.equal(shell.isError, undefined, allResponseText(shell));
   assert.equal(structuredContent(shell).running, true);
   assert.equal(typeof structuredContent(shell).sessionId, "number");
   assert.match(allResponseText(shell), /Process running with session ID/);

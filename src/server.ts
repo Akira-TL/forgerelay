@@ -81,7 +81,7 @@ type Transport = StreamableHTTPServerTransport;
 const MCP_SESSION_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const FORGERELAY_VERSION = readForgeRelayVersion();
 const MCP_SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
-const WORKSPACE_APP_URI = "ui://forgerelay/workspace-app.html";
+const WORKSPACE_APP_URI = `ui://forgerelay/workspace-app-${FORGERELAY_VERSION}.html`;
 const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
@@ -139,8 +139,9 @@ type ToolWidgetKind =
 interface ToolDefinitionMeta extends Record<string, unknown> {
   ui: {
     resourceUri: string;
-    visibility: ["model"];
+    visibility: ["model", "app"];
   };
+  "openai/outputTemplate": string;
 }
 
 type EmptyToolDefinitionMeta = Record<string, unknown> & {
@@ -172,8 +173,9 @@ function toolWidgetDescriptorMeta(
     _meta: {
       ui: {
         resourceUri: WORKSPACE_APP_URI,
-        visibility: ["model"],
+        visibility: ["model", "app"],
       },
+      "openai/outputTemplate": WORKSPACE_APP_URI,
     },
   };
 }
@@ -182,7 +184,6 @@ interface ToolLogFields {
   tool: string;
   workspaceId?: string;
   workspace?: string;
-  session?: string;
   path?: string;
   workingDirectory?: string;
   command?: string;
@@ -195,11 +196,13 @@ interface ToolLogFields {
   error?: string;
 }
 
-function workspaceLogContext(workspace: Workspace, sessionId?: string): Pick<ToolLogFields, "workspaceId" | "workspace" | "session"> {
+function workspaceLogContext(
+  workspace: Workspace,
+  _sessionId?: string,
+): Pick<ToolLogFields, "workspaceId" | "workspace"> {
   return {
     workspaceId: workspace.id,
     workspace: workspaceLogLabel(workspace.root, workspace.id),
-    session: sessionIdPrefix(sessionId),
   };
 }
 
@@ -301,6 +304,24 @@ function requestLogFields(req: Request, config: ServerConfig): Record<string, un
     referer: req.header("referer"),
     contentLength: req.header("content-length"),
   };
+}
+
+function mcpRequestDebugFields(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+
+  const request = body as Record<string, unknown>;
+  const rpcMethod = typeof request.method === "string" ? request.method : undefined;
+  const params = request.params && typeof request.params === "object" && !Array.isArray(request.params)
+    ? request.params as Record<string, unknown>
+    : undefined;
+  let rpcTarget: string | undefined;
+  if (rpcMethod === "resources/read" && typeof params?.uri === "string") {
+    rpcTarget = params.uri;
+  } else if (rpcMethod === "tools/call" && typeof params?.name === "string") {
+    rpcTarget = params.name;
+  }
+
+  return { rpcMethod, rpcTarget };
 }
 
 function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
@@ -1249,7 +1270,7 @@ export function createMcpServer(
           .string()
           .describe(
             config.skillsEnabled
-              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill path from open_workspace skills."
+              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill path from open_workspace skills, including a ~/... home-relative path."
               : "File path to read, relative to the workspace root or absolute inside the OS temp directory.",
           ),
         offset: z
@@ -2191,7 +2212,7 @@ export function createServer(
 
       closedCount += 1;
       if (reason === "idle_timeout") {
-        logEvent(config.logging, "info", "mcp_session_closed", {
+        logEvent(config.logging, "debug", "mcp_session_closed", {
           reason,
           sessionIdPrefix: sessionIdPrefix(result.sessionId),
         });
@@ -2199,7 +2220,7 @@ export function createServer(
     }
 
     if (reason === "server_shutdown" && closedCount > 0) {
-      logEvent(config.logging, "info", "mcp_sessions_closed", {
+      logEvent(config.logging, "debug", "mcp_sessions_closed", {
         reason,
         count: closedCount,
       });
@@ -2297,10 +2318,11 @@ export function createServer(
 
     logEvent(config.logging, "debug", "mcp_request", {
       requestId,
-      method: req.method,
+      httpMethod: req.method,
       sessionIdPresent: Boolean(sessionId),
       sessionIdPrefix: sessionIdPrefix(sessionId),
       isInitialize: initializeRequest,
+      ...mcpRequestDebugFields(req.body),
     });
 
     try {
@@ -2317,7 +2339,7 @@ export function createServer(
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newSessionId) => {
             if (transport) transports.register(newSessionId, transport);
-            logEvent(config.logging, "info", "mcp_session_created", {
+            logEvent(config.logging, "debug", "mcp_session_created", {
               requestId,
               sessionIdPrefix: sessionIdPrefix(newSessionId),
               ...requestLogFields(req, config),
@@ -2328,7 +2350,7 @@ export function createServer(
         transport.onclose = () => {
           const closedSessionId = transport?.sessionId;
           if (closedSessionId && transports.remove(closedSessionId)) {
-            logEvent(config.logging, "info", "mcp_session_closed", {
+            logEvent(config.logging, "debug", "mcp_session_closed", {
               reason: "transport_close",
               sessionIdPrefix: sessionIdPrefix(closedSessionId),
             });

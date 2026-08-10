@@ -18,7 +18,8 @@ test("pretty tool logs emphasize workspace, session, operation, target, and resu
     durationMs: 21,
   }, { colorize: false });
 
-  assert.match(line, /^08-09 20:41:03 \[INFO\] devspace\/ws_a20bade4 session:7f7ce1d1 \| /);
+  assert.match(line, /^08-09 20:41:03 \[INFO\] devspace\/ws_a20bade4 \| /);
+  assert.doesNotMatch(line, /session:/);
   assert.match(line, /bash git push origin v0\.2\.0 -> exit=0$/);
   assert.doesNotMatch(line, /durationMs|event=|success=/);
 });
@@ -89,6 +90,19 @@ test("pretty transport logs have a concise fallback when explicitly enabled", ()
   assert.doesNotMatch(line, /userAgent|requestId/);
 });
 
+test("debug MCP logs retain transport session details without polluting info tool logs", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "debug",
+    event: "mcp_request",
+    sessionIdPrefix: "7f7ce1d1",
+    rpcMethod: "resources/read",
+    rpcTarget: "ui://forgerelay/workspace-app-test.html",
+  }, { colorize: false });
+
+  assert.match(line, /session:7f7ce1d1 \| mcp resources\/read ui:\/\/forgerelay\/workspace-app-test\.html$/);
+});
+
 test("pretty shutdown logs summarize closed MCP sessions", () => {
   const line = formatPrettyLogEntry({
     ts: timestamp,
@@ -100,6 +114,22 @@ test("pretty shutdown logs summarize closed MCP sessions", () => {
 
   assert.match(line, /\| 4 sessions closed$/);
   assert.doesNotMatch(line, /sessionIdPrefix/);
+});
+
+test("pretty workspace sources color project names while keeping workspace ids visible", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "contextd/ws_86312a3b",
+    tool: "read",
+    path: "src/server.ts",
+    success: true,
+  }, { colorize: true, validateStream: false });
+
+  assert.match(line, /contextd/);
+  assert.match(line, /ws_86312a3b/);
+  assert.match(line, /\u001b\[/);
 });
 
 test("pretty logs can emit ANSI styles without a third-party logger", () => {

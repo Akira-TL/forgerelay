@@ -59,16 +59,41 @@ The acceptance checks:
 3. unauthenticated `/mcp` rejection;
 4. dynamic OAuth client registration, PKCE Owner-password approval, and access-token exchange;
 5. MCP `initialize`, including package/server version consistency and the shell mutation safety contract;
-6. `tools/list` for the full debug tool surface, including `close_workspace`, `write_stdin`, the non-blanket `bash` mutation policy, no kill-timeout input, the 300-second foreground-wait contract, and workspace resume/stale-session schema;
-7. a real checkout workspace with `write`, `read`, `rename`, `delete`, foreground `bash` through `ProcessSessionManager`, and a deliberate failed `edit`;
-8. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
-9. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
-10. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
-11. deterministic local subagent error path，不联系任何模型 provider；
-12. debug hook recorder 覆盖全部九个 Hooks v1 lifecycle events。
+6. `tools/list` for the full debug tool surface, including `close_workspace`, `write_stdin`, the non-blanket `bash` mutation policy, no kill-timeout input, the 300-second foreground-wait contract, workspace resume/stale-session schema, and MCP App tool metadata;
+7. the full MCP App template chain: `resources/list`, `resources/read`, `text/html;profile=mcp-app`, CSP resource domains, and an HTTP fetch of the JavaScript asset referenced by the template;
+8. a real checkout workspace with `write`, `read`, `rename`, `delete`, foreground `bash` through `ProcessSessionManager`, and a deliberate failed `edit`;
+9. OS temp-directory `write` → `read` → `edit` → `rename` → `delete` over the same real MCP session, plus rejection of an arbitrary path outside the workspace/temp roots;
+10. a temporary Git repository with managed worktree creation, file modification, and `close_worktree`;
+11. 本地 bare remote 上的 release-tag-push Hook：成功 Hook 必须先运行再允许 `v0.2.0` push，失败 Hook 必须在 remote mutation 前阻断 `v0.2.1`；
+12. deterministic local subagent error path，不联系任何模型 provider；
+13. debug hook recorder 覆盖全部九个 Hooks v1 lifecycle events。
 
 `curl` must be available on `PATH` for this acceptance command. Node and Git are
 already normal ForgeRelay development prerequisites.
+
+## Debug ChatGPT template loading
+
+The normal debug runtime keeps widgets off so source-only server iteration does
+not accidentally serve stale UI assets. To debug the MCP App path, build first
+and enable widgets explicitly:
+
+```bash
+npm run build
+FORGERELAY_DEBUG_WIDGETS=full \
+FORGERELAY_LOG_LEVEL=debug \
+FORGERELAY_LOG_REQUESTS=1 \
+FORGERELAY_LOG_ASSETS=1 \
+npm run dev
+```
+
+At `debug` level, MCP requests include the JSON-RPC method and a safe target for
+`resources/read` and `tools/call`, while transport session IDs remain out of
+normal `info` tool logs. A successful ChatGPT template load should produce a
+sequence containing `resources/list`, `resources/read ui://...`, followed by an
+HTTP `GET /mcp-app-assets/...` request. If `resources/read` never arrives, inspect
+the client/developer-mode connection. If it arrives and fails, inspect the MCP
+resource registration. If it succeeds but the asset request fails, inspect the
+public base URL, CSP, asset route, and browser console.
 
 ## Debug configuration
 

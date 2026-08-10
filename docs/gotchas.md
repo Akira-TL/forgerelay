@@ -234,7 +234,24 @@ FORGERELAY_WIDGETS=full
 ```
 
 Use `FORGERELAY_WIDGETS=changes` for aggregate `show_changes`, or `off` to
-disable UI. Plain MCP clients may ignore ChatGPT Apps widget metadata.
+disable UI. Plain MCP clients may ignore MCP App widget metadata.
+
+If ChatGPT shows `Failed to fetch template`, first verify the server-side template
+chain with:
+
+```bash
+npm run build
+npm run debug:accept
+```
+
+The acceptance runner enables full widgets and checks that the tool advertises a
+versioned `ui://forgerelay/workspace-app-<version>.html` resource, that
+`resources/read` returns `text/html;profile=mcp-app`, and that the referenced
+JavaScript asset is reachable. For a live ChatGPT trace, run the debug server
+with `FORGERELAY_DEBUG_WIDGETS=full`, `FORGERELAY_LOG_LEVEL=debug`,
+`FORGERELAY_LOG_REQUESTS=1`, and `FORGERELAY_LOG_ASSETS=1`; then distinguish a
+missing `resources/read` request from a resource error or a failed
+`/mcp-app-assets/` fetch.
 
 ## Data retention
 

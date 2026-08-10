@@ -38,7 +38,13 @@ await assertDebugPortFree();
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(acceptanceRoot, { recursive: true });
 
-const { env } = createDebugEnvironment({ ownerToken, stateDir, worktreeRoot, hookLog });
+const { env } = createDebugEnvironment({
+  ownerToken,
+  stateDir,
+  worktreeRoot,
+  hookLog,
+  widgets: "full",
+});
 const server = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", "serve"], {
   cwd: repoRoot,
   env,
@@ -124,7 +130,38 @@ try {
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.workspaceId);
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.staleWorkspaces);
+  const templateUri = bashTool?._meta?.ui?.resourceUri;
+  assert.equal(
+    templateUri,
+    `ui://forgerelay/workspace-app-${packageJson.version}.html`,
+    JSON.stringify(bashTool ?? {}),
+  );
+  assert.deepEqual(bashTool?._meta?.ui?.visibility, ["model", "app"]);
+  assert.equal(bashTool?._meta?.["openai/outputTemplate"], templateUri);
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
+
+  const resources = mcpRequest(oauth.accessToken, sessionId, {
+    jsonrpc: "2.0",
+    id: 21,
+    method: "resources/list",
+    params: {},
+  }).message.result.resources;
+  assert.ok(resources.some((resource) => resource.uri === templateUri));
+  const template = mcpRequest(oauth.accessToken, sessionId, {
+    jsonrpc: "2.0",
+    id: 22,
+    method: "resources/read",
+    params: { uri: templateUri },
+  }).message.result.contents[0];
+  assert.equal(template.uri, templateUri);
+  assert.equal(template.mimeType, "text/html;profile=mcp-app");
+  assert.match(template.text ?? "", /<script type="module" crossorigin src="[^"]+\/mcp-app-assets\//);
+  assert.ok(template._meta?.ui?.csp?.resourceDomains?.includes(debugBaseUrl));
+  const scriptUrl = template.text?.match(/<script type="module" crossorigin src="([^"]+)"/)?.[1];
+  assert.ok(scriptUrl);
+  const scriptAsset = curlRequest({ method: "GET", url: scriptUrl });
+  assert.equal(scriptAsset.status, 200, scriptAsset.body);
+  pass("MCP app template", `${templateUri} -> ${scriptUrl}`);
 
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
     path: checkoutWorkspace,
@@ -364,7 +401,13 @@ function initializeRequest(id) {
     method: "initialize",
     params: {
       protocolVersion: "2025-06-18",
-      capabilities: {},
+      capabilities: {
+        extensions: {
+          "io.modelcontextprotocol/ui": {
+            mimeTypes: ["text/html;profile=mcp-app"],
+          },
+        },
+      },
       clientInfo: { name: "forgerelay-debug-acceptance", version: "1.0.0" },
     },
   };

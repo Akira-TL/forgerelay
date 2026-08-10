@@ -336,8 +336,11 @@ forgerelay agents show <id>
 | `FORGERELAY_TRUST_PROXY` | `0` |
 
 `pretty` is the human-facing local console format. It uses terminal-aware color,
-short timestamps, workspace/session context, and compact operation results while
-keeping HTTP request records off by default. Shell command previews are enabled
+short timestamps, workspace-first context, and compact operation results while
+keeping HTTP request records off by default. Project names receive stable
+per-project colors and logical `ws_...` identifiers remain visible; transient MCP
+transport session IDs and normal session lifecycle events are shown only at
+`debug` level. Shell command previews are enabled
 in this mode and truncated to 120 characters; set
 `FORGERELAY_LOG_SHELL_COMMANDS=0` when command arguments may contain secrets.
 

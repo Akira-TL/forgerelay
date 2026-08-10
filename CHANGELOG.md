@@ -6,7 +6,10 @@ All notable ForgeRelay changes are documented here.
 
 ### Changed
 
-- Normal server shutdown now summarizes successfully closed MCP sessions in one log entry instead of emitting one `info` line per session; individual close failures remain visible as warnings.
+- Human-facing `pretty` logs are workspace-first: normal tool and hook lines no longer show transient MCP transport session IDs, MCP session create/close lifecycle events are debug-only, and project names receive stable per-project terminal colors while the logical `ws_...` identifier remains visible.
+- MCP App tool metadata now uses a versioned UI resource URI, advertises both `model` and `app` visibility, and includes the ChatGPT `openai/outputTemplate` compatibility alias. Real debug acceptance now exercises `resources/list`, `resources/read`, the MCP App MIME/CSP contract, and the referenced JavaScript asset.
+- `~/...` paths are expanded before allowed-root resolution, so advertised skills rendered with home-relative paths can be read directly instead of being interpreted as a literal `~` directory under the workspace.
+- Successful MCP session shutdown and idle-cleanup lifecycle logs moved to `debug`; individual session close failures remain visible as warnings.
 
 ## [0.2.4] - 2026-08-09
 
