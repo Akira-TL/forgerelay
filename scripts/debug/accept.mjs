@@ -223,13 +223,16 @@ try {
   assert.equal(historicalTemplate.text, template.text);
   pass("MCP app template", `${templateUri} + legacy/history compatibility -> ${scriptUrl}`);
 
+  const workspaceConversationMeta = { "openai/session": "acceptance-workspace" };
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
     path: checkoutWorkspace,
-  });
+  }, workspaceConversationMeta);
   const workspaceId = opened.structuredContent.workspaceId;
   assert.match(workspaceId, /^ws_/);
+  assert.equal(opened.structuredContent.action, "open");
   assert.equal(opened.structuredContent.root, checkoutWorkspace);
   assert.equal(opened.structuredContent.mode, "checkout");
+  assert.equal(typeof opened.structuredContent.contextFingerprint, "string");
   assert.deepEqual(opened.structuredContent.capabilityFingerprint, {
     version: packageJson.version,
     toolMode: "full",
@@ -254,6 +257,56 @@ try {
   ]);
   assert.equal(capabilityCatalog[0].available, true);
   assert.equal(capabilityCatalog[0].guide.name, "lifecycle-hooks");
+
+  const freshLogical = callTool(oauth.accessToken, sessionId, 84, "open_workspace", {
+    path: checkoutWorkspace,
+    newWorkspace: true,
+  }, workspaceConversationMeta);
+  const freshLogicalId = freshLogical.structuredContent.workspaceId;
+  assert.notEqual(freshLogicalId, workspaceId);
+  assert.equal(freshLogical.structuredContent.action, "open");
+  assert.equal(
+    freshLogical.structuredContent.contextFingerprint,
+    opened.structuredContent.contextFingerprint,
+  );
+  assert.equal(freshLogical.structuredContent.agentsFiles, undefined);
+  assert.equal(freshLogical.structuredContent.capabilityGuides, undefined);
+
+  const workspaceInventory = callTool(oauth.accessToken, sessionId, 85, "open_workspace", {
+    action: "list",
+    root: checkoutWorkspace,
+  }, workspaceConversationMeta);
+  assert.equal(workspaceInventory.structuredContent.action, "list");
+  assert.equal(workspaceInventory.structuredContent.summary.matching, 2);
+  const inventoryEntries = workspaceInventory.structuredContent.workspaces;
+  assert.equal(inventoryEntries.length, 2);
+  assert.equal(
+    inventoryEntries.find((entry) => entry.workspaceId === freshLogicalId)?.current,
+    true,
+  );
+  assert.equal(
+    inventoryEntries.find((entry) => entry.workspaceId === workspaceId)?.current,
+    false,
+  );
+
+  const closedFreshLogical = callTool(oauth.accessToken, sessionId, 86, "close_workspace", {
+    workspaceId: freshLogicalId,
+  });
+  assert.equal(closedFreshLogical.isError, undefined);
+  const resumedOriginal = callTool(oauth.accessToken, sessionId, 87, "open_workspace", {
+    workspaceId,
+  }, workspaceConversationMeta);
+  assert.equal(resumedOriginal.structuredContent.workspaceId, workspaceId);
+  assert.equal(resumedOriginal.structuredContent.agentsFiles, undefined);
+  assert.equal(
+    resumedOriginal.structuredContent.contextFingerprint,
+    opened.structuredContent.contextFingerprint,
+  );
+  pass(
+    "workspace context + inventory",
+    `${workspaceId} -> ${freshLogicalId} -> list -> close -> resume without bootstrap replay`,
+  );
+
   const directCapability = callTool(oauth.accessToken, sessionId, 79, "capability", {
     workspaceId,
     name: "hooks.check",
@@ -590,12 +643,16 @@ function mcpRequest(accessToken, sessionId, request) {
   return { response, message: parseMcpMessage(response.body, request.id) };
 }
 
-function callTool(accessToken, sessionId, id, name, args) {
+function callTool(accessToken, sessionId, id, name, args, meta) {
   const message = mcpRequest(accessToken, sessionId, {
     jsonrpc: "2.0",
     id,
     method: "tools/call",
-    params: { name, arguments: args },
+    params: {
+      name,
+      arguments: args,
+      ...(meta ? { _meta: meta } : {}),
+    },
   }).message;
   assert.equal(message.id, id);
   assert.ok(message.result, `tool ${name} did not return a result`);
