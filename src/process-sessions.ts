@@ -151,22 +151,58 @@ function processEnvironment(input?: {
 }
 
 function codePointLength(value: string): number {
-  return Array.from(value).length;
-}
-
-function sliceCodePoints(value: string, start: number, end?: number): string {
-  return Array.from(value).slice(start, end).join("");
+  let characters = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (
+      codeUnit >= 0xd800 && codeUnit <= 0xdbff &&
+      index + 1 < value.length
+    ) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) index += 1;
+    }
+    characters += 1;
+  }
+  return characters;
 }
 
 function takeHead(value: string, count: number): string {
   if (count <= 0) return "";
-  return sliceCodePoints(value, 0, count);
+  let index = 0;
+  let characters = 0;
+  while (index < value.length && characters < count) {
+    const codeUnit = value.charCodeAt(index);
+    if (
+      codeUnit >= 0xd800 && codeUnit <= 0xdbff &&
+      index + 1 < value.length
+    ) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      index += nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff ? 2 : 1;
+    } else {
+      index += 1;
+    }
+    characters += 1;
+  }
+  return value.slice(0, index);
 }
 
 function takeTail(value: string, count: number): string {
   if (count <= 0) return "";
-  const characters = Array.from(value);
-  return characters.slice(Math.max(0, characters.length - count)).join("");
+  let index = value.length;
+  let characters = 0;
+  while (index > 0 && characters < count) {
+    index -= 1;
+    const codeUnit = value.charCodeAt(index);
+    if (
+      codeUnit >= 0xdc00 && codeUnit <= 0xdfff &&
+      index > 0
+    ) {
+      const previousCodeUnit = value.charCodeAt(index - 1);
+      if (previousCodeUnit >= 0xd800 && previousCodeUnit <= 0xdbff) index -= 1;
+    }
+    characters += 1;
+  }
+  return value.slice(index);
 }
 
 function splitBudget(maxCharacters: number): { head: number; tail: number } {
@@ -195,8 +231,9 @@ export class HeadTailBuffer {
   append(output: string): void {
     if (!output) return;
 
+    const outputCharacters = codePointLength(output);
     const previousTotal = this.totalCharacters;
-    this.totalCharacters += codePointLength(output);
+    this.totalCharacters += outputCharacters;
 
     if (this.totalCharacters <= this.maxCharacters) {
       this.head += output;
@@ -205,13 +242,21 @@ export class HeadTailBuffer {
 
     const budget = splitBudget(this.maxCharacters);
     if (previousTotal <= this.maxCharacters) {
-      const fullOutput = this.head + output;
-      this.head = takeHead(fullOutput, budget.head);
-      this.tail = takeTail(fullOutput, budget.tail);
+      const previousHead = this.head;
+      this.head = previousTotal >= budget.head
+        ? takeHead(previousHead, budget.head)
+        : previousHead + takeHead(output, budget.head - previousTotal);
+      this.tail = outputCharacters >= budget.tail
+        ? takeTail(output, budget.tail)
+        : takeTail(previousHead, budget.tail - outputCharacters) + output;
       return;
     }
 
-    this.tail = takeTail(this.tail + output, budget.tail);
+    if (outputCharacters >= budget.tail) {
+      this.tail = takeTail(output, budget.tail);
+      return;
+    }
+    this.tail = takeTail(this.tail, budget.tail - outputCharacters) + output;
   }
 
   hasOutput(): boolean {
