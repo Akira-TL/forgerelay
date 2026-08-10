@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-08-10
+
 ### Changed
 
 - Regular `minimal` and `full` MCP modes now expose the same canonical 9-tool surface: `open_workspace`, `capability`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, and `bash`. Search and directory inspection use shell commands through `bash`; `full` remains only as a configuration-compatibility value.
