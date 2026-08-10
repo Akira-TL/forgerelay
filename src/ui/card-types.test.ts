@@ -10,7 +10,7 @@ import {
 } from "./card-types.js";
 
 test("the supported coding tools are recognized as card tools", () => {
-  for (const tool of ["apply_patch", "exec_command", "write_stdin", "rename", "delete"]) {
+  for (const tool of ["capability", "apply_patch", "exec_command", "write_stdin", "rename", "delete"]) {
     assert.equal(isToolName(tool), true, `${tool} should be a recognized card tool`);
   }
 });
@@ -57,10 +57,11 @@ test("a multi-file patch stays collapsed", () => {
   );
 });
 
-test("show changes still opens immediately", () => {
+test("review.changes capability opens immediately", () => {
   assert.equal(
     isInitiallyExpandedCard({
-      tool: "show_changes",
+      tool: "capability",
+      capabilityName: "review.changes",
       files: [{ path: "src/a.ts", type: "change" }],
       payload: { patch: "diff --git a/src/a.ts b/src/a.ts" },
     }),

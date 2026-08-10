@@ -163,7 +163,7 @@ function render(): void {
   }
 
   const display = getToolDisplay(card);
-  if (isReviewTool(card.tool)) {
+  if (isReviewTool(card)) {
     renderReviewCard(card, display);
     return;
   }
@@ -272,8 +272,8 @@ async function renderPayloadIfNeeded(): Promise<void> {
     return;
   }
 
-  if (isReviewTool(card.tool) || isPatchTool(card.tool)) {
-    const visibleFileCount = isReviewTool(card.tool) && !reviewFilesExpanded
+  if (isReviewTool(card) || isPatchTool(card.tool)) {
+    const visibleFileCount = isReviewTool(card) && !reviewFilesExpanded
       ? Math.max(3, (card.files ?? []).slice(0, 3).length)
       : undefined;
 
@@ -282,7 +282,7 @@ async function renderPayloadIfNeeded(): Promise<void> {
       return;
     }
 
-    renderStatus(target, isReviewTool(card.tool) ? "Loading review..." : "Loading diff...");
+    renderStatus(target, isReviewTool(card) ? "Loading review..." : "Loading diff...");
 
     const { mountReviewPayload } = await import("./review-payload.js");
     if (target !== currentPayloadContainer || !card) return;

@@ -234,8 +234,8 @@ Per-tool widgets default to:
 FORGERELAY_WIDGETS=full
 ```
 
-Use `FORGERELAY_WIDGETS=changes` for aggregate `show_changes`, or `off` to
-disable UI. Plain MCP clients may ignore MCP App widget metadata.
+Use `FORGERELAY_WIDGETS=changes` for aggregate `review.changes` Capability results,
+or `off` to disable UI. Plain MCP clients may ignore MCP App widget metadata.
 
 If ChatGPT shows `Failed to fetch template`, first verify the server-side template
 chain with:
@@ -245,7 +245,7 @@ npm run build
 npm run debug:accept
 ```
 
-The acceptance runner enables full widgets and checks that the tool advertises a
+The acceptance runner enables review-focused widgets and checks that the Gateway advertises a
 content-hashed `ui://forgerelay/workspace-app-<hash>.html` resource, that
 `resources/read` returns `text/html;profile=mcp-app`, and that the referenced
 JavaScript asset is reachable. ForgeRelay also keeps the legacy

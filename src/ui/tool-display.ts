@@ -118,16 +118,23 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         tone: "shell",
         state: processState(card),
       };
-    case "show_changes": {
-      const display = getPatchDisplayParts(card, { emptyTitle: "Changes ready" });
-      const fileCount = card.files?.length ?? 0;
+    case "capability": {
+      if (isReviewTool(card)) {
+        const display = getPatchDisplayParts(card, { emptyTitle: "Changes ready" });
+        const fileCount = card.files?.length ?? 0;
+        return {
+          icon: toolIcons.diff,
+          title: fileCount > 0 || card.payload?.patch
+            ? display.title
+            : "No changes",
+          label: singleFilePath(card),
+          tone: "review",
+        };
+      }
       return {
-        icon: toolIcons.diff,
-        title: fileCount > 0 || card.payload?.patch
-          ? display.title
-          : "No changes",
-        label: singleFilePath(card),
-        tone: "review",
+        icon: toolIcons.skills,
+        title: card.capabilityName ? `Capability: ${card.capabilityName}` : "Capability completed",
+        tone: "workspace",
       };
     }
   }
@@ -136,7 +143,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
 export function getToolHeaderSummary(card: ToolResultCard): ToolHeaderSummary {
   const summary = card.summary ?? {};
 
-  if (isReviewTool(card.tool) || isPatchTool(card.tool) || isEditTool(card.tool) || isWriteTool(card.tool)) {
+  if (isReviewTool(card) || isPatchTool(card.tool) || isEditTool(card.tool) || isWriteTool(card.tool)) {
     return {
       kind: "diff",
       additions: summaryNumber(summary, "additions") ?? 0,

@@ -209,7 +209,9 @@ killing it. Reuse `bash(action="process", processId=...)` to poll/wait, send inp
 resize a PTY, or interrupt the existing process; or continue other work and consume
 the one-shot completion notice from a later result in the same workspace.
 
-`FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
+`FORGERELAY_TOOL_MODE=full` is retained as a compatibility value and exposes the
+same canonical 9-tool surface as `minimal`; use `bash` for search and directory
+inspection.
 
 Experimental `FORGERELAY_TOOL_MODE=codex` keeps its Codex-shaped compatibility
 surface, including direct `rename`/`delete` path mutations alongside `apply_patch`,
@@ -247,8 +249,8 @@ an explicit user request before changing configuration files through `bash` or
 By default `FORGERELAY_WIDGETS=full` attaches ChatGPT Apps-compatible UI to the
 normal workspace/file/edit/shell tools.
 
-`FORGERELAY_WIDGETS=changes` exposes aggregate `show_changes` behavior and keeps
-widget usage focused on workspace/change review.
+`FORGERELAY_WIDGETS=changes` enables aggregate `review.changes` Capability results
+and keeps widget usage focused on workspace/change review.
 
 `FORGERELAY_WIDGETS=off` disables widget UI.
 

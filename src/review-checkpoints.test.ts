@@ -21,7 +21,7 @@ test("a clean workspace reports no changes from the last-shown checkpoint", asyn
   assert.match(clean.result, /No changes since last shown changes/);
 });
 
-test("show_changes reports and advances the last-shown checkpoint", async (t) => {
+test("review.changes reports and advances the last-shown checkpoint", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();
   await manager.initializeWorkspace({ workspaceId: "ws_incremental", root });

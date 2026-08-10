@@ -57,7 +57,8 @@ assert.equal(
 
 assert.deepEqual(
   pickDisplay(getToolDisplay({
-    tool: "show_changes",
+    tool: "capability",
+    capabilityName: "review.changes",
     files: [
       { path: "src/a.ts", type: "change" },
       { path: "src/b.ts", type: "change" },
@@ -68,7 +69,8 @@ assert.deepEqual(
 
 assert.deepEqual(
   pickDisplay(getToolDisplay({
-    tool: "show_changes",
+    tool: "capability",
+    capabilityName: "review.changes",
     files: [
       { path: "src/a.ts", type: "new" },
       { path: "src/b.ts", type: "change" },
@@ -79,18 +81,19 @@ assert.deepEqual(
 
 assert.deepEqual(
   pickDisplay(getToolDisplay({
-    tool: "show_changes",
+    tool: "capability",
+    capabilityName: "review.changes",
     files: [{ path: "src/old.ts", type: "deleted" }],
   })),
   { title: "Deleted 1 file", tone: "review" },
 );
 
 assert.equal(
-  getToolDisplay({ tool: "show_changes", payload: { patch: "diff --git a/a b/a" } }).title,
+  getToolDisplay({ tool: "capability", capabilityName: "review.changes", payload: { patch: "diff --git a/a b/a" } }).title,
   "Changes ready",
 );
 
-assert.equal(getToolDisplay({ tool: "show_changes" }).title, "No changes");
+assert.equal(getToolDisplay({ tool: "capability", capabilityName: "review.changes" }).title, "No changes");
 
 assert.equal(
   getToolDisplay({ tool: "exec_command", summary: { running: true, command: "npm test" } }).title,
@@ -136,7 +139,7 @@ assert.equal(
 );
 
 assert.deepEqual(
-  getToolHeaderSummary({ tool: "show_changes", summary: { additions: 14, removals: 1 } }),
+  getToolHeaderSummary({ tool: "capability", capabilityName: "review.changes", summary: { additions: 14, removals: 1 } }),
   { kind: "diff", additions: 14, removals: 1 },
 );
 

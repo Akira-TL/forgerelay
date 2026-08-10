@@ -2,7 +2,7 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 
 export type ToolName =
   | "open_workspace"
-  | "show_changes"
+  | "capability"
   | "apply_patch"
   | "exec_command"
   | "write_stdin"
@@ -28,6 +28,7 @@ export type ReviewFileType =
 
 export interface ToolResultCard {
   tool: ToolName;
+  capabilityName?: string;
   workspaceId?: string;
   path?: string;
   root?: string;
@@ -101,7 +102,7 @@ export interface ToolPayload {
 export function isToolName(value: unknown): value is ToolName {
   return (
     value === "open_workspace" ||
-    value === "show_changes" ||
+    value === "capability" ||
     value === "apply_patch" ||
     value === "exec_command" ||
     value === "write_stdin" ||
@@ -141,8 +142,8 @@ export function isShellTool(tool: ToolName): boolean {
   return tool === "bash" || tool === "exec_command" || tool === "write_stdin";
 }
 
-export function isReviewTool(tool: ToolName): boolean {
-  return tool === "show_changes";
+export function isReviewTool(card: Pick<ToolResultCard, "tool" | "capabilityName">): boolean {
+  return card.tool === "capability" && card.capabilityName === "review.changes";
 }
 
 export function isToolResultCard(value: unknown): value is Omit<ToolResultCard, "tool"> {
@@ -186,7 +187,7 @@ export function isExpandableCard(card: ToolResultCard): boolean {
     );
   }
 
-  if (isReviewTool(card.tool)) return Boolean(card.files?.length || card.payload?.patch);
+  if (isReviewTool(card)) return Boolean(card.files?.length || card.payload?.patch);
   if (isPatchTool(card.tool)) return Boolean(card.payload?.patch);
 
   return Boolean(card.payload);
@@ -194,7 +195,7 @@ export function isExpandableCard(card: ToolResultCard): boolean {
 
 export function isInitiallyExpandedCard(card: ToolResultCard): boolean {
   if (card.tool === "open_workspace") return isExpandableCard(card);
-  if (isReviewTool(card.tool)) return isExpandableCard(card);
+  if (isReviewTool(card)) return isExpandableCard(card);
   if (isPatchTool(card.tool)) {
     return card.files?.length === 1 && isExpandableCard(card);
   }

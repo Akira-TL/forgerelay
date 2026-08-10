@@ -58,7 +58,6 @@ export interface CapabilityExecution {
   value: unknown;
   changedPaths?: string[];
   card?: {
-    tool?: string;
     summary?: object;
     files?: unknown[];
     payload?: Record<string, unknown>;

@@ -8,9 +8,6 @@ export const toolNames = {
   edit: "edit",
   rename: "rename",
   delete: "delete",
-  grep: "grep",
-  glob: "glob",
-  ls: "ls",
   shell: "bash",
   writeStdin: "write_stdin",
   capability: "capability",
@@ -43,9 +40,9 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
   const skillCapability = config.skillsEnabled
     ? " Advertised skill paths may also be outside the workspace."
     : "";
-  const shellSurface = config.toolMode === "minimal"
-    ? ` In minimal tool mode, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} are disabled, so shell commands may be used for equivalent search and directory inspection.`
-    : "";
+  const shellSurface = config.toolMode === "codex"
+    ? ""
+    : " Use shell commands for search and directory inspection instead of dedicated MCP search tools.";
 
   return {
     read: `Read a file inside an open workspace or the OS temp directory. Instruction files and advertised capability guides returned by ${toolNames.openWorkspace} are also readable when applicable.${skillCapability} Only advertised entry files and files under already-loaded advertised directories are readable outside the normal roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
@@ -87,9 +84,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
     return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes.`;
   }
 
-  const inspection = config.toolMode === "full"
-    ? `Prefer ${toolNames.read}, ${toolNames.grep}, ${toolNames.glob}, and ${toolNames.ls} for file inspection.`
-    : `Use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection.`;
+  const inspection = `Use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection.`;
 
   return joinInstructions(
     inspection,

@@ -14,11 +14,12 @@ The legacy `DEVSPACE_ARTIFACTS` variable remains a fallback during migration.
 ## Workflow
 
 1. Open the destination project with `open_workspace`.
-2. Call `download_artifact` with the native file value supplied by the MCP host,
-   the existing `workspaceId`, and a workspace-relative destination path.
+2. Call the `capability` Gateway with `name="artifact.download"`, `action="run"`,
+   the existing `workspaceId`, the native file value in the Gateway's top-level
+   `file` slot, and a workspace-relative destination in `arguments.path`.
 3. Use the returned normalized path with ordinary ForgeRelay file tools.
 
-The tool creates missing parent directories and refuses to overwrite an existing
+The capability creates missing parent directories and refuses to overwrite an existing
 destination.
 
 ## Input boundary

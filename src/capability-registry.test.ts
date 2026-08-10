@@ -127,6 +127,25 @@ test("capability registry advertises only available optional capabilities and ro
       changedPaths: ["downloads/result.txt"],
     },
   );
+  const sensitiveExtraValue = "Bearer should-not-leak";
+  await assert.rejects(
+    () => registry.run(
+      "artifact.download",
+      { path: "downloads/rejected.txt" },
+      artifactContext,
+      {
+        nativeFile: {
+          download_url: "https://files.oaiusercontent.com/file_123/download?sig=secret",
+          file_id: "file_123",
+          authorization: sensitiveExtraValue,
+        },
+      },
+    ),
+    (error: unknown) =>
+      error instanceof CapabilityError
+      && error.code === "invalid_arguments"
+      && !error.message.includes(sensitiveExtraValue),
+  );
   await assert.rejects(
     () => registry.run("hooks.check", {}, artifactContext, { nativeFile: {} }),
     (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",

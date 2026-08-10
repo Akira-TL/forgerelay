@@ -179,8 +179,9 @@ the source checkout into a merge-conflict state.
 
 ## Native artifact download
 
-When enabled, `download_artifact` accepts only the supported native file value
-provided by the MCP host. It does not accept arbitrary signed URLs, local paths,
+When enabled, the registered `artifact.download` Capability accepts only the supported
+native file value provided by the MCP host through the `capability` Gateway. It does
+not accept arbitrary signed URLs, local paths,
 embedded credentials, or base64 strings as substitutes.
 
 Downloads are streamed, size-limited, created without overwrite, and published

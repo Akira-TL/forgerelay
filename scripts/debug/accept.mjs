@@ -37,14 +37,16 @@ assertCurlAvailable();
 await assertDebugPortFree();
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(acceptanceRoot, { recursive: true });
+setupGitProject(checkoutWorkspace);
 
 const { env } = createDebugEnvironment({
   ownerToken,
   stateDir,
   worktreeRoot,
   hookLog,
-  widgets: "full",
+  widgets: "changes",
 });
+env.FORGERELAY_ARTIFACTS = "1";
 const doctor = spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", "doctor"], {
   cwd: repoRoot,
   env,
@@ -53,7 +55,7 @@ const doctor = spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", "do
 assert.equal(doctor.status, 0, doctor.stderr);
 assert.match(doctor.stdout, /Public base URL: http:\/\/127\.0\.0\.1:7677/);
 assert.match(doctor.stdout, /Tool mode: full/);
-assert.match(doctor.stdout, /Widgets: full/);
+assert.match(doctor.stdout, /Widgets: changes/);
 assert.match(doctor.stdout, /Trust proxy: off/);
 pass("doctor resolved MCP shape", "public URL + tool/widgets/proxy state");
 
@@ -129,11 +131,17 @@ try {
     params: {},
   }).message.result.tools;
   const toolNames = tools.map((tool) => tool.name);
-  for (const expected of ["open_workspace", "close_workspace", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "capability"]) {
-    assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
-  }
-  assert.equal(toolNames.includes("close_worktree"), false);
-  assert.equal(toolNames.includes("write_stdin"), false);
+  assert.deepEqual(toolNames, [
+    "open_workspace",
+    "capability",
+    "close_workspace",
+    "read",
+    "write",
+    "edit",
+    "rename",
+    "delete",
+    "bash",
+  ]);
   const bashTool = tools.find((tool) => tool.name === "bash");
   assert.match(bashTool?.description ?? "", /local user's authority/);
   assert.doesNotMatch(bashTool?.description ?? "", /may modify ordinary project files/);
@@ -152,14 +160,16 @@ try {
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityFingerprint);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityCatalog);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityGuides);
-  const templateUri = bashTool?._meta?.ui?.resourceUri;
+  const capabilityTool = tools.find((tool) => tool.name === "capability");
+  assert.deepEqual(capabilityTool?._meta?.["openai/fileParams"], ["file"]);
+  const templateUri = capabilityTool?._meta?.ui?.resourceUri;
   assert.match(
     templateUri ?? "",
     /^ui:\/\/forgerelay\/workspace-app-[0-9a-f]{12}\.html$/,
     JSON.stringify(bashTool ?? {}),
   );
-  assert.deepEqual(bashTool?._meta?.ui?.visibility, ["model", "app"]);
-  assert.equal(bashTool?._meta?.["openai/outputTemplate"], templateUri);
+  assert.deepEqual(capabilityTool?._meta?.ui?.visibility, ["model", "app"]);
+  assert.equal(capabilityTool?._meta?.["openai/outputTemplate"], templateUri);
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
 
   const resources = mcpRequest(oauth.accessToken, sessionId, {
@@ -231,12 +241,17 @@ try {
       "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
-      "inspection.search-tools",
+      ...(process.platform === "linux" ? ["artifact.native-download"] : []),
       "ui.mcp-app",
+      "review.changes",
     ],
   });
   const capabilityCatalog = opened.structuredContent.capabilityCatalog;
-  assert.deepEqual(capabilityCatalog.map((entry) => entry.name), ["hooks.check"]);
+  assert.deepEqual(capabilityCatalog.map((entry) => entry.name), [
+    "hooks.check",
+    "review.changes",
+    ...(process.platform === "linux" ? ["artifact.download"] : []),
+  ]);
   assert.equal(capabilityCatalog[0].available, true);
   assert.equal(capabilityCatalog[0].guide.name, "lifecycle-hooks");
   const directCapability = callTool(oauth.accessToken, sessionId, 79, "capability", {
@@ -255,6 +270,18 @@ try {
   assert.equal(describedCapability.isError, undefined);
   assert.equal(describedCapability.structuredContent.capability.guide.name, "lifecycle-hooks");
   assert.equal(describedCapability.structuredContent.capability.inputSchema.type, "object");
+  if (process.platform === "linux") {
+    const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
+      workspaceId,
+      name: "artifact.download",
+      action: "describe",
+    });
+    assert.equal(describedArtifact.isError, undefined);
+    assert.deepEqual(describedArtifact.structuredContent.capability.transport, {
+      nativeFileArgument: "file",
+      gatewayParameter: "file",
+    });
+  }
   const unknownCapability = callTool(oauth.accessToken, sessionId, 81, "capability", {
     workspaceId,
     name: "unknown.capability",
@@ -267,6 +294,7 @@ try {
   assert.deepEqual(capabilityGuides.map((guide) => guide.name), [
     "lifecycle-hooks",
     "managed-worktrees",
+    "artifacts-review",
     "host-integration",
     "shell-processes",
   ]);
@@ -291,6 +319,19 @@ try {
   });
   assert.match(read.structuredContent.result, /forgerelay 7677 acceptance/);
   pass("write + read", JSON.stringify(read.structuredContent));
+
+  const reviewed = callTool(oauth.accessToken, sessionId, 83, "capability", {
+    workspaceId,
+    name: "review.changes",
+    action: "run",
+    arguments: {},
+  });
+  assert.equal(reviewed.isError, undefined);
+  assert.match(reviewed.structuredContent.result.result, /Changed 1 file/);
+  assert.equal(reviewed._meta?.tool, "capability");
+  assert.equal(reviewed._meta?.card?.capabilityName, "review.changes");
+  assert.match(reviewed._meta?.card?.payload?.patch ?? "", /acceptance\.txt/);
+  pass("review.changes", "Capability Gateway produced the aggregate review card");
 
   const shell = callTool(oauth.accessToken, sessionId, 6, "bash", {
     workspaceId,

@@ -10,26 +10,8 @@ import {
   type FileHandle,
 } from "node:fs/promises";
 import { isAbsolute, join, normalize, sep } from "node:path";
-import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as z from "zod/v4";
 import { ArtifactError } from "./artifact-error.js";
-import type { ServerConfig } from "./config.js";
-import { HookRunner, runToolWithHooks } from "./hooks.js";
-import {
-  describeIncomingArtifactValue,
-  IncomingArtifactAdapterRegistry,
-  type IncomingArtifactAdapter,
-} from "./incoming-artifacts.js";
-import { logEvent, workspaceLogLabel } from "./logger.js";
-import type { WorkspaceRegistry } from "./workspaces.js";
-
-const ARTIFACT_WRITE_ANNOTATIONS = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: true,
-};
+import { IncomingArtifactAdapterRegistry } from "./incoming-artifacts.js";
 const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 const DIRECTORY_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | NO_FOLLOW;
 const PARTIAL_PREFIX = ".forgerelay-download-";
@@ -37,23 +19,6 @@ const PARTIAL_SUFFIX = ".partial";
 const STALE_PARTIAL_AGE_MS = 24 * 60 * 60 * 1_000;
 const MAX_STALE_PARTIAL_CLEANUP = 32;
 const ARTIFACT_DOWNLOAD_PLATFORMS = new Set<NodeJS.Platform>(["linux"]);
-
-const openAIFileReferenceInputSchema = z.strictObject({
-  download_url: z.string(),
-  file_id: z.string(),
-  mime_type: z.string().nullable().optional(),
-  file_name: z.string().nullable().optional(),
-  name: z.string().nullable().optional(),
-  size: z.number().int().nonnegative().nullable().optional(),
-});
-
-export interface ArtifactToolRegistrationOptions {
-  config: ServerConfig;
-  workspaces: WorkspaceRegistry;
-  hooks: HookRunner;
-  incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
-  incomingArtifactRegistry?: IncomingArtifactAdapterRegistry;
-}
 
 export interface DownloadIncomingArtifactInput {
   file: unknown;
@@ -83,76 +48,6 @@ interface ArtifactDestination {
   path: string;
   parentParts: string[];
   name: string;
-}
-
-export function registerArtifactTools(
-  server: McpServer,
-  {
-    config,
-    workspaces,
-    hooks,
-    incomingArtifactAdapters = [],
-    incomingArtifactRegistry,
-  }: ArtifactToolRegistrationOptions,
-): void {
-  const incomingRegistry = incomingArtifactRegistry
-    ?? new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
-
-  registerAppTool(
-    server,
-    "download_artifact",
-    {
-      title: "Download attached or generated file",
-      description:
-        "Stream one MCP-host-provided native file to a requested relative path inside an already-open workspace. Existing destinations, arbitrary URLs, absolute paths, traversal, symlinked parents, local source paths, and malformed file objects are rejected.",
-      inputSchema: {
-        file: openAIFileReferenceInputSchema.describe(
-          "Native file value authorized and supplied by the MCP host.",
-        ),
-        workspaceId: z.string().min(1).describe(
-          "Workspace identifier returned by open_workspace.",
-        ),
-        path: z.string().min(1).describe(
-          "Relative destination path inside the selected workspace. The destination must not already exist.",
-        ),
-      },
-      outputSchema: {
-        path: z.string(),
-      },
-      _meta: { "openai/fileParams": ["file"] },
-      annotations: ARTIFACT_WRITE_ANNOTATIONS,
-    },
-    async (input) => {
-      const workspace = workspaces.getWorkspace(input.workspaceId);
-      return runToolWithHooks(hooks, {
-        tool: "download_artifact",
-        invocation: {
-          workspaceId: workspace.id,
-          workspaceRoot: workspace.root,
-          workspaceMode: workspace.mode,
-          sourceRoot: workspace.sourceRoot,
-        },
-        payload: { path: input.path },
-        changedPaths: (result) => [result.structuredContent.path],
-        operation: () => executeArtifactTool(config, input, {
-          workspace: workspaceLogLabel(workspace.root, workspace.id),
-        }, async () => {
-          const downloaded = await downloadIncomingArtifact({
-            registry: incomingRegistry,
-            workspaceId: workspace.id,
-            workspaceRoot: workspace.root,
-            maxFileBytes: config.artifactMaxFileBytes,
-            file: input.file,
-            path: input.path,
-          });
-          return {
-            publicResult: { path: downloaded.path },
-            logResult: downloaded,
-          };
-        }),
-      });
-    },
-  );
 }
 
 /**
@@ -304,65 +199,6 @@ export async function downloadIncomingArtifact({
     await destinationDirectory?.close().catch(() => undefined);
     await workspaceHandle?.close().catch(() => undefined);
   }
-}
-
-export function artifactToolLogFields(
-  input: Record<string, unknown>,
-): Record<string, unknown> {
-  return {
-    fileProvided: input.file !== undefined,
-    fileReferenceShape: describeIncomingArtifactValue(input.file),
-    downloadUrlHostname: incomingFileDownloadHostname(input.file),
-    workspaceId: input.workspaceId,
-    path: input.path,
-  };
-}
-
-async function executeArtifactTool(
-  config: ServerConfig,
-  input: Record<string, unknown>,
-  logContext: { workspace: string },
-  operation: () => Promise<{
-    publicResult: { path: string };
-    logResult: DownloadIncomingArtifactResult;
-  }>,
-) {
-  const startedAt = performance.now();
-  try {
-    const { publicResult, logResult } = await operation();
-    if (config.logging.toolCalls) {
-      logEvent(config.logging, "info", "artifact_tool_call", {
-        tool: "download_artifact",
-        ...artifactToolLogFields(input),
-        ...logContext,
-        path: logResult.path,
-        size: logResult.size,
-        sha256: logResult.sha256,
-        success: true,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-    }
-    return artifactToolResponse(publicResult);
-  } catch (error) {
-    if (config.logging.toolCalls) {
-      logEvent(config.logging, "warn", "artifact_tool_call", {
-        tool: "download_artifact",
-        ...artifactToolLogFields(input),
-        ...logContext,
-        success: false,
-        errorCode: error instanceof ArtifactError ? error.code : "internal_error",
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-    }
-    throw error;
-  }
-}
-
-function artifactToolResponse(result: { path: string }) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result) }],
-    structuredContent: result,
-  };
 }
 
 async function openDirectoryNoFollow(
@@ -593,20 +429,6 @@ async function writeAll(
       );
     }
     offset += bytesWritten;
-  }
-}
-
-function incomingFileDownloadHostname(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-  const rawUrl = (value as Record<string, unknown>).download_url;
-  if (typeof rawUrl !== "string") return undefined;
-  try {
-    const hostname = new URL(rawUrl).hostname.toLowerCase();
-    return hostname.length > 0 && hostname.length <= 253 ? hostname : undefined;
-  } catch {
-    return undefined;
   }
 }
 

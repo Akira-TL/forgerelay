@@ -59,7 +59,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   {
     name: "artifacts-review",
     description: "Native artifact transfer and aggregate change review.",
-    whenToRead: "Read for host-provided files or show_changes.",
+    whenToRead: "Read for host-provided files or aggregate change review.",
     enabled: (config) => config.artifactsEnabled || config.widgets === "changes",
   },
   {
@@ -131,9 +131,6 @@ export function buildCapabilityFingerprint(
     "capability-guides.read",
   ];
 
-  if (config.toolMode === "full") {
-    capabilities.push("inspection.search-tools");
-  }
   if (config.subagents) {
     capabilities.push("subagent.profiles");
   }
@@ -144,7 +141,7 @@ export function buildCapabilityFingerprint(
     capabilities.push("ui.mcp-app");
   }
   if (config.widgets === "changes") {
-    capabilities.push("review.show-changes");
+    capabilities.push("review.changes");
   }
 
   return {

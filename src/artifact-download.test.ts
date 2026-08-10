@@ -15,12 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import * as z from "zod/v4";
 import {
-  artifactToolLogFields,
   downloadIncomingArtifact,
   isArtifactDownloadSupportedPlatform,
-  registerArtifactTools,
 } from "./artifact-tools.js";
 import { ArtifactError } from "./artifact-error.js";
 import {
@@ -31,7 +28,6 @@ import {
 const root = await mkdtemp(join(tmpdir(), "devspace-artifact-download-test-"));
 
 try {
-  testOneToolContract();
   testPlatformSupportContract();
   if (isArtifactDownloadSupportedPlatform()) {
     await testSafeDownloadAndConflict(join(root, "downloads"));
@@ -41,150 +37,11 @@ try {
     await testSymlinkRejection(join(root, "symlinks"));
     await testPublicationFailurePreservesReplacement(join(root, "publication-race"));
     await testPublishedPermissions(join(root, "permissions"));
-    await testArtifactHookLifecycle(join(root, "hook-lifecycle"));
   } else {
     await testUnsupportedPlatform(join(root, "unsupported-platform"));
   }
-  testLogRedaction();
 } finally {
   await rm(root, { recursive: true, force: true });
-}
-
-function testOneToolContract(): void {
-  const registered = new Map<string, { descriptor: Record<string, unknown>; callback: (input: never) => unknown }>();
-  const server = {
-    registerTool(
-      name: string,
-      descriptor: Record<string, unknown>,
-      callback: (input: never) => unknown,
-    ) {
-      registered.set(name, { descriptor, callback });
-      return {};
-    },
-  };
-
-  registerArtifactTools(server as never, {
-    config: {
-      artifactMaxFileBytes: 1024,
-      logging: { toolCalls: false },
-    } as never,
-    workspaces: {} as never,
-    hooks: {} as never,
-  });
-
-  assert.deepEqual([...registered.keys()], ["download_artifact"]);
-  const descriptor = registered.get("download_artifact")?.descriptor;
-  assert.ok(descriptor);
-  assert.deepEqual(descriptor._meta, { "openai/fileParams": ["file"] });
-  assert.deepEqual(Object.keys(descriptor.inputSchema as object).sort(), ["file", "path", "workspaceId"]);
-  assert.deepEqual(Object.keys(descriptor.outputSchema as object), ["path"]);
-  assert.equal((descriptor.annotations as { destructiveHint?: boolean }).destructiveHint, false);
-
-  const fileSchema = (descriptor.inputSchema as z.ZodRawShape).file as z.ZodType;
-  const valid = {
-    download_url: "https://files.oaiusercontent.com/file_123/download?sig=secret",
-    file_id: "file_123",
-    mime_type: "image/png",
-    file_name: "generated.png",
-  };
-  assert.deepEqual(fileSchema.parse(valid), valid);
-  assert.throws(() => fileSchema.parse({ file_id: "file_123" }));
-
-  const sensitiveExtraValue = "Bearer should-not-leak";
-  const rejected = fileSchema.safeParse({
-    ...valid,
-    authorization: sensitiveExtraValue,
-  });
-  assert.equal(rejected.success, false);
-  assert.equal(JSON.stringify(rejected).includes(sensitiveExtraValue), false);
-}
-
-async function testArtifactHookLifecycle(workspaceRoot: string): Promise<void> {
-  await mkdir(workspaceRoot, { recursive: true });
-  const registered = new Map<string, { callback: (input: Record<string, unknown>) => Promise<unknown> }>();
-  const server = {
-    registerTool(
-      name: string,
-      _descriptor: Record<string, unknown>,
-      callback: (input: Record<string, unknown>) => Promise<unknown>,
-    ) {
-      registered.set(name, { callback });
-      return {};
-    },
-  };
-  const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
-  const hooks = {
-    async run(event: string, invocation: { payload?: Record<string, unknown> }) {
-      events.push({ event, payload: invocation.payload ?? {} });
-      return event === "BeforeTool"
-        ? [{
-            event: "BeforeTool",
-            name: "Artifact preflight",
-            scope: "global",
-            status: "passed",
-            durationMs: 1,
-            report: true,
-          }]
-        : [];
-    },
-  };
-  const adapter: IncomingArtifactAdapter = {
-    id: "hook-test-native",
-    canHandle: () => true,
-    async open() {
-      return {
-        name: "artifact.txt",
-        size: 5,
-        stream: Readable.from([Buffer.from("hello")]),
-      };
-    },
-  };
-
-  registerArtifactTools(server as never, {
-    config: {
-      artifactMaxFileBytes: 1024,
-      logging: { toolCalls: false },
-    } as never,
-    workspaces: {
-      getWorkspace: () => ({
-        id: "ws_artifact",
-        root: workspaceRoot,
-        mode: "checkout",
-      }),
-    } as never,
-    hooks: hooks as never,
-    incomingArtifactAdapters: [adapter],
-  });
-
-  const callback = registered.get("download_artifact")?.callback;
-  assert.ok(callback);
-  const result = await callback({
-    workspaceId: "ws_artifact",
-    path: "downloads/artifact.txt",
-    file: {
-      download_url: "https://files.example.test/download?secret=must-not-leak",
-      file_id: "file_secret",
-    },
-  }) as {
-    content?: Array<{ type?: string; text?: string }>;
-    structuredContent?: { path?: string };
-  };
-
-  assert.equal(result.structuredContent?.path, "downloads/artifact.txt");
-  assert.match(
-    result.content?.map((entry) => entry.text ?? "").join("\n") ?? "",
-    /Artifact preflight \(BeforeTool, global\) passed/,
-  );
-  assert.equal(await readFile(join(workspaceRoot, "downloads", "artifact.txt"), "utf8"), "hello");
-  assert.deepEqual(events.map((entry) => entry.event), ["BeforeTool", "AfterTool", "AfterFileChange"]);
-  assert.deepEqual(events[0]?.payload, { tool: "download_artifact", path: "downloads/artifact.txt" });
-  assert.deepEqual(events[2]?.payload, {
-    tool: "download_artifact",
-    path: "downloads/artifact.txt",
-    paths: ["downloads/artifact.txt"],
-  });
-  assert.equal(JSON.stringify(events).includes("file_secret"), false);
-  assert.equal(JSON.stringify(events).includes("must-not-leak"), false);
 }
 
 function testPlatformSupportContract(): void {
@@ -433,25 +290,6 @@ async function testPublishedPermissions(testRoot: string): Promise<void> {
   }
 
   assert.equal((await stat(join(workspaceRoot, "private.txt"))).mode & 0o777, 0o600);
-}
-
-function testLogRedaction(): void {
-  const fields = artifactToolLogFields({
-    file: {
-      download_url: "https://files.oaiusercontent.com/file_123/download?sig=super-secret",
-      file_id: "file_secret",
-      file_name: "generated.png",
-      authorization: "Bearer log-secret",
-    },
-    workspaceId: "ws_secret",
-    path: "private/generated.png",
-  });
-  const serialized = JSON.stringify(fields);
-  assert.equal(serialized.includes("super-secret"), false);
-  assert.equal(serialized.includes("file_secret"), false);
-  assert.equal(serialized.includes("log-secret"), false);
-  assert.equal(serialized.includes("ws_secret"), true);
-  assert.equal(serialized.includes("files.oaiusercontent.com"), true);
 }
 
 function registryFor(source: {

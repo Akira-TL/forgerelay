@@ -46,6 +46,14 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.doesNotMatch(result, /target branch diverged/);
 });
 
+test("minimal and full share the same regular workflow instructions", () => {
+  const minimal = instructions({ DEVSPACE_TOOL_MODE: "minimal" });
+  const full = instructions({ DEVSPACE_TOOL_MODE: "full" });
+
+  assert.equal(full, minimal);
+  assert.match(full, /Use bash with command-line tools such as grep, rg, find, ls, and tree/);
+});
+
 test("capability contract requires agents to report visible hook results", () => {
   const result = instructions();
 

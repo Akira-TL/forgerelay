@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Regular `minimal` and `full` MCP modes now expose the same canonical 9-tool surface: `open_workspace`, `capability`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, and `bash`. Search and directory inspection use shell commands through `bash`; `full` remains only as a configuration-compatibility value.
+- `review.changes` and `artifact.download` are now Capability Gateway-only workflows. Their dedicated top-level compatibility aliases have been removed, while review cards identify themselves as `capability` results with `capabilityName="review.changes"`.
+- Capability fingerprints now report semantic runtime capabilities such as `review.changes` instead of implementation-shaped search/review tool names, and current Guides/docs/bootstrap instructions use the final Core Surface + Capability Gateway model.
+
+### Removed
+
+- Removed the regular dedicated `grep`, `glob`, `ls`, aggregate-review, and native-artifact MCP adapters after their canonical workflows moved to `bash` or the Capability Gateway.
+
 ## [0.3.4] - 2026-08-10
 
 ### Changed

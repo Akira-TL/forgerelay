@@ -23,12 +23,24 @@ const execFileAsync = promisify(execFile);
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
 };
+const canonicalToolNames = [
+  "open_workspace",
+  "capability",
+  "close_workspace",
+  "read",
+  "write",
+  "edit",
+  "rename",
+  "delete",
+  "bash",
+] as const;
 
 test("MCP instructions separate capability contract from configurable workflow policy", async (t) => {
   const defaultContext = await fixture(t);
   const defaultInstructions = defaultContext.client.getInstructions() ?? "";
   const defaultTools = await defaultContext.client.listTools();
   assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
+  assert.deepEqual(defaultTools.tools.map((tool) => tool.name), canonicalToolNames);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
   const readTool = defaultTools.tools.find((tool) => tool.name === "read");
   const renameTool = defaultTools.tools.find((tool) => tool.name === "rename");
@@ -103,6 +115,10 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(overrideInstructions, /Shell commands may modify ordinary project files/);
   assert.match(overrideInstructions, /\/etc\/sudoers/);
   assert.doesNotMatch(overrideInstructions, /Do not create or modify files with bash/);
+
+  const minimalContext = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "minimal" } });
+  const minimalTools = await minimalContext.client.listTools();
+  assert.deepEqual(minimalTools.tools.map((tool) => tool.name), canonicalToolNames);
 
   const codexContext = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
   const codexTools = await codexContext.client.listTools();
@@ -219,7 +235,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   assert.equal((structuredContent(unknown).error as Record<string, unknown>).code, "unknown_capability");
 });
 
-test("review.changes capability shares checkpoints, Hook reports, and diff card metadata with show_changes", async (t) => {
+test("review.changes capability owns checkpoints, Hook reports, and review-card metadata", async (t) => {
   const context = await fixture(t, {
     git: true,
     env: { DEVSPACE_WIDGETS: "changes" },
@@ -255,21 +271,21 @@ test("review.changes capability shares checkpoints, Hook reports, and diff card 
   assert.match(allResponseText(reviewed), /Capability preflight \(BeforeTool, global\) passed/);
   const reviewMeta = (reviewed as { _meta?: Record<string, unknown> })._meta as {
     tool?: string;
-    card?: { payload?: { patch?: string }; summary?: { files?: number } };
+    card?: {
+      capabilityName?: string;
+      payload?: { patch?: string };
+      summary?: { files?: number };
+    };
   } | undefined;
-  assert.equal(reviewMeta?.tool, "show_changes");
+  assert.equal(reviewMeta?.tool, "capability");
+  assert.equal(reviewMeta?.card?.capabilityName, "review.changes");
   assert.equal(reviewMeta?.card?.summary?.files, 1);
   assert.match(reviewMeta?.card?.payload?.patch ?? "", /reviewed\.txt/);
-
-  const alias = await context.client.callTool({
-    name: "show_changes",
-    arguments: { workspaceId },
-  });
-  assert.equal(alias.isError, undefined);
-  assert.match(responseText(alias), /No changes since last shown changes/);
+  const tools = await context.client.listTools();
+  assert.equal(tools.tools.some((tool) => tool.name === "show_changes"), false);
 });
 
-test("artifact.download capability preserves native-file transport and download_artifact compatibility", async (t) => {
+test("artifact.download capability preserves native-file transport without a dedicated tool alias", async (t) => {
   const adapter: IncomingArtifactAdapter = {
     id: "server-test-native",
     canHandle: () => true,
@@ -300,7 +316,7 @@ test("artifact.download capability preserves native-file transport and download_
   const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
   const artifactAvailable = process.platform === "linux";
   assert.equal(catalog.some((entry) => entry.name === "artifact.download"), artifactAvailable);
-  assert.equal(tools.tools.some((tool) => tool.name === "download_artifact"), artifactAvailable);
+  assert.equal(tools.tools.some((tool) => tool.name === "download_artifact"), false);
   if (!artifactAvailable) return;
 
   const described = await context.client.callTool({
@@ -350,13 +366,6 @@ test("artifact.download capability preserves native-file transport and download_
     (structuredContent(conflict).error as { code?: string }).code,
     "artifact.artifact_destination_exists",
   );
-
-  const alias = await context.client.callTool({
-    name: "download_artifact",
-    arguments: { workspaceId, path: "downloads/alias.txt", file },
-  });
-  assert.equal(alias.isError, undefined);
-  assert.equal(await readFile(join(context.project, "downloads", "alias.txt"), "utf8"), "hello");
 });
 
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
@@ -383,7 +392,6 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
-      "inspection.search-tools",
       "ui.mcp-app",
     ],
   });
@@ -447,11 +455,10 @@ test("capability fingerprint reports optional feature availability without copyi
         "process.lifecycle",
         "hooks.lifecycle",
         "capability-guides.read",
-        "inspection.search-tools",
         "subagent.profiles",
         "artifact.native-download",
         "ui.mcp-app",
-        "review.show-changes",
+        "review.changes",
       ],
     },
   );
@@ -462,9 +469,7 @@ test("capability fingerprint reports optional feature availability without copyi
   );
 
   const optionalTools = await context.client.listTools();
-  const showChangesTool = optionalTools.tools.find((tool) => tool.name === "show_changes");
-  assert.match(showChangesTool?.description ?? "", /once after the final related file change/);
-  assert.match(showChangesTool?.description ?? "", /before your final response/);
+  assert.deepEqual(optionalTools.tools.map((tool) => tool.name), canonicalToolNames);
 
   const opened = await callOpen(context.client, context.project, "chat-optional-guides");
   const openedStructured = structuredContent(opened);
@@ -480,7 +485,7 @@ test("capability fingerprint reports optional feature availability without copyi
 
   for (const [name, firstPattern, secondPattern] of [
     ["subagents", /forgerelay agents run/, /first-class MCP subagent/],
-    ["artifacts-review", /download_artifact/, /show_changes/],
+    ["artifacts-review", /artifact\.download/, /review\.changes/],
   ] as const) {
     const guide = guides.find((candidate) => candidate.name === name);
     assert.ok(guide);
@@ -789,63 +794,6 @@ test("delete refuses the workspace root itself", async (t) => {
   assert.equal(await readFile(join(context.project, "AGENTS.md"), "utf8") !== "", true);
 });
 
-test("ls can inspect the OS temp directory", async (t) => {
-  const context = await fixture(t);
-  const opened = await callOpen(context.client, context.project, "chat-temp-ls");
-  const workspaceId = String(structuredContent(opened).workspaceId);
-  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
-  await writeFile(join(tempRoot, "listed.txt"), "temp listing\n");
-  t.after(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
-  });
-
-  const listed = await context.client.callTool({
-    name: "ls",
-    arguments: { workspaceId, path: tempRoot },
-  });
-
-  assert.equal(listed.isError, undefined);
-  assert.match(allResponseText(listed), /listed\.txt/);
-});
-
-test("grep can search the OS temp directory", async (t) => {
-  const context = await fixture(t);
-  const opened = await callOpen(context.client, context.project, "chat-temp-grep");
-  const workspaceId = String(structuredContent(opened).workspaceId);
-  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
-  await writeFile(join(tempRoot, "searched.txt"), "unique-temp-needle\n");
-  t.after(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
-  });
-
-  const searched = await context.client.callTool({
-    name: "grep",
-    arguments: { workspaceId, pattern: "unique-temp-needle", path: tempRoot },
-  });
-
-  assert.equal(searched.isError, undefined);
-  assert.match(allResponseText(searched), /unique-temp-needle/);
-});
-
-test("glob can find files in the OS temp directory", async (t) => {
-  const context = await fixture(t);
-  const opened = await callOpen(context.client, context.project, "chat-temp-glob");
-  const workspaceId = String(structuredContent(opened).workspaceId);
-  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
-  await writeFile(join(tempRoot, "matched-temp.txt"), "temp glob\n");
-  t.after(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
-  });
-
-  const found = await context.client.callTool({
-    name: "glob",
-    arguments: { workspaceId, pattern: "*.txt", path: tempRoot },
-  });
-
-  assert.equal(found.isError, undefined);
-  assert.match(allResponseText(found), /matched-temp\.txt/);
-});
-
 test("codex apply_patch can create a file in the OS temp directory", async (t) => {
   const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
   const opened = await callOpen(context.client, context.project, "chat-temp-apply-patch");
@@ -891,30 +839,6 @@ test("temp file access rejects symlinks that escape the OS temp directory", asyn
 
   assert.equal(escaped.isError, true);
   assert.match(allResponseText(escaped), /outside allowed roots/i);
-});
-
-test("grep does not follow symlinked files that escape the OS temp directory", async (t) => {
-  if (process.platform === "win32") {
-    t.skip("File symlink creation requires extra privileges on some Windows setups.");
-    return;
-  }
-
-  const context = await fixture(t);
-  const opened = await callOpen(context.client, context.project, "chat-temp-grep-symlink");
-  const workspaceId = String(structuredContent(opened).workspaceId);
-  const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
-  await symlink(join(process.cwd(), "package.json"), join(tempRoot, "escaped-package.json"));
-  t.after(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
-  });
-
-  const searched = await context.client.callTool({
-    name: "grep",
-    arguments: { workspaceId, pattern: "@akira-tl/forgerelay", path: tempRoot },
-  });
-
-  assert.equal(searched.isError, undefined);
-  assert.doesNotMatch(allResponseText(searched), /@akira-tl\/forgerelay/);
 });
 
 test("file tools still reject arbitrary paths outside the workspace and OS temp directory", async (t) => {

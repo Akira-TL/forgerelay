@@ -29,7 +29,6 @@ import { deletePath, renamePath } from "./file-mutations.js";
 import {
   downloadIncomingArtifact,
   isArtifactDownloadSupportedPlatform,
-  registerArtifactTools,
 } from "./artifact-tools.js";
 import { ArtifactError } from "./artifact-error.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
@@ -56,9 +55,6 @@ import {
 } from "./logger.js";
 import {
   editFileTool,
-  findFilesTool,
-  grepFilesTool,
-  listDirectoryTool,
   readFileTool,
   writeFileTool,
 } from "./pi-tools.js";
@@ -140,10 +136,7 @@ type ToolWidgetKind =
   | "read"
   | "write"
   | "edit"
-  | "search"
-  | "directory"
   | "shell"
-  | "show_changes"
   | "capability";
 
 interface ToolDefinitionMeta extends Record<string, unknown> {
@@ -167,7 +160,7 @@ function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
     case "off":
       return false;
     case "changes":
-      return kind === "workspace" || kind === "show_changes" || kind === "capability";
+      return kind === "workspace" || kind === "capability";
     case "full":
       return true;
   }
@@ -978,7 +971,6 @@ export function createMcpServer(
             files: review.files,
           },
           card: {
-            tool: "show_changes",
             summary: review.summary,
             files: review.files,
             payload: { patch: review.patch },
@@ -1467,9 +1459,10 @@ export function createMcpServer(
               ...(execution.card
                 ? {
                     _meta: {
-                      tool: execution.card.tool ?? toolNames.capability,
+                      tool: toolNames.capability,
                       card: {
                         workspaceId,
+                        capabilityName: name,
                         summary: execution.card.summary ?? {},
                         files: execution.card.files,
                         payload: execution.card.payload ?? {},
@@ -2142,298 +2135,6 @@ export function createMcpServer(
     );
   }
 
-  if (config.widgets === "changes") {
-    registerAppTool(
-      server,
-      "show_changes",
-      {
-        title: "Show changes",
-        description:
-          "Show the changes made in this turn for an open workspace. Call this once after the final related file change and before your final response so the user can review the combined diff. Do not call it after each individual file change.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "show_changes"),
-        annotations: { readOnlyHint: true },
-      },
-      async ({ workspaceId }, extra) => {
-        const workspace = workspaces.getWorkspace(workspaceId);
-        return runToolWithHooks(hooks, {
-          tool: "show_changes",
-          invocation: workspaceHookInvocation(workspace),
-          operation: async () => {
-            const startedAt = performance.now();
-            const review = await reviewWorkspaceChanges(reviewCheckpoints, workspace);
-
-            const content = [textBlock(review.result)];
-            logToolCall(config, {
-              tool: "show_changes",
-              ...workspaceLogContext(workspace, extra.sessionId),
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-
-            return {
-              content,
-              _meta: {
-                tool: "show_changes",
-                card: {
-                  workspaceId,
-                  summary: review.summary,
-                  files: review.files,
-                  payload: {
-                    patch: review.patch,
-                  },
-                },
-              },
-              structuredContent: {
-                result: contentText(content),
-              },
-            };
-          },
-        });
-      },
-    );
-  }
-
-  if (config.toolMode === "full") {
-    registerAppTool(
-      server,
-      toolNames.grep,
-      {
-        title: "Grep",
-        description:
-          "Search file contents inside an open workspace or the OS temp directory. Use this before broad reads when looking for symbols, text, or usage sites. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-          pattern: z.string().describe("Search pattern."),
-          path: z
-            .string()
-            .optional()
-            .describe(
-              "Optional path or glob scope relative to the workspace root, or an absolute path inside the OS temp directory.",
-            ),
-          include: z.string().optional().describe("Optional include glob."),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "search"),
-        annotations: { readOnlyHint: true },
-      },
-      async ({ workspaceId, ...input }, extra) => {
-        const workspace = workspaces.getWorkspace(workspaceId);
-        return runToolWithHooks(hooks, {
-          tool: toolNames.grep,
-          invocation: workspaceHookInvocation(workspace),
-          payload: { pattern: input.pattern, path: input.path, include: input.include },
-          isFailure: toolResultIsError,
-          operation: async () => {
-            const startedAt = performance.now();
-            const response = await grepFilesTool(input, {
-              cwd: workspace.root,
-              root: workspace.root,
-              fileRoots: workspaces.fileToolRoots(workspace),
-            });
-
-            if (response.isError) {
-              logFailedToolResponse(config, {
-                tool: toolNames.grep,
-                ...workspaceLogContext(workspace, extra.sessionId),
-                path: input.path,
-              }, response.content, startedAt);
-              return response;
-            }
-
-            const summary = {
-              pattern: input.pattern,
-              scope: input.path ?? ".",
-              ...textSummary(response.content),
-            };
-            logToolCall(config, {
-              tool: toolNames.grep,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-
-            return {
-              ...response,
-              _meta: {
-                tool: toolNames.grep,
-                card: {
-                  workspaceId,
-                  path: input.path,
-                  summary,
-                  payload: { content: response.content },
-                },
-              },
-              structuredContent: {
-                result: contentText(response.content),
-              },
-            };
-          },
-        });
-      },
-    );
-
-    registerAppTool(
-      server,
-      toolNames.glob,
-      {
-        title: "Glob",
-        description:
-          "Find files by glob pattern inside an open workspace or the OS temp directory. Use this to discover filenames or narrow file sets before reading. Respects project ignore rules. Call open_workspace first and pass workspaceId.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-          pattern: z.string().describe("File glob pattern."),
-          path: z
-            .string()
-            .optional()
-            .describe("Optional path scope relative to the workspace root, or an absolute path inside the OS temp directory."),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "search"),
-        annotations: { readOnlyHint: true },
-      },
-      async ({ workspaceId, ...input }, extra) => {
-        const workspace = workspaces.getWorkspace(workspaceId);
-        return runToolWithHooks(hooks, {
-          tool: toolNames.glob,
-          invocation: workspaceHookInvocation(workspace),
-          payload: { pattern: input.pattern, path: input.path },
-          isFailure: toolResultIsError,
-          operation: async () => {
-            const startedAt = performance.now();
-            const response = await findFilesTool(input, {
-              cwd: workspace.root,
-              root: workspace.root,
-              fileRoots: workspaces.fileToolRoots(workspace),
-            });
-
-            if (response.isError) {
-              logFailedToolResponse(config, {
-                tool: toolNames.glob,
-                ...workspaceLogContext(workspace, extra.sessionId),
-                path: input.path,
-              }, response.content, startedAt);
-              return response;
-            }
-
-            const summary = {
-              pattern: input.pattern,
-              scope: input.path ?? ".",
-              ...textSummary(response.content),
-            };
-            logToolCall(config, {
-              tool: toolNames.glob,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-
-            return {
-              ...response,
-              _meta: {
-                tool: toolNames.glob,
-                card: {
-                  workspaceId,
-                  path: input.path,
-                  summary,
-                  payload: { content: response.content },
-                },
-              },
-              structuredContent: {
-                result: contentText(response.content),
-              },
-            };
-          },
-        });
-      },
-    );
-
-    registerAppTool(
-      server,
-      toolNames.ls,
-      {
-        title: "Ls",
-        description:
-          "List a directory inside an open workspace or the OS temp directory. Use this for directory inspection before reading files. Call open_workspace first and pass workspaceId.",
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-          path: z
-            .string()
-            .describe(
-              "Directory path to list, relative to the workspace root or absolute inside the OS temp directory.",
-            ),
-        },
-        outputSchema: resultOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "directory"),
-        annotations: { readOnlyHint: true },
-      },
-      async ({ workspaceId, ...input }, extra) => {
-        const workspace = workspaces.getWorkspace(workspaceId);
-        return runToolWithHooks(hooks, {
-          tool: toolNames.ls,
-          invocation: workspaceHookInvocation(workspace),
-          payload: { path: input.path },
-          isFailure: toolResultIsError,
-          operation: async () => {
-            const startedAt = performance.now();
-            const response = await listDirectoryTool(input, {
-              cwd: workspace.root,
-              root: workspace.root,
-              fileRoots: workspaces.fileToolRoots(workspace),
-            });
-
-            if (response.isError) {
-              logFailedToolResponse(config, {
-                tool: toolNames.ls,
-                ...workspaceLogContext(workspace, extra.sessionId),
-                path: input.path,
-              }, response.content, startedAt);
-              return response;
-            }
-
-            const summary = textSummary(response.content);
-            logToolCall(config, {
-              tool: toolNames.ls,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-
-            return {
-              ...response,
-              _meta: {
-                tool: toolNames.ls,
-                card: {
-                  workspaceId,
-                  path: input.path,
-                  summary,
-                  payload: { content: response.content },
-                },
-              },
-              structuredContent: {
-                result: contentText(response.content),
-              },
-            };
-          },
-        });
-      },
-    );
-  }
-
   if (config.toolMode !== "codex") {
     registerAppTool(
       server,
@@ -2635,16 +2336,6 @@ export function createMcpServer(
   }
 
   registerProcessTools(server, config, workspaces, processSessions, hooks);
-
-  if (config.artifactsEnabled && isArtifactDownloadSupportedPlatform()) {
-    registerArtifactTools(server, {
-      config,
-      workspaces,
-      hooks,
-      incomingArtifactAdapters,
-      incomingArtifactRegistry,
-    });
-  }
 
   return server;
 }

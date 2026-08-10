@@ -88,20 +88,20 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       assertWorkspaceRoot(state, workspaceId, root);
 
       if (!state?.gitRoot) {
-        throw new Error(state?.diagnostic ?? "show_changes requires a Git workspace in this version.");
+        throw new Error(state?.diagnostic ?? "review.changes requires a Git workspace in this version.");
       }
 
       let effectiveSince = since;
       let usedWorkspaceOpenFallback = false;
       if (since === "last_shown" && !state.baselineRefAvailable) {
         if (!state.openRefAvailable) {
-          throw new Error("Review checkpoints are missing; show_changes cannot reconstruct that history safely.");
+          throw new Error("Review checkpoints are missing; review.changes cannot reconstruct that history safely.");
         }
         effectiveSince = "workspace_open";
         usedWorkspaceOpenFallback = true;
       } else if (since === "workspace_open" && !state.openRefAvailable) {
         throw new Error(
-          "The workspace-open review checkpoint is missing; show_changes cannot reconstruct that history safely.",
+          "The workspace-open review checkpoint is missing; review.changes cannot reconstruct that history safely.",
         );
       }
 
@@ -165,7 +165,7 @@ async function initializeWorkspaceState(
   try {
     const eligibility = await getGitEligibility(root);
     if (!eligibility.ok || !eligibility.gitRoot) {
-      state.diagnostic = eligibility.message ?? "show_changes requires a Git workspace in this version.";
+      state.diagnostic = eligibility.message ?? "review.changes requires a Git workspace in this version.";
       return;
     }
 

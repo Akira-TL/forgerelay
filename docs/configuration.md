@@ -78,7 +78,7 @@ FORGERELAY_ARTIFACTS=1 npx @akira-tl/forgerelay serve
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FORGERELAY_ARTIFACTS` | `0` | Expose `download_artifact` for trusted native files. |
+| `FORGERELAY_ARTIFACTS` | `0` | Advertise the `artifact.download` Capability for trusted native files. |
 | `FORGERELAY_ARTIFACT_MAX_FILE_BYTES` | `104857600` | Maximum streamed size of one file (100 MiB). |
 
 The same settings may be persisted as `artifactsEnabled` and
@@ -115,20 +115,22 @@ MCP clients discover metadata from:
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default. Exposes `open_workspace`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, `bash`, and `capability`. |
-| `full` | Adds dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Experimental Codex-shaped compatibility surface using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `capability`. |
+| `minimal` | Default canonical surface: `open_workspace`, `capability`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, and `bash`. |
+| `full` | Compatibility value. Uses the same canonical 9-tool surface as `minimal`; search and directory inspection go through `bash`. |
+| `codex` | Experimental Codex-shaped compatibility adapter using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `capability`. It does not define the ForgeRelay canonical interface. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
 explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
 also accepted.
 
-The selected mode controls the real `tools/list` surface. ForgeRelay does not
-hide callable tools behind capability documentation. In every mode,
+`minimal` and `full` now resolve to the same regular 9-tool `tools/list`; `full`
+is retained only as a configuration-compatibility value. `codex` selects a
+separate compatibility adapter. ForgeRelay does not hide core callable tools
+behind capability documentation. In every mode,
 `open_workspace` returns a `capabilityFingerprint` containing the package
 version, tool mode, and stable semantic capability names. The fingerprint also
 reports enabled optional domains such as subagent profile discovery, native
-artifact download, MCP App UI, or aggregate `show_changes` review when those
+artifact download, MCP App UI, or aggregate `review.changes` when those
 features are actually available; it remains a semantic summary rather than a
 copy of `tools/list`.
 
@@ -142,8 +144,8 @@ the corresponding feature is enabled, so disabled features do not add bootstrap
 context.
 
 There is no separate progressive-disclosure configuration switch. Capability
-Guide discovery is built in, while actual tool exposure continues to be
-controlled by `FORGERELAY_TOOL_MODE` and feature-specific settings. If the
+Guide discovery is built in, while optional low-frequency actions are advertised
+through the workspace Capability catalog instead of adding top-level tools. If the
 fingerprint reports a capability that is missing from the Host's current tool
 snapshot, treat that as stale Host MCP metadata: reconnect/refresh the integration
 or use a Host context that reloads `tools/list`. The ForgeRelay process cannot
@@ -186,7 +188,7 @@ regular Agent workflows should use the single `bash` process lifecycle.
 | Value | Behavior |
 | --- | --- |
 | `full` | Default. Attach UI to exposed workspace/file/edit/shell tools. |
-| `changes` | Attach UI to `open_workspace` and aggregate `show_changes`. |
+| `changes` | Attach UI to `open_workspace` and Capability Gateway review results from `review.changes`. |
 | `off` | Disable widget UI. |
 
 ## Lifecycle hooks
