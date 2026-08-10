@@ -1,61 +1,74 @@
 # Contributing
 
-## Read This First
+Thanks for your interest in improving ForgeRelay.
 
-I'm not actively accepting contributions right now.
+Bug reports, reliability problems, performance issues, documentation improvements, design feedback, and feature suggestions are all welcome. If something is confusing, broken, inefficient, or could be improved, please open an issue.
 
-You can still open an issue or PR, but please do so knowing there is a high chance I close it, defer it forever, or never look at it.
+Pull requests are welcome as well, but ForgeRelay maintains a high bar for changes that become part of the project. A change being useful or necessary does not by itself mean that a particular implementation will be merged.
 
-If that sounds annoying, that is because it is. This project is still early and me and users trying to keep it scoped, quality, and direction under control.
+## Before You Start
 
-## What I'm Most Likely To Accept
+For small, well-understood bug fixes or maintenance changes, a focused pull request is usually fine.
 
-Small, focused bug fixes.
+For non-trivial changes, new features, architectural work, public API changes, or anything that substantially changes product behavior, please open an issue first.
 
-Small reliability fixes.
+This gives us a chance to agree on the problem, scope, and direction before significant implementation work is done.
 
-Small performance improvements.
+ForgeRelay has an existing roadmap, domain model, architecture decisions, and project documentation. Please read the relevant material before proposing substantial changes. Suggestions that challenge the current direction are welcome, but implementations should not silently replace established project decisions without discussing them first.
 
-Tightly scoped maintenance work that clearly improves the project without changing its direction.
+## Issues
 
-## What I Least Likely To Accept
+Please feel free to open issues for:
 
-Large PRs.
+- bugs and regressions;
+- performance or memory problems;
+- reliability and cross-platform problems;
+- confusing behavior or documentation;
+- feature requests and product improvements;
+- architectural or implementation suggestions.
 
-Drive-by feature work.
+You do not need to arrive with a complete solution.
 
-Opinionated rewrites.
+A useful issue explains what you observed, what you expected, and why the problem or improvement matters. Reproduction steps, logs, examples, measurements, or screenshots are especially helpful when applicable.
 
-Anything that expands product scope without discussing it in community or asking for it first.
+Opening an issue does not guarantee that the proposed solution or feature will be adopted, but good reports and suggestions are valuable even when the final implementation takes a different form.
 
-If you open a 1,000+ line PR full of new features, I will probably close it quickly and remember that you ignored the clearly written instructions.
+## Pull Requests
 
-## If You Still Want To Open A PR
+Keep pull requests focused and independently understandable.
 
-Keep it small.
+A PR should clearly explain what problem it solves, why the change belongs in ForgeRelay, and how the behavior was verified. Do not combine unrelated fixes, opportunistic rewrites, formatting churn, or broad refactors with the change being proposed.
 
-Explain exactly what changed.
+Changes are evaluated on more than whether the underlying idea is useful. The implementation also needs to fit the project's architecture, scope, security boundaries, compatibility requirements, maintainability standards, and testing expectations.
 
-Explain exactly why the change should exist.
+This means a PR may be declined even when the problem it addresses is real and worth fixing. In that case, the idea may be implemented differently, reduced in scope, or incorporated later as part of the project's planned work.
 
-Do not mix unrelated fixes together.
+That is not a rejection of the contribution itself; it is part of keeping the codebase coherent.
 
-If the PR makes anything resembling a UI change, include clear before/after images.
+## Follow the Project Direction
 
-If the change depends on motion, timing, transitions, or interaction details, include a short video.
+For planned areas of work, prefer the interfaces, terminology, release direction, and architectural boundaries documented by the project.
 
-If I have to guess what changed, I are much less likely to review it.
+In particular, check the roadmap, relevant ADRs, domain documentation, and contributor-facing guidance before starting substantial work.
 
-## Issues First
+If you think the documented direction is wrong, incomplete, or unnecessarily restrictive, open an issue and make the case. The project is open to changing its decisions when there is a good reason, but those decisions should be changed explicitly rather than bypassed in implementation.
 
-If you are thinking about a non-trivial change, open an issue first.
+## Quality Expectations
 
-That still does not mean I will want the PR, but it gives you a chance to avoid wasting your time.
+Changes should be as small as the problem reasonably allows while still being complete.
 
-## Be Realistic
+New behavior should have appropriate regression coverage. Bug fixes should demonstrate the failure being fixed when practical. Performance work should include evidence that the relevant behavior improves. Public behavior and compatibility changes should be tested through the same interfaces users actually consume.
 
-Opening a PR does not create an obligation on our side.
+Avoid unnecessary abstractions, speculative infrastructure, unrelated cleanup, and large rewrites when a smaller change solves the problem.
 
-I may close it. I may ignore it. I may ask you to shrink it. I may reimplement the idea ourselves later.
+For UI changes, include clear before-and-after images. If the change depends on motion, timing, transitions, or interaction behavior, include a short recording as well.
 
-If you are fine with that, proceed.
+## Review and Maintainer Decisions
+
+Submitting a pull request starts a review; it does not create an obligation to merge the change.
+
+Maintainers may ask for changes, reduce the scope, suggest another implementation, defer the work to a planned release, or close a PR that does not fit the project.
+
+When a contribution is declined, the goal is to give a concrete reason whenever possible: scope, architecture, quality, compatibility, duplication, project direction, or another identifiable constraint.
+
+The project welcomes contributions and ideas, while retaining a deliberately high bar for what becomes part of ForgeRelay.
