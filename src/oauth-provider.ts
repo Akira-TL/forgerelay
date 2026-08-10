@@ -167,6 +167,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       return;
     }
 
+    this.pruneExpiredAuthorizationCodes();
     const code = `code-${randomUUID()}`;
     this.codes.set(code, {
       clientId: client.client_id,
@@ -257,13 +258,21 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   }
 
   close(): void {
+    this.codes.clear();
     this.oauthStore.close();
+  }
+
+  private pruneExpiredAuthorizationCodes(nowMs = Date.now()): void {
+    for (const [code, record] of this.codes) {
+      if (record.expiresAtMs < nowMs) this.codes.delete(code);
+    }
   }
 
   private validCodeRecord(
     client: OAuthClientInformationFull,
     authorizationCode: string,
   ): AuthorizationCodeRecord {
+    this.pruneExpiredAuthorizationCodes();
     const record = this.codes.get(authorizationCode);
     if (!record || record.clientId !== client.client_id || record.expiresAtMs < Date.now()) {
       throw new InvalidGrantError("Invalid authorization code");

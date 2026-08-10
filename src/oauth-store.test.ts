@@ -24,6 +24,7 @@ try {
   testPersistenceAndTokenHashing(join(root, "persistence"));
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
+  await testProviderPrunesExpiredAuthorizationCodes(join(root, "authorization-code-pruning"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
@@ -185,6 +186,61 @@ function testTransactionalTokenRotation(stateDir: string): void {
   } finally {
     store.close();
   }
+}
+
+async function testProviderPrunesExpiredAuthorizationCodes(stateDir: string): Promise<void> {
+  const provider = new SingleUserOAuthProvider(oauthConfig, mcpUrl, stateDir);
+  const client = await provider.clientsStore.registerClient?.({
+    redirect_uris: [redirectUri],
+    client_name: "ChatGPT",
+  });
+  assert.ok(client);
+
+  const expiredCode = "code-expired";
+  const activeCode = "code-active";
+  provider["codes"].set(expiredCode, {
+    clientId: client.client_id,
+    params: {
+      redirectUri,
+      codeChallenge: "expired-challenge",
+      scopes: ["devspace"],
+      resource: mcpUrl,
+    },
+    expiresAtMs: Date.now() - 1,
+  });
+  provider["codes"].set(activeCode, {
+    clientId: client.client_id,
+    params: {
+      redirectUri,
+      codeChallenge: "active-challenge",
+      scopes: ["devspace"],
+      resource: mcpUrl,
+    },
+    expiresAtMs: Date.now() + 60_000,
+  });
+
+  await provider.exchangeAuthorizationCode(
+    client,
+    activeCode,
+    undefined,
+    redirectUri,
+    mcpUrl,
+  );
+  assert.equal(provider["codes"].has(expiredCode), false);
+  assert.equal(provider["codes"].has(activeCode), false);
+
+  provider["codes"].set("code-close-cleanup", {
+    clientId: client.client_id,
+    params: {
+      redirectUri,
+      codeChallenge: "close-challenge",
+      scopes: ["devspace"],
+      resource: mcpUrl,
+    },
+    expiresAtMs: Date.now() + 60_000,
+  });
+  provider.close();
+  assert.equal(provider["codes"].size, 0);
 }
 
 async function testProviderRestartRotationAndRevocation(stateDir: string): Promise<void> {
