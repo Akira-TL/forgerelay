@@ -28,9 +28,9 @@ processId: <number>
 
 `action="run"` 与 `action="process"` 的参数不要混用。Process ownership 始终绑定原 `workspaceId`；未知或跨 workspace 的 `processId` 会被拒绝。
 
-等待超时不会隐式 kill process。若没有必要立即等待，可以继续其他工作；进程完成后，ForgeRelay 会把 completion notice 一次性附加到同一 logical workspace 的后续 tool result。
+等待超时不会隐式 kill process。若没有必要立即等待，可以继续其他工作；进程完成后，ForgeRelay 会把 completion notice 一次性附加到同一 logical workspace 的后续 tool result。未消费的 completed process notice 最多保留 5 分钟；进程退出时底层 ChildProcess/PTY handle 会立即释放。ForgeRelay 同时对 active process 与 completed notice 数量设置全局资源预算，达到 active process 上限时会拒绝启动新的命令，而不会擅自终止已有长任务。
 
-不要因为暂时没有输出就重复启动相同长进程；先用返回的 `processId` poll。
+不要因为暂时没有输出就重复启动相同长进程；先用返回的 `processId` poll。高输出命令会使用有界 head/tail buffer，不能把 ForgeRelay 当作无限历史日志存储。
 
 ## PTY / interactive commands
 

@@ -157,10 +157,16 @@ CLAUDE.md
 CLAUDE.MD
 ```
 
-Nested project instruction files are returned as available paths rather than all
-being injected eagerly. Read the relevant nested file before working under that path.
-`FORGERELAY_AGENT_DIR` is not an instruction source; it remains only a compatibility
-skill-discovery path.
+To keep broad workspaces such as `~` fast, initial nested-instruction discovery is
+bounded to direct child directories instead of recursively walking the whole tree.
+Deeper `AGENTS.md` / `CLAUDE.md` files are discovered lazily along a path the first
+time the Agent accesses it, and already-scanned directories are cached for the life
+of that workspace handle. A `read` result carries any newly discovered local
+instructions before the requested file content. Side-effecting file tools and shell
+commands discover instructions before execution; if new local instructions are
+found, ForgeRelay returns them and requires the Agent to retry, so the side effect
+does not occur before the relevant instructions are known. `FORGERELAY_AGENT_DIR`
+is not an instruction source; it remains only a compatibility skill-discovery path.
 
 ## MCP capability loading
 

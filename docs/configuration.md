@@ -193,13 +193,24 @@ files. For a managed-worktree-backed workspace, `close_workspace` requires
 `commitMessage` and runs the existing safe worktree finalize lifecycle: close Hooks,
 commit when needed, fast-forward-only integration, cleanup, and alias invalidation.
 
+Hot workspace/session activity timestamps are coalesced in memory and flushed to the
+SQLite state database in a transaction at most every five minutes; normal shutdown
+performs a final explicit flush. Reads within the running ForgeRelay process see the
+latest in-memory timestamps immediately. Workspace creation, close/status changes,
+context-delivery checkpoints, and other semantic state transitions remain immediate
+persistent writes. A hard process crash may therefore lose only the most recent
+activity timestamp window, not the existence or closed/open state of a workspace.
+
 Regular `bash` has no execution-timeout input. `action="run"` (the default) waits
 in the foreground for at most 300 seconds; if the process is still alive, the
 result contains `running: true` and a canonical `processId`. Reuse the same `bash`
 with `action="process"` to poll/wait, send `input`, resize a PTY, or set
 `interrupt:true`; each wait can be up to 300 seconds. ForgeRelay does not kill a
 process merely because a wait window expires. Completed background processes are
-delivered once with a later tool result for the same logical workspace ID.
+delivered once with a later tool result for the same logical workspace ID. An
+unconsumed completed-process notice is retained for at most five minutes, and
+ForgeRelay also bounds active and completed process counts so repeated background
+commands cannot grow server memory without limit.
 
 Codex mode retains `write_stdin` only as an experimental compatibility adapter;
 regular Agent workflows should use the single `bash` process lifecycle.
@@ -348,8 +359,12 @@ Arrays or empty values are not accepted. Symbolic links are followed, so the
 runtime entry may point at a canonical source elsewhere on disk.
 
 Project-root `AGENTS.md` / `CLAUDE.md` files remain project context and are
-loaded separately. `FORGERELAY_AGENT_DIR` does not select a global instruction
-file; it remains a compatibility path for Agent Skills.
+loaded separately. Initial nested-instruction discovery checks only direct child
+directories; deeper instruction files are discovered lazily when a workspace path
+is first accessed. Reads surface newly discovered instructions inline, while
+side-effecting file/shell operations stop before execution and require a retry if
+that access discovers new local instructions. `FORGERELAY_AGENT_DIR` does not
+select a global instruction file; it remains a compatibility path for Agent Skills.
 
 ## Skills and subagents
 

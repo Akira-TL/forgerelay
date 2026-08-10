@@ -183,6 +183,17 @@ capability
 - inventory 区分持久化 `status` 与派生 `state`：`status="active"` 表示尚未显式关闭，`state` 再区分 active、stale、invalid 与 closed；missing root 或外部删除的 managed worktree 可以保持可诊断的 active record，同时显示为 invalid；
 - inventory 查看本身不刷新 workspace `lastUsedAt`，支持过滤与分页，并继续让现有 `close_workspace` 承担用户确认后的实际清理/finalize lifecycle。
 
+### 0.3.7 — 资源生命周期与 Workspace I/O 性能补丁
+
+0.3.7 处理长时间运行实例在高请求量、高输出 `bash`、大量 logical workspace 与宽根目录下的资源放大问题，不改变 canonical 9-tool surface：
+
+- completed background process 的 Agent 可消费状态最多保留 5 分钟；底层 ChildProcess/PTY handle 在退出时立即释放，completed notice 数量与 active process 数量都有硬上限，并缩小单 process 输出驻留预算；
+- 高输出 head/tail buffer 保留 Unicode code-point 语义，但不再通过 `Array.from(整段输出)` 构造巨型临时数组，降低 V8 heap 扩容与 GC 压力；
+- MCP transport registry 与 review checkpoint state 加入容量边界；正常 transport close/workspace close 仍立即释放，异常遗弃对象不能再无限累积；OAuth 过期 authorization code 也会主动淘汰；
+- `open_workspace` 的 instruction discovery 首轮只检查 root 与直接子目录，不再递归整棵 workspace。更深层 `AGENTS.md` / `CLAUDE.md` 在 Agent 首次访问对应路径时沿祖先目录惰性发现，并缓存已扫描目录；read 可直接携带新发现指令，write/edit/rename/delete/bash 等副作用调用则在执行前返回指令并要求重试；
+- Workspace SQLite 继续作为本地持久化真源，不引入 Redis/PostgreSQL/Docker。高频 session/conversation `lastUsedAt` touch 进入内存 write-behind cache，最多每 5 分钟事务批量 flush，normal shutdown 再显式 flush；create/close/status 等语义性状态仍同步持久化；
+- debug runtime telemetry 定期报告 RSS/heap、transport、process、workspace cache 与 review state 数量，为后续真实实例资源趋势提供可观测性。
+
 必要安全语义始终留在 Core tool interface、Capability contract 或自动 Hook report 中；渐进式披露不能成为隐藏权限、隐式 autonomous workflow 或绕过 allowed roots/auth 的机制。`rename` 继续作为文件和目录 move/rename 的统一 primitive。
 
 ## 0.4 — LSP code intelligence v1

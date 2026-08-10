@@ -4,6 +4,21 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added debug-only runtime resource telemetry for RSS/V8 heap, MCP transport count, running/completed process counts, cached workspaces, and review checkpoint state so long-running deployments can identify which resource class is growing.
+
+### Changed
+
+- Background `bash` completion state is now retained for at most five minutes, completed process handles are released immediately, completed notices are globally bounded, active processes have a global concurrency budget, and per-process retained output is smaller. High-output head/tail truncation no longer materializes whole strings as Unicode code-point arrays, sharply reducing transient heap growth and GC pressure.
+- Abandoned MCP transport sessions and in-memory review checkpoint states now have hard capacity limits. Review state is also released when its logical workspace closes, while persisted Git checkpoint refs remain available for reconstruction.
+- Workspace instruction discovery is now bounded and demand-driven: `open_workspace` scans only the workspace root and direct child directories, while deeper `AGENTS.md` / `CLAUDE.md` files are discovered along paths as the Agent first accesses them. Reads surface newly discovered instructions inline; mutation and shell calls stop before side effects and require a retry after newly discovered local instructions are applied.
+- Workspace/session activity timestamps now use a small in-process write-behind cache. Hot `lastUsedAt` touches are coalesced and flushed to SQLite in one transaction at most every five minutes, with an explicit final flush during normal shutdown; semantic create/close/status writes remain immediate.
+
+### Fixed
+
+- Expired, never-redeemed OAuth authorization codes are opportunistically evicted and cleared on provider shutdown instead of remaining in memory for the lifetime of the server.
+
 ## [0.3.6] - 2026-08-10
 
 ### Added
