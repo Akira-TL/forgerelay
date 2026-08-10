@@ -27,9 +27,11 @@ import {
 } from "./capability-registry.js";
 import { deletePath, renamePath } from "./file-mutations.js";
 import {
+  downloadIncomingArtifact,
   isArtifactDownloadSupportedPlatform,
   registerArtifactTools,
 } from "./artifact-tools.js";
+import { ArtifactError } from "./artifact-error.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
 import { checkHookConfiguration } from "./hook-cli.js";
@@ -41,6 +43,7 @@ import {
 } from "./mcp/server-instructions.js";
 import {
   createOpenAIIncomingArtifactAdapter,
+  IncomingArtifactAdapterRegistry,
   type IncomingArtifactAdapter,
 } from "./incoming-artifacts.js";
 import {
@@ -140,7 +143,8 @@ type ToolWidgetKind =
   | "search"
   | "directory"
   | "shell"
-  | "show_changes";
+  | "show_changes"
+  | "capability";
 
 interface ToolDefinitionMeta extends Record<string, unknown> {
   ui: {
@@ -163,7 +167,7 @@ function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
     case "off":
       return false;
     case "changes":
-      return kind === "workspace" || kind === "show_changes";
+      return kind === "workspace" || kind === "show_changes" || kind === "capability";
     case "full":
       return true;
   }
@@ -745,6 +749,17 @@ function capabilityContextFor(workspace: Workspace): CapabilityContext {
   };
 }
 
+async function reviewWorkspaceChanges(
+  reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>,
+  workspace: Pick<Workspace, "id" | "root">,
+) {
+  return reviewCheckpoints.reviewChanges({
+    workspaceId: workspace.id,
+    root: workspace.root,
+    markReviewed: true,
+  });
+}
+
 function toolResultIsError(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
 }
@@ -939,8 +954,65 @@ export function createMcpServer(
     process.env,
     (workspaceId, result) => attachCompletedProcessNotices(processSessions, workspaceId, result),
   );
+  const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
+  const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
+  const reviewChangesAvailable = config.widgets === "changes";
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+    reviewChanges: {
+      available: reviewChangesAvailable,
+      unavailableReason: reviewChangesAvailable
+        ? undefined
+        : "Aggregate change review is disabled; start ForgeRelay with widgets=changes.",
+      run: async (context) => {
+        const review = await reviewWorkspaceChanges(reviewCheckpoints, {
+          id: context.workspaceId,
+          root: context.workspaceRoot,
+        });
+        return {
+          value: {
+            result: review.result,
+            summary: review.summary,
+            files: review.files,
+          },
+          card: {
+            tool: "show_changes",
+            summary: review.summary,
+            files: review.files,
+            payload: { patch: review.patch },
+          },
+        };
+      },
+    },
+    downloadArtifact: {
+      available: artifactDownloadAvailable,
+      unavailableReason: !config.artifactsEnabled
+        ? "Native artifact ingress is disabled."
+        : !isArtifactDownloadSupportedPlatform()
+          ? "Native artifact ingress is unsupported on this platform."
+          : undefined,
+      run: async (input, context) => {
+        try {
+          const downloaded = await downloadIncomingArtifact({
+            registry: incomingArtifactRegistry,
+            workspaceId: context.workspaceId,
+            workspaceRoot: context.workspaceRoot,
+            maxFileBytes: config.artifactMaxFileBytes,
+            file: input.file,
+            path: input.path,
+          });
+          return {
+            value: { path: downloaded.path },
+            changedPaths: [downloaded.path],
+          };
+        } catch (error) {
+          if (error instanceof ArtifactError) {
+            throw new CapabilityError(`artifact.${error.code}`, error.message);
+          }
+          throw error;
+        }
+      },
+    },
   });
   const server = new McpServer(
     {
@@ -1321,7 +1393,11 @@ export function createMcpServer(
         arguments: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe("Capability-specific arguments. Omit for describe and for capabilities with no arguments."),
+          .describe("Capability-specific JSON arguments. Omit for describe and for capabilities with no arguments."),
+        file: z
+          .unknown()
+          .optional()
+          .describe("Host-native file value. Only capabilities whose describe result advertises native-file transport may consume it."),
       },
       outputSchema: {
         name: z.string(),
@@ -1330,21 +1406,26 @@ export function createMcpServer(
         result: z.unknown().optional(),
         error: capabilityErrorOutputSchema.optional(),
       },
-      _meta: {},
+      _meta: {
+        ...toolWidgetDescriptorMeta(config, "capability")._meta,
+        "openai/fileParams": ["file"],
+      },
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
-        openWorldHint: false,
+        openWorldHint: true,
       },
     },
-    async ({ workspaceId, name, action, arguments: capabilityArguments }) => {
+    async ({ workspaceId, name, action, arguments: capabilityArguments, file }) => {
       const workspace = workspaces.getWorkspace(workspaceId);
+      let changedPaths: string[] = [];
       return runToolWithHooks(hooks, {
         tool: toolNames.capability,
         invocation: workspaceHookInvocation(workspace),
         payload: { name, action },
         isFailure: toolResultIsError,
+        changedPaths: () => changedPaths,
         operation: async () => {
           const startedAt = performance.now();
           try {
@@ -1372,14 +1453,29 @@ export function createMcpServer(
               return result;
             }
 
-            const capabilityResult = await capabilityRegistry.run(
+            const execution = await capabilityRegistry.run(
               name,
               capabilityArguments ?? {},
               capabilityContextFor(workspace),
+              { nativeFile: file },
             );
+            changedPaths = execution.changedPaths ?? [];
             const result = {
-              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(capabilityResult, null, 2)}`)],
-              structuredContent: { name, action, result: capabilityResult },
+              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+              ...(execution.card
+                ? {
+                    _meta: {
+                      tool: execution.card.tool ?? toolNames.capability,
+                      card: {
+                        workspaceId,
+                        summary: execution.card.summary ?? {},
+                        files: execution.card.files,
+                        payload: execution.card.payload ?? {},
+                      },
+                    },
+                  }
+                : {}),
+              structuredContent: { name, action, result: execution.value },
             };
             logToolCall(config, {
               tool: toolNames.capability,
@@ -2080,11 +2176,7 @@ export function createMcpServer(
           invocation: workspaceHookInvocation(workspace),
           operation: async () => {
             const startedAt = performance.now();
-            const review = await reviewCheckpoints.reviewChanges({
-              workspaceId,
-              root: workspace.root,
-              markReviewed: true,
-            });
+            const review = await reviewWorkspaceChanges(reviewCheckpoints, workspace);
 
             const content = [textBlock(review.result)];
             logToolCall(config, {
@@ -2435,6 +2527,7 @@ export function createMcpServer(
       workspaces,
       hooks,
       incomingArtifactAdapters,
+      incomingArtifactRegistry,
     });
   }
 

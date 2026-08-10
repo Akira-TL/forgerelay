@@ -4,6 +4,15 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added `review.changes` and `artifact.download` as registered Capability Gateway actions. Review preserves the existing Git-backed checkpoint and diff-card metadata; native artifact ingress preserves Host-native file transport, workspace-relative no-overwrite publication, size limits, and `AfterFileChange` lifecycle reporting.
+
+### Changed
+
+- The Capability catalog now advertises only capabilities that are actually available in the current runtime. Explicit calls to known-but-disabled capabilities still return stable `capability_unavailable` diagnostics.
+- `show_changes` and `download_artifact` remain compatibility aliases for the 0.3.3 migration window, but the artifacts/review guide now treats the Capability Gateway as the canonical Agent workflow.
+
 ## [0.3.2] - 2026-08-10
 
 ### Added

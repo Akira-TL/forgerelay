@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +12,7 @@ import { buildCapabilityFingerprint } from "./capabilities.js";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";
+import type { IncomingArtifactAdapter } from "./incoming-artifacts.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { ProcessManager } from "./process-sessions.js";
 import { createMcpServer } from "./server.js";
@@ -219,6 +221,146 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   });
   assert.equal(unknown.isError, true);
   assert.equal((structuredContent(unknown).error as Record<string, unknown>).code, "unknown_capability");
+});
+
+test("review.changes capability shares checkpoints, Hook reports, and diff card metadata with show_changes", async (t) => {
+  const context = await fixture(t, {
+    git: true,
+    env: { DEVSPACE_WIDGETS: "changes" },
+    hooks: {
+      BeforeTool: [{
+        matcher: { tool: "capability" },
+        handlers: [{ name: "Capability preflight", command: "node -e \"process.exit(0)\"" }],
+      }],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "review-capability-chat");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
+  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes"]);
+
+  const written = await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId, path: "reviewed.txt", content: "review capability\n" },
+  });
+  assert.equal(written.isError, undefined);
+
+  const reviewed = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "review.changes", action: "run", arguments: {} },
+  });
+  assert.equal(reviewed.isError, undefined);
+  const reviewResult = structuredContent(reviewed).result as {
+    result?: string;
+    summary?: { files?: number };
+  };
+  assert.match(reviewResult.result ?? "", /Changed 1 file/);
+  assert.equal(reviewResult.summary?.files, 1);
+  assert.match(allResponseText(reviewed), /Capability preflight \(BeforeTool, global\) passed/);
+  const reviewMeta = (reviewed as { _meta?: Record<string, unknown> })._meta as {
+    tool?: string;
+    card?: { payload?: { patch?: string }; summary?: { files?: number } };
+  } | undefined;
+  assert.equal(reviewMeta?.tool, "show_changes");
+  assert.equal(reviewMeta?.card?.summary?.files, 1);
+  assert.match(reviewMeta?.card?.payload?.patch ?? "", /reviewed\.txt/);
+
+  const alias = await context.client.callTool({
+    name: "show_changes",
+    arguments: { workspaceId },
+  });
+  assert.equal(alias.isError, undefined);
+  assert.match(responseText(alias), /No changes since last shown changes/);
+});
+
+test("artifact.download capability preserves native-file transport and download_artifact compatibility", async (t) => {
+  const adapter: IncomingArtifactAdapter = {
+    id: "server-test-native",
+    canHandle: () => true,
+    async open() {
+      return {
+        name: "artifact.txt",
+        size: 5,
+        stream: Readable.from([Buffer.from("hello")]),
+      };
+    },
+  };
+  const context = await fixture(t, {
+    env: { DEVSPACE_ARTIFACTS: "1" },
+    incomingArtifactAdapters: [adapter],
+    hooks: {
+      AfterFileChange: [{
+        matcher: { tool: "capability", pathRegex: "^downloads/" },
+        handlers: [{ name: "Artifact changed", command: "node -e \"process.exit(0)\"" }],
+      }],
+    },
+  });
+  const tools = await context.client.listTools();
+  const gateway = tools.tools.find((tool) => tool.name === "capability");
+  assert.deepEqual((gateway?._meta as Record<string, unknown> | undefined)?.["openai/fileParams"], ["file"]);
+
+  const opened = await callOpen(context.client, context.project, "artifact-capability-chat");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
+  const artifactAvailable = process.platform === "linux";
+  assert.equal(catalog.some((entry) => entry.name === "artifact.download"), artifactAvailable);
+  assert.equal(tools.tools.some((tool) => tool.name === "download_artifact"), artifactAvailable);
+  if (!artifactAvailable) return;
+
+  const described = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "artifact.download", action: "describe" },
+  });
+  const capability = structuredContent(described).capability as {
+    transport?: { nativeFileArgument?: string; gatewayParameter?: string };
+  };
+  assert.deepEqual(capability.transport, {
+    nativeFileArgument: "file",
+    gatewayParameter: "file",
+  });
+
+  const file = {
+    download_url: "https://files.oaiusercontent.com/file_server_test/download",
+    file_id: "file_server_test",
+    file_name: "artifact.txt",
+  };
+  const downloaded = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "artifact.download",
+      action: "run",
+      arguments: { path: "downloads/artifact.txt" },
+      file,
+    },
+  });
+  assert.equal(downloaded.isError, undefined);
+  assert.deepEqual(structuredContent(downloaded).result, { path: "downloads/artifact.txt" });
+  assert.match(allResponseText(downloaded), /Artifact changed \(AfterFileChange, global\) passed/);
+  assert.equal(await readFile(join(context.project, "downloads", "artifact.txt"), "utf8"), "hello");
+
+  const conflict = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "artifact.download",
+      action: "run",
+      arguments: { path: "downloads/artifact.txt" },
+      file,
+    },
+  });
+  assert.equal(conflict.isError, true);
+  assert.equal(
+    (structuredContent(conflict).error as { code?: string }).code,
+    "artifact.artifact_destination_exists",
+  );
+
+  const alias = await context.client.callTool({
+    name: "download_artifact",
+    arguments: { workspaceId, path: "downloads/alias.txt", file },
+  });
+  assert.equal(alias.isError, undefined);
+  assert.equal(await readFile(join(context.project, "downloads", "alias.txt"), "utf8"), "hello");
 });
 
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
@@ -1326,6 +1468,7 @@ async function fixture(
     env?: NodeJS.ProcessEnv;
     hooks?: HookConfigInput;
     processSessions?: ProcessManager;
+    incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
   } = {},
 ): Promise<ServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
@@ -1378,7 +1521,7 @@ async function fixture(
     createReviewCheckpointManager(),
     processSessions,
     [],
-    [],
+    options.incomingArtifactAdapters ?? [],
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "devspace-test-client", version: "1.0.0" });

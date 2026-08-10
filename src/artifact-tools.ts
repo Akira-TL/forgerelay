@@ -52,6 +52,7 @@ export interface ArtifactToolRegistrationOptions {
   workspaces: WorkspaceRegistry;
   hooks: HookRunner;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
+  incomingArtifactRegistry?: IncomingArtifactAdapterRegistry;
 }
 
 export interface DownloadIncomingArtifactInput {
@@ -91,9 +92,11 @@ export function registerArtifactTools(
     workspaces,
     hooks,
     incomingArtifactAdapters = [],
+    incomingArtifactRegistry,
   }: ArtifactToolRegistrationOptions,
 ): void {
-  const incomingRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
+  const incomingRegistry = incomingArtifactRegistry
+    ?? new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
 
   registerAppTool(
     server,

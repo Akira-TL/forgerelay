@@ -4,7 +4,8 @@ export type CapabilityErrorCode =
   | "unknown_capability"
   | "capability_unavailable"
   | "invalid_arguments"
-  | "execution_failed";
+  | "execution_failed"
+  | `artifact.${string}`;
 
 export class CapabilityError extends Error {
   constructor(
@@ -47,6 +48,25 @@ export interface CapabilityDescription extends CapabilityCatalogEntry {
     whenToRead: string;
   };
   inputSchema: Record<string, unknown>;
+  transport?: {
+    nativeFileArgument: string;
+    gatewayParameter: "file";
+  };
+}
+
+export interface CapabilityExecution {
+  value: unknown;
+  changedPaths?: string[];
+  card?: {
+    tool?: string;
+    summary?: object;
+    files?: unknown[];
+    payload?: Record<string, unknown>;
+  };
+}
+
+export interface CapabilityRunOptions {
+  nativeFile?: unknown;
 }
 
 interface CapabilityDefinition {
@@ -55,11 +75,12 @@ interface CapabilityDefinition {
   guideName: string;
   readGuideBeforeFirstUse: boolean;
   inputSchema: ZodType;
+  nativeFileArgument?: string;
   availability: (context: CapabilityContext) => {
     available: boolean;
     reason?: string;
   };
-  run: (input: unknown, context: CapabilityContext) => Promise<unknown>;
+  run: (input: unknown, context: CapabilityContext) => Promise<CapabilityExecution>;
 }
 
 export interface CapabilityRegistryDependencies {
@@ -67,6 +88,19 @@ export interface CapabilityRegistryDependencies {
     globalHooks: number;
     projectHooks: number;
   }>;
+  reviewChanges?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (context: CapabilityContext) => Promise<CapabilityExecution>;
+  };
+  downloadArtifact?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: { file: unknown; path: string },
+      context: CapabilityContext,
+    ) => Promise<CapabilityExecution>;
+  };
 }
 
 export class CapabilityRegistry {
@@ -95,7 +129,7 @@ export class CapabilityRegistry {
           readBeforeFirstUse: definition.readGuideBeforeFirstUse,
         },
       };
-    });
+    }).filter((entry) => entry.available);
   }
 
   describe(name: string, context: CapabilityContext): CapabilityDescription {
@@ -117,10 +151,23 @@ export class CapabilityRegistry {
         whenToRead: guide.whenToRead,
       },
       inputSchema: z.toJSONSchema(definition.inputSchema, { target: "draft-7" }) as Record<string, unknown>,
+      ...(definition.nativeFileArgument
+        ? {
+            transport: {
+              nativeFileArgument: definition.nativeFileArgument,
+              gatewayParameter: "file" as const,
+            },
+          }
+        : {}),
     };
   }
 
-  async run(name: string, argumentsValue: unknown, context: CapabilityContext): Promise<unknown> {
+  async run(
+    name: string,
+    argumentsValue: unknown,
+    context: CapabilityContext,
+    options: CapabilityRunOptions = {},
+  ): Promise<CapabilityExecution> {
     const definition = this.requireDefinition(name);
     const catalogEntry = this.catalogEntry(definition, context);
     if (!catalogEntry.available) {
@@ -130,7 +177,16 @@ export class CapabilityRegistry {
       );
     }
 
-    const parsed = definition.inputSchema.safeParse(argumentsValue ?? {});
+    if (options.nativeFile !== undefined && !definition.nativeFileArgument) {
+      throw new CapabilityError(
+        "invalid_arguments",
+        `Capability ${name} does not accept a Host-native file value.`,
+      );
+    }
+    const input = definition.nativeFileArgument && options.nativeFile !== undefined
+      ? { ...(isRecord(argumentsValue) ? argumentsValue : {}), [definition.nativeFileArgument]: options.nativeFile }
+      : argumentsValue ?? {};
+    const parsed = definition.inputSchema.safeParse(input);
     if (!parsed.success) {
       const details = parsed.error.issues
         .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "arguments"}: ${issue.message}`)
@@ -195,9 +251,55 @@ export function createCapabilityRegistry(
       inputSchema: hooksCheckInput,
       availability: () => ({ available: true }),
       run: async (_input, context) => ({
-        ok: true,
-        ...await dependencies.inspectHooks(context.workspaceRoot),
+        value: {
+          ok: true,
+          ...await dependencies.inspectHooks(context.workspaceRoot),
+        },
       }),
     },
+    ...(dependencies.reviewChanges
+      ? [{
+          name: "review.changes",
+          description: "Review accumulated workspace changes from the Git-backed review checkpoint.",
+          guideName: "artifacts-review",
+          readGuideBeforeFirstUse: true,
+          inputSchema: z.object({}).strict(),
+          availability: () => ({
+            available: dependencies.reviewChanges?.available ?? false,
+            reason: dependencies.reviewChanges?.unavailableReason,
+          }),
+          run: async (_input: unknown, context: CapabilityContext) => dependencies.reviewChanges!.run(context),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.downloadArtifact
+      ? [{
+          name: "artifact.download",
+          description: "Save one Host-native file into a workspace-relative destination without overwriting.",
+          guideName: "artifacts-review",
+          readGuideBeforeFirstUse: true,
+          inputSchema: z.object({
+            file: z.strictObject({
+              download_url: z.string(),
+              file_id: z.string(),
+              mime_type: z.string().nullable().optional(),
+              file_name: z.string().nullable().optional(),
+              name: z.string().nullable().optional(),
+              size: z.number().int().nonnegative().nullable().optional(),
+            }),
+            path: z.string().min(1),
+          }).strict(),
+          nativeFileArgument: "file",
+          availability: () => ({
+            available: dependencies.downloadArtifact?.available ?? false,
+            reason: dependencies.downloadArtifact?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext) =>
+            dependencies.downloadArtifact!.run(input as { file: unknown; path: string }, context),
+        } satisfies CapabilityDefinition]
+      : []),
   ]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -49,9 +49,11 @@ test("capability registry catalogs, describes, validates, and runs explicit capa
   assert.equal(described.inputSchema.additionalProperties, false);
 
   assert.deepEqual(await registry.run("hooks.check", {}, context), {
-    ok: true,
-    globalHooks: 2,
-    projectHooks: 1,
+    value: {
+      ok: true,
+      globalHooks: 2,
+      projectHooks: 1,
+    },
   });
 
   await assert.rejects(
@@ -67,6 +69,67 @@ test("capability registry catalogs, describes, validates, and runs explicit capa
   await assert.rejects(
     () => registry.run("hooks.check", {}, { ...context, guides: [] }),
     (error: unknown) => error instanceof CapabilityError && error.code === "capability_unavailable",
+  );
+});
+
+test("capability registry advertises only available optional capabilities and routes native files explicitly", async () => {
+  const registry = createCapabilityRegistry({
+    inspectHooks: async () => ({ globalHooks: 0, projectHooks: 0 }),
+    reviewChanges: {
+      available: false,
+      unavailableReason: "Review mode is disabled.",
+      run: async () => ({ value: { result: "unused" } }),
+    },
+    downloadArtifact: {
+      available: true,
+      run: async (input) => ({
+        value: { path: input.path },
+        changedPaths: [input.path],
+      }),
+    },
+  });
+  const artifactContext = {
+    ...context,
+    guides: [
+      ...context.guides,
+      {
+        name: "artifacts-review",
+        description: "Artifacts and review.",
+        whenToRead: "Read for artifacts or review.",
+        path: "~/capabilities/artifacts-review/GUIDE.md",
+      },
+    ],
+  };
+
+  assert.deepEqual(registry.catalog(artifactContext).map((entry) => entry.name), [
+    "hooks.check",
+    "artifact.download",
+  ]);
+  assert.equal(registry.describe("artifact.download", artifactContext).transport?.gatewayParameter, "file");
+  await assert.rejects(
+    () => registry.run("review.changes", {}, artifactContext),
+    (error: unknown) => error instanceof CapabilityError && error.code === "capability_unavailable",
+  );
+  assert.deepEqual(
+    await registry.run(
+      "artifact.download",
+      { path: "downloads/result.txt" },
+      artifactContext,
+      {
+        nativeFile: {
+          download_url: "https://files.oaiusercontent.com/file_123/download",
+          file_id: "file_123",
+        },
+      },
+    ),
+    {
+      value: { path: "downloads/result.txt" },
+      changedPaths: ["downloads/result.txt"],
+    },
+  );
+  await assert.rejects(
+    () => registry.run("hooks.check", {}, artifactContext, { nativeFile: {} }),
+    (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
   );
 });
 
