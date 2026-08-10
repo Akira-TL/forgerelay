@@ -273,6 +273,43 @@ try {
   manager.shutdown();
 }
 
+const retentionManager = new ProcessManager();
+const retainedBackground = await retentionManager.start({
+  workspaceId: "workspace-retention",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('retained'), 40)"`,
+  yieldTimeMs: 1,
+});
+assert.equal(retainedBackground.running, true);
+assert.ok(retainedBackground.processId);
+const retentionInternals = retentionManager as unknown as {
+  processes: Map<number, {
+    running: boolean;
+    process?: unknown;
+    cleanupTimer?: NodeJS.Timeout;
+  }>;
+};
+const retentionDeadline = Date.now() + 2_000;
+while (
+  retentionInternals.processes.get(retainedBackground.processId)?.running &&
+  Date.now() < retentionDeadline
+) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const retainedEntries = [...retentionInternals.processes.values()];
+assert.equal(retainedEntries.length, 1);
+assert.equal(retainedEntries[0]?.running, false);
+assert.equal(retainedEntries[0]?.process, undefined);
+const cleanupTimerMs = Number(
+  (retainedEntries[0]?.cleanupTimer as unknown as { _idleTimeout?: number } | undefined)?._idleTimeout
+    ?? Infinity,
+);
+assert.ok(
+  cleanupTimerMs <= 5 * 60 * 1_000,
+  "completed processes must expire within five minutes",
+);
+retentionManager.shutdown();
+
 let monotonicNow = 100;
 const timingManager = new ProcessManager({ monotonicNow: () => monotonicNow });
 const timingResultPromise = timingManager.start({

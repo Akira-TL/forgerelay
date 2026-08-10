@@ -9,7 +9,7 @@ const MAX_COMMAND_YIELD_MS = 300_000;
 const MAX_POLL_YIELD_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
 const DEFAULT_BUFFER_CHARACTERS = 1_000_000;
-const COMPLETED_PROCESS_TTL_MS = 24 * 60 * 60 * 1_000;
+const COMPLETED_PROCESS_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 
@@ -472,6 +472,7 @@ export class ProcessManager {
     processEntry.running = false;
     processEntry.exitCode = exitCode;
     processEntry.signal = signal;
+    processEntry.process = undefined;
     processEntry.resolveExit();
     if (processEntry.background) {
       const completed = this.completedByWorkspace.get(processEntry.workspaceId) ?? [];
