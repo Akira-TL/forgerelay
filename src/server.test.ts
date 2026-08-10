@@ -1209,10 +1209,14 @@ test("reported hooks are visible to the MCP agent while report false stays silen
     arguments: { workspaceId, path: "reported.txt", content: "hello\n" },
   });
   const visible = allResponseText(written);
+  const structuredVisible = String(structuredContent(written).result);
 
   assert.match(visible, /Hook results:/);
   assert.match(visible, /Write preflight.*passed/);
   assert.doesNotMatch(visible, /Silent write observer/);
+  assert.match(structuredVisible, /Hook results:/);
+  assert.match(structuredVisible, /Write preflight.*passed/);
+  assert.doesNotMatch(structuredVisible, /Silent write observer/);
 });
 
 test("BeforeTool hook failure prevents the tool operation", async (t) => {

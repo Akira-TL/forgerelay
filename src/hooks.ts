@@ -247,6 +247,11 @@ export function attachHookReports<T>(result: T, executions: HookExecutionReport[
   const summary = formatVisibleHookReports(executions);
   if (!summary || !isRecord(result) || !Array.isArray(result.content)) return result;
 
+  const structuredContent = isRecord(result.structuredContent) ? result.structuredContent : undefined;
+  const structuredResult = typeof structuredContent?.result === "string"
+    ? structuredContent.result
+    : undefined;
+
   return {
     ...result,
     content: [
@@ -256,6 +261,14 @@ export function attachHookReports<T>(result: T, executions: HookExecutionReport[
         text: summary,
       },
     ],
+    ...(structuredContent && structuredResult !== undefined
+      ? {
+          structuredContent: {
+            ...structuredContent,
+            result: `${structuredResult}\n\n${summary}`,
+          },
+        }
+      : {}),
   } as T;
 }
 
