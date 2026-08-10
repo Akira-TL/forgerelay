@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- `open_workspace(action="list")` now provides paginated logical-workspace inventory without adding a tenth Core tool. Inventory entries include a compact `project/workspaceId` label, persisted status, derived lifecycle state, checkout/worktree backing metadata, creation/last-used timestamps, idle duration, root validity, current-conversation selection, and filters for workspace ID, status, state, mode, root, and stale-only views.
+
+### Changed
+
+- Workspace bootstrap context is now deduplicated by conversation scope, canonical workspace target, and a content fingerprint instead of by logical `workspaceId`. `context="auto"` remains the default, `context="full"` forces a refresh, and `context="none"` opens or resumes a workspace without returning the full AGENTS/Skills/guide/profile bootstrap.
+- Context-delivery state is persisted independently from logical-workspace selection, so switching or closing one logical handle does not make the same conversation forget already-delivered project context. Changes to loaded instruction contents or relevant Skill, guide, profile, diagnostic, or nested-instruction metadata change the fingerprint and cause `auto` to deliver the refreshed context again.
+- Workspace inventory is read-only with respect to workspace activity timestamps and runs the existing idle-session GC before listing. Persisted `status="active"` continues to mean the session has not been explicitly closed, while the derived `state` distinguishes currently active, stale-but-valid, invalid/missing-root, and closed records.
+
 ## [0.3.5] - 2026-08-10
 
 ### Changed

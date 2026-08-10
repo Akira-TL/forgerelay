@@ -170,7 +170,18 @@ capability
 - 删除已经完成迁移的 dedicated low-frequency tool aliases，确保新增 Capability 不再扩大常驻 tool count；
 - 简化 fingerprint，使其用于版本/运行时能力摘要与 stale-Host 诊断，而不是重新枚举 tool implementation；
 - 对 `open_workspace → catalog → capability describe/read/run`、managed worktree close、长进程 interaction、review/artifact capability、MCP App 与 stale-schema 情况做 7677 acceptance 和新 Host 会话验收；
-- 0.3.5 通过后，0.3 的 MCP progressive-disclosure 主题视为完成，0.4 回到原定 LSP code intelligence v1。
+- 0.3.5 完成 canonical MCP surface 与 fresh-Host 主验收后，0.3 的 progressive-disclosure 主体设计视为稳定；后续 0.3.x 只接收验收暴露出的兼容性或 lifecycle 补丁，0.4 仍回到原定 LSP code intelligence v1。
+
+### 0.3.6 — Workspace bootstrap 与 inventory 补丁
+
+0.3.6 处理 0.3.5 fresh-Host 验收后暴露的 Workspace 上下文与 logical-workspace 管理问题，不增加新的常驻 MCP tool，也不改变 0.4 的 LSP 主路线：
+
+- `open_workspace` 的 bootstrap 去重从 logical `workspaceId` 身份提升为 conversation scope + canonical workspace target + context fingerprint；同一 conversation 切换到同一物理 checkout/worktree 的其他 logical workspace 时，只要 AGENTS、Skills、Capability guide/profile 等相关上下文没有变化，就不重复注入完整 bootstrap；
+- `open_workspace` 提供 `context="auto" | "full" | "none"`。`auto` 默认只在当前 fingerprint 尚未交付或已变化时返回完整上下文，`full` 强制刷新，`none` 只取得 workspace handle/metadata 且不会把该 fingerprint 标记为已交付；
+- context-delivery 状态与 conversation 当前绑定的 logical workspace 分离持久化，因此关闭或切换 logical handle 不会让 Agent 在同一 conversation 中忘记已经收到的项目上下文；delivery 状态继续服从有限生命周期清理，而不是永久缓存；
+- `open_workspace(action="list")` 成为按需 logical-workspace inventory 入口，不增加 `list_workspaces`/`workspace.list` 第十个 Core tool；普通开发仍直接使用默认 `action="open"`，只有续接旧任务、选择 workspace 或整理状态时才读取 inventory；
+- inventory 区分持久化 `status` 与派生 `state`：`status="active"` 表示尚未显式关闭，`state` 再区分 active、stale、invalid 与 closed；missing root 或外部删除的 managed worktree 可以保持可诊断的 active record，同时显示为 invalid；
+- inventory 查看本身不刷新 workspace `lastUsedAt`，支持过滤与分页，并继续让现有 `close_workspace` 承担用户确认后的实际清理/finalize lifecycle。
 
 必要安全语义始终留在 Core tool interface、Capability contract 或自动 Hook report 中；渐进式披露不能成为隐藏权限、隐式 autonomous workflow 或绕过 allowed roots/auth 的机制。`rename` 继续作为文件和目录 move/rename 的统一 primitive。
 

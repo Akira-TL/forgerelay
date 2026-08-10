@@ -163,12 +163,35 @@ receives a different ID for the same physical checkout/worktree. Pass
 `workspaceId` to `open_workspace` to explicitly resume an existing handle in the
 current conversation. `newWorkspace: true` allocates a new logical handle without
 creating another checkout or Git worktree and should be used only on explicit user
-request. Logical workspaces idle for more than two days are returned in `staleWorkspaces` so
-the user can choose whether to resume or release them. `close_workspace` removes a
-checkout-backed logical handle without deleting checkout files. For a managed-worktree-backed
-workspace, `close_workspace` requires `commitMessage` and runs the existing safe
-worktree finalize lifecycle: close Hooks, commit when needed, fast-forward-only
-integration, cleanup, and alias invalidation.
+request.
+
+Bootstrap delivery is tracked separately from the selected logical workspace.
+`open_workspace` defaults to `context="auto"`: ForgeRelay fingerprints the current
+project context and returns the full AGENTS/Skills/Capability-guide/profile bootstrap
+only when that conversation has not already received the current fingerprint for
+the canonical workspace target. `context="full"` forces a refresh;
+`context="none"` opens or resumes the logical workspace without returning the full
+bootstrap and does not mark the current fingerprint as delivered. Closing or
+switching a logical workspace therefore does not by itself cause unchanged project
+context to be injected again, while changed context produces a new fingerprint and
+is delivered on the next `auto` open.
+
+Use `open_workspace(action="list")` only when the Agent needs to continue an older
+logical workspace, choose among multiple handles, or organize workspace state. The
+inventory is paginated (50 records by default, at most 100) and can filter by
+workspace ID, persisted status, derived state, mode, canonical root/source root, or
+stale-only state. Reading inventory does not refresh `lastUsedAt`. Persisted
+`status="active"` means the record has not been explicitly closed; the derived
+`state` distinguishes `active`, `stale`, `invalid`, and `closed`. A missing checkout
+or externally removed managed-worktree root can therefore remain diagnostically
+`status="active"` while appearing as `state="invalid"`. The existing
+`staleWorkspaces` field remains a passive same-workspace reminder for old handles;
+`action="list"` is the formal on-demand inventory path.
+
+`close_workspace` removes a checkout-backed logical handle without deleting checkout
+files. For a managed-worktree-backed workspace, `close_workspace` requires
+`commitMessage` and runs the existing safe worktree finalize lifecycle: close Hooks,
+commit when needed, fast-forward-only integration, cleanup, and alias invalidation.
 
 Regular `bash` has no execution-timeout input. `action="run"` (the default) waits
 in the foreground for at most 300 seconds; if the process is still alive, the
