@@ -185,7 +185,7 @@ export interface OpenWorkspaceOptions {
 const WORKSPACE_STALE_REMINDER_MS = 2 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_SESSION_IDLE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_GC_INTERVAL_MS = 60 * 60 * 1_000;
-const INITIAL_INSTRUCTION_DISCOVERY_DEPTH = 2;
+const INITIAL_INSTRUCTION_DISCOVERY_DEPTH = 1;
 
 type PathStats = Stats;
 type DirectoryOps = {
