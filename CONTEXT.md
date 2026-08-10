@@ -68,3 +68,11 @@ _Avoid_: Skill, tool description
 **Capability gateway**:
 The single MCP entry point named `capability` used to inspect and execute registered non-core Capabilities without expanding the always-visible tool surface.
 _Avoid_: Plugin runtime, arbitrary RPC
+
+**Code intelligence**:
+Workspace-aware semantic code information provided through ForgeRelay Capabilities and backed by external language servers already available in the user's environment.
+_Avoid_: Code search, language-server installation
+
+**Language service**:
+A ForgeRelay-managed semantic-code service for one canonical language project root and one language-server definition. Logical workspaces that refer to the same physical language project share the same service; distinct managed worktrees or nested language projects naturally use distinct services.
+_Avoid_: Workspace process, language-server installation, logical-workspace server
