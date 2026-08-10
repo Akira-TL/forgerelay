@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-10
+
 ### Added
 
 - Added a ForgeRelay-owned Capability Registry and the single `capability` MCP gateway with `describe` / `run`, stable dotted names, runtime availability, validated input contracts, guide metadata, and stable diagnostic error codes.
