@@ -19,6 +19,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
+import { buildCapabilityFingerprint } from "./capabilities.js";
 import { deletePath, renamePath } from "./file-mutations.js";
 import {
   isArtifactDownloadSupportedPlatform,
@@ -241,6 +242,12 @@ const workspaceSkillOutputSchema = z.object({
   name: z.string(),
   description: z.string(),
   path: z.string(),
+});
+
+const capabilityFingerprintOutputSchema = z.object({
+  version: z.string(),
+  toolMode: z.enum(["minimal", "full", "codex"]),
+  capabilities: z.array(z.string()),
 });
 
 const workspaceAgentsFileOutputSchema = z.object({
@@ -1027,6 +1034,7 @@ export function createMcpServer(
             managed: z.boolean(),
           }),
         ),
+        capabilityFingerprint: capabilityFingerprintOutputSchema,
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
         skills: z.array(workspaceSkillOutputSchema).optional(),
@@ -1061,6 +1069,7 @@ export function createMcpServer(
       );
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
       const staleWorkspaces = await workspaces.listStaleWorkspaces(workspace);
+      const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION);
       if (config.widgets === "changes") {
         await reviewCheckpoints.initializeWorkspace({
           workspaceId: workspace.id,
@@ -1149,6 +1158,7 @@ export function createMcpServer(
             staleWorkspaces.length > 0
               ? `Idle logical workspaces for this same physical workspace (>2 days): ${staleWorkspaces.map((stale) => `${stale.workspaceId} last-used=${stale.lastUsedAt}`).join(", ")}. Tell the user these are available to resume or explicitly close; do not clean them up automatically.`
               : undefined,
+            `ForgeRelay ${capabilityFingerprint.version} capabilities: ${capabilityFingerprint.capabilities.join(", ")}`,
             instruction,
           ].filter(Boolean).join("\n"),
         },
@@ -1176,6 +1186,7 @@ export function createMcpServer(
             worktree: workspace.worktree,
             worktrees: knownWorktrees,
             staleWorkspaces,
+            capabilityFingerprint,
             agentsFiles: cardAgentsFiles,
             availableAgentsFiles: cardAvailableAgentsFiles,
             skills: cardSkills,
@@ -1200,6 +1211,7 @@ export function createMcpServer(
           worktree: workspace.worktree,
           worktrees: knownWorktrees,
           staleWorkspaces,
+          capabilityFingerprint,
           ...(includeBootstrapContext
             ? {
                 agentsFiles: loadedAgentsFiles,

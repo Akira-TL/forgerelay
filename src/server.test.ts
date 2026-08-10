@@ -117,6 +117,19 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
 
   const firstStructured = structuredContent(first);
   assert.equal(firstStructured.workspaceId, structuredContent(repeated).workspaceId);
+  assert.deepEqual(firstStructured.capabilityFingerprint, {
+    version: packageJson.version,
+    toolMode: "full",
+    capabilities: [
+      "workspace.close",
+      "worktree.managed",
+      "filesystem.rename-move",
+      "filesystem.delete",
+      "process.write-stdin",
+      "inspection.search-tools",
+    ],
+  });
+  assert.deepEqual(structuredContent(repeated).capabilityFingerprint, firstStructured.capabilityFingerprint);
   assert.ok(Array.isArray(firstStructured.agentsFiles));
   assert.ok(Array.isArray(firstStructured.availableAgentsFiles));
   assert.ok(Array.isArray(firstStructured.skills));
