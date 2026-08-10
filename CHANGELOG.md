@@ -4,6 +4,10 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Shell capability instructions now explicitly permit persistent external device or hardware mutations only when the user's current request asks for the actual device-changing operation; checks, audits, probes, backups, verification, dry-runs, and build-only requests do not implicitly authorize a later hardware write.
+
 ## [0.2.6] - 2026-08-10
 
 ### Changed

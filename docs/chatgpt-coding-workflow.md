@@ -193,10 +193,16 @@ be released that way and must be finalized with `close_worktree`.
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply
 a blanket ban to package managers, generators, formatters, or similar commands
-that write files. The Agent contract still prohibits shell mutation of
-security- or privilege-sensitive operating-system files and credential material,
-and requires an explicit user request before changing configuration files
-through `bash` or `exec_command`.
+that write files. They may also perform external device or hardware mutations
+when the user's current request explicitly asks for the actual device-changing
+operation. A check, audit, probe, backup, verification, dry-run, or build-only
+request does not implicitly authorize a later persistent device write, and
+ForgeRelay does not assume a particular flashing protocol or transport.
+
+The Agent contract still prohibits shell mutation of security- or
+privilege-sensitive operating-system files and credential material, and requires
+an explicit user request before changing configuration files through `bash` or
+`exec_command`.
 
 ## Change review UI
 

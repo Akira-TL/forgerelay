@@ -123,6 +123,8 @@ try {
   assert.doesNotMatch(bashTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.equal(bashTool?.inputSchema?.properties?.timeout, undefined);
   assert.match(bashTool?.description ?? "", /waits up to 300 seconds/);
+  assert.match(bashTool?.description ?? "", /external device or hardware mutations/);
+  assert.match(bashTool?.description ?? "", /explicitly asks for the actual device-changing operation/);
   assert.match(bashTool?.description ?? "", /write_stdin/);
   const writeStdinTool = tools.find((tool) => tool.name === "write_stdin");
   assert.equal(writeStdinTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);

@@ -33,6 +33,9 @@ test("default instructions keep capability contract and built-in workflow prefer
   assert.match(result, /Shell commands may modify ordinary project files/);
   assert.match(result, /\/etc\/sudoers/);
   assert.match(result, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.match(result, /external device or hardware mutations/);
+  assert.match(result, /explicitly asks for the actual device-changing operation/);
+  assert.match(result, /check, audit, probe, backup, verification, dry-run, or build-only request/);
   assert.doesNotMatch(result, /Do not create or modify files with bash/);
 });
 
@@ -108,6 +111,9 @@ test("tool descriptions expose capabilities without embedding workflow policy", 
   assert.match(descriptions.shell, /may modify ordinary project files/);
   assert.match(descriptions.shell, /\/etc\/sudoers/);
   assert.match(descriptions.shell, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.match(descriptions.shell, /external device or hardware mutations/);
+  assert.match(descriptions.shell, /explicitly asks for the actual device-changing operation/);
+  assert.match(descriptions.shell, /check, audit, probe, backup, verification, dry-run, or build-only request/);
   assert.doesNotMatch(descriptions.shell, /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(descriptions.shell, /Use only for/);
   assert.equal(descriptions.shellCommand, "Shell command to run with the local user's authority.");

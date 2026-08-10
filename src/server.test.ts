@@ -52,6 +52,8 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellTool?.description ?? "", /may modify ordinary project files/);
   assert.match(shellTool?.description ?? "", /\/etc\/sudoers/);
   assert.match(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.match(shellTool?.description ?? "", /external device or hardware mutations/);
+  assert.match(shellTool?.description ?? "", /explicitly asks for the actual device-changing operation/);
   assert.match(shellTool?.description ?? "", /waits up to 300 seconds/);
   assert.match(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);

@@ -100,13 +100,19 @@ for dynamically crossing such a boundary.
 The Agent-facing shell contract therefore does not ban every command that can
 change files. Commands may modify ordinary project files when that is a natural
 part of the user's requested development task, including package managers,
-generators, formatters, and similar tooling. The contract does prohibit shell
-mutation of security- or privilege-sensitive operating-system files and
-credential material such as `/etc/sudoers`, `/etc/passwd`, `/etc/shadow`, PAM or
-authentication policy, SSH private keys, and equivalent privileged targets.
-Configuration files may be changed through shell only when the user's request
-explicitly calls for that configuration change rather than merely making it a
-convenient implementation detail.
+generators, formatters, and similar tooling. Shell commands may also perform
+external device or hardware mutations when the user's current request explicitly
+asks for the actual device-changing operation. ForgeRelay does not assume a
+particular flashing protocol, transport, device path, or firmware workflow. A
+check, audit, probe, backup, verification, dry-run, or build-only request must not
+be treated as authorization for a later persistent hardware write.
+
+The contract does prohibit shell mutation of security- or privilege-sensitive
+operating-system files and credential material such as `/etc/sudoers`,
+`/etc/passwd`, `/etc/shadow`, PAM or authentication policy, SSH private keys, and
+equivalent privileged targets. Configuration files may be changed through shell
+only when the user's request explicitly calls for that configuration change
+rather than merely making it a convenient implementation detail.
 
 This is an Agent execution policy, not an OS-level sandbox or command parser.
 Operators that need a stronger project-specific runtime gate can use blocking

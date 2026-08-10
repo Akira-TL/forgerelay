@@ -32,7 +32,7 @@ export interface ToolDescriptions {
 }
 
 export function buildShellMutationPolicy(): string {
-  return "Shell commands may modify ordinary project files when that is a natural part of the user's requested development task. Never use shell commands to modify security- or privilege-sensitive operating-system files or credential material such as /etc/sudoers, /etc/passwd, /etc/shadow, PAM or authentication policy, SSH private keys, or equivalent privileged system files. Modify configuration files through shell only when the user's request explicitly calls for that configuration change; do not infer permission merely because changing configuration would be convenient.";
+  return "Shell commands may modify ordinary project files when that is a natural part of the user's requested development task. They may also perform external device or hardware mutations when the user's current request explicitly asks for the actual device-changing operation, including firmware flashing or equivalent persistent device updates; do not infer such authorization from a check, audit, probe, backup, verification, dry-run, or build-only request. Never use shell commands to modify security- or privilege-sensitive operating-system files or credential material such as /etc/sudoers, /etc/passwd, /etc/shadow, PAM or authentication policy, SSH private keys, or equivalent privileged system files. Modify configuration files through shell only when the user's request explicitly calls for that configuration change; do not infer permission merely because changing configuration would be convenient.";
 }
 
 export function buildServerInstructions(
