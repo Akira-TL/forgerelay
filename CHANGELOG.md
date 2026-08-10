@@ -4,6 +4,10 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Normal server shutdown now summarizes successfully closed MCP sessions in one log entry instead of emitting one `info` line per session; individual close failures remain visible as warnings.
+
 ## [0.2.4] - 2026-08-09
 
 ### Added

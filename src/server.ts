@@ -2174,6 +2174,8 @@ export function createServer(
     reason: "idle_timeout" | "server_shutdown",
     results: McpSessionCloseResult[],
   ) => {
+    let closedCount = 0;
+
     for (const result of results) {
       if (result.error) {
         logEvent(config.logging, "warn", "mcp_session_close_failed", {
@@ -2187,9 +2189,19 @@ export function createServer(
         continue;
       }
 
-      logEvent(config.logging, "info", "mcp_session_closed", {
+      closedCount += 1;
+      if (reason === "idle_timeout") {
+        logEvent(config.logging, "info", "mcp_session_closed", {
+          reason,
+          sessionIdPrefix: sessionIdPrefix(result.sessionId),
+        });
+      }
+    }
+
+    if (reason === "server_shutdown" && closedCount > 0) {
+      logEvent(config.logging, "info", "mcp_sessions_closed", {
         reason,
-        sessionIdPrefix: sessionIdPrefix(result.sessionId),
+        count: closedCount,
       });
     }
   };

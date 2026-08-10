@@ -89,6 +89,19 @@ test("pretty transport logs have a concise fallback when explicitly enabled", ()
   assert.doesNotMatch(line, /userAgent|requestId/);
 });
 
+test("pretty shutdown logs summarize closed MCP sessions", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "mcp_sessions_closed",
+    reason: "server_shutdown",
+    count: 4,
+  }, { colorize: false });
+
+  assert.match(line, /\| 4 sessions closed$/);
+  assert.doesNotMatch(line, /sessionIdPrefix/);
+});
+
 test("pretty logs can emit ANSI styles without a third-party logger", () => {
   const line = formatPrettyLogEntry({
     ts: timestamp,

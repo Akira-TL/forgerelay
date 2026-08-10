@@ -138,6 +138,8 @@ function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): st
       return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} created`;
     case "mcp_session_closed":
       return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} closed`;
+    case "mcp_sessions_closed":
+      return `${numberField(entry.count) ?? 0} sessions closed`;
     case "mcp_session_close_failed":
       return `session ${stringField(entry.sessionIdPrefix) ?? "unknown"} close -> ${style("red", "error", options)}`;
     case "auth_denied":
