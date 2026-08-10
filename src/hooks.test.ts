@@ -67,13 +67,17 @@ test("hook config normalizes matcher rules and report defaults", () => {
   );
 });
 
-test("tool and command matchers run only for matching operations", async (t) => {
+test("tool and command matchers run only for matching operations and expose the matched command", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const script = join(root, "matched.mjs");
   await writeFile(
     script,
-    'import { writeFileSync } from "node:fs"; writeFileSync("matched.txt", "yes");\n',
+    [
+      'import { writeFileSync } from "node:fs";',
+      'writeFileSync("matched.txt", process.env.FORGERELAY_HOOK_PAYLOAD ?? "{}");',
+      "",
+    ].join("\n"),
   );
 
   const runner = new HookRunner(
@@ -82,7 +86,7 @@ test("tool and command matchers run only for matching operations", async (t) => 
         {
           matcher: {
             tool: "bash",
-            commandRegex: "^git\\s+push\\b.*v\\d+\\.\\d+\\.\\d+$",
+            commandRegex: "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+",
           },
           handlers: [{ command: `node "${script}"` }],
         },
@@ -99,13 +103,18 @@ test("tool and command matchers run only for matching operations", async (t) => 
   });
   await assert.rejects(() => readFile(join(root, "matched.txt"), "utf8"), /ENOENT/);
 
+  const fullCommand = "git status --short && git push origin v0.2.0 && echo published";
   await runner.run("BeforeTool", {
     workspaceId: "ws_test",
     workspaceRoot: root,
     workspaceMode: "checkout",
-    payload: { tool: "bash", command: "git push origin v0.2.0" },
+    payload: { tool: "bash", command: fullCommand },
   });
-  assert.equal(await readFile(join(root, "matched.txt"), "utf8"), "yes");
+  assert.deepEqual(JSON.parse(await readFile(join(root, "matched.txt"), "utf8")), {
+    tool: "bash",
+    command: "git push origin v0.2.0",
+    originalCommand: fullCommand,
+  });
 });
 
 test("project hook files load by filename and report that filename as the hook name", async (t) => {

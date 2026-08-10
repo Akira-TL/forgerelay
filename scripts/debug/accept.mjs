@@ -670,8 +670,9 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
     [
       'import { writeFileSync } from "node:fs";',
       'const payload = process.env.FORGERELAY_HOOK_PAYLOAD ?? "{}";',
+      'const parsed = JSON.parse(payload);',
       'writeFileSync("release-ci-ran.txt", payload);',
-      'if (JSON.parse(payload).command === "git push origin v0.2.1") process.exit(17);',
+      'if (parsed.command === "git push origin v0.2.1") process.exit(17);',
       "",
     ].join("\n"),
   );
@@ -679,7 +680,7 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
     join(releaseProject, ".forgerelay", "hooks", "release-tag-local-ci.json"),
     JSON.stringify({
       event: "BeforeTool",
-      matcher: { tool: "bash", commandRegex: "^git push origin v0\\.2\\.[01]$" },
+      matcher: { tool: "bash", commandRegex: "git push origin v0\\.2\\.[01]" },
       command: "node .forgerelay/release-check.mjs",
       timeoutSeconds: 30,
       report: true,
@@ -697,11 +698,17 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
 
   const pushed = callTool(accessToken, sessionId, 12, "bash", {
     workspaceId: releaseWorkspaceId,
-    command: "git push origin v0.2.0",
+    command: "git status --short && git push origin v0.2.0 && echo release-pushed",
   });
   assert.equal(pushed.isError, undefined);
   assert.match(toolText(pushed), /release-tag-local-ci \(BeforeTool, project\) passed/);
   assert.ok(existsSync(join(releaseProject, "release-ci-ran.txt")));
+  assert.deepEqual(JSON.parse(readFileSync(join(releaseProject, "release-ci-ran.txt"), "utf8")), {
+    tool: "bash",
+    command: "git push origin v0.2.0",
+    workingDirectory: ".",
+    originalCommand: "git status --short && git push origin v0.2.0 && echo release-pushed",
+  });
   assert.equal(
     gitOutput(releaseRemote, ["rev-parse", "refs/tags/v0.2.0"], { gitDir: true }),
     gitOutput(releaseProject, ["rev-parse", "v0.2.0"]),
@@ -709,7 +716,7 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
 
   const blocked = callTool(accessToken, sessionId, 13, "bash", {
     workspaceId: releaseWorkspaceId,
-    command: "git push origin v0.2.1",
+    command: "git status --short && git push origin v0.2.1 && echo should-not-run",
   });
   assert.equal(blocked.isError, true);
   assert.match(toolText(blocked), /release-tag-local-ci.*failed/);

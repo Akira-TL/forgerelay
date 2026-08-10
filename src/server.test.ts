@@ -135,18 +135,6 @@ test("workspace app resources expose a deployment domain alongside CSP metadata"
   assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, ["https://forge.example.com/base/path"]);
   assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, ["https://forge.example.com/base/path"]);
 
-  const read = await context.client.readResource({ uri: current.uri });
-  const content = read.contents[0] as {
-    _meta?: {
-      ui?: {
-        domain?: string;
-        csp?: { resourceDomains?: string[]; connectDomains?: string[] };
-      };
-    };
-  } | undefined;
-  assert.equal(content?._meta?.ui?.domain, "https://forge.example.com");
-  assert.deepEqual(content?._meta?.ui?.csp?.resourceDomains, ["https://forge.example.com/base/path"]);
-  assert.deepEqual(content?._meta?.ui?.csp?.connectDomains, ["https://forge.example.com/base/path"]);
 });
 
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {

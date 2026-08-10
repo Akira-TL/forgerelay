@@ -46,8 +46,20 @@ switch (command) {
     await prepareRelease(state, incrementVersion(state.pkg.version, bump), dryRun);
     break;
   }
+  case "notes": {
+    checkState(state);
+    if (!value) fail("usage: node scripts/release-version.mjs notes vX.Y.Z");
+    const version = value.startsWith("v") ? value.slice(1) : value;
+    if (!stableVersionPattern.test(version)) {
+      fail(`release notes version ${JSON.stringify(value)} must be vX.Y.Z or X.Y.Z`);
+    }
+    const body = getReleaseBody(state.changelog, version);
+    if (!body) fail(`CHANGELOG.md has no release notes for ${version}`);
+    process.stdout.write(`${body}\n`);
+    break;
+  }
   default:
-    fail(`unknown release command ${JSON.stringify(command)}; expected check, tag, or next`);
+    fail(`unknown release command ${JSON.stringify(command)}; expected check, tag, next, or notes`);
 }
 
 async function readState() {
@@ -177,6 +189,17 @@ function getUnreleasedBody(changelog) {
   const headingIndex = changelog.indexOf(heading);
   if (headingIndex < 0) return "";
   const bodyStart = headingIndex + heading.length;
+  const nextHeadingIndex = changelog.indexOf("\n## [", bodyStart);
+  const bodyEnd = nextHeadingIndex < 0 ? changelog.length : nextHeadingIndex;
+  return changelog.slice(bodyStart, bodyEnd).trim();
+}
+
+function getReleaseBody(changelog, version) {
+  const heading = `## [${version}]`;
+  const headingIndex = changelog.indexOf(heading);
+  if (headingIndex < 0) return "";
+  const headingEnd = changelog.indexOf("\n", headingIndex);
+  const bodyStart = headingEnd < 0 ? changelog.length : headingEnd + 1;
   const nextHeadingIndex = changelog.indexOf("\n## [", bodyStart);
   const bodyEnd = nextHeadingIndex < 0 ? changelog.length : nextHeadingIndex;
   return changelog.slice(bodyStart, bodyEnd).trim();

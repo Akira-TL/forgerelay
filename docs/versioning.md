@@ -168,7 +168,9 @@ npm publishing token.
    git push origin v0.2.0
    ```
 
-The tag push is the publication action.
+The tag push is the publication action. The release workflow publishes npm only after cloud CI passes, then extracts the matching `CHANGELOG.md` release section as the GitHub Release body. Keep `Unreleased` user-facing and structured (`Added`, `Changed`, `Fixed`, `Security`) because those notes are what users see on the Release page.
+
+Project release Hooks match the stable tag-push command as a substring of the ForgeRelay shell request. A compound command is allowed: when `commandRegex` matches `git push origin vX.Y.Z`, the Hook receives that matched command as `FORGERELAY_HOOK_PAYLOAD.command` and retains the complete shell request as `originalCommand` when they differ.
 
 ## Attribution guardrails
 

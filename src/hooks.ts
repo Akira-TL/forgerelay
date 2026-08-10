@@ -319,9 +319,11 @@ export class HookRunner {
     const handlers = [
       ...(this.hooks[event] ?? []).map((rule) => ({ scope: "global" as const, rule })),
       ...(project.hooks[event] ?? []).map((rule) => ({ scope: "project" as const, rule })),
-    ]
-      .filter(({ rule }) => hookRuleMatches(rule.matcher, invocation))
-      .flatMap(({ scope, rule }) => rule.handlers.map((handler) => ({ scope, handler })));
+    ].flatMap(({ scope, rule }) => {
+      const matchedInvocation = matchHookRule(rule.matcher, invocation);
+      if (!matchedInvocation) return [];
+      return rule.handlers.map((handler) => ({ scope, handler, invocation: matchedInvocation }));
+    });
     const blocking = BLOCKING_EVENTS.has(event);
     const executions: HookExecutionReport[] = project.diagnostic
       ? [{
@@ -335,8 +337,8 @@ export class HookRunner {
         }]
       : [];
 
-    for (const [index, { scope, handler }] of handlers.entries()) {
-      const execution = await this.runHandler(event, handler, index, invocation, scope);
+    for (const [index, { scope, handler, invocation: matchedInvocation }] of handlers.entries()) {
+      const execution = await this.runHandler(event, handler, index, matchedInvocation, scope);
       executions.push(execution);
       logEvent(this.logging, execution.status === "passed" ? "info" : "warn", "hook_call", {
         hookEvent: event,
@@ -592,24 +594,35 @@ export async function loadProjectHookConfig(workspaceRoot: string): Promise<Proj
   };
 }
 
-function hookRuleMatches(
+function matchHookRule(
   matcher: HookMatcher | undefined,
   invocation: HookInvocation,
-): boolean {
-  if (!matcher) return true;
+): HookInvocation | undefined {
+  if (!matcher) return invocation;
 
-  if (matcher.workspaceMode && invocation.workspaceMode !== matcher.workspaceMode) return false;
+  if (matcher.workspaceMode && invocation.workspaceMode !== matcher.workspaceMode) return undefined;
 
   if (matcher.tool) {
     if (typeof invocation.payload?.tool !== "string" || invocation.payload.tool !== matcher.tool) {
-      return false;
+      return undefined;
     }
   }
 
+  let matchedInvocation = invocation;
   if (matcher.commandRegex) {
     const command = invocation.payload?.command;
-    if (typeof command !== "string" || !new RegExp(matcher.commandRegex).test(command)) {
-      return false;
+    if (typeof command !== "string") return undefined;
+    const commandMatch = new RegExp(matcher.commandRegex).exec(command);
+    if (!commandMatch) return undefined;
+    if (commandMatch[0] !== command) {
+      matchedInvocation = {
+        ...invocation,
+        payload: {
+          ...invocation.payload,
+          command: commandMatch[0],
+          originalCommand: command,
+        },
+      };
     }
   }
 
@@ -622,7 +635,7 @@ function hookRuleMatches(
     const matchesPaths = Array.isArray(paths) && paths.some((entry) =>
       typeof entry === "string" && new RegExp(pathRegex).test(entry)
     );
-    if (!matchesPath && !matchesPaths) return false;
+    if (!matchesPath && !matchesPaths) return undefined;
   }
 
   if (matcher.provider) {
@@ -630,11 +643,11 @@ function hookRuleMatches(
       typeof invocation.payload?.provider !== "string" ||
       invocation.payload.provider !== matcher.provider
     ) {
-      return false;
+      return undefined;
     }
   }
 
-  return true;
+  return matchedInvocation;
 }
 
 function hookEnvironment(

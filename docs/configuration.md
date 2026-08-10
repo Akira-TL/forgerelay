@@ -211,7 +211,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
   "event": "BeforeTool",
   "matcher": {
     "tool": "bash",
-    "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+    "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
   },
   "command": "npm run release:verify",
   "timeoutSeconds": 300,
@@ -255,7 +255,7 @@ forgerelay hooks check --project /path/to/project
 | 字段 | 匹配方式 |
 | --- | --- |
 | `tool` | 精确匹配 MCP tool 名称。 |
-| `commandRegex` | 对 tool payload 中的 `command` 做 JavaScript 正则匹配。 |
+| `commandRegex` | 对 tool payload 中的 `command` 做 JavaScript 正则匹配；命中后 Hook 收到的 `payload.command` 是实际匹配片段，完整原命令在片段不等于整串命令时保留为 `payload.originalCommand`。 |
 | `pathRegex` | 对 payload 中的 `path` 或 `paths` 做正则匹配。 |
 | `provider` | 精确匹配 subagent provider。 |
 | `workspaceMode` | `checkout` 或 `worktree`。 |

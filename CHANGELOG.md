@@ -6,6 +6,11 @@ All notable ForgeRelay changes are documented here.
 
 ## [0.3.1] - 2026-08-10
 
+### Changed
+
+- Release-tag Hooks now treat `commandRegex` as a command extractor as well as a filter: a matching substring becomes Hook `payload.command`, while a different full shell request is preserved as `payload.originalCommand`. This lets stable tag pushes trigger local release gates even when an Agent wraps them in a compound shell command.
+- GitHub Release pages now use the matching `CHANGELOG.md` version section as their release notes instead of relying only on generated compare notes.
+
 ### Fixed
 
 - MCP App resources now advertise a unique `_meta.ui.domain` derived from the resolved public deployment origin while preserving existing CSP, content-hashed template identity, and legacy/historical compatibility resources.
