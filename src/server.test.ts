@@ -1607,9 +1607,9 @@ async function waitForToolText(
   expected: RegExp,
   timeoutMs = 5_000,
 ): Promise<Awaited<ReturnType<Client["callTool"]>>> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   let result = await client.callTool(params);
-  while (!expected.test(allResponseText(result)) && Date.now() < deadline) {
+  while (!expected.test(allResponseText(result)) && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25));
     result = await client.callTool(params);
   }
