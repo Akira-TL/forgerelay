@@ -122,7 +122,7 @@ Core Capability Contract 必须始终内联保留至少这些信息：
 - 关键 mutation/safety invariant；
 - `close_workspace` 与 `close_worktree` 的区别。
 
-适合按需读取的首批领域包括：生命周期 Hooks、managed worktree 高级流程、subagents、artifact/review 工作流、debug/MCP App、OAuth/deployment，以及 shell/PTTY/process 的低频边界情况。首个实现切片优先迁移 Hooks 与 managed worktree 高级说明，同时保留其必要安全语义在 core contract 中。
+适合按需读取的首批领域包括：生命周期 Hooks、managed worktree 高级流程、subagents、artifact/review 工作流、debug/MCP App、OAuth/deployment，以及 shell/PTTY/process 的低频边界情况。首个实现切片迁移 Hooks 与 managed worktree 高级说明；第二切片继续覆盖 subagents、artifact/review、Host/OAuth/MCP App integration 与 shell/PTTY/process，并把历史 bundled `subagent-delegation` Skill 的默认自动发现迁回 ForgeRelay-owned capability guide。必要安全语义始终保留在 core contract 或真实 tool schema/description 中。
 
 Capability/version fingerprint 必须是轻量、语义化、稳定的摘要，不复制完整 `tools/list`。当 server 报告的能力与 Host 当前暴露的 tool snapshot 明显不一致时，Agent 应能判断为 Host metadata stale，并建议刷新 MCP 或开启新会话，而不是错误断言 ForgeRelay 缺少能力。
 

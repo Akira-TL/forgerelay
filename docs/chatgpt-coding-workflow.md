@@ -123,9 +123,13 @@ actually exposes; 0.3 does not hide callable tools behind documentation.
   the normal `read` tool.
 
 Do not preload every capability guide. Read a guide only when the current task
-needs that domain. The first built-in guides cover lifecycle Hooks and advanced
-managed-worktree behavior. Reopening a workspace in the same Host context does
-not repeat the descriptors, but the previously advertised guides remain valid.
+needs that domain. Built-in guides cover lifecycle Hooks, advanced managed
+worktrees, subagents, artifact/change-review workflows, Host/OAuth/MCP App
+integration, and long-running shell/PTY/process behavior. Optional guides are
+advertised only when their feature is enabled; for example, disabled subagents
+and artifact/change-review features do not add those descriptors to bootstrap
+context. Reopening a workspace in the same Host context does not repeat the
+descriptors, but the previously advertised guides remain valid.
 
 The fingerprint is also a stale-Host-schema diagnostic. If `open_workspace`
 reports a capability such as `filesystem.rename-move` but the Host's current
@@ -161,7 +165,11 @@ config directory plus:
 ```
 
 The workspace result exposes only compact profile metadata so the host can
-choose a provider/profile without loading full provider launch details.
+choose a provider/profile without loading full provider launch details. Read the
+ForgeRelay-owned `subagents` capability guide when delegation is actually needed;
+0.3 no longer auto-loads the historical bundled `subagent-delegation` Skill for
+new setups. Existing user-authored or previously seeded Skills remain normal
+user configuration and are not deleted.
 
 The current model-facing delegation workflow is:
 

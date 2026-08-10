@@ -126,10 +126,20 @@ also accepted.
 The selected mode controls the real `tools/list` surface. ForgeRelay does not
 hide callable tools behind capability documentation. In every mode,
 `open_workspace` returns a `capabilityFingerprint` containing the package
-version, tool mode, and stable semantic capability names. Bootstrap responses
-also return `capabilityGuides`, which are compact descriptors for built-in
-ForgeRelay documentation that the Agent can explicitly load with `read` when a
-task needs that domain.
+version, tool mode, and stable semantic capability names. The fingerprint also
+reports enabled optional domains such as subagent profile discovery, native
+artifact download, MCP App UI, or aggregate `show_changes` review when those
+features are actually available; it remains a semantic summary rather than a
+copy of `tools/list`.
+
+Bootstrap responses also return `capabilityGuides`, which are compact descriptors
+for built-in ForgeRelay documentation that the Agent can explicitly load with
+`read` when a task needs that domain. Current built-in domains cover lifecycle
+Hooks, managed worktrees, subagents, artifact/change-review workflows, Host/OAuth/
+MCP App integration, and long-running shell/PTY/process behavior. Optional-domain
+descriptors such as `subagents` and `artifacts-review` are advertised only when
+the corresponding feature is enabled, so disabled features do not add bootstrap
+context.
 
 There is no separate progressive-disclosure configuration switch. Capability
 Guide discovery is built in, while actual tool exposure continues to be
@@ -335,13 +345,19 @@ When subagents are enabled, profiles are discovered from:
 - active legacy config directory `~/.devspace/agents/*.md` when reused;
 - project `.devspace/agents/*.md` for migration compatibility.
 
-The bundled `subagent-delegation` skill teaches the current CLI workflow:
+The ForgeRelay-owned `subagents` capability guide teaches the current CLI
+workflow on demand:
 
 ```bash
 forgerelay agents ls
 forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
+
+0.3 no longer auto-discovers or seeds the package's historical bundled
+`subagent-delegation` Skill for new setups. An existing or user-authored Skill
+with that name remains an ordinary Skill and is still discovered from the normal
+Skill paths when subagents are enabled; ForgeRelay does not delete or rewrite it.
 
 ## Logging
 
