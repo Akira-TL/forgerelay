@@ -1727,8 +1727,8 @@ export function createMcpServer(
                 `Managed-worktree-backed workspace ${workspaceId} requires commitMessage when closing.`,
               );
             }
-            const busyWorkspaceIds = workspaces
-              .workspaceIdsForPhysicalWorkspace(workspace)
+            const physicalWorkspaceIds = workspaces.workspaceIdsForPhysicalWorkspace(workspace);
+            const busyWorkspaceIds = physicalWorkspaceIds
               .filter((id) => processSessions.activeWorkspaceIds().has(id));
             if (busyWorkspaceIds.length > 0) {
               throw new Error(
@@ -1737,6 +1737,9 @@ export function createMcpServer(
             }
             const startedAt = performance.now();
             const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+            await Promise.all(
+              physicalWorkspaceIds.map((id) => reviewCheckpoints.releaseWorkspace(id)),
+            );
             const result = [
               `Closed managed-worktree-backed workspace ${workspaceId}.`,
               `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
@@ -1779,6 +1782,7 @@ export function createMcpServer(
             );
           }
           workspaces.closeWorkspace(workspaceId);
+          await reviewCheckpoints.releaseWorkspace(workspaceId);
           const result = `Closed checkout-backed workspace ${workspaceId}. Physical project files were not removed.`;
           return {
             content: [textBlock(result)],

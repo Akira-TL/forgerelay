@@ -9,6 +9,30 @@ import { createReviewCheckpointManager } from "./review-checkpoints.js";
 
 const execFileAsync = promisify(execFile);
 
+test("review checkpoint state is released and remains capacity bounded", async (t) => {
+  const root = await committedRepository(t);
+  const manager = createReviewCheckpointManager({ maxWorkspaceStates: 2 });
+
+  await manager.initializeWorkspace({ workspaceId: "ws_cache_1", root });
+  await manager.initializeWorkspace({ workspaceId: "ws_cache_2", root });
+  assert.equal(manager.stateCount, 2);
+
+  await manager.releaseWorkspace("ws_cache_2");
+  assert.equal(manager.stateCount, 1);
+
+  await manager.initializeWorkspace({ workspaceId: "ws_cache_2", root });
+  await manager.initializeWorkspace({ workspaceId: "ws_cache_3", root });
+  assert.equal(manager.stateCount, 2);
+
+  const reconstructed = await manager.reviewChanges({
+    workspaceId: "ws_cache_1",
+    root,
+    markReviewed: false,
+  });
+  assert.equal(reconstructed.summary.files, 0);
+  assert.equal(manager.stateCount, 2);
+});
+
 test("a clean workspace reports no changes from the last-shown checkpoint", async (t) => {
   const root = await committedRepository(t);
   const manager = createReviewCheckpointManager();

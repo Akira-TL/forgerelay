@@ -37,7 +37,9 @@ interface WorkspaceReviewState {
 }
 
 export interface ReviewCheckpointManager {
+  readonly stateCount: number;
   initializeWorkspace(input: { workspaceId: string; root: string }): Promise<void>;
+  releaseWorkspace(workspaceId: string): Promise<void>;
   reviewChanges(input: {
     workspaceId: string;
     root: string;
@@ -46,17 +48,52 @@ export interface ReviewCheckpointManager {
   }): Promise<ReviewChangesResult>;
 }
 
-const REVIEW_REF_PREFIX = "refs/devspace/review";
+export interface ReviewCheckpointManagerOptions {
+  maxWorkspaceStates?: number;
+}
 
-export function createReviewCheckpointManager(): ReviewCheckpointManager {
+const REVIEW_REF_PREFIX = "refs/devspace/review";
+const DEFAULT_MAX_REVIEW_WORKSPACE_STATES = 128;
+
+export function createReviewCheckpointManager(
+  options: ReviewCheckpointManagerOptions = {},
+): ReviewCheckpointManager {
+  const maxWorkspaceStates = options.maxWorkspaceStates ?? DEFAULT_MAX_REVIEW_WORKSPACE_STATES;
+  if (!Number.isInteger(maxWorkspaceStates) || maxWorkspaceStates < 1) {
+    throw new Error("Review checkpoint workspace-state limit must be a positive integer.");
+  }
   const states = new Map<string, WorkspaceReviewState>();
   const initializations = new Map<string, Promise<void>>();
+  const touchState = (workspaceId: string): void => {
+    const state = states.get(workspaceId);
+    if (!state) return;
+    states.delete(workspaceId);
+    states.set(workspaceId, state);
+  };
+  const trimStates = (): void => {
+    while (states.size > maxWorkspaceStates) {
+      const oldestWorkspaceId = states.keys().next().value as string | undefined;
+      if (!oldestWorkspaceId) break;
+      states.delete(oldestWorkspaceId);
+    }
+  };
 
   return {
+    get stateCount() {
+      return states.size;
+    },
+
+    async releaseWorkspace(workspaceId) {
+      const pending = initializations.get(workspaceId);
+      if (pending) await pending;
+      states.delete(workspaceId);
+    },
+
     async initializeWorkspace({ workspaceId, root }) {
       const existingState = states.get(workspaceId);
       assertWorkspaceRoot(existingState, workspaceId, root);
       if (existingState?.root === root && existingState.gitRoot !== undefined) {
+        touchState(workspaceId);
         return;
       }
 
@@ -64,6 +101,8 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       if (pending) {
         await pending;
         assertWorkspaceRoot(states.get(workspaceId), workspaceId, root);
+        touchState(workspaceId);
+        trimStates();
         return;
       }
 
@@ -71,6 +110,8 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
       initializations.set(workspaceId, initialize);
       try {
         await initialize;
+        touchState(workspaceId);
+        trimStates();
       } finally {
         if (initializations.get(workspaceId) === initialize) {
           initializations.delete(workspaceId);
@@ -86,6 +127,7 @@ export function createReviewCheckpointManager(): ReviewCheckpointManager {
         state = states.get(workspaceId);
       }
       assertWorkspaceRoot(state, workspaceId, root);
+      touchState(workspaceId);
 
       if (!state?.gitRoot) {
         throw new Error(state?.diagnostic ?? "review.changes requires a Git workspace in this version.");
