@@ -123,6 +123,25 @@ MCP clients discover metadata from:
 explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
 also accepted.
 
+The selected mode controls the real `tools/list` surface. ForgeRelay does not
+hide callable tools behind capability documentation. In every mode,
+`open_workspace` returns a `capabilityFingerprint` containing the package
+version, tool mode, and stable semantic capability names. Bootstrap responses
+also return `capabilityGuides`, which are compact descriptors for built-in
+ForgeRelay documentation that the Agent can explicitly load with `read` when a
+task needs that domain.
+
+There is no separate progressive-disclosure configuration switch. Capability
+Guide discovery is built in, while actual tool exposure continues to be
+controlled by `FORGERELAY_TOOL_MODE` and feature-specific settings. If the
+fingerprint reports a capability that is missing from the Host's current tool
+snapshot, treat that as stale Host MCP metadata: reconnect/refresh the integration
+or use a Host context that reloads `tools/list`. The ForgeRelay process cannot
+force a Host to invalidate its cached schema.
+
+`rename` is the canonical move/rename primitive for files and directories; there
+is no separate `move` MCP tool.
+
 Codex-mode commands run without a PTY by default. `tty: true` enables interactive
 programs when the optional `node-pty` dependency is available.
 

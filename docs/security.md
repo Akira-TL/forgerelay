@@ -28,6 +28,17 @@ Filesystem-oriented tools canonicalize existing path segments before access so
 symlinks inside either the workspace or OS temp directory cannot escape to
 arbitrary filesystem locations.
 
+`read` has one narrow additional path class for explicitly advertised documents.
+`open_workspace` may advertise a Skill entry file or a ForgeRelay capability
+Guide outside the normal workspace/temp roots. Only that advertised entry file is
+readable initially; after it is read, files inside that advertised document's
+own directory may be read as supporting material. This does not expand write,
+edit, rename, delete, shell working-directory, or workspace-open roots.
+
+Capability Guides are ForgeRelay-owned, versioned package documentation. Their
+paths are surfaced by the running server rather than guessed by the Agent. This
+keeps progressive disclosure from becoming a general arbitrary-file read escape.
+
 ## Owner-password OAuth
 
 New installations store local configuration in:

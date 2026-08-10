@@ -9,14 +9,14 @@ checkout.
 `open_workspace` returns a `workspaceId`. Continue using that ID for later tools
 in the same directory.
 
-Workspace identity follows the canonical opened directory rather than the
-conversation/request identity. Reopening the same checkout reuses the same
-active workspace even from another conversation. Conversation metadata is used
-only to decide whether bootstrap context such as project instructions should be
-repeated to that conversation.
+`workspaceId` is a logical conversation handle, not the physical-directory
+identity. Reopening the same checkout in the same conversation keeps that
+logical ID stable. A different conversation normally receives a different
+`workspaceId` even when it points at the same checkout or worktree; pass an
+existing ID explicitly when the user wants to resume that logical workspace.
 
-A Git worktree directory is a separate workspace identity from its source
-checkout.
+A Git worktree directory is a separate physical workspace target from its source
+checkout, and each conversation can still have its own logical handle for it.
 
 ## Checkout-first behavior
 
@@ -108,6 +108,33 @@ being injected eagerly. Read the relevant nested file before working under that 
 `FORGERELAY_AGENT_DIR` is not an instruction source; it remains only a compatibility
 skill-discovery path.
 
+## MCP capability loading
+
+ForgeRelay keeps callable MCP tools and explanatory capability documentation
+separate. `tools/list` remains the source of truth for what the current server
+actually exposes; 0.3 does not hide callable tools behind documentation.
+
+`open_workspace` adds two lightweight discovery surfaces:
+
+- `capabilityFingerprint` is returned on every open/resume and includes the
+  ForgeRelay version, active tool mode, and stable semantic capability names;
+- `capabilityGuides` is returned with bootstrap context and contains compact
+  descriptors for ForgeRelay-owned, versioned guides that can be loaded with
+  the normal `read` tool.
+
+Do not preload every capability guide. Read a guide only when the current task
+needs that domain. The first built-in guides cover lifecycle Hooks and advanced
+managed-worktree behavior. Reopening a workspace in the same Host context does
+not repeat the descriptors, but the previously advertised guides remain valid.
+
+The fingerprint is also a stale-Host-schema diagnostic. If `open_workspace`
+reports a capability such as `filesystem.rename-move` but the Host's current
+MCP tool snapshot does not expose `rename`, the server and Host metadata are out
+of sync. Refresh/reconnect the MCP integration or start a Host context that
+reloads `tools/list`; do not conclude that the running ForgeRelay server lacks
+that capability. ForgeRelay can report its own version/capabilities but cannot
+force the Host to discard a cached tool schema.
+
 ## Agent Skills
 
 ForgeRelay discovers standard Agent Skills from:
@@ -178,7 +205,8 @@ same workspace ID. The former process `sessionId` remains a deprecated alias in
 
 Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
 surface including direct `rename`/`delete` path mutations alongside `apply_patch`,
-`exec_command`, and `write_stdin`.
+`exec_command`, and `write_stdin`. `rename` is the unified move/rename primitive
+for both files and directories; ForgeRelay does not expose a separate `move` tool.
 
 Workspace IDs are logical conversation handles rather than physical-directory
 identities. The same conversation keeps a stable ID for a project, while another
