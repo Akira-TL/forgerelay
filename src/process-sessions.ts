@@ -8,7 +8,8 @@ const MAX_START_YIELD_MS = 300_000;
 const MAX_COMMAND_YIELD_MS = 300_000;
 const MAX_POLL_YIELD_MS = 300_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
-const DEFAULT_BUFFER_CHARACTERS = 1_000_000;
+const DEFAULT_BUFFER_CHARACTERS = 256_000;
+const DEFAULT_MAX_COMPLETED_PROCESSES = 128;
 const COMPLETED_PROCESS_TTL_MS = 5 * 60 * 1_000;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
@@ -83,6 +84,7 @@ interface ProcessEntry {
 
 interface ProcessManagerOptions {
   maxBufferCharacters?: number;
+  maxCompletedProcesses?: number;
   completedProcessTtlMs?: number;
   /** @deprecated Use completedProcessTtlMs. */
   completedSessionTtlMs?: number;
@@ -254,7 +256,9 @@ function truncateOutput(output: string, maxCharacters: number): { output: string
 export class ProcessManager {
   private readonly processes = new Map<number, ProcessEntry>();
   private readonly completedByWorkspace = new Map<string, number[]>();
+  private readonly completedProcessIds: number[] = [];
   private readonly maxBufferCharacters: number;
+  private readonly maxCompletedProcesses: number;
   private readonly completedProcessTtlMs: number;
   private readonly maxStartYieldMs: number;
   private readonly monotonicNow: () => number;
@@ -262,6 +266,10 @@ export class ProcessManager {
 
   constructor(options: ProcessManagerOptions = {}) {
     this.maxBufferCharacters = options.maxBufferCharacters ?? DEFAULT_BUFFER_CHARACTERS;
+    this.maxCompletedProcesses = options.maxCompletedProcesses ?? DEFAULT_MAX_COMPLETED_PROCESSES;
+    if (!Number.isInteger(this.maxCompletedProcesses) || this.maxCompletedProcesses < 1) {
+      throw new Error("Completed process limit must be a positive integer.");
+    }
     this.completedProcessTtlMs = options.completedProcessTtlMs
       ?? options.completedSessionTtlMs
       ?? COMPLETED_PROCESS_TTL_MS;
@@ -366,6 +374,7 @@ export class ProcessManager {
     }
     this.processes.clear();
     this.completedByWorkspace.clear();
+    this.completedProcessIds.length = 0;
   }
 
   private async waitForExit(processEntry: ProcessEntry, yieldTimeMs: number): Promise<void> {
@@ -474,18 +483,24 @@ export class ProcessManager {
     processEntry.signal = signal;
     processEntry.process = undefined;
     processEntry.resolveExit();
-    if (processEntry.background) {
-      const completed = this.completedByWorkspace.get(processEntry.workspaceId) ?? [];
-      if (!completed.includes(processEntry.id)) {
-        completed.push(processEntry.id);
-        this.completedByWorkspace.set(processEntry.workspaceId, completed);
-      }
-    }
     processEntry.cleanupTimer = setTimeout(
       () => this.removeProcess(processEntry.id),
       this.completedProcessTtlMs,
     );
     processEntry.cleanupTimer.unref();
+    if (processEntry.background) {
+      const completed = this.completedByWorkspace.get(processEntry.workspaceId) ?? [];
+      if (!completed.includes(processEntry.id)) {
+        completed.push(processEntry.id);
+        this.completedByWorkspace.set(processEntry.workspaceId, completed);
+        this.completedProcessIds.push(processEntry.id);
+      }
+      while (this.completedProcessIds.length > this.maxCompletedProcesses) {
+        const oldestProcessId = this.completedProcessIds[0];
+        if (oldestProcessId === undefined) break;
+        this.removeProcess(oldestProcessId);
+      }
+    }
   }
 
   private append(processEntry: ProcessEntry, output: string): void {
@@ -526,6 +541,8 @@ export class ProcessManager {
     const processEntry = this.processes.get(processId);
     if (processEntry?.cleanupTimer) clearTimeout(processEntry.cleanupTimer);
     this.processes.delete(processId);
+    const completedIndex = this.completedProcessIds.indexOf(processId);
+    if (completedIndex >= 0) this.completedProcessIds.splice(completedIndex, 1);
     if (!processEntry) return;
     const completed = this.completedByWorkspace.get(processEntry.workspaceId);
     if (!completed) return;
