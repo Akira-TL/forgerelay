@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -224,6 +225,26 @@ function formatDiscoveredWorkspaceInstructions(
       file.content.trimEnd(),
     ]),
   ].join("\n");
+}
+
+async function assertWorkspaceInstructionsLoadedBeforeSideEffect(
+  workspaces: WorkspaceRegistry,
+  workspace: Workspace,
+  paths: string[],
+): Promise<void> {
+  const discovered = new Map<string, { path: string; content: string }>();
+  for (const path of paths) {
+    const absolutePath = resolve(workspace.root, path);
+    for (const file of await workspaces.discoverPathInstructions(workspace, absolutePath)) {
+      discovered.set(file.path, file);
+    }
+  }
+  if (discovered.size === 0) return;
+
+  throw new Error([
+    formatDiscoveredWorkspaceInstructions([...discovered.values()], workspace.root),
+    "Apply these instructions, then retry this tool call. No mutation or command was executed.",
+  ].join("\n"));
 }
 
 function formatVisibleAgent(agent: {
@@ -860,6 +881,11 @@ function registerProcessTools(
         operation: async () => {
           const startedAt = performance.now();
           const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+            workspaces,
+            workspace,
+            [cwd],
+          );
           const snapshot = await processSessions.start({
             workspaceId,
             command: cmd,
@@ -1953,6 +1979,11 @@ export function createMcpServer(
         changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
         operation: async () => {
           const startedAt = performance.now();
+          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+            workspaces,
+            workspace,
+            [input.path],
+          );
           const response = await writeFileTool(input, {
             cwd: workspace.root,
             root: workspace.root,
@@ -2048,6 +2079,11 @@ export function createMcpServer(
         changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
         operation: async () => {
           const startedAt = performance.now();
+          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+            workspaces,
+            workspace,
+            [input.path],
+          );
           const response = await editFileTool(input, {
             cwd: workspace.root,
             root: workspace.root,
@@ -2134,6 +2170,11 @@ export function createMcpServer(
         operation: async () => {
           const startedAt = performance.now();
           try {
+            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+              workspaces,
+              workspace,
+              [path, newPath],
+            );
             await renamePath({ path, newPath }, {
               cwd: workspace.root,
               allowedRoots: workspaces.fileToolRoots(workspace),
@@ -2210,6 +2251,11 @@ export function createMcpServer(
         operation: async () => {
           const startedAt = performance.now();
           try {
+            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+              workspaces,
+              workspace,
+              [path],
+            );
             const deleted = await deletePath({ path, recursive }, {
               cwd: workspace.root,
               allowedRoots: workspaces.fileToolRoots(workspace),
@@ -2449,6 +2495,11 @@ export function createMcpServer(
             operation: async () => {
               const startedAt = performance.now();
               const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+              await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+                workspaces,
+                workspace,
+                [cwd],
+              );
               const snapshot = await processSessions.start({
                 workspaceId,
                 command,

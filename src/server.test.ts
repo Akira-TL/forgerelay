@@ -1197,6 +1197,40 @@ test("read lazily surfaces deep workspace instructions after bounded open discov
   assert.doesNotMatch(allResponseText(secondRead), /Workspace instructions discovered for this path/);
 });
 
+test("side-effect tools stop before mutation when lazy instructions are discovered", async (t) => {
+  const context = await fixture(t);
+  const deepDir = join(context.project, "write-level-1", "write-level-2", "write-level-3");
+  await mkdir(deepDir, { recursive: true });
+  await writeFile(join(deepDir, "AGENTS.md"), "write deep instructions\n");
+  const target = join(deepDir, "created.txt");
+
+  const opened = await callOpen(context.client, context.project, "chat-lazy-write-instructions");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const firstWrite = await context.client.callTool({
+    name: "write",
+    arguments: {
+      workspaceId,
+      path: "write-level-1/write-level-2/write-level-3/created.txt",
+      content: "created after instructions\n",
+    },
+  });
+  assert.equal(firstWrite.isError, true);
+  assert.match(allResponseText(firstWrite), /write deep instructions/);
+  assert.match(allResponseText(firstWrite), /No mutation or command was executed/);
+  await assert.rejects(() => readFile(target, "utf8"), /ENOENT/);
+
+  const secondWrite = await context.client.callTool({
+    name: "write",
+    arguments: {
+      workspaceId,
+      path: "write-level-1/write-level-2/write-level-3/created.txt",
+      content: "created after instructions\n",
+    },
+  });
+  assert.equal(secondWrite.isError, undefined, allResponseText(secondWrite));
+  assert.equal(await readFile(target, "utf8"), "created after instructions\n");
+});
+
 test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
   const processSessions = new ProcessManager({
     maxStartYieldMs: 20,
