@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-10
+
 ### Added
 
 - Added `review.changes` and `artifact.download` as registered Capability Gateway actions. Review preserves the existing Git-backed checkpoint and diff-card metadata; native artifact ingress preserves Host-native file transport, workspace-relative no-overwrite publication, size limits, and `AfterFileChange` lifecycle reporting.
