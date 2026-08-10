@@ -39,6 +39,10 @@ Use these terms precisely. In particular, do not use workspace, allowed root, ch
 
 ## Agent skills
 
+### GitHub repository target
+
+`origin` / `Akira-TL/forgerelay` is the canonical GitHub repository for Issues, Actions, Releases, and other `gh` API operations. The `upstream` remote exists only for syncing `Waishnav/devspace` provenance and upstream changes. Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository flag) to `gh` commands instead of relying on remote inference.
+
 ### Issue tracker
 
 Work is tracked in GitHub Issues for `Akira-TL/forgerelay`. See `docs/agents/issue-tracker.md`.
