@@ -76,3 +76,11 @@ _Avoid_: Code search, language-server installation
 **Language service**:
 A ForgeRelay-managed semantic-code service for one canonical language project root and one language-server definition. Logical workspaces that refer to the same physical language project share the same service; distinct managed worktrees or nested language projects naturally use distinct services.
 _Avoid_: Workspace process, language-server installation, logical-workspace server
+
+**Language project**:
+The nearest language-specific project boundary containing a source path, such as a TypeScript project or Python project nested inside a larger ForgeRelay Workspace.
+_Avoid_: Workspace, repository, allowed root
+
+**Language-server definition**:
+The ForgeRelay configuration or built-in discovery description that identifies one external language server and the languages/project markers it can serve.
+_Avoid_: Language service, installed server, Capability
