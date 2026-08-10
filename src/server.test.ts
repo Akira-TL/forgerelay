@@ -164,6 +164,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   assert.match(repeatedText, /same directory previously opened/);
   assert.match(repeatedText, /Reuse this workspaceId for subsequent tool calls/);
   assert.match(repeatedText, /previously provided for this workspace/);
+  assert.match(repeatedText, /capability guides/);
   assert.match(repeatedText, /not repeated here/);
 
   const card = responseCard(repeated);

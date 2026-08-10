@@ -1133,7 +1133,7 @@ export function createMcpServer(
           : [
               `Workspace already open as ${workspace.id}.`,
               "Reuse this workspaceId for subsequent tool calls. This is the same directory previously opened in this conversation.",
-              "Continue following the project instructions, nested instruction files, skills, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
+              "Continue following the project instructions, nested instruction files, skills, capability guides, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
             ].join("\n\n")
         : workspace.mode === "worktree"
           ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
