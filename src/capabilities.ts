@@ -69,7 +69,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   },
   {
     name: "shell-processes",
-    description: "Long-running processes, write_stdin, PTY, and platform edges.",
+    description: "Long-running bash processes, processId interaction, PTY, and platform edges.",
     whenToRead: "Read for running or interactive command issues.",
   },
 ];
@@ -126,7 +126,7 @@ export function buildCapabilityFingerprint(
     "worktree.managed",
     "filesystem.rename-move",
     "filesystem.delete",
-    "process.write-stdin",
+    "process.lifecycle",
     "hooks.lifecycle",
     "capability-guides.read",
   ];

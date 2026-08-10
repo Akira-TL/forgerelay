@@ -33,9 +33,8 @@ test("MCP instructions separate capability contract from configurable workflow p
   const readTool = defaultTools.tools.find((tool) => tool.name === "read");
   const renameTool = defaultTools.tools.find((tool) => tool.name === "rename");
   const deleteTool = defaultTools.tools.find((tool) => tool.name === "delete");
-  const writeStdinTool = defaultTools.tools.find((tool) => tool.name === "write_stdin");
   const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
-  const closeWorktreeTool = defaultTools.tools.find((tool) => tool.name === "close_worktree");
+  const closeWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "close_workspace");
   const shellToolMeta = shellTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
     "openai/outputTemplate"?: string;
@@ -46,9 +45,9 @@ test("MCP instructions separate capability contract from configurable workflow p
 
   assert.match(defaultInstructions, /Default to the user's existing checkout/);
   assert.match(defaultInstructions, /Only open mode="worktree" when the user explicitly asks/);
-  assert.match(defaultInstructions, /close_worktree/);
   assert.match(defaultInstructions, /close_workspace/);
-  assert.match(defaultInstructions, /write_stdin/);
+  assert.doesNotMatch(defaultInstructions, /close_worktree/);
+  assert.doesNotMatch(defaultInstructions, /write_stdin/);
   assert.match(defaultInstructions, /Shell commands may modify ordinary project files/);
   assert.match(defaultInstructions, /\/etc\/sudoers/);
   assert.match(defaultInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
@@ -60,20 +59,15 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.doesNotMatch(shellTool?.description ?? "", /\/etc\/sudoers/);
   assert.doesNotMatch(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
   assert.doesNotMatch(shellTool?.description ?? "", /external device or hardware mutations/);
-  assert.match(shellTool?.description ?? "", /waits up to 300 seconds/);
-  assert.match(shellTool?.description ?? "", /write_stdin/);
+  assert.match(shellTool?.description ?? "", /action=process/);
+  assert.doesNotMatch(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
-  assert.equal(
-    shellInputProperties?.command?.description,
-    "Shell command to run with the local user's authority.",
-  );
+  assert.match(shellInputProperties?.command?.description ?? "", /Required for action=run/);
+  assert.match(shellInputProperties?.processId?.description ?? "", /action=process/);
+  assert.match(shellInputProperties?.input?.description ?? "", /action=process/);
+  assert.match(shellInputProperties?.interrupt?.description ?? "", /SIGINT/);
   assert.equal(shellInputProperties?.timeout, undefined);
-  const writeStdinInputProperties = (writeStdinTool?.inputSchema as {
-    properties?: Record<string, { description?: string }>;
-  } | undefined)?.properties;
-  assert.match(writeStdinInputProperties?.processId?.description ?? "", /Canonical process identifier/);
-  assert.match(writeStdinInputProperties?.sessionId?.description ?? "", /Deprecated alias for processId/);
   assert.match(
     shellToolMeta?.ui?.resourceUri ?? "",
     /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
@@ -82,13 +76,14 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
   assert.ok(renameTool);
   assert.ok(deleteTool);
-  assert.ok(writeStdinTool);
-  assert.ok(defaultTools.tools.some((tool) => tool.name === "close_workspace"));
+  assert.equal(defaultTools.tools.some((tool) => tool.name === "write_stdin"), false);
+  assert.equal(defaultTools.tools.some((tool) => tool.name === "close_worktree"), false);
+  assert.ok(closeWorkspaceTool);
   assert.match(readTool?.description ?? "", /capability guides/);
   assert.ok((openWorkspaceTool?.description?.length ?? Infinity) < 450);
-  assert.ok((closeWorktreeTool?.description?.length ?? Infinity) < 320);
-  assert.match(closeWorktreeTool?.description ?? "", /managed-worktrees capability guide/);
-  assert.doesNotMatch(closeWorktreeTool?.description ?? "", /histories have not diverged/);
+  assert.ok((closeWorkspaceTool?.description?.length ?? Infinity) < 420);
+  assert.match(closeWorkspaceTool?.description ?? "", /Managed-worktree-backed/);
+  assert.match(closeWorkspaceTool?.description ?? "", /commitMessage/);
 
   const overrideContext = await fixture(t, {
     env: {
@@ -100,7 +95,7 @@ test("MCP instructions separate capability contract from configurable workflow p
 
   assert.match(overrideInstructions, /Default to the user's existing checkout/);
   assert.match(overrideInstructions, /Only open mode="worktree" when the user explicitly asks/);
-  assert.match(overrideInstructions, /close_worktree/);
+  assert.doesNotMatch(overrideInstructions, /close_worktree/);
   assert.match(overrideInstructions, /close_workspace/);
   assert.match(overrideInstructions, /Follow instructions returned by open_workspace/);
   assert.match(overrideInstructions, /Follow repository-defined development and Git workflows\./);
@@ -153,7 +148,8 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
 
   const tools = await context.client.listTools();
   assert.ok(tools.tools.some((tool) => tool.name === "capability"));
-  assert.equal(tools.tools.length, 14, "0.3.2 must expand the existing full-mode surface by one gateway tool");
+  assert.equal(tools.tools.some((tool) => tool.name === "write_stdin"), false);
+  assert.equal(tools.tools.some((tool) => tool.name === "close_worktree"), false);
 
   const opened = await callOpen(context.client, context.project, "capability-chat");
   const openedStructured = structuredContent(opened);
@@ -384,7 +380,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "worktree.managed",
       "filesystem.rename-move",
       "filesystem.delete",
-      "process.write-stdin",
+      "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
       "inspection.search-tools",
@@ -448,7 +444,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "worktree.managed",
         "filesystem.rename-move",
         "filesystem.delete",
-        "process.write-stdin",
+        "process.lifecycle",
         "hooks.lifecycle",
         "capability-guides.read",
         "inspection.search-tools",
@@ -520,7 +516,7 @@ test("open_workspace advertises capability guides that read can load on demand",
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
     [2, /oauth-protected-resource/, /Failed to fetch template/],
-    [3, /write_stdin/, /tty: true/],
+    [3, /action="process"/, /tty: true/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({
@@ -1122,9 +1118,8 @@ test("close_workspace refuses a logical workspace with a running process", async
   assert.match(allResponseText(blockedClose), /running process or an unconsumed process completion/);
 
   await context.client.callTool({
-    name: "write_stdin",
-    // Deprecated sessionId remains accepted at the MCP boundary during 0.2.x.
-    arguments: { workspaceId, sessionId: processId, yieldTimeMs: 5_000 },
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 5_000 },
   });
   const closed = await context.client.callTool({
     name: "close_workspace",
@@ -1133,7 +1128,7 @@ test("close_workspace refuses a logical workspace with a running process", async
   assert.equal(closed.isError, undefined);
 });
 
-test("write_stdin can explicitly keep waiting for a bash process", async (t) => {
+test("bash action=process can explicitly keep waiting for a running process", async (t) => {
   const processSessions = new ProcessManager({ maxStartYieldMs: 10 });
   const context = await fixture(t, { processSessions });
   const opened = await callOpen(context.client, context.project, "chat-shell-poll");
@@ -1143,19 +1138,40 @@ test("write_stdin can explicitly keep waiting for a bash process", async (t) => 
     name: "bash",
     arguments: {
       workspaceId,
-      command: `${node} -e "setTimeout(() => console.log('polled-done'), 80)"`,
+      command: `${node} -e "setTimeout(() => console.log('polled-done'), 500)"`,
     },
   });
   const processId = Number(structuredContent(shell).processId);
   assert.ok(processId > 0);
 
+  const secondWorkspace = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { path: context.project, newWorkspace: true },
+  });
+  const secondWorkspaceId = String(structuredContent(secondWorkspace).workspaceId);
+  assert.notEqual(secondWorkspaceId, workspaceId);
+  const crossWorkspace = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId: secondWorkspaceId,
+      action: "process",
+      processId,
+      yieldTimeMs: 0,
+    },
+  });
+  assert.equal(crossWorkspace.isError, true);
+  assert.match(allResponseText(crossWorkspace), /does not belong to workspace/);
+
   const polled = await context.client.callTool({
-    name: "write_stdin",
-    arguments: { workspaceId, processId, yieldTimeMs: 5_000 },
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 5_000 },
   });
   assert.equal(structuredContent(polled).running, false);
   assert.equal(structuredContent(polled).exitCode, 0);
   assert.match(allResponseText(polled), /polled-done/);
+
+  const tools = await context.client.listTools();
+  assert.equal(tools.tools.some((tool) => tool.name === "write_stdin"), false);
 });
 
 test("invalid project hooks stay visible and can be repaired through ForgeRelay", async (t) => {
@@ -1307,7 +1323,7 @@ test("BeforeTool hook failure prevents the tool operation", async (t) => {
   );
 });
 
-test("close_worktree commits and fast-forwards a managed worktree through the MCP surface", async (t) => {
+test("close_workspace finalizes a managed-worktree-backed workspace and supports commit-message retry", async (t) => {
   const context = await fixture(t, { git: true });
   const opened = await callOpen(context.client, context.project, "chat-1", "worktree");
   const workspaceId = structuredContent(opened).workspaceId;
@@ -1325,8 +1341,16 @@ test("close_worktree commits and fast-forwards a managed worktree through the MC
       content: "finished\n",
     },
   });
+  const missingMessage = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(missingMessage.isError, true);
+  assert.match(allResponseText(missingMessage), /requires commitMessage/);
+  assert.equal(await readFile(join(String(worktree.path), "feature.txt"), "utf8"), "finished\n");
+
   const closed = await context.client.callTool({
-    name: "close_worktree",
+    name: "close_workspace",
     arguments: {
       workspaceId,
       commitMessage: "feat: finish isolated work",
@@ -1335,6 +1359,7 @@ test("close_worktree commits and fast-forwards a managed worktree through the MC
   const structured = structuredContent(closed);
 
   assert.equal(structured.workspaceId, workspaceId);
+  assert.equal(structured.mode, "worktree");
   assert.equal(structured.committed, true);
   assert.equal(structured.branch, worktree.branch);
   assert.equal(structured.targetBranch, worktree.targetBranch);
@@ -1343,9 +1368,11 @@ test("close_worktree commits and fast-forwards a managed worktree through the MC
     "finished\n",
   );
   assert.match(responseText(closed), /fast-forward/);
+  const tools = await context.client.listTools();
+  assert.equal(tools.tools.some((tool) => tool.name === "close_worktree"), false);
 });
 
-test("worktree lifecycle hook reports are visible on close_worktree", async (t) => {
+test("worktree lifecycle hook reports are visible on close_workspace", async (t) => {
   const context = await fixture(t, { git: true });
   await mkdir(join(context.project, ".forgerelay", "hooks"), { recursive: true });
   await writeFile(
@@ -1372,7 +1399,7 @@ test("worktree lifecycle hook reports are visible on close_worktree", async (t) 
     arguments: { workspaceId, path: "feature.txt", content: "hook report\n" },
   });
   const closed = await context.client.callTool({
-    name: "close_worktree",
+    name: "close_workspace",
     arguments: { workspaceId, commitMessage: "test: close with hook reports" },
   });
   const visible = allResponseText(closed);

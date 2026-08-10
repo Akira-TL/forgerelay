@@ -675,7 +675,7 @@ function attachCompletedProcessNotices<T>(
 
 function processOutputSchema(): z.ZodRawShape {
   return resultOutputSchema({
-    processId: z.number().int().positive().optional().describe("Canonical process handle for write_stdin."),
+    processId: z.number().int().positive().optional().describe("Canonical process handle for bash(action=\"process\") or the active command adapter."),
     sessionId: z.number().int().positive().optional().describe("Deprecated alias of processId for compatibility."),
     running: z.boolean(),
     exitCode: z.number().int().optional(),
@@ -858,6 +858,8 @@ function registerProcessTools(
     },
     );
   }
+
+  if (config.toolMode !== "codex") return;
 
   registerAppTool(
     server,
@@ -1519,63 +1521,26 @@ export function createMcpServer(
     server,
     toolNames.closeWorkspace,
     {
-      title: "Close logical workspace",
+      title: "Close workspace",
       description:
-        "Release one logical workspaceId after the user chooses cleanup. This does not delete checkout files. Use close_worktree to finalize and remove a managed worktree. Running or unconsumed processes prevent closure.",
+        "Close one workspace after the user chooses cleanup. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running or unconsumed processes prevent closure.",
       inputSchema: {
-        workspaceId: z.string().describe("Logical workspace ID to release."),
-      },
-      outputSchema: resultOutputSchema({ workspaceId: z.string() }),
-      _meta: {},
-      annotations: WRITE_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId }) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        tool: toolNames.closeWorkspace,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { workspaceId },
-        operation: async () => {
-          if (processSessions.activeWorkspaceIds().has(workspaceId)) {
-            throw new Error(
-              `Workspace ${workspaceId} still owns a running process or an unconsumed process completion. Poll or consume it before closing this workspace.`,
-            );
-          }
-          workspaces.closeWorkspace(workspaceId);
-          const result = `Closed logical workspace ${workspaceId}. Physical project files were not removed.`;
-          return {
-            content: [textBlock(result)],
-            structuredContent: { result, workspaceId },
-          };
-        },
-      });
-    },
-  );
-
-  registerAppTool(
-    server,
-    toolNames.closeWorktree,
-    {
-      title: "Close worktree",
-      description:
-        "Finalize a managed worktree after its task is complete and verified. ForgeRelay may commit remaining changes, integrate the target branch when safe, and clean up the managed worktree. Read the managed-worktrees capability guide for advanced close, safety, and failure semantics.",
-      inputSchema: {
-        workspaceId: z
-          .string()
-          .describe("Managed worktree workspace identifier returned by open_workspace."),
+        workspaceId: z.string().describe("Workspace identifier to close."),
         commitMessage: z
           .string()
           .min(1)
-          .describe("Concise Git commit message describing the completed worktree changes."),
+          .optional()
+          .describe("Required only for a managed-worktree-backed workspace; concise Git commit message for remaining worktree changes."),
       },
       outputSchema: resultOutputSchema({
         workspaceId: z.string(),
-        sourceRoot: z.string(),
-        branch: z.string(),
-        targetBranch: z.string(),
-        commitSha: z.string(),
-        mergedSha: z.string(),
-        committed: z.boolean(),
+        mode: z.enum(["checkout", "worktree"]),
+        sourceRoot: z.string().optional(),
+        branch: z.string().optional(),
+        targetBranch: z.string().optional(),
+        commitSha: z.string().optional(),
+        mergedSha: z.string().optional(),
+        committed: z.boolean().optional(),
         cleanupWarning: z.string().optional(),
       }),
       _meta: {},
@@ -1584,53 +1549,78 @@ export function createMcpServer(
     async ({ workspaceId, commitMessage }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
-        tool: toolNames.closeWorktree,
+        tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
-        payload: { commitMessage },
-        afterCwd: (response) => response.structuredContent.sourceRoot,
+        payload: { workspaceId, commitMessage, mode: workspace.mode },
+        afterCwd: (response) =>
+          "sourceRoot" in response.structuredContent &&
+          typeof response.structuredContent.sourceRoot === "string"
+            ? response.structuredContent.sourceRoot
+            : undefined,
         operation: async () => {
-          const busyWorkspaceIds = workspaces
-            .workspaceIdsForPhysicalWorkspace(workspace)
-            .filter((id) => processSessions.activeWorkspaceIds().has(id));
-          if (busyWorkspaceIds.length > 0) {
+          if (workspace.mode === "worktree") {
+            if (!commitMessage) {
+              throw new Error(
+                `Managed-worktree-backed workspace ${workspaceId} requires commitMessage when closing.`,
+              );
+            }
+            const busyWorkspaceIds = workspaces
+              .workspaceIdsForPhysicalWorkspace(workspace)
+              .filter((id) => processSessions.activeWorkspaceIds().has(id));
+            if (busyWorkspaceIds.length > 0) {
+              throw new Error(
+                `Cannot close this worktree-backed workspace while logical workspace processes are still running or awaiting completion delivery: ${busyWorkspaceIds.join(", ")}.`,
+              );
+            }
+            const startedAt = performance.now();
+            const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+            const result = [
+              `Closed managed-worktree-backed workspace ${workspaceId}.`,
+              `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
+              `Source checkout: ${closed.sourceRoot}`,
+              `Commit: ${closed.commitSha}`,
+              closed.cleanupWarning
+                ? `Cleanup warning: ${closed.cleanupWarning}`
+                : "The managed worktree directory and branch were removed.",
+            ].join("\n");
+            logToolCall(config, {
+              tool: toolNames.closeWorkspace,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              path: closed.sourceRoot,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return attachHookReports({
+              content: [textBlock(result)],
+              structuredContent: {
+                result,
+                workspaceId,
+                mode: "worktree" as const,
+                sourceRoot: closed.sourceRoot,
+                branch: closed.branch,
+                targetBranch: closed.targetBranch,
+                commitSha: closed.commitSha,
+                mergedSha: closed.mergedSha,
+                committed: closed.committed,
+                cleanupWarning: closed.cleanupWarning,
+              },
+            }, closed.hookReports);
+          }
+
+          if (commitMessage !== undefined) {
+            throw new Error("close_workspace commitMessage is only valid for managed-worktree-backed workspaces.");
+          }
+          if (processSessions.activeWorkspaceIds().has(workspaceId)) {
             throw new Error(
-              `Cannot close this worktree while logical workspace processes are still running or awaiting completion delivery: ${busyWorkspaceIds.join(", ")}.`,
+              `Workspace ${workspaceId} still owns a running process or an unconsumed process completion. Poll or consume it before closing this workspace.`,
             );
           }
-          const startedAt = performance.now();
-          const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
-          const result = [
-            `Closed managed worktree ${workspaceId}.`,
-            `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
-            `Source checkout: ${closed.sourceRoot}`,
-            `Commit: ${closed.commitSha}`,
-            closed.cleanupWarning
-              ? `Cleanup warning: ${closed.cleanupWarning}`
-              : "The worktree directory and managed branch were removed.",
-          ].join("\n");
-
-          logToolCall(config, {
-            tool: toolNames.closeWorktree,
-            ...workspaceLogContext(workspace, extra.sessionId),
-            path: closed.sourceRoot,
-            success: true,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          return attachHookReports({
-            content: [{ type: "text" as const, text: result }],
-            structuredContent: {
-              result,
-              workspaceId,
-              sourceRoot: closed.sourceRoot,
-              branch: closed.branch,
-              targetBranch: closed.targetBranch,
-              commitSha: closed.commitSha,
-              mergedSha: closed.mergedSha,
-              committed: closed.committed,
-              cleanupWarning: closed.cleanupWarning,
-            },
-          }, closed.hookReports);
+          workspaces.closeWorkspace(workspaceId);
+          const result = `Closed checkout-backed workspace ${workspaceId}. Physical project files were not removed.`;
+          return {
+            content: [textBlock(result)],
+            structuredContent: { result, workspaceId, mode: "checkout" as const },
+          };
         },
       });
     },
@@ -2455,64 +2445,189 @@ export function createMcpServer(
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          action: z
+            .enum(["run", "process"])
+            .optional()
+            .describe("Defaults to run. Use process with a returned processId to poll, interact, resize, or interrupt a running command."),
           command: z
             .string()
-            .describe(toolDescriptions.shellCommand),
+            .optional()
+            .describe(`${toolDescriptions.shellCommand} Required for action=run.`),
+          processId: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe("Process identifier returned by a previous bash action=run call. Required for action=process."),
+          input: z
+            .string()
+            .optional()
+            .describe("Characters to write for action=process. Omit to poll/wait without input."),
+          interrupt: z
+            .boolean()
+            .optional()
+            .describe("For action=process, send SIGINT to the process. Cannot be combined with input."),
+          tty: z
+            .boolean()
+            .optional()
+            .describe("For action=run, allocate a pseudo-terminal for interactive commands. Defaults to false."),
+          columns: z
+            .number()
+            .int()
+            .min(1)
+            .max(1_000)
+            .optional()
+            .describe("Initial PTY width for action=run, or resize width for action=process."),
+          rows: z
+            .number()
+            .int()
+            .min(1)
+            .max(1_000)
+            .optional()
+            .describe("Initial PTY height for action=run, or resize height for action=process."),
           workingDirectory: z
             .string()
             .optional()
-            .describe(
-              "Optional working directory relative to the workspace root. Defaults to the workspace root.",
-            ),
+            .describe("For action=run, working directory relative to the workspace root. Defaults to the workspace root."),
+          yieldTimeMs: z
+            .number()
+            .int()
+            .min(0)
+            .max(300_000)
+            .optional()
+            .describe("Milliseconds to wait before returning. Run preserves the existing 300000ms default; process polling defaults to 5000ms and interaction to 250ms."),
+          maxOutputTokens: z
+            .number()
+            .int()
+            .positive()
+            .max(100_000)
+            .optional()
+            .describe("Approximate output token budget. Defaults to 10000."),
         },
         outputSchema: processOutputSchema(),
         ...toolWidgetDescriptorMeta(config, "shell"),
         annotations: SHELL_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId, command, workingDirectory }, extra) => {
+      async ({
+        workspaceId,
+        action = "run",
+        command,
+        processId,
+        input,
+        interrupt,
+        tty,
+        columns,
+        rows,
+        workingDirectory,
+        yieldTimeMs,
+        maxOutputTokens,
+      }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
+        if (action === "run") {
+          if (!command) throw new Error("bash action=run requires command.");
+          if (processId !== undefined || input !== undefined || interrupt !== undefined) {
+            throw new Error("bash action=run does not accept processId, input, or interrupt.");
+          }
+          return runToolWithHooks(hooks, {
+            tool: toolNames.shell,
+            invocation: workspaceHookInvocation(workspace),
+            payload: {
+              action,
+              command,
+              workingDirectory: workingDirectory ?? ".",
+            },
+            isFailure: toolResultIsError,
+            operation: async () => {
+              const startedAt = performance.now();
+              const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+              const snapshot = await processSessions.start({
+                workspaceId,
+                command,
+                cwd,
+                workspaceRoot: workspace.root,
+                tty,
+                columns,
+                rows,
+                yieldTimeMs: yieldTimeMs ?? 300_000,
+                maxOutputTokens,
+              });
+
+              logToolCall(config, {
+                tool: toolNames.shell,
+                ...workspaceLogContext(workspace, extra.sessionId),
+                workingDirectory: workingDirectory ?? ".",
+                command,
+                commandLength: command.length,
+                exitCode: snapshot.exitCode,
+                running: snapshot.running,
+                processId: snapshot.processId,
+                success: snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
+                durationMs: Math.round(performance.now() - startedAt),
+              });
+
+              const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
+                action,
+                command,
+                workingDirectory: workingDirectory ?? ".",
+                running: snapshot.running,
+                exitCode: snapshot.exitCode,
+                wallTimeMs: snapshot.wallTimeMs,
+              });
+              return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
+                ? { ...response, isError: true }
+                : response;
+            },
+          });
+        }
+
+        if (command !== undefined || workingDirectory !== undefined || tty !== undefined) {
+          throw new Error("bash action=process does not accept command, workingDirectory, or tty.");
+        }
+        if (processId === undefined) throw new Error("bash action=process requires processId.");
+        if (interrupt && input !== undefined) {
+          throw new Error("bash action=process cannot combine interrupt with input.");
+        }
         return runToolWithHooks(hooks, {
           tool: toolNames.shell,
           invocation: workspaceHookInvocation(workspace),
           payload: {
-            command,
-            workingDirectory: workingDirectory ?? ".",
+            action,
+            processId,
+            inputLength: input?.length ?? 0,
+            interrupt: interrupt ?? false,
+            columns,
+            rows,
           },
           isFailure: toolResultIsError,
           operation: async () => {
             const startedAt = performance.now();
-            const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-            const snapshot = await processSessions.start({
+            const snapshot = await processSessions.write({
               workspaceId,
-              command,
-              cwd,
-              workspaceRoot: workspace.root,
-              yieldTimeMs: 300_000,
+              processId,
+              chars: interrupt ? "\u0003" : input,
+              columns,
+              rows,
+              yieldTimeMs,
+              maxOutputTokens,
             });
-
             logToolCall(config, {
               tool: toolNames.shell,
               ...workspaceLogContext(workspace, extra.sessionId),
-              workingDirectory: workingDirectory ?? ".",
-              command,
-              commandLength: command.length,
               exitCode: snapshot.exitCode,
               running: snapshot.running,
               processId: snapshot.processId,
-              success: snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
+              success: snapshot.running || snapshot.exitCode === 0,
               durationMs: Math.round(performance.now() - startedAt),
             });
-
-            const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
-              command,
-              workingDirectory: workingDirectory ?? ".",
+            return processToolResponse(toolNames.shell, workspaceId, snapshot, {
+              action,
+              processId,
+              inputLength: input?.length ?? 0,
+              interrupt: interrupt ?? false,
               running: snapshot.running,
               exitCode: snapshot.exitCode,
               wallTimeMs: snapshot.wallTimeMs,
             });
-            return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
-              ? { ...response, isError: true }
-              : response;
           },
         });
       },

@@ -3,7 +3,6 @@ import type { ServerConfig } from "../config.js";
 export const toolNames = {
   openWorkspace: "open_workspace",
   closeWorkspace: "close_workspace",
-  closeWorktree: "close_worktree",
   read: "read",
   write: "write",
   edit: "edit",
@@ -55,7 +54,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     delete: `Delete one file or directory inside an open workspace or the OS temp directory. Non-empty directories require recursive=true. An allowed root itself cannot be deleted. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run a shell command inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. ForgeRelay waits up to 300 seconds, then returns a processId for a still-running command; use ${toolNames.writeStdin} to poll, interact, wait, or send Ctrl-C. Completed background commands may be reported later for the same workspaceId. Call ${toolNames.openWorkspace} first and pass workspaceId. Expose this capability only behind strong authentication.`,
+    shell: `Run or manage a shell process inside an open workspace.${shellSurface} Commands execute with the local user's authority; workspace filesystem containment does not make shell execution a sandbox. action=run (default) starts a command and waits up to 300 seconds; action=process uses its processId to poll, wait, write input, resize a PTY, or interrupt it. Completed background commands may also be reported later for the same workspaceId. Call ${toolNames.openWorkspace} first and pass workspaceId. Expose this capability only behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -64,7 +63,7 @@ function capabilityContractInstructions(config: ServerConfig): string {
   const staleWorkspacePolicy = config.toolMode === "codex"
     ? ""
     : ` If ${toolNames.openWorkspace} reports logical workspaces idle for more than two days, let the user choose whether to resume or close them with ${toolNames.closeWorkspace}; never close them automatically.`;
-  const workspaceLifecycle = `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Reuse the workspaceId returned by ${toolNames.openWorkspace} for this conversation; resume another logical workspaceId only when the user wants that workspace, and request a new logical workspace only when explicitly asked.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} releases a logical workspace; ${toolNames.closeWorktree} finalizes a managed worktree. Read the managed-worktrees capability guide for advanced worktree lifecycle and failure semantics.`;
+  const workspaceLifecycle = `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Reuse the workspaceId from ${toolNames.openWorkspace}; resume or create another logical workspace only when the user asks.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} releases checkout-backed workspaces or safely finalizes managed-worktree-backed ones; managed close requires commitMessage. Read the managed-worktrees capability guide for advanced failure semantics.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Read an availableAgentsFiles path before working under it.`;
   const capabilityGuides = `For optional capabilities from ${toolNames.openWorkspace}, use ${toolNames.capability}; if unfamiliar, describe first and read its advertised capability guide with ${toolNames.read}.`;
@@ -94,7 +93,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running process with a processId, use ${toolNames.writeStdin} only when you need to poll, wait, interact, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running process with a processId, call ${toolNames.shell} again with action=\"process\" when you need to poll, wait, interact, resize, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
   );
 }
 

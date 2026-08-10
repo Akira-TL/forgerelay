@@ -165,18 +165,19 @@ Legacy persisted `devspace/*` branches remain valid and closable.
 Uncommitted source-checkout changes are not automatically copied into a newly
 created worktree.
 
-## `close_worktree` refuses to finish
+## `close_workspace` refuses to finalize a managed worktree
 
-Close is deliberately refused when:
+For a managed-worktree-backed workspace, close is deliberately refused when:
 
 - the source checkout is dirty;
 - the source checkout is no longer on the recorded target branch;
 - the managed worktree is on the wrong branch;
 - source and managed histories diverged.
 
-Integration is fast-forward-only. If histories diverge, rebase and verify inside
-the managed worktree, then retry. ForgeRelay does not intentionally leave the
-source checkout in a merge-conflict state.
+A `commitMessage` is also required for managed-worktree-backed close. Integration
+is fast-forward-only. If histories diverge, rebase and verify inside the managed
+worktree, then retry the same `close_workspace` call with the original workspaceId.
+ForgeRelay does not intentionally leave the source checkout in a merge-conflict state.
 
 ## Windows shell commands fail
 

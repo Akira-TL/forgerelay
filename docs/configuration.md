@@ -115,9 +115,9 @@ MCP clients discover metadata from:
 
 | Value | Behavior |
 | --- | --- |
-| `minimal` | Default. Exposes `open_workspace`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, `bash`, `write_stdin`, and `close_worktree`. |
+| `minimal` | Default. Exposes `open_workspace`, `close_workspace`, `read`, `write`, `edit`, `rename`, `delete`, `bash`, and `capability`. |
 | `full` | Adds dedicated `grep`, `glob`, and `ls` tools. |
-| `codex` | Experimental Codex-shaped tool surface using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `close_worktree`. |
+| `codex` | Experimental Codex-shaped compatibility surface using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `capability`. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
 explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
@@ -163,16 +163,21 @@ current conversation. `newWorkspace: true` allocates a new logical handle withou
 creating another checkout or Git worktree and should be used only on explicit user
 request. Logical workspaces idle for more than two days are returned in `staleWorkspaces` so
 the user can choose whether to resume or release them. `close_workspace` removes a
-logical handle without deleting checkout files; it refuses to remove the last
-handle anchoring a physical worktree.
+checkout-backed logical handle without deleting checkout files. For a managed-worktree-backed
+workspace, `close_workspace` requires `commitMessage` and runs the existing safe
+worktree finalize lifecycle: close Hooks, commit when needed, fast-forward-only
+integration, cleanup, and alias invalidation.
 
-`bash` has no execution-timeout input. It waits in the foreground for at most 300
-seconds; if the process is still alive, the result contains `running: true` and a
-canonical `processId`. `write_stdin` can poll or interact with that process for up
-to another 300 seconds per call. The former `sessionId` field remains a deprecated
-alias during the 0.2.x compatibility window. ForgeRelay does not kill a process
-merely because a wait window expires. Completed background processes are delivered once with a later
-tool result for the same logical workspace ID.
+Regular `bash` has no execution-timeout input. `action="run"` (the default) waits
+in the foreground for at most 300 seconds; if the process is still alive, the
+result contains `running: true` and a canonical `processId`. Reuse the same `bash`
+with `action="process"` to poll/wait, send `input`, resize a PTY, or set
+`interrupt:true`; each wait can be up to 300 seconds. ForgeRelay does not kill a
+process merely because a wait window expires. Completed background processes are
+delivered once with a later tool result for the same logical workspace ID.
+
+Codex mode retains `write_stdin` only as an experimental compatibility adapter;
+regular Agent workflows should use the single `bash` process lifecycle.
 
 ## Widgets
 

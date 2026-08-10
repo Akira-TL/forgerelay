@@ -129,9 +129,11 @@ try {
     params: {},
   }).message.result.tools;
   const toolNames = tools.map((tool) => tool.name);
-  for (const expected of ["open_workspace", "close_workspace", "close_worktree", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "write_stdin", "capability"]) {
+  for (const expected of ["open_workspace", "close_workspace", "read", "write", "edit", "rename", "delete", "grep", "glob", "ls", "bash", "capability"]) {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
+  assert.equal(toolNames.includes("close_worktree"), false);
+  assert.equal(toolNames.includes("write_stdin"), false);
   const bashTool = tools.find((tool) => tool.name === "bash");
   assert.match(bashTool?.description ?? "", /local user's authority/);
   assert.doesNotMatch(bashTool?.description ?? "", /may modify ordinary project files/);
@@ -139,18 +141,10 @@ try {
   assert.doesNotMatch(bashTool?.description ?? "", /external device or hardware mutations/);
   assert.doesNotMatch(bashTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.equal(bashTool?.inputSchema?.properties?.timeout, undefined);
-  assert.match(bashTool?.description ?? "", /waits up to 300 seconds/);
-  assert.match(bashTool?.description ?? "", /write_stdin/);
-  const writeStdinTool = tools.find((tool) => tool.name === "write_stdin");
-  assert.equal(writeStdinTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
-  assert.match(
-    writeStdinTool?.inputSchema?.properties?.processId?.description ?? "",
-    /Canonical process identifier/,
-  );
-  assert.match(
-    writeStdinTool?.inputSchema?.properties?.sessionId?.description ?? "",
-    /Deprecated alias for processId/,
-  );
+  assert.match(bashTool?.description ?? "", /action=process/);
+  assert.equal(bashTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
+  assert.match(bashTool?.inputSchema?.properties?.processId?.description ?? "", /action=process/);
+  assert.match(bashTool?.inputSchema?.properties?.interrupt?.description ?? "", /SIGINT/);
   const openWorkspaceTool = tools.find((tool) => tool.name === "open_workspace");
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.workspaceId);
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
@@ -234,7 +228,7 @@ try {
       "worktree.managed",
       "filesystem.rename-move",
       "filesystem.delete",
-      "process.write-stdin",
+      "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
       "inspection.search-tools",
@@ -305,6 +299,25 @@ try {
   assert.match(shell.structuredContent.result, /debug-bash-ok/);
   assert.equal(shell.structuredContent.running, false);
   pass("bash", "foreground command completed through ProcessManager");
+
+  const background = callTool(oauth.accessToken, sessionId, 61, "bash", {
+    workspaceId,
+    action: "run",
+    command: `${JSON.stringify(process.execPath)} -e "setTimeout(() => console.log('debug-process-ok'), 100)"`,
+    yieldTimeMs: 0,
+  });
+  assert.equal(background.structuredContent.running, true);
+  assert.equal(typeof background.structuredContent.processId, "number");
+  const polled = callTool(oauth.accessToken, sessionId, 62, "bash", {
+    workspaceId,
+    action: "process",
+    processId: background.structuredContent.processId,
+    yieldTimeMs: 5_000,
+  });
+  assert.equal(polled.structuredContent.running, false);
+  assert.equal(polled.structuredContent.exitCode, 0);
+  assert.match(polled.structuredContent.result, /debug-process-ok/);
+  pass("bash process", "action=run -> processId -> action=process completed through one MCP tool");
 
   const failedEdit = callTool(oauth.accessToken, sessionId, 7, "edit", {
     workspaceId,
@@ -390,7 +403,7 @@ try {
     path: "feature.txt",
     content: "debug worktree acceptance\n",
   });
-  const closed = callTool(oauth.accessToken, sessionId, 10, "close_worktree", {
+  const closed = callTool(oauth.accessToken, sessionId, 10, "close_workspace", {
     workspaceId: worktreeWorkspaceId,
     commitMessage: "test(debug): verify 7677 worktree lifecycle",
   });
@@ -401,7 +414,7 @@ try {
     "debug worktree acceptance\n",
   );
   pass(
-    "managed worktree close",
+    "managed worktree workspace close",
     `${closed.structuredContent.branch} -> ${closed.structuredContent.targetBranch}`,
   );
 
@@ -734,6 +747,7 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
   assert.ok(existsSync(join(releaseProject, "release-ci-ran.txt")));
   assert.deepEqual(JSON.parse(readFileSync(join(releaseProject, "release-ci-ran.txt"), "utf8")), {
     tool: "bash",
+    action: "run",
     command: "git push origin v0.2.0",
     workingDirectory: ".",
     originalCommand: "git status --short && git push origin v0.2.0 && echo release-pushed",

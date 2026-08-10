@@ -122,7 +122,7 @@ git worktree list
 git branch
 ```
 
-When `close_worktree` succeeds, ForgeRelay:
+When `close_workspace` succeeds for a managed-worktree-backed workspace, ForgeRelay:
 
 1. checks that the source checkout is clean and still on the expected target branch;
 2. commits any remaining worktree changes;
@@ -145,7 +145,7 @@ Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一
   "event": "BeforeTool",
   "matcher": {
     "tool": "bash",
-    "commandRegex": "^git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+$"
+    "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
   },
   "command": "npm run release:verify",
   "timeoutSeconds": 300,

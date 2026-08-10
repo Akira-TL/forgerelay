@@ -4,10 +4,10 @@
 
 ## 基本模型
 
-- `workspaceId` 是逻辑工作身份；managed worktree 是物理 Git worktree。二者不要混用。
+- `workspaceId` 是 Agent 的工作身份；managed worktree 是该 Workspace 的一种物理 Git backing mode，不是 Host 需要管理的第二套 lifecycle。
 - managed worktree 使用 ForgeRelay 管理的 `forgerelay/*` 分支，不使用 detached HEAD。
 - 创建时会记录 source checkout、base ref/base SHA、managed branch 和 target branch。
-- 同一个物理 worktree 可以存在多个逻辑 workspace handle；关闭逻辑 handle 与删除物理 worktree 是不同操作。
+- 同一个物理 worktree 可以存在多个逻辑 workspace handle；finalize 一个 managed-worktree-backed Workspace 时，ForgeRelay 会统一处理同一物理 worktree 的 alias/session invalidation。
 
 ## 打开与复用
 
@@ -22,17 +22,22 @@
 
 不要为了“更安全”自动选择 worktree，也不要在用户没有要求时创建额外 Git 分支。
 
-## `close_workspace` 与 `close_worktree`
+## `close_workspace`
 
-`close_workspace` 只释放一个逻辑 `workspaceId`，不会删除 checkout 文件，也不会完成 managed branch 集成。若某个 managed worktree 仍有其他逻辑 handle，释放其中一个 handle 不会移除物理 worktree。
+`close_workspace` 是唯一公开关闭入口，行为由 Workspace backing mode 决定：
 
-`close_worktree` 用于完成一个 managed worktree：
+- checkout-backed Workspace：只释放逻辑 `workspaceId`，不会删除 checkout 文件；
+- managed-worktree-backed Workspace：要求提供 `commitMessage`，并完成下面的安全 finalize lifecycle。
+
+Managed worktree finalize：
 
 1. 要求该 worktree 的工作已经完成并验证；
-2. 若仍有未提交修改，ForgeRelay 使用调用时提供的 commit message 提交；
+2. 若仍有未提交修改，ForgeRelay 使用 `close_workspace` 提供的 commit message 提交；
 3. 只有 source checkout 干净、目标历史没有分叉且能够安全 fast-forward 时，才把 managed branch 集成到原 target branch；
-4. 成功后移除 worktree 目录和 ForgeRelay 管理分支；
+4. 成功后移除 worktree 目录和 ForgeRelay 管理分支，并关闭该物理 worktree 的逻辑 aliases；
 5. 若安全 fast-forward 不成立，不把 source checkout 留在 merge-conflict 状态，而是拒绝关闭并保留 worktree 供用户/Agent 处理。
+
+如果因为缺少 `commitMessage`、dirty source、divergence、Hook blocking 或 busy process 关闭失败，修正对应条件后继续使用**原 workspaceId** 重试；不要另开一个 worktree 来逃避失败状态。
 
 运行中的 process 或尚未消费的 process completion 也会阻止相关逻辑 workspace/worktree 被关闭。
 

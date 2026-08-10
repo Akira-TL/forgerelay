@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Regular MCP tool modes now use one `bash` interface for both command start and long-process interaction. `action="run"` preserves normal shell execution while `action="process"` polls/waits, writes input, resizes PTYs, or interrupts an existing workspace-owned `processId`; top-level `write_stdin` is no longer exposed in regular modes.
+- `close_workspace` is now the single public Workspace close operation. Checkout-backed workspaces release their logical handle, while managed-worktree-backed workspaces require `commitMessage` and run the existing Hook/commit/fast-forward/cleanup lifecycle; top-level `close_worktree` is no longer exposed.
+- Shell/process and managed-worktree Capability Guides, Host instructions, configuration docs, debugging acceptance, and workflow docs now use the unified process and Workspace lifecycle model.
+
 ## [0.3.3] - 2026-08-10
 
 ### Added

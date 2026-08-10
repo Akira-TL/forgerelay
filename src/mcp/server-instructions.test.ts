@@ -27,7 +27,8 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(result, /close_workspace/);
-  assert.match(result, /close_worktree/);
+  assert.doesNotMatch(result, /close_worktree/);
+  assert.doesNotMatch(result, /write_stdin/);
   assert.match(result, /capability guide/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted content modifications/);
@@ -73,7 +74,8 @@ test("workflow override replaces built-in workflow without replacing the capabil
 
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
-  assert.match(result, /close_worktree/);
+  assert.match(result, /close_workspace/);
+  assert.doesNotMatch(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Use repository-defined development and Git workflows\./);
   assert.match(result, /Shell commands may modify ordinary project files/);
@@ -88,7 +90,8 @@ test("empty workflow override emits capability-only instructions", () => {
 
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
-  assert.match(result, /close_worktree/);
+  assert.match(result, /close_workspace/);
+  assert.doesNotMatch(result, /close_worktree/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Shell commands may modify ordinary project files/);
   assert.match(result, /\/etc\/sudoers/);
@@ -130,7 +133,8 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.match(descriptions.shell, /local user's authority/);
   assert.match(descriptions.shell, /does not make shell execution a sandbox/);
   assert.match(descriptions.shell, /300 seconds/);
-  assert.match(descriptions.shell, /write_stdin/);
+  assert.match(descriptions.shell, /action=process/);
+  assert.doesNotMatch(descriptions.shell, /write_stdin/);
   assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);
   assert.doesNotMatch(descriptions.shell, /\/etc\/sudoers/);
   assert.doesNotMatch(descriptions.shell, /configuration files through shell only when the user's request explicitly calls for that configuration change/);

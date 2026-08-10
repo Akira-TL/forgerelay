@@ -65,8 +65,8 @@ so a specific existing worktree can be reopened directly.
 
 ## Closing a managed worktree
 
-After the task is complete and verified, call `close_worktree` with the managed
-workspace ID and a commit message.
+After the task is complete and verified, call `close_workspace` with the managed-worktree-backed
+workspace ID and a `commitMessage`.
 
 ForgeRelay:
 
@@ -110,14 +110,17 @@ skill-discovery path.
 
 ## MCP capability loading
 
-ForgeRelay keeps callable MCP tools and explanatory capability documentation
-separate. `tools/list` remains the source of truth for what the current server
-actually exposes; 0.3 does not hide callable tools behind documentation.
+ForgeRelay keeps a small callable MCP surface separate from low-frequency capability
+details. `tools/list` remains the source of truth for the Host-visible tools, while
+registered low-frequency actions are discovered through the single `capability`
+gateway rather than each receiving another top-level tool schema.
 
-`open_workspace` adds two lightweight discovery surfaces:
+`open_workspace` adds lightweight discovery surfaces:
 
 - `capabilityFingerprint` is returned on every open/resume and includes the
   ForgeRelay version, active tool mode, and stable semantic capability names;
+- `capabilityCatalog` lists currently available registered actions such as
+  `hooks.check`, with compact guide metadata;
 - `capabilityGuides` is returned with bootstrap context and contains compact
   descriptors for ForgeRelay-owned, versioned guides that can be loaded with
   the normal `read` tool.
@@ -195,26 +198,24 @@ edit
 rename
 delete
 bash
-write_stdin
-close_worktree
+capability
 ```
 
-The exact lifecycle tools available depend on the active server configuration.
 In minimal mode, normal shell inspection commands such as `rg`, `find`, and `ls`
-can be used rather than dedicated MCP search tools. `bash` waits in the foreground
-for at most 300 seconds. If the command is still running, ForgeRelay returns a
-canonical `processId` without killing it. The Agent can use `write_stdin` to poll,
-wait again, interact, or explicitly send Ctrl-C, or continue other work; once the
-command finishes, its completion is attached to a later tool result using the
-same workspace ID. The former process `sessionId` remains a deprecated alias in
-0.2.x for compatibility with existing clients.
+can be used rather than dedicated MCP search tools. `bash(action="run")` (or plain
+`bash`, since `run` is the default) waits in the foreground for at most 300 seconds.
+If the command is still running, ForgeRelay returns a canonical `processId` without
+killing it. Reuse `bash(action="process", processId=...)` to poll/wait, send input,
+resize a PTY, or interrupt the existing process; or continue other work and consume
+the one-shot completion notice from a later result in the same workspace.
 
 `FORGERELAY_TOOL_MODE=full` adds dedicated search/directory tools.
 
-Experimental `FORGERELAY_TOOL_MODE=codex` provides a smaller Codex-shaped
-surface including direct `rename`/`delete` path mutations alongside `apply_patch`,
-`exec_command`, and `write_stdin`. `rename` is the unified move/rename primitive
-for both files and directories; ForgeRelay does not expose a separate `move` tool.
+Experimental `FORGERELAY_TOOL_MODE=codex` keeps its Codex-shaped compatibility
+surface, including direct `rename`/`delete` path mutations alongside `apply_patch`,
+`exec_command`, and a compatibility `write_stdin` process adapter. `rename` is the
+unified move/rename primitive for both files and directories; ForgeRelay does not
+expose a separate `move` tool.
 
 Workspace IDs are logical conversation handles rather than physical-directory
 identities. The same conversation keeps a stable ID for a project, while another
@@ -223,8 +224,9 @@ worktree. `open_workspace` can explicitly resume a known `workspaceId`, and a
 fresh logical ID is created only when the user asks for one. When a project has
 other logical workspaces idle for more than two days, `open_workspace` reports
 all of them so the user can choose to resume or clean them up. `close_workspace`
-releases only the logical handle; the last handle for a physical worktree cannot
-be released that way and must be finalized with `close_worktree`.
+is the single public close operation: checkout-backed workspaces release the logical
+handle, while managed-worktree-backed workspaces require `commitMessage` and run the
+safe commit / fast-forward-only integration / cleanup lifecycle.
 
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply
