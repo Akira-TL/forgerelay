@@ -104,29 +104,75 @@ Hooks v1 的目标是给用户和 Agent 一个很小、自动、可组合的生�
 
 ## 0.3 — MCP loading 与渐进式能力披露
 
-0.3 的目标是缩小 MCP 首次加载时注入给 Agent 的上下文，同时保持工具可调用性、安全边界和 Host 编排权不变。ForgeRelay 不再把所有低频能力说明都塞进 server instructions 或工具 description，而是把模型接口拆成三层：
+0.3 的目标是把 ForgeRelay 的 MCP interface 做成一个深而稳定的模型接口：普通编码 primitive 始终直接可见，低频知识与低频 action 都按需披露，新增 ForgeRelay 能力不再线性扩大 Host 首次加载的 `tools/list` 与 instructions。
 
-- `tools/list` 继续暴露真实可调用 primitive，并只携带调用该工具所必需的简洁语义；
-- `open_workspace` 返回紧凑的 server/capability 摘要与版本指纹，帮助 Agent 发现能力，并识别 Host 持有旧 tool schema snapshot 的情况；
-- ForgeRelay-owned capability guide 提供低频能力的完整说明，由 Agent 在任务相关时显式 `read`，而不是首次连接时自动注入。
+0.3.0 已完成第一阶段：压缩 server instructions、由 `open_workspace` 返回 version/capability fingerprint、通过 advertised path + `read` 按需加载 ForgeRelay-owned capability guide，并用 fingerprint 与 Host `tools/list` 的差异诊断 stale Host metadata。Capability guide 与 Skill 的语义所有权保持区分：Skill 描述用户、项目或生态工作流；Capability guide 描述 ForgeRelay 自身、与版本绑定的产品能力。
 
-首版优先复用现有 Skill-style 的 advertised path / `read` 授权机制，而不是新增第二套文档加载协议。Capability guide 与 Skill 的语义所有权保持区分：Skill 描述用户、项目或生态工作流；capability guide 描述 ForgeRelay 自身、与版本绑定的产品能力。
+0.3 后续阶段采用 ADR-0002 的接口形状。Canonical Core tool surface 最终固定为：
 
-Core Capability Contract 必须始终内联保留至少这些信息：
+```text
+open_workspace
+close_workspace
+read
+write
+edit
+rename
+delete
+bash
+capability
+```
 
-- `workspaceId` 生命周期与 workspace 复用规则；
-- 常用文件读写改、`rename` 同时承担 move/rename、删除的核心语义；
-- shell 以本地用户权限执行且不是 OS sandbox；
-- `processId` / `write_stdin` 的基本长进程语义；
-- Hook 阻断结果必须对 Agent 可见；
-- 关键 mutation/safety invariant；
-- `close_workspace` 与 `close_worktree` 的区别。
+其中 `open_workspace` 负责 Workspace 生命周期入口与轻量 Capability catalog；`capability` 是唯一低频 Capability gateway；`bash` 同时承担命令启动与后续 process interaction；Managed worktree 是 Workspace 的 backing mode，由 `close_workspace` 统一完成关闭/finalize lifecycle。Capability registry 只能暴露显式注册、带输入约束、可用性和 guide metadata 的 ForgeRelay capability，不能退化成任意 RPC、URL dispatcher 或 shell 后门。
 
-适合按需读取的首批领域包括：生命周期 Hooks、managed worktree 高级流程、subagents、artifact/review 工作流、debug/MCP App、OAuth/deployment，以及 shell/PTTY/process 的低频边界情况。首个实现切片迁移 Hooks 与 managed worktree 高级说明；第二切片继续覆盖 subagents、artifact/review、Host/OAuth/MCP App integration 与 shell/PTTY/process，并把历史 bundled `subagent-delegation` Skill 的默认自动发现迁回 ForgeRelay-owned capability guide。必要安全语义始终保留在 core contract 或真实 tool schema/description 中。
+### 0.3.1 — MCP App 与诊断补丁
 
-Capability/version fingerprint 必须是轻量、语义化、稳定的摘要，不复制完整 `tools/list`。当 server 报告的能力与 Host 当前暴露的 tool snapshot 明显不一致时，Agent 应能判断为 Host metadata stale，并建议刷新 MCP 或开启新会话，而不是错误断言 ForgeRelay 缺少能力。
+在不改变主 tool surface 的前提下先修 0.3.0 发布后真实 Host 暴露的问题：
 
-0.3 不隐藏 callable tool，不增加隐式 autonomous workflow，也不把 Host Refresh/session 行为归到 ForgeRelay。`rename` 继续作为文件和目录 move/rename 的统一 primitive。
+- 为 MCP App resource 补齐 Host submission 所需的 widget/app domain metadata，并保持现有 CSP、content-hash URI 与 compatibility resource contract；
+- `forgerelay doctor` 显示解析后的 MCP 运行形态，例如 tool mode、widgets、public URL、proxy trust 与可选 capability 开关，避免“功能代码存在但当前实例未启用”只能靠源码排查；
+- 补齐 release/Host integration 的诊断与验收用例，但不在这一版重塑 tool schema。
+
+### 0.3.2 — Capability Registry 与 Gateway
+
+建立新的低频 action seam，但保留现有公开工具作为迁移兼容：
+
+- 新建 ForgeRelay-owned Capability registry，每项至少声明稳定 name、简短 description、availability、input contract、guide metadata 与 handler；
+- 新增唯一 MCP tool `capability`，提供紧凑的 `describe` / `run` 语义；
+- `open_workspace` 返回轻量 Capability catalog，只做发现，不复制完整 schema、示例或 guide 正文；
+- Agent 已熟悉某项 capability 时可以直接执行；不熟悉时先 `describe`，再按返回的 guide path 使用 `read` 获取详细说明；
+- 选择一组低风险、当前主要依赖 CLI 的检查型能力作为 tracer bullet，验证 registry、Hooks、日志、错误和 Host card contract，而不是一开始迁移所有功能。
+
+### 0.3.3 — 低频 Action 迁入 Gateway
+
+用真实现有能力验证 Gateway 能承载持续扩展，而不是只做一层转发：
+
+- 将 change review 收口为如 `review.changes` 的 registered capability；
+- 将 native artifact ingress 收口为如 `artifact.download` 的 registered capability；
+- 适合 Agent 主动调用的 Hook inspection/check 等低频操作进入同一 namespace model；
+- Capability guide 与 catalog/registry 建立一一可追踪关系，availability 由运行时条件决定；
+- `show_changes`、`download_artifact` 等旧 dedicated MCP tools 在迁移窗口内只作为兼容入口，不再作为长期接口设计。
+
+### 0.3.4 — Workspace 与 Process 生命周期收敛
+
+移除两个泄漏内部实现的 public lifecycle tool：
+
+- `bash` 成为 Process Manager 的唯一公开 interface；`action="run"` 启动命令，`action="process"` 使用 `processId` 查看、等待、输入、调整 PTY 或中断已有进程；内部 ProcessManager 可以继续保留更细的方法，但 Host 不再需要学习 `write_stdin`；
+- `close_workspace` 成为唯一 workspace 关闭入口；checkout 直接释放，managed-worktree-backed Workspace 在同一接口内执行 BeforeWorktreeClose、commit/integrate/cleanup、AfterWorktreeClose 并关闭 Workspace；
+- 从 canonical MCP surface 删除 `write_stdin` 与 `close_worktree`，同时清理对应 server instructions、fingerprint 和 capability guide 中的旧心智模型；
+- 保留 `processId` 作为运行中进程的 opaque handle，保留 worktree 作为 Workspace 的可观察 backing metadata，而不是第二套 Host lifecycle。
+
+### 0.3.5 — Canonical MCP Surface 收口
+
+完成 0.3 的接口稳定化与真实 Host 验收：
+
+- regular ForgeRelay MCP surface 收口为 9 个 canonical tools；`minimal/full` 不再通过增减 `grep/glob/ls` 改变主产品心智模型，搜索与目录检查可由 `bash` 承担；
+- 评估并隔离 `codex` compatibility surface，使其作为明确 adapter 存在，而不是反向定义 ForgeRelay canonical interface；
+- 删除已经完成迁移的 dedicated low-frequency tool aliases，确保新增 Capability 不再扩大常驻 tool count；
+- 简化 fingerprint，使其用于版本/运行时能力摘要与 stale-Host 诊断，而不是重新枚举 tool implementation；
+- 对 `open_workspace → catalog → capability describe/read/run`、managed worktree close、长进程 interaction、review/artifact capability、MCP App 与 stale-schema 情况做 7677 acceptance 和新 Host 会话验收；
+- 0.3.5 通过后，0.3 的 MCP progressive-disclosure 主题视为完成，0.4 回到原定 LSP code intelligence v1。
+
+必要安全语义始终留在 Core tool interface、Capability contract 或自动 Hook report 中；渐进式披露不能成为隐藏权限、隐式 autonomous workflow 或绕过 allowed roots/auth 的机制。`rename` 继续作为文件和目录 move/rename 的统一 primitive。
 
 ## 0.4 — LSP code intelligence v1
 
@@ -151,20 +197,7 @@ Initial operations:
 - workspace symbols;
 - hover/type information.
 
-Prefer one deep MCP capability such as:
-
-```text
-code_intelligence({
-  workspaceId,
-  operation,
-  path,
-  line,
-  column,
-  query
-})
-```
-
-rather than one MCP tool per language or language-server method.
+Expose code intelligence through the Capability Gateway established in 0.3 rather than adding another top-level MCP tool. A representative registered capability may look like `code.intelligence`, with its language-server operation/path/position/query fields carried inside the capability arguments. The exact LSP contract remains 0.4 work; the stable Core tool surface does not change per language or language-server method.
 
 Candidate servers include `typescript-language-server`/tsserver, Pyright,
 `rust-analyzer`, `gopls`, and `clangd`, but ForgeRelay should treat server
@@ -176,22 +209,7 @@ ForgeRelay already owns provider adapters and resumable local agent sessions.
 The next step is to remove the current `bash -> forgerelay agents ...` indirection
 for MCP hosts.
 
-A compact interface should reuse the existing provider adapter registry:
-
-```text
-subagent({
-  action: "run" | "list" | "show" | "cancel",
-  workspaceId,
-  profile,
-  provider,
-  prompt,
-  agentId
-})
-```
-
-The parent agent chooses an available provider/profile such as Codex or Claude.
-ForgeRelay launches, tracks, resumes, and cancels the provider-backed worker when
-the underlying provider supports those operations.
+First-class subagent operations should reuse the Capability Gateway established in 0.3 rather than add another top-level MCP tool. The exact registered names, action semantics and provider/session contract remain 0.5 design work. The parent agent will continue choosing from available provider/profile metadata while ForgeRelay owns provider-backed worker lifecycle state.
 
 This is intentionally provider-backed delegation, not an attempt to emulate a
 host-native subagent implementation.

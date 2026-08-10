@@ -48,3 +48,23 @@ _Avoid_: Host-native subagent, autonomous workflow
 Stored Git-backed state representing a coherent review baseline for workspace
 changes.
 _Avoid_: Memory, conversation checkpoint
+
+**Core tool surface**:
+The small, stable set of MCP tools ForgeRelay keeps visible for ordinary workspace coding regardless of optional capabilities.
+_Avoid_: Minimal tools, default tools
+
+**Capability**:
+A ForgeRelay-owned non-core ability that can be discovered after opening a workspace and invoked only when relevant.
+_Avoid_: Plugin, hidden tool
+
+**Capability catalog**:
+The lightweight workspace-scoped list of available Capabilities returned by `open_workspace`, containing discovery metadata rather than full operating instructions.
+_Avoid_: Tool list, capability guide
+
+**Capability guide**:
+Version-bound ForgeRelay documentation that explains how to use a Capability correctly, read on demand when the Agent needs the detailed contract.
+_Avoid_: Skill, tool description
+
+**Capability gateway**:
+The single MCP entry point named `capability` used to inspect and execute registered non-core Capabilities without expanding the always-visible tool surface.
+_Avoid_: Plugin runtime, arbitrary RPC

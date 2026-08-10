@@ -1,17 +1,16 @@
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues in `Akira-TL/forgerelay`.
-Use the `gh` CLI from this checkout so repository resolution follows the current
-`origin` remote.
+Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository selector) to `gh` operations. Do not rely on remote inference because this checkout also carries the provenance-only `upstream` remote.
 
 ## Conventions
 
-- Create: `gh issue create --title "..." --body "..."`.
-- Read: `gh issue view <number> --comments`.
-- List: `gh issue list --state open --json number,title,body,labels,comments`.
-- Comment: `gh issue comment <number> --body "..."`.
-- Label: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Close: `gh issue close <number> --comment "..."`.
+- Create: `gh issue create -R Akira-TL/forgerelay --title "..." --body "..."`.
+- Read: `gh issue view -R Akira-TL/forgerelay <number> --comments`.
+- List: `gh issue list -R Akira-TL/forgerelay --state open --json number,title,body,labels,comments`.
+- Comment: `gh issue comment -R Akira-TL/forgerelay <number> --body "..."`.
+- Label: `gh issue edit -R Akira-TL/forgerelay <number> --add-label "..."` or `--remove-label "..."`.
+- Close: `gh issue close -R Akira-TL/forgerelay <number> --comment "..."`.
 
 ## Pull requests as a triage surface
 
