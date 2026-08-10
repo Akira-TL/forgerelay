@@ -41,6 +41,13 @@ export interface WorkspaceContextDelivery {
   deliveredAt: string;
 }
 
+export interface SqliteWorkspaceStoreOptions {
+  now?: () => Date;
+  touchFlushIntervalMs?: number;
+}
+
+const DEFAULT_TOUCH_FLUSH_INTERVAL_MS = 5 * 60 * 1_000;
+
 export interface WorkspaceStore {
   createSession(input: {
     id: string;
@@ -86,9 +93,30 @@ export interface WorkspaceStore {
 
 export class SqliteWorkspaceStore implements WorkspaceStore {
   private readonly database: DatabaseHandle;
+  private readonly now: () => Date;
+  private readonly touchFlushTimer: NodeJS.Timeout;
+  private readonly pendingSessionTouches = new Map<string, string>();
+  private readonly pendingConversationTouches = new Map<string, {
+    conversationScopeId: string;
+    targetKey: string;
+    lastUsedAt: string;
+  }>();
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, options: SqliteWorkspaceStoreOptions = {}) {
     this.database = openDatabase(stateDir);
+    this.now = options.now ?? (() => new Date());
+    const touchFlushIntervalMs = options.touchFlushIntervalMs ?? DEFAULT_TOUCH_FLUSH_INTERVAL_MS;
+    if (!Number.isInteger(touchFlushIntervalMs) || touchFlushIntervalMs < 1) {
+      throw new Error("Workspace touch flush interval must be a positive integer.");
+    }
+    this.touchFlushTimer = setInterval(() => {
+      try {
+        this.flushTouches();
+      } catch (error) {
+        console.warn(`ForgeRelay workspace touch flush failed: ${errorMessage(error)}`);
+      }
+    }, touchFlushIntervalMs);
+    this.touchFlushTimer.unref();
   }
 
   createSession(input: {
@@ -102,7 +130,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     targetBranch?: string;
     managed?: boolean;
   }): WorkspaceSession {
-    const now = new Date().toISOString();
+    const now = this.now().toISOString();
     const session: WorkspaceSession = {
       id: input.id,
       root: input.root,
@@ -146,21 +174,19 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .where(eq(workspaceSessions.id, id))
       .get();
 
-    return row ? rowToWorkspaceSession(row) : undefined;
+    if (!row) return undefined;
+    return applySessionTouch(rowToWorkspaceSession(row), this.pendingSessionTouches.get(id));
   }
 
   touchSession(id: string): void {
-    this.database.db
-      .update(workspaceSessions)
-      .set({ lastUsedAt: new Date().toISOString() })
-      .where(eq(workspaceSessions.id, id))
-      .run();
+    this.pendingSessionTouches.set(id, this.now().toISOString());
   }
 
   setSessionStatus(id: string, status: string): void {
+    this.pendingSessionTouches.delete(id);
     this.database.db
       .update(workspaceSessions)
-      .set({ status, lastUsedAt: new Date().toISOString() })
+      .set({ status, lastUsedAt: this.now().toISOString() })
       .where(eq(workspaceSessions.id, id))
       .run();
   }
@@ -181,10 +207,14 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         ? query.where(conditions[0]).all()
         : query.where(and(...conditions)).all();
 
-    return rows.map(rowToWorkspaceSession);
+    return rows
+      .map(rowToWorkspaceSession)
+      .map((session) => applySessionTouch(session, this.pendingSessionTouches.get(session.id)))
+      .sort((left, right) => right.lastUsedAt.localeCompare(left.lastUsedAt));
   }
 
   deleteSession(id: string): void {
+    this.pendingSessionTouches.delete(id);
     this.database.db
       .delete(workspaceSessions)
       .where(eq(workspaceSessions.id, id))
@@ -196,7 +226,14 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .select()
       .from(workspaceConversationBindings)
       .all()
-      .map(rowToWorkspaceConversationBinding);
+      .map(rowToWorkspaceConversationBinding)
+      .map((binding) => applyConversationTouch(
+        binding,
+        this.pendingConversationTouches.get(conversationTouchKey(
+          binding.conversationScopeId,
+          binding.targetKey,
+        ))?.lastUsedAt,
+      ));
   }
 
   getConversationBinding(
@@ -214,7 +251,15 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       )
       .get();
 
-    return row ? rowToWorkspaceConversationBinding(row) : undefined;
+    if (!row) return undefined;
+    const binding = rowToWorkspaceConversationBinding(row);
+    return applyConversationTouch(
+      binding,
+      this.pendingConversationTouches.get(conversationTouchKey(
+        conversationScopeId,
+        targetKey,
+      ))?.lastUsedAt,
+    );
   }
 
   setConversationBinding(input: {
@@ -222,7 +267,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     targetKey: string;
     workspaceSessionId: string;
   }): WorkspaceConversationBinding {
-    const now = new Date().toISOString();
+    const now = this.now().toISOString();
     const row = this.database.db
       .insert(workspaceConversationBindings)
       .values({
@@ -249,23 +294,23 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       throw new Error("Conversation workspace binding upsert returned no row.");
     }
 
+    this.pendingConversationTouches.delete(conversationTouchKey(
+      input.conversationScopeId,
+      input.targetKey,
+    ));
     return rowToWorkspaceConversationBinding(row);
   }
 
   touchConversationBinding(conversationScopeId: string, targetKey: string): void {
-    this.database.db
-      .update(workspaceConversationBindings)
-      .set({ lastUsedAt: new Date().toISOString() })
-      .where(
-        and(
-          eq(workspaceConversationBindings.conversationScopeId, conversationScopeId),
-          eq(workspaceConversationBindings.targetKey, targetKey),
-        ),
-      )
-      .run();
+    this.pendingConversationTouches.set(conversationTouchKey(conversationScopeId, targetKey), {
+      conversationScopeId,
+      targetKey,
+      lastUsedAt: this.now().toISOString(),
+    });
   }
 
   deleteConversationBinding(conversationScopeId: string, targetKey: string): void {
+    this.pendingConversationTouches.delete(conversationTouchKey(conversationScopeId, targetKey));
     this.database.db
       .delete(workspaceConversationBindings)
       .where(
@@ -340,14 +385,76 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .run();
   }
 
+  get pendingTouchCount(): number {
+    return this.pendingSessionTouches.size + this.pendingConversationTouches.size;
+  }
+
+  flushTouches(): void {
+    if (this.pendingTouchCount === 0) return;
+
+    const sessionTouches = [...this.pendingSessionTouches.entries()];
+    const conversationTouches = [...this.pendingConversationTouches.values()];
+    const updateSession = this.database.sqlite.prepare(
+      "UPDATE workspace_sessions SET last_used_at = ? WHERE id = ?",
+    );
+    const updateConversation = this.database.sqlite.prepare(
+      "UPDATE workspace_conversation_bindings SET last_used_at = ? WHERE conversation_scope_id = ? AND target_key = ?",
+    );
+    const flush = this.database.sqlite.transaction(() => {
+      for (const [workspaceId, lastUsedAt] of sessionTouches) {
+        updateSession.run(lastUsedAt, workspaceId);
+      }
+      for (const touch of conversationTouches) {
+        updateConversation.run(touch.lastUsedAt, touch.conversationScopeId, touch.targetKey);
+      }
+    });
+    flush();
+
+    for (const [workspaceId, lastUsedAt] of sessionTouches) {
+      if (this.pendingSessionTouches.get(workspaceId) === lastUsedAt) {
+        this.pendingSessionTouches.delete(workspaceId);
+      }
+    }
+    for (const touch of conversationTouches) {
+      const key = conversationTouchKey(touch.conversationScopeId, touch.targetKey);
+      if (this.pendingConversationTouches.get(key)?.lastUsedAt === touch.lastUsedAt) {
+        this.pendingConversationTouches.delete(key);
+      }
+    }
+  }
+
   close(): void {
-    this.database.close();
+    clearInterval(this.touchFlushTimer);
+    try {
+      this.flushTouches();
+    } finally {
+      this.database.close();
+    }
   }
 
 }
 
 export function createWorkspaceStore(stateDir: string): WorkspaceStore {
   return new SqliteWorkspaceStore(stateDir);
+}
+
+function applySessionTouch(session: WorkspaceSession, lastUsedAt: string | undefined): WorkspaceSession {
+  return lastUsedAt ? { ...session, lastUsedAt } : session;
+}
+
+function applyConversationTouch(
+  binding: WorkspaceConversationBinding,
+  lastUsedAt: string | undefined,
+): WorkspaceConversationBinding {
+  return lastUsedAt ? { ...binding, lastUsedAt } : binding;
+}
+
+function conversationTouchKey(conversationScopeId: string, targetKey: string): string {
+  return JSON.stringify([conversationScopeId, targetKey]);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function rowToWorkspaceSession(row: WorkspaceSessionRow): WorkspaceSession {
