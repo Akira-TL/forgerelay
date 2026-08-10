@@ -963,7 +963,7 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open or resume a local coding workspace. A conversation keeps a stable workspaceId for a project, while different conversations normally receive different logical workspaceIds that may point at the same physical checkout or worktree. Pass workspaceId to explicitly resume an existing logical workspace in this conversation. Default to checkout mode and only use mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. Workspaces idle for more than two days are reported for user-directed cleanup or resumption.",
+        "Open or resume a local coding workspace. Reuse the returned workspaceId for later calls. Default to checkout; use mode=\"worktree\" only when the user explicitly requests isolated or parallel Git work. Every call returns a capability fingerprint; bootstrap calls also expose project context, skills, and capability guides when needed.",
       inputSchema: {
         path: z
           .string()
@@ -1253,7 +1253,7 @@ export function createMcpServer(
     {
       title: "Close logical workspace",
       description:
-        "Release one logical ForgeRelay workspaceId after the user explicitly chooses to clean it up. This never deletes checkout files. A worktree handle can be released only when another logical handle still anchors the same physical worktree; use close_worktree to finalize and remove the last managed worktree. Running or unconsumed background processes prevent closure.",
+        "Release one logical workspaceId after the user chooses cleanup. This does not delete checkout files. Use close_worktree to finalize and remove a managed worktree. Running or unconsumed processes prevent closure.",
       inputSchema: {
         workspaceId: z.string().describe("Logical workspace ID to release."),
       },
@@ -1290,7 +1290,7 @@ export function createMcpServer(
     {
       title: "Close worktree",
       description:
-        "Finish a managed ForgeRelay worktree after its task has been completed and verified. ForgeRelay commits any remaining worktree changes, fast-forwards the original target branch only when the source checkout is clean and the histories have not diverged, then removes the worktree and its forgerelay/* branch. If safe fast-forward is not possible, the source checkout is left out of a merge-conflict state and the worktree is preserved.",
+        "Finalize a managed worktree after its task is complete and verified. ForgeRelay may commit remaining changes, integrate the target branch when safe, and clean up the managed worktree. Read the managed-worktrees capability guide for advanced close, safety, and failure semantics.",
       inputSchema: {
         workspaceId: z
           .string()

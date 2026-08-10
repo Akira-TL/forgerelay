@@ -27,8 +27,12 @@ test("MCP instructions separate capability contract from configurable workflow p
   const defaultTools = await defaultContext.client.listTools();
   assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
+  const readTool = defaultTools.tools.find((tool) => tool.name === "read");
+  const renameTool = defaultTools.tools.find((tool) => tool.name === "rename");
+  const deleteTool = defaultTools.tools.find((tool) => tool.name === "delete");
   const writeStdinTool = defaultTools.tools.find((tool) => tool.name === "write_stdin");
   const openWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "open_workspace");
+  const closeWorktreeTool = defaultTools.tools.find((tool) => tool.name === "close_worktree");
   const shellToolMeta = shellTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
     "openai/outputTemplate"?: string;
@@ -49,11 +53,10 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
   assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
   assert.match(shellTool?.description ?? "", /local user's authority/);
-  assert.match(shellTool?.description ?? "", /may modify ordinary project files/);
-  assert.match(shellTool?.description ?? "", /\/etc\/sudoers/);
-  assert.match(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
-  assert.match(shellTool?.description ?? "", /external device or hardware mutations/);
-  assert.match(shellTool?.description ?? "", /explicitly asks for the actual device-changing operation/);
+  assert.doesNotMatch(shellTool?.description ?? "", /may modify ordinary project files/);
+  assert.doesNotMatch(shellTool?.description ?? "", /\/etc\/sudoers/);
+  assert.doesNotMatch(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.doesNotMatch(shellTool?.description ?? "", /external device or hardware mutations/);
   assert.match(shellTool?.description ?? "", /waits up to 300 seconds/);
   assert.match(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
@@ -74,8 +77,15 @@ test("MCP instructions separate capability contract from configurable workflow p
   );
   assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
   assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
-  assert.ok(defaultTools.tools.some((tool) => tool.name === "write_stdin"));
+  assert.ok(renameTool);
+  assert.ok(deleteTool);
+  assert.ok(writeStdinTool);
   assert.ok(defaultTools.tools.some((tool) => tool.name === "close_workspace"));
+  assert.match(readTool?.description ?? "", /capability guides/);
+  assert.ok((openWorkspaceTool?.description?.length ?? Infinity) < 450);
+  assert.ok((closeWorktreeTool?.description?.length ?? Infinity) < 320);
+  assert.match(closeWorktreeTool?.description ?? "", /managed-worktrees capability guide/);
+  assert.doesNotMatch(closeWorktreeTool?.description ?? "", /histories have not diverged/);
 
   const overrideContext = await fixture(t, {
     env: {

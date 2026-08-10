@@ -20,12 +20,15 @@ function instructions(env: NodeJS.ProcessEnv = {}): string {
   return buildServerInstructions(loadConfig({ ...baseEnv, ...env }));
 }
 
-test("default instructions keep capability contract and built-in workflow preference", () => {
+test("default instructions keep a compact core capability contract and built-in workflow preference", () => {
   const result = instructions();
 
+  assert.ok(result.length < 3_000, `default instructions should stay compact, got ${result.length} characters`);
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
+  assert.match(result, /close_workspace/);
   assert.match(result, /close_worktree/);
+  assert.match(result, /capability guide/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted content modifications/);
   assert.match(result, /rename for path moves/);
@@ -37,6 +40,9 @@ test("default instructions keep capability contract and built-in workflow prefer
   assert.match(result, /explicitly asks for the actual device-changing operation/);
   assert.match(result, /check, audit, probe, backup, verification, dry-run, or build-only request/);
   assert.doesNotMatch(result, /Do not create or modify files with bash/);
+  assert.doesNotMatch(result, /forgerelay\/\* branches/);
+  assert.doesNotMatch(result, /fast-forwards the original target branch/);
+  assert.doesNotMatch(result, /target branch diverged/);
 });
 
 test("capability contract requires agents to report visible hook results", () => {
@@ -85,7 +91,7 @@ test("append instructions extend the selected workflow", () => {
   assert.match(result, /Repository policy decides how Git commits are created\./);
 });
 
-test("codex workflow can be overridden independently of codex capabilities", () => {
+test("codex workflow override relies on tools/list instead of duplicating the tool surface", () => {
   const defaultResult = instructions({ DEVSPACE_TOOL_MODE: "codex" });
   const overrideResult = instructions({
     DEVSPACE_TOOL_MODE: "codex",
@@ -94,8 +100,8 @@ test("codex workflow can be overridden independently of codex capabilities", () 
 
   assert.match(defaultResult, /rename and delete for direct path moves or removals/);
   assert.match(defaultResult, /apply_patch for content modifications/);
-  assert.match(overrideResult, /apply_patch/);
-  assert.match(overrideResult, /exec_command/);
+  assert.doesNotMatch(overrideResult, /apply_patch/);
+  assert.doesNotMatch(overrideResult, /exec_command/);
   assert.match(overrideResult, /Follow the repository workflow\./);
   assert.match(defaultResult, /Shell commands may modify ordinary project files/);
   assert.match(overrideResult, /Shell commands may modify ordinary project files/);
@@ -103,17 +109,18 @@ test("codex workflow can be overridden independently of codex capabilities", () 
   assert.doesNotMatch(overrideResult, /apply_patch for content modifications/);
 });
 
-test("tool descriptions expose capabilities without embedding workflow policy", () => {
+test("tool descriptions expose invocation semantics without duplicating core policy", () => {
   const descriptions = buildToolDescriptions(loadConfig(baseEnv));
 
+  assert.ok(descriptions.shell.length < 900, `shell description should stay compact, got ${descriptions.shell.length} characters`);
   assert.match(descriptions.shell, /local user's authority/);
   assert.match(descriptions.shell, /does not make shell execution a sandbox/);
-  assert.match(descriptions.shell, /may modify ordinary project files/);
-  assert.match(descriptions.shell, /\/etc\/sudoers/);
-  assert.match(descriptions.shell, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
-  assert.match(descriptions.shell, /external device or hardware mutations/);
-  assert.match(descriptions.shell, /explicitly asks for the actual device-changing operation/);
-  assert.match(descriptions.shell, /check, audit, probe, backup, verification, dry-run, or build-only request/);
+  assert.match(descriptions.shell, /300 seconds/);
+  assert.match(descriptions.shell, /write_stdin/);
+  assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);
+  assert.doesNotMatch(descriptions.shell, /\/etc\/sudoers/);
+  assert.doesNotMatch(descriptions.shell, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.doesNotMatch(descriptions.shell, /external device or hardware mutations/);
   assert.doesNotMatch(descriptions.shell, /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(descriptions.shell, /Use only for/);
   assert.equal(descriptions.shellCommand, "Shell command to run with the local user's authority.");
