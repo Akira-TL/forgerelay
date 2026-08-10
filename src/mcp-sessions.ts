@@ -14,25 +14,60 @@ interface McpTransportEntry<TTransport> {
 
 export interface McpTransportRegistryOptions {
   now?: () => number;
+  maxTransports?: number;
 }
 
 export class McpTransportRegistry<TTransport extends ClosableMcpTransport> {
   private readonly transports = new Map<string, McpTransportEntry<TTransport>>();
   private readonly now: () => number;
+  private readonly maxTransports: number;
 
   constructor(options: McpTransportRegistryOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.maxTransports = options.maxTransports ?? Number.POSITIVE_INFINITY;
+    if (
+      this.maxTransports !== Number.POSITIVE_INFINITY &&
+      (!Number.isInteger(this.maxTransports) || this.maxTransports < 1)
+    ) {
+      throw new Error("MCP transport limit must be a positive integer.");
+    }
   }
 
   get size(): number {
     return this.transports.size;
   }
 
-  register(transportSessionId: string, transport: TTransport): void {
+  register(
+    transportSessionId: string,
+    transport: TTransport,
+  ): Promise<McpTransportCloseResult[]> {
     this.transports.set(transportSessionId, {
       transport,
       lastActivityAt: this.now(),
     });
+
+    const excess: Array<{ transportSessionId: string; transport: TTransport }> = [];
+    while (this.transports.size > this.maxTransports) {
+      let oldestTransportSessionId: string | undefined;
+      let oldestActivityAt = Number.POSITIVE_INFINITY;
+      for (const [candidateSessionId, entry] of this.transports) {
+        if (candidateSessionId === transportSessionId && this.transports.size > 1) continue;
+        if (entry.lastActivityAt >= oldestActivityAt) continue;
+        oldestTransportSessionId = candidateSessionId;
+        oldestActivityAt = entry.lastActivityAt;
+      }
+      if (!oldestTransportSessionId) break;
+      const oldest = this.transports.get(oldestTransportSessionId);
+      this.transports.delete(oldestTransportSessionId);
+      if (oldest) {
+        excess.push({
+          transportSessionId: oldestTransportSessionId,
+          transport: oldest.transport,
+        });
+      }
+    }
+
+    return closeTransports(excess);
   }
 
   get(transportSessionId: string): TTransport | undefined {

@@ -94,6 +94,7 @@ type Transport = StreamableHTTPServerTransport;
 // transport. Bound stale transport-session retention so abandoned transports do
 // not accumulate for the life of the process.
 const MCP_TRANSPORT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+const MAX_MCP_TRANSPORT_SESSIONS = 64;
 const FORGERELAY_VERSION = readForgeRelayVersion();
 const MCP_TRANSPORT_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
 const WRITE_TOOL_ANNOTATIONS = {
@@ -2526,7 +2527,9 @@ export function createServer(
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const transports = new McpTransportRegistry<Transport>();
+  const transports = new McpTransportRegistry<Transport>({
+    maxTransports: MAX_MCP_TRANSPORT_SESSIONS,
+  });
   const mcpUrl = new URL("/mcp", config.publicBaseUrl);
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
@@ -2544,7 +2547,7 @@ export function createServer(
     : [];
 
   const logTransportCloseResults = (
-    reason: "idle_timeout" | "server_shutdown",
+    reason: "idle_timeout" | "capacity_limit" | "server_shutdown",
     results: McpTransportCloseResult[],
   ) => {
     let closedCount = 0;
@@ -2563,7 +2566,7 @@ export function createServer(
       }
 
       closedCount += 1;
-      if (reason === "idle_timeout") {
+      if (reason !== "server_shutdown") {
         logEvent(config.logging, "debug", "mcp_transport_session_closed", {
           reason,
           transportSessionIdPrefix: transportSessionIdPrefix(result.transportSessionId),
@@ -2690,7 +2693,11 @@ export function createServer(
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newTransportSessionId) => {
-            if (transport) transports.register(newTransportSessionId, transport);
+            if (transport) {
+              void transports
+                .register(newTransportSessionId, transport)
+                .then((results) => logTransportCloseResults("capacity_limit", results));
+            }
             logEvent(config.logging, "debug", "mcp_transport_session_created", {
               requestId,
               transportSessionIdPrefix: transportSessionIdPrefix(newTransportSessionId),

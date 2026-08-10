@@ -68,6 +68,31 @@ assert.equal(first.closeCalls, 0);
 assert.equal(second.closeCalls, 1);
 assert.equal(registry.size, 0);
 
+let boundedNow = 0;
+const boundedRegistry = new McpTransportRegistry<FakeTransport>({
+  now: () => boundedNow,
+  maxTransports: 2,
+});
+const oldestTransport = createTransport();
+const recentlyUsedTransport = createTransport();
+const newestTransport = createTransport();
+await boundedRegistry.register("oldest", oldestTransport);
+boundedNow = 100;
+await boundedRegistry.register("recent", recentlyUsedTransport);
+boundedNow = 200;
+assert.equal(boundedRegistry.get("recent"), recentlyUsedTransport);
+boundedNow = 300;
+const capacityResults = await boundedRegistry.register("newest", newestTransport);
+assert.deepEqual(capacityResults, [{ transportSessionId: "oldest" }]);
+assert.equal(oldestTransport.closeCalls, 1);
+assert.equal(recentlyUsedTransport.closeCalls, 0);
+assert.equal(newestTransport.closeCalls, 0);
+assert.equal(boundedRegistry.size, 2);
+assert.equal(boundedRegistry.get("oldest"), undefined);
+assert.equal(boundedRegistry.get("recent"), recentlyUsedTransport);
+assert.equal(boundedRegistry.get("newest"), newestTransport);
+await boundedRegistry.closeAll();
+
 let finishDelayedClose: (() => void) | undefined;
 let delayedCloseResolved = false;
 const delayedTransport: FakeTransport = {
