@@ -78,6 +78,29 @@ test("global explicit Language-server definition beats built-in discovery", asyn
   assert.equal(resolved.definition.source, "global");
 });
 
+test("built-in TypeScript discovery maps JavaScript extensions to the correct LSP languageId", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-language-config-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  await mkdir(join(root, "src"), { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(root, "jsconfig.json"), "{}\n");
+  await writeFile(join(root, "src", "main.js"), "const value = 1;\n");
+  const builtinExecutable = join(bin, "typescript-language-server");
+  await writeFile(builtinExecutable, "#!/bin/sh\nexit 0\n");
+  await chmod(builtinExecutable, 0o755);
+
+  const resolved = await resolveLanguageProject({
+    workspaceRoot: root,
+    sourcePath: "src/main.js",
+    env: { ...process.env, PATH: [bin, process.env.PATH ?? ""].join(delimiter) },
+  });
+
+  assert.equal(resolved.definition.id, "typescript");
+  assert.equal(resolved.definition.languageIdByExtension[".js"], "javascript");
+  assert.equal(resolved.definition.languageIdByExtension[".tsx"], "typescriptreact");
+});
+
 test("explicit disable suppresses matching built-in Language-server discovery", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-language-config-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -138,6 +161,32 @@ test("same-priority matching Language-server definitions fail with stable ambigu
       error instanceof LanguageServerConfigurationError &&
       error.code === "code.configuration_ambiguous",
   );
+});
+
+test("Language project discovery preserves a symlinked Workspace alias by canonicalizing its root", { skip: process.platform === "win32" }, async (t) => {
+  const parent = await mkdtemp(join(tmpdir(), "forgerelay-language-config-parent-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const root = join(parent, "real-project");
+  const alias = join(parent, "project-alias");
+  await mkdir(join(root, "src"), { recursive: true });
+  await writeFile(join(root, "tsconfig.json"), "{}\n");
+  await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
+  await symlink(root, alias, "dir");
+
+  const resolved = await resolveLanguageProject({
+    workspaceRoot: alias,
+    sourcePath: "src/main.ts",
+    globalConfig: {
+      test: {
+        command: process.execPath,
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    },
+  });
+
+  assert.equal(resolved.projectRoot, root);
 });
 
 test("Language project discovery rejects a source symlink that escapes the Workspace", { skip: process.platform === "win32" }, async (t) => {

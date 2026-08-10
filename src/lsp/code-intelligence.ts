@@ -13,12 +13,12 @@ import {
   InitializedNotification,
   PositionEncodingKind,
   ShutdownRequest,
+  TextDocumentSyncKind,
   type InitializeParams,
   type InitializeResult,
+  type TextDocumentSyncOptions,
   type Location,
   type LocationLink,
-  type Position,
-  type Range,
 } from "vscode-languageserver-protocol";
 import type { ServerConfig } from "../config.js";
 import {
@@ -28,6 +28,10 @@ import {
   type ResolvedLanguageServerDefinition,
 } from "./language-server-config.js";
 import { terminateProcessTree } from "../process-platform.js";
+import { CodeIntelligenceError } from "./code-intelligence-error.js";
+import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
+
+export { CodeIntelligenceError } from "./code-intelligence-error.js";
 
 const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
 const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
@@ -85,32 +89,12 @@ export interface CodeIntelligenceDefinitionResult {
   locations: CodeIntelligenceLocation[];
 }
 
-export class CodeIntelligenceError extends Error {
-  constructor(
-    readonly code:
-      | "code.language_service_unavailable"
-      | "code.language_service_start_failed"
-      | "code.language_service_start_timeout"
-      | "code.configuration_ambiguous"
-      | "code.configuration_invalid"
-      | "code.operation_unsupported"
-      | "code.request_timeout"
-      | "code.server_crashed"
-      | "code.invalid_position"
-      | "code.result_outside_policy"
-      | "code.language_service_capacity",
-    message: string,
-  ) {
-    super(message);
-    this.name = "CodeIntelligenceError";
-  }
-}
-
 interface OpenDocument {
   uri: string;
   languageId: string;
   version: number;
   text: string;
+  openNotified: boolean;
 }
 
 class LanguageService {
@@ -135,9 +119,17 @@ class LanguageService {
     this.key = languageServiceKey(project);
   }
 
-  async definition(input: CodeIntelligenceDefinitionInput): Promise<CodeIntelligenceDefinitionResult> {
-    this.lastUsedAt = Date.now();
+  acquire(): void {
     this.inFlight += 1;
+    this.lastUsedAt = Date.now();
+  }
+
+  release(): void {
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    this.lastUsedAt = Date.now();
+  }
+
+  async definition(input: CodeIntelligenceDefinitionInput): Promise<CodeIntelligenceDefinitionResult> {
     try {
       await this.ensureStarted();
       if (!this.capabilities?.definitionProvider) {
@@ -181,9 +173,6 @@ class LanguageService {
         "code.server_crashed",
         `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
       );
-    } finally {
-      this.inFlight -= 1;
-      this.lastUsedAt = Date.now();
     }
   }
 
@@ -195,6 +184,7 @@ class LanguageService {
 
     if (connection) {
       for (const document of this.documents.values()) {
+        if (!document.openNotified) continue;
         try {
           await connection.sendNotification(DidCloseTextDocumentNotification.type, {
             textDocument: { uri: document.uri },
@@ -305,11 +295,11 @@ class LanguageService {
         },
         textDocument: {
           synchronization: {
-            dynamicRegistration: true,
+            dynamicRegistration: false,
             didSave: false,
           },
           definition: {
-            dynamicRegistration: true,
+            dynamicRegistration: false,
             linkSupport: true,
           },
         },
@@ -352,8 +342,6 @@ class LanguageService {
       uri: pathToFileURL(this.project.projectRoot).href,
       name: basename(this.project.projectRoot),
     }]);
-    connection.onRequest("client/registerCapability", () => null);
-    connection.onRequest("client/unregisterCapability", () => null);
     connection.onRequest("window/showMessageRequest", () => null);
     connection.onNotification("window/logMessage", () => undefined);
     connection.onNotification("window/showMessage", () => undefined);
@@ -364,21 +352,41 @@ class LanguageService {
     const text = await readFile(sourcePath, "utf8");
     const existing = this.documents.get(uri);
     const languageId = languageIdForPath(this.project.definition, sourcePath);
+    const synchronization = textDocumentSynchronization(this.capabilities?.textDocumentSync);
     if (!existing) {
-      const document = { uri, languageId, version: 1, text };
+      const document: OpenDocument = { uri, languageId, version: 1, text, openNotified: false };
       this.documents.set(uri, document);
-      await this.connection!.sendNotification(DidOpenTextDocumentNotification.type, {
-        textDocument: document,
-      });
+      if (synchronization.openClose) {
+        await this.connection!.sendNotification(DidOpenTextDocumentNotification.type, {
+          textDocument: {
+            uri: document.uri,
+            languageId: document.languageId,
+            version: document.version,
+            text: document.text,
+          },
+        });
+        document.openNotified = true;
+      }
       return document;
     }
     if (existing.text !== text) {
+      const previousText = existing.text;
       existing.version += 1;
       existing.text = text;
-      await this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
-        textDocument: { uri, version: existing.version },
-        contentChanges: [{ text }],
-      });
+      if (synchronization.change === TextDocumentSyncKind.Full) {
+        await this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
+          textDocument: { uri, version: existing.version },
+          contentChanges: [{ text }],
+        });
+      } else if (synchronization.change === TextDocumentSyncKind.Incremental) {
+        await this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
+          textDocument: { uri, version: existing.version },
+          contentChanges: [{
+            range: wholeDocumentRange(previousText, this.positionEncoding),
+            text,
+          }],
+        });
+      }
     }
     return existing;
   }
@@ -398,6 +406,8 @@ class LanguageService {
 
 export class CodeIntelligenceManager {
   private readonly services = new Map<string, LanguageService>();
+  private readonly serviceCreations = new Map<string, Promise<LanguageService>>();
+  private serviceCreationQueue: Promise<void> = Promise.resolve();
   private readonly cleanupTimer: NodeJS.Timeout;
   private readonly policy: CodeIntelligenceRuntimePolicy;
 
@@ -424,9 +434,11 @@ export class CodeIntelligenceManager {
     input: CodeIntelligenceDefinitionInput,
   ): Promise<CodeIntelligenceDefinitionResult> {
     let project: ResolvedLanguageProject;
+    let canonicalWorkspaceRoot: string;
     try {
+      canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
       project = await resolveLanguageProject({
-        workspaceRoot,
+        workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
         globalConfig: this.config.languageServers,
       });
@@ -437,18 +449,18 @@ export class CodeIntelligenceManager {
       throw error;
     }
 
-    const key = languageServiceKey(project);
-    let service = this.services.get(key);
-    if (!service) {
-      await this.ensureCapacity();
-      service = new LanguageService(resolve(workspaceRoot), project, this.policy);
-      this.services.set(key, service);
+    const service = await this.acquireService(canonicalWorkspaceRoot, project);
+    try {
+      return await service.definition(input);
+    } finally {
+      service.release();
     }
-    return service.definition(input);
   }
 
   async shutdown(): Promise<void> {
     clearInterval(this.cleanupTimer);
+    await Promise.allSettled(this.serviceCreations.values());
+    this.serviceCreations.clear();
     const services = [...this.services.values()];
     this.services.clear();
     await Promise.allSettled(services.map((service) => service.shutdown()));
@@ -456,6 +468,60 @@ export class CodeIntelligenceManager {
 
   get size(): number {
     return this.services.size;
+  }
+
+  private async acquireService(
+    workspaceRoot: string,
+    project: ResolvedLanguageProject,
+  ): Promise<LanguageService> {
+    const key = languageServiceKey(project);
+    const existing = this.services.get(key);
+    if (existing) {
+      existing.acquire();
+      return existing;
+    }
+
+    const pending = this.serviceCreations.get(key);
+    if (pending) {
+      const service = await pending;
+      service.acquire();
+      return service;
+    }
+
+    const creation = this.withServiceCreationLock(async () => {
+      const current = this.services.get(key);
+      if (current) {
+        current.acquire();
+        return current;
+      }
+      await this.ensureCapacity();
+      const service = new LanguageService(workspaceRoot, project, this.policy);
+      service.acquire();
+      this.services.set(key, service);
+      return service;
+    });
+    this.serviceCreations.set(key, creation);
+    try {
+      return await creation;
+    } finally {
+      if (this.serviceCreations.get(key) === creation) {
+        this.serviceCreations.delete(key);
+      }
+    }
+  }
+
+  private async withServiceCreationLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.serviceCreationQueue;
+    let release = (): void => undefined;
+    this.serviceCreationQueue = new Promise<void>((resolvePromise) => {
+      release = resolvePromise;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   private async closeIdle(now = Date.now()): Promise<void> {
@@ -495,11 +561,22 @@ function languageServiceKey(project: ResolvedLanguageProject): string {
 
 function languageIdForPath(definition: ResolvedLanguageServerDefinition, path: string): string {
   const extension = path.slice(path.lastIndexOf(".")).toLowerCase();
-  const index = definition.extensions.indexOf(extension);
-  if (definition.languages.length === definition.extensions.length && index >= 0) {
-    return definition.languages[index] ?? definition.languages[0]!;
+  return definition.languageIdByExtension[extension] ?? definition.languages[0]!;
+}
+
+function textDocumentSynchronization(
+  value: TextDocumentSyncOptions | TextDocumentSyncKind | undefined,
+): { openClose: boolean; change: TextDocumentSyncKind } {
+  if (typeof value === "number") {
+    return {
+      openClose: value !== TextDocumentSyncKind.None,
+      change: value,
+    };
   }
-  return definition.languages[0]!;
+  return {
+    openClose: value?.openClose === true,
+    change: value?.change ?? TextDocumentSyncKind.None,
+  };
 }
 
 async function workspaceSourcePath(workspaceRoot: string, inputPath: string): Promise<string> {
@@ -530,41 +607,6 @@ async function workspaceSourcePath(workspaceRoot: string, inputPath: string): Pr
   }
 }
 
-function lspPositionFromUser(
-  text: string,
-  line: number,
-  column: number,
-  encoding: string,
-): Position {
-  if (!Number.isInteger(line) || line < 1 || !Number.isInteger(column) || column < 1) {
-    throw new CodeIntelligenceError(
-      "code.invalid_position",
-      `Code-intelligence positions are 1-based positive integers; received line=${line}, column=${column}.`,
-    );
-  }
-  const lines = text.split(/\r?\n/);
-  const sourceLine = lines[line - 1];
-  if (sourceLine === undefined) {
-    throw new CodeIntelligenceError(
-      "code.invalid_position",
-      `Line ${line} is outside the document (${lines.length} lines).`,
-    );
-  }
-  const codePoints = Array.from(sourceLine);
-  const codePointIndex = column - 1;
-  if (codePointIndex > codePoints.length) {
-    throw new CodeIntelligenceError(
-      "code.invalid_position",
-      `Column ${column} is outside line ${line} (${codePoints.length + 1} valid insertion positions).`,
-    );
-  }
-  const prefix = codePoints.slice(0, codePointIndex).join("");
-  return {
-    line: line - 1,
-    character: encodedLength(prefix, encoding),
-  };
-}
-
 async function normalizeDefinitionResponse(
   response: Location | Location[] | LocationLink[] | null,
   workspaceRoot: string,
@@ -583,82 +625,24 @@ async function normalizeDefinitionResponse(
     }
     const targetPath = fileURLToPath(uri);
     const root = resolve(workspaceRoot);
-    const resolvedTarget = resolve(targetPath);
-    const external = !isWithin(root, resolvedTarget);
+    let resolvedTarget: string;
     let text: string;
     try {
+      resolvedTarget = await realpath(targetPath);
       text = await readFile(resolvedTarget, "utf8");
     } catch (error) {
       throw new CodeIntelligenceError(
         "code.result_outside_policy",
-        `Unable to normalize definition location ${resolvedTarget}: ${errorMessage(error)}`,
+        `Unable to normalize definition location ${targetPath}: ${errorMessage(error)}`,
       );
     }
+    const external = !isWithin(root, resolvedTarget);
     return {
       path: external ? resolvedTarget : workspaceDisplayPath(root, resolvedTarget),
       external,
       range: rangeFromLsp(text, range, encoding),
     };
   }));
-}
-
-function rangeFromLsp(text: string, range: Range, encoding: string): CodeIntelligenceRange {
-  return {
-    start: positionFromLsp(text, range.start, encoding),
-    end: positionFromLsp(text, range.end, encoding),
-  };
-}
-
-function positionFromLsp(text: string, position: Position, encoding: string): CodeIntelligencePosition {
-  const lines = text.split(/\r?\n/);
-  const sourceLine = lines[position.line];
-  if (sourceLine === undefined) {
-    throw new CodeIntelligenceError(
-      "code.invalid_position",
-      `Language server returned line ${position.line} outside a ${lines.length}-line document.`,
-    );
-  }
-  return {
-    line: position.line + 1,
-    column: decodedCodePointOffset(sourceLine, position.character, encoding) + 1,
-  };
-}
-
-function encodedLength(text: string, encoding: string): number {
-  if (encoding === PositionEncodingKind.UTF8) return Buffer.byteLength(text, "utf8");
-  if (encoding === PositionEncodingKind.UTF32) return Array.from(text).length;
-  return text.length;
-}
-
-function decodedCodePointOffset(text: string, encodedOffset: number, encoding: string): number {
-  if (!Number.isInteger(encodedOffset) || encodedOffset < 0) {
-    throw new CodeIntelligenceError("code.invalid_position", `Language server returned invalid character offset ${encodedOffset}.`);
-  }
-  if (encoding === PositionEncodingKind.UTF32) {
-    if (encodedOffset > Array.from(text).length) {
-      throw new CodeIntelligenceError("code.invalid_position", `Language server returned character offset ${encodedOffset} outside its line.`);
-    }
-    return encodedOffset;
-  }
-  if (encoding === PositionEncodingKind.UTF16) {
-    if (encodedOffset > text.length) {
-      throw new CodeIntelligenceError("code.invalid_position", `Language server returned character offset ${encodedOffset} outside its line.`);
-    }
-    return Array.from(text.slice(0, encodedOffset)).length;
-  }
-
-  let bytes = 0;
-  let codePoints = 0;
-  for (const character of text) {
-    if (bytes === encodedOffset) return codePoints;
-    bytes += Buffer.byteLength(character, "utf8");
-    codePoints += 1;
-    if (bytes > encodedOffset) {
-      throw new CodeIntelligenceError("code.invalid_position", `Language server returned UTF-8 offset ${encodedOffset} inside a code point.`);
-    }
-  }
-  if (bytes === encodedOffset) return codePoints;
-  throw new CodeIntelligenceError("code.invalid_position", `Language server returned character offset ${encodedOffset} outside its line.`);
 }
 
 function isLocationLink(value: Location | LocationLink): value is LocationLink {

@@ -8,4 +8,4 @@ For 0.4.0, the supported operation is `definition`. Pass a workspace-relative so
 
 Code-intelligence results use ForgeRelay-normalized locations rather than raw LSP wire types. A result may identify an External code location outside the Workspace, but that does not expand ForgeRelay's allowed roots or grant the file tools permission to read that path.
 
-Language-server definitions use structured process configuration rather than shell command strings. A project configuration entry may contain `command`, `args`, `env`, `languages`, `extensions`, `projectMarkers`, and `enabled` fields. The server command is launched directly without a shell.
+Language-server definitions use structured process configuration rather than shell command strings. A project configuration entry may contain `command`, `args`, `env`, `languages`, `extensions`, `languageIdByExtension`, `projectMarkers`, and `enabled` fields. Use `languageIdByExtension` when one server definition covers multiple language IDs whose extensions do not map one-to-one by array position. The server command is launched directly without a shell.

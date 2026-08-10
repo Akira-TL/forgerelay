@@ -244,6 +244,7 @@ try {
       "process.lifecycle",
       "hooks.lifecycle",
       "capability-guides.read",
+      "code.intelligence",
       ...(process.platform === "linux" ? ["artifact.native-download"] : []),
       "ui.mcp-app",
       "review.changes",
@@ -253,6 +254,7 @@ try {
   assert.deepEqual(capabilityCatalog.map((entry) => entry.name), [
     "hooks.check",
     "review.changes",
+    "code.intelligence",
     ...(process.platform === "linux" ? ["artifact.download"] : []),
   ]);
   assert.equal(capabilityCatalog[0].available, true);
@@ -323,6 +325,18 @@ try {
   assert.equal(describedCapability.isError, undefined);
   assert.equal(describedCapability.structuredContent.capability.guide.name, "lifecycle-hooks");
   assert.equal(describedCapability.structuredContent.capability.inputSchema.type, "object");
+  const describedCodeIntelligence = callTool(oauth.accessToken, sessionId, 88, "capability", {
+    workspaceId,
+    name: "code.intelligence",
+    action: "describe",
+  });
+  assert.equal(describedCodeIntelligence.isError, undefined);
+  assert.equal(describedCodeIntelligence.structuredContent.capability.guide.name, "code-intelligence");
+  assert.equal(describedCodeIntelligence.structuredContent.capability.inputSchema.type, "object");
+  assert.equal(
+    describedCodeIntelligence.structuredContent.capability.inputSchema.properties.operation.const,
+    "definition",
+  );
   if (process.platform === "linux") {
     const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
       workspaceId,
@@ -350,6 +364,7 @@ try {
     "artifacts-review",
     "host-integration",
     "shell-processes",
+    "code-intelligence",
   ]);
   const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {
     workspaceId,

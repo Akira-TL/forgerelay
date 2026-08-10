@@ -11,6 +11,7 @@ export interface LanguageServerDefinitionInput {
   env?: Record<string, string>;
   languages?: string[];
   extensions?: string[];
+  languageIdByExtension?: Record<string, string>;
   projectMarkers?: string[];
 }
 
@@ -23,6 +24,7 @@ export interface ResolvedLanguageServerDefinition {
   env: Record<string, string>;
   languages: string[];
   extensions: string[];
+  languageIdByExtension: Record<string, string>;
   projectMarkers: string[];
   source: "builtin" | "global" | "project";
   fingerprint: string;
@@ -50,6 +52,7 @@ const definitionSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   languages: z.array(z.string().min(1)).min(1).optional(),
   extensions: z.array(z.string().regex(/^\./)).min(1).optional(),
+  languageIdByExtension: z.record(z.string().regex(/^\./), z.string().min(1)).optional(),
   projectMarkers: z.array(z.string().min(1)).optional(),
 }).strict();
 
@@ -65,6 +68,14 @@ const BUILTIN_DEFINITIONS: Record<string, BuiltinDefinition> = {
     args: ["--stdio"],
     languages: ["typescript", "typescriptreact", "javascript", "javascriptreact"],
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+    languageIdByExtension: {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".js": "javascript",
+      ".jsx": "javascriptreact",
+      ".mjs": "javascript",
+      ".cjs": "javascript",
+    },
     projectMarkers: ["tsconfig.json", "jsconfig.json", "package.json"],
   },
   pyright: {
@@ -72,24 +83,39 @@ const BUILTIN_DEFINITIONS: Record<string, BuiltinDefinition> = {
     args: ["--stdio"],
     languages: ["python"],
     extensions: [".py", ".pyi"],
+    languageIdByExtension: { ".py": "python", ".pyi": "python" },
     projectMarkers: ["pyrightconfig.json", "pyproject.toml", "setup.cfg", "setup.py"],
   },
   "rust-analyzer": {
     executableCandidates: ["rust-analyzer"],
     languages: ["rust"],
     extensions: [".rs"],
+    languageIdByExtension: { ".rs": "rust" },
     projectMarkers: ["Cargo.toml"],
   },
   gopls: {
     executableCandidates: ["gopls"],
     languages: ["go"],
     extensions: [".go"],
+    languageIdByExtension: { ".go": "go" },
     projectMarkers: ["go.work", "go.mod"],
   },
   clangd: {
     executableCandidates: ["clangd"],
     languages: ["c", "cpp", "objective-c", "objective-cpp"],
     extensions: [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm"],
+    languageIdByExtension: {
+      ".c": "c",
+      ".cc": "cpp",
+      ".cpp": "cpp",
+      ".cxx": "cpp",
+      ".h": "cpp",
+      ".hh": "cpp",
+      ".hpp": "cpp",
+      ".hxx": "cpp",
+      ".m": "objective-c",
+      ".mm": "objective-cpp",
+    },
     projectMarkers: ["compile_commands.json", "compile_flags.txt", ".clangd"],
   },
 };
@@ -106,7 +132,7 @@ export async function resolveLanguageProject(input: {
   globalConfig?: LanguageServerConfigInput;
   env?: NodeJS.ProcessEnv;
 }): Promise<ResolvedLanguageProject> {
-  const workspaceRoot = resolve(input.workspaceRoot);
+  const workspaceRoot = await canonicalWorkspaceRoot(input.workspaceRoot);
   const sourcePath = await resolveWorkspaceSourcePath(workspaceRoot, input.sourcePath);
   const projectConfig = await loadProjectLanguageServerConfig(workspaceRoot);
   const globalConfig = parseLanguageServerConfig(
@@ -218,12 +244,18 @@ async function effectiveDefinitions(
         ...(global?.env ?? {}),
         ...(project?.env ?? {}),
       },
+      languageIdByExtension: {
+        ...(builtin?.languageIdByExtension ?? {}),
+        ...(global?.languageIdByExtension ?? {}),
+        ...(project?.languageIdByExtension ?? {}),
+      },
     };
 
     if (merged.enabled === false) continue;
     const languages = merged.languages ?? [];
     const extensions = merged.extensions?.map((entry) => entry.toLowerCase()) ?? [];
     if (languages.length === 0 || extensions.length === 0) continue;
+    const languageIdByExtension = normalizeLanguageIds(id, merged, languages, extensions);
 
     let command = merged.command;
     if (!command && builtin?.executableCandidates) {
@@ -244,6 +276,7 @@ async function effectiveDefinitions(
       env: merged.env ?? {},
       languages,
       extensions,
+      languageIdByExtension,
       projectMarkers: merged.projectMarkers ?? [],
       source,
     };
@@ -254,6 +287,47 @@ async function effectiveDefinitions(
   }
 
   return definitions;
+}
+
+function normalizeLanguageIds(
+  id: string,
+  definition: CandidateDefinition,
+  languages: string[],
+  extensions: string[],
+): Record<string, string> {
+  const mapping = Object.fromEntries(
+    Object.entries(definition.languageIdByExtension ?? {})
+      .map(([extension, languageId]) => [extension.toLowerCase(), languageId]),
+  );
+
+  for (let index = 0; index < extensions.length; index += 1) {
+    const extension = extensions[index]!;
+    if (mapping[extension]) continue;
+    if (languages.length === 1) {
+      mapping[extension] = languages[0]!;
+      continue;
+    }
+    if (languages.length === extensions.length) {
+      mapping[extension] = languages[index]!;
+      continue;
+    }
+    throw new LanguageServerConfigurationError(
+      "code.configuration_invalid",
+      `Language-server definition ${id} must map extension ${extension} to a languageId when multiple language IDs do not align one-to-one with extensions.`,
+    );
+  }
+
+  for (const [extension, languageId] of Object.entries(mapping)) {
+    if (!extensions.includes(extension)) continue;
+    if (!languages.includes(languageId)) {
+      throw new LanguageServerConfigurationError(
+        "code.configuration_invalid",
+        `Language-server definition ${id} maps ${extension} to unknown languageId ${languageId}.`,
+      );
+    }
+  }
+
+  return mapping;
 }
 
 async function findLanguageProjectRoot(
@@ -276,6 +350,17 @@ async function findLanguageProjectRoot(
     current = dirname(current);
   }
   return undefined;
+}
+
+async function canonicalWorkspaceRoot(inputPath: string): Promise<string> {
+  try {
+    return await realpath(resolve(inputPath));
+  } catch {
+    throw new LanguageServerConfigurationError(
+      "code.language_service_unavailable",
+      `Code-intelligence Workspace root does not exist: ${inputPath}`,
+    );
+  }
 }
 
 async function resolveWorkspaceSourcePath(workspaceRoot: string, inputPath: string): Promise<string> {
