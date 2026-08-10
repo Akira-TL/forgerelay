@@ -84,3 +84,11 @@ _Avoid_: Workspace, repository, allowed root
 **Language-server definition**:
 The ForgeRelay configuration or built-in discovery description that identifies one external language server and the languages/project markers it can serve.
 _Avoid_: Language service, installed server, Capability
+
+**External code location**:
+A code-intelligence result that points outside the current ForgeRelay Workspace, such as dependency source, a standard library, or a toolchain-provided declaration. It is informative and does not expand ForgeRelay file-access authority.
+_Avoid_: Allowed root, mounted dependency, readable external file
+
+**Diagnostic snapshot**:
+The latest bounded set of language-server diagnostics ForgeRelay associates with one document at a known freshness point.
+_Avoid_: Build log, permanent diagnostic history, Workspace state
