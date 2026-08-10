@@ -97,6 +97,21 @@ Once a workspace is open, the host can:
 Normal work happens in your existing checkout. ForgeRelay does not silently move
 every task into a worktree.
 
+### Progressive MCP context
+
+ForgeRelay keeps the callable MCP surface and its low-frequency operating manuals
+separate. `tools/list` remains the source of truth for tools the current server
+actually exposes. `open_workspace` returns a compact version/capability fingerprint
+and, on bootstrap, short descriptors for relevant ForgeRelay capability guides.
+The Agent can load a task-specific guide with `read` instead of receiving every
+Hook, worktree, subagent, artifact, OAuth, MCP App, PTY, and process edge case on
+every connection.
+
+The fingerprint also helps diagnose stale MCP Host metadata: if the running server
+reports a semantic capability but the Host still shows an older tool snapshot,
+refresh or reconnect the integration rather than assuming the capability is
+missing from ForgeRelay.
+
 ## Worktrees without the usual cleanup mess
 
 A new managed worktree gets its own `forgerelay/*` branch instead of a detached

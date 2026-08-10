@@ -4,9 +4,20 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- `open_workspace` now reports a lightweight ForgeRelay version/capability fingerprint on every open, allowing Agents to distinguish a stale Host tool-schema snapshot from a missing server capability.
+- ForgeRelay-owned capability guides can be loaded explicitly with the normal `read` tool. Built-in guides cover lifecycle Hooks, managed worktrees, subagents, artifact/change review, Host/OAuth/MCP App integration, and long-running shell/PTY/process behavior; optional guides are advertised only when their feature is enabled.
+
 ### Changed
 
+- MCP bootstrap context now keeps low-frequency operational detail out of server instructions while `tools/list` remains the source of truth for the real callable tool surface. Artifact/review feature flags no longer inflate the core instruction payload.
+- New setups no longer auto-seed or auto-inject the historical bundled `subagent-delegation` Skill; ForgeRelay's own subagent workflow is documented by the on-demand `subagents` capability guide. Existing user-authored or previously seeded Skills remain supported.
 - Shell capability instructions now explicitly permit persistent external device or hardware mutations only when the user's current request asks for the actual device-changing operation; checks, audits, probes, backups, verification, dry-runs, and build-only requests do not implicitly authorize a later hardware write.
+
+### Fixed
+
+- Local checkout builds now restore the executable bit on `dist/cli.js`, so `npm run build && npm install -g .` produces a runnable `forgerelay` command on POSIX systems.
 
 ## [0.2.6] - 2026-08-10
 
