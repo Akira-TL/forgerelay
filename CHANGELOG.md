@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-08-10
+
 ### Added
 
 - Added debug-only runtime resource telemetry for RSS/V8 heap, MCP transport count, running/completed process counts, cached workspaces, and review checkpoint state so long-running deployments can identify which resource class is growing.
