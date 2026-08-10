@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-10
+
 ### Changed
 
 - Regular MCP tool modes now use one `bash` interface for both command start and long-process interaction. `action="run"` preserves normal shell execution while `action="process"` polls/waits, writes input, resizes PTYs, or interrupts an existing workspace-owned `processId`; top-level `write_stdin` is no longer exposed in regular modes.
