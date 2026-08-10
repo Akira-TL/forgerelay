@@ -35,7 +35,7 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "npm run clean && npm run build:app && tsc -p tsconfig.build.json",
+    "build": "npm run clean && npm run build:app && tsc -p tsconfig.build.json && node scripts/ensure-cli-executable.mjs",
     "build:app": "vite build",
     "dev": "node scripts/debug/serve.mjs",
     "debug:serve": "node scripts/debug/serve.mjs",
