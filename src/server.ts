@@ -213,6 +213,19 @@ function workspaceLogContext(
   };
 }
 
+function formatDiscoveredWorkspaceInstructions(
+  files: Array<{ path: string; content: string }>,
+  workspaceRoot: string,
+): string {
+  return [
+    "Workspace instructions discovered for this path. Apply them to follow-up work under their directories:",
+    ...files.flatMap((file) => [
+      `--- ${formatAgentsPath(file.path, workspaceRoot)} ---`,
+      file.content.trimEnd(),
+    ]),
+  ].join("\n");
+}
+
 function formatVisibleAgent(agent: {
   name: string;
   provider: string;
@@ -1823,7 +1836,9 @@ export function createMcpServer(
           .optional()
           .describe("Maximum number of lines to read."),
       },
-      outputSchema: resultOutputSchema(),
+      outputSchema: resultOutputSchema({
+        agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
+      }),
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: { readOnlyHint: true },
     },
@@ -1837,6 +1852,10 @@ export function createMcpServer(
         operation: async () => {
           const startedAt = performance.now();
           const readPath = workspaces.resolveReadPath(workspace, input.path);
+          const discoveredInstructions = (await workspaces.discoverPathInstructions(
+            workspace,
+            readPath.absolutePath,
+          )).filter((file) => file.path !== readPath.absolutePath);
           const response = await readFileTool(
             { ...input, path: readPath.absolutePath },
             {
@@ -1856,6 +1875,12 @@ export function createMcpServer(
           }
           workspaces.markReadPathLoaded(workspace, readPath);
 
+          const discoveredInstructionContent = discoveredInstructions.length > 0
+            ? textBlock(formatDiscoveredWorkspaceInstructions(discoveredInstructions, workspace.root))
+            : undefined;
+          const content = discoveredInstructionContent
+            ? [discoveredInstructionContent, ...response.content]
+            : response.content;
           const summary = {
             ...textSummary(response.content),
             offset: input.offset ?? 1,
@@ -1871,6 +1896,7 @@ export function createMcpServer(
 
           return {
             ...response,
+            content,
             _meta: {
               tool: toolNames.read,
               card: {
@@ -1881,7 +1907,15 @@ export function createMcpServer(
               },
             },
             structuredContent: {
-              result: contentText(response.content),
+              result: contentText(content),
+              ...(discoveredInstructions.length > 0
+                ? {
+                    agentsFiles: discoveredInstructions.map((file) => ({
+                      path: formatAgentsPath(file.path, workspace.root),
+                      content: file.content,
+                    })),
+                  }
+                : {}),
             },
           };
         },

@@ -69,6 +69,36 @@ test("a checkout loads one configured system instruction plus project context", 
   }
 });
 
+test("instruction discovery is depth-bounded on open and lazy along accessed paths", async (t) => {
+  const context = await fixture(t);
+  const level1 = join(context.root, "level-1");
+  const level2 = join(level1, "level-2");
+  const level3 = join(level2, "level-3");
+  await mkdir(level3, { recursive: true });
+  await writeFile(join(level1, "AGENTS.md"), "level 1 instructions\n");
+  await writeFile(join(level3, "AGENTS.md"), "level 3 instructions\n");
+  const target = join(level3, "target.txt");
+  await writeFile(target, "target\n");
+
+  const opened = await context.registry.openWorkspace(context.root);
+  const availablePaths = opened.availableAgentsFiles.map((file) => file.path);
+  assert.equal(availablePaths.includes(join(level1, "AGENTS.md")), true);
+  assert.equal(availablePaths.includes(join(level3, "AGENTS.md")), false);
+
+  const discovered = await context.registry.discoverPathInstructions(opened.workspace, target);
+  assert.deepEqual(
+    discovered.map((file) => ({ path: file.path, content: file.content })),
+    [
+      { path: join(level1, "AGENTS.md"), content: "level 1 instructions\n" },
+      { path: join(level3, "AGENTS.md"), content: "level 3 instructions\n" },
+    ],
+  );
+  assert.deepEqual(
+    await context.registry.discoverPathInstructions(opened.workspace, target),
+    [],
+  );
+});
+
 test("WorkspaceOpen hook runs once when a workspace session is created", async (t) => {
   const context = await fixture(t);
   const hookScript = join(context.root, "workspace-open-hook.mjs");

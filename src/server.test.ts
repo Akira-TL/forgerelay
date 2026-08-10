@@ -1162,6 +1162,41 @@ test("WorkspaceOpen hook reports are visible on the open_workspace result", asyn
   );
 });
 
+test("read lazily surfaces deep workspace instructions after bounded open discovery", async (t) => {
+  const context = await fixture(t);
+  const deepDir = join(context.project, "level-1", "level-2", "level-3");
+  await mkdir(deepDir, { recursive: true });
+  await writeFile(join(deepDir, "AGENTS.md"), "deep instructions\n");
+  await writeFile(join(deepDir, "target.txt"), "target content\n");
+
+  const opened = await callOpen(context.client, context.project, "chat-lazy-instructions");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const availableAgentsFiles = structuredContent(opened).availableAgentsFiles as Array<{ path?: string }> | undefined;
+  assert.equal(
+    availableAgentsFiles?.some((file) => file.path === "level-1/level-2/level-3/AGENTS.md") ?? false,
+    false,
+  );
+
+  const firstRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "level-1/level-2/level-3/target.txt" },
+  });
+  assert.equal(firstRead.isError, undefined, allResponseText(firstRead));
+  assert.match(allResponseText(firstRead), /Workspace instructions discovered for this path/);
+  assert.match(allResponseText(firstRead), /deep instructions/);
+  assert.deepEqual(structuredContent(firstRead).agentsFiles, [{
+    path: "level-1/level-2/level-3/AGENTS.md",
+    content: "deep instructions\n",
+  }]);
+
+  const secondRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "level-1/level-2/level-3/target.txt" },
+  });
+  assert.equal(structuredContent(secondRead).agentsFiles, undefined);
+  assert.doesNotMatch(allResponseText(secondRead), /Workspace instructions discovered for this path/);
+});
+
 test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
   const processSessions = new ProcessManager({
     maxStartYieldMs: 20,

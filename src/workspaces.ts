@@ -74,6 +74,9 @@ export interface Workspace {
   agentProfiles: LocalAgentProfile[];
   activatedSkillDirs: Set<string>;
   activatedCapabilityGuideDirs: Set<string>;
+  scannedInstructionDirs: Set<string>;
+  knownInstructionPathsByDir: Map<string, string[]>;
+  loadedInstructionRealPaths: Set<string>;
 }
 
 export type WorkspaceBootstrapContextMode = "auto" | "full" | "none";
@@ -182,6 +185,7 @@ export interface OpenWorkspaceOptions {
 const WORKSPACE_STALE_REMINDER_MS = 2 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_SESSION_IDLE_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_GC_INTERVAL_MS = 60 * 60 * 1_000;
+const INITIAL_INSTRUCTION_DISCOVERY_DEPTH = 2;
 
 type PathStats = Stats;
 type DirectoryOps = {
@@ -992,8 +996,11 @@ export class WorkspaceRegistry {
     Object.assign(workspace, this.loadSkillsForWorkspace(workspace.root));
     workspace.capabilityGuides = loadCapabilityGuides(this.config);
     workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
-    const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
-    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    workspace.scannedInstructionDirs.clear();
+    workspace.knownInstructionPathsByDir.clear();
+    workspace.loadedInstructionRealPaths.clear();
+    const agentsFiles = await this.loadInitialAgentsFiles(workspace);
+    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
     const contextFingerprint = bootstrapContextFingerprint(
       workspace,
       agentsFiles,
@@ -1057,6 +1064,9 @@ export class WorkspaceRegistry {
       agentProfiles: [],
       activatedSkillDirs: new Set(),
       activatedCapabilityGuideDirs: new Set(),
+      scannedInstructionDirs: new Set(),
+      knownInstructionPathsByDir: new Map(),
+      loadedInstructionRealPaths: new Set(),
     };
     if (touch) this.store?.touchSession(session.id);
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);
@@ -1179,6 +1189,9 @@ export class WorkspaceRegistry {
       agentProfiles: await loadLocalAgentProfiles(this.config, input.root),
       activatedSkillDirs: new Set(),
       activatedCapabilityGuideDirs: new Set(),
+      scannedInstructionDirs: new Set(),
+      knownInstructionPathsByDir: new Map(),
+      loadedInstructionRealPaths: new Set(),
     };
 
     this.store?.createSession({
@@ -1205,8 +1218,8 @@ export class WorkspaceRegistry {
         targetBranch: workspace.worktree?.targetBranch,
       },
     });
-    const agentsFiles = await this.loadInitialAgentsFiles(workspace.root);
-    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace.root, agentsFiles);
+    const agentsFiles = await this.loadInitialAgentsFiles(workspace);
+    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
     const contextFingerprint = bootstrapContextFingerprint(
       workspace,
       agentsFiles,
@@ -1244,11 +1257,9 @@ export class WorkspaceRegistry {
     return assertAllowedPath(root, this.config.allowedRoots);
   }
 
-  private async loadInitialAgentsFiles(root: string): Promise<LoadedAgentsFile[]> {
-    const resolvedRoot = (await tryRealpath(root)) ?? root;
+  private async loadInitialAgentsFiles(workspace: Workspace): Promise<LoadedAgentsFile[]> {
     const systemInstructionsPath = resolve(this.config.systemInstructionsPath);
     const loadedFiles: LoadedAgentsFile[] = [];
-    const loadedRealPaths = new Set<string>();
     const systemInstructions = await readSystemInstructions(systemInstructionsPath);
     const systemInstructionsRealPath = await tryRealpath(systemInstructionsPath);
 
@@ -1257,53 +1268,155 @@ export class WorkspaceRegistry {
         path: systemInstructionsPath,
         content: systemInstructions,
       });
-      if (systemInstructionsRealPath) loadedRealPaths.add(systemInstructionsRealPath);
+      if (systemInstructionsRealPath) {
+        workspace.loadedInstructionRealPaths.add(systemInstructionsRealPath);
+      }
     }
 
-    for (const fileName of CONTEXT_FILE_NAMES) {
-      const path = join(root, fileName);
-      const content = await readResolvedProjectContextFile(path, resolvedRoot);
-      if (content === undefined) continue;
-
-      const realPath = await tryRealpath(path);
-      if (realPath && loadedRealPaths.has(realPath)) continue;
-
-      loadedFiles.push({
-        path,
-        content,
-      });
-      if (realPath) loadedRealPaths.add(realPath);
-    }
-
+    await this.discoverInstructionTree(
+      workspace,
+      workspace.root,
+      INITIAL_INSTRUCTION_DISCOVERY_DEPTH,
+    );
+    loadedFiles.push(...await this.loadKnownInstructionsInDirectory(workspace, workspace.root));
     return loadedFiles;
   }
 
   private async findAvailableAgentsFiles(
-    root: string,
+    workspace: Workspace,
     loadedFiles: LoadedAgentsFile[],
   ): Promise<AvailableAgentsFile[]> {
     const loadedPaths = new Set(loadedFiles.map((file) => resolve(file.path)));
-    const loadedRealPaths = new Set<string>();
-    for (const file of loadedFiles) {
-      const realPath = await tryRealpath(file.path);
-      if (realPath) loadedRealPaths.add(realPath);
-    }
     const discovered: AvailableAgentsFile[] = [];
 
-    const agentDir = resolve(this.config.agentDir);
-
-    await walkWorkspace(root, async (path, entry) => {
-      if (isPathInsideRoot(path, agentDir)) return;
-      if (!entry.isFile()) return;
-      if (!CONTEXT_FILE_NAMES.has(entry.name)) return;
-      if (loadedPaths.has(path)) return;
-      const realPath = await tryRealpath(path);
-      if (realPath && loadedRealPaths.has(realPath)) return;
-
-      discovered.push({ path });
-    });
+    for (const paths of workspace.knownInstructionPathsByDir.values()) {
+      for (const path of paths) {
+        if (loadedPaths.has(path)) continue;
+        const realPath = await tryRealpath(path);
+        if (realPath && workspace.loadedInstructionRealPaths.has(realPath)) continue;
+        discovered.push({ path });
+      }
+    }
 
     return discovered.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  async discoverPathInstructions(
+    workspace: Workspace,
+    inputPath: string,
+  ): Promise<LoadedAgentsFile[]> {
+    const absolutePath = resolve(inputPath);
+    if (!isPathInsideRoot(absolutePath, workspace.root)) return [];
+
+    const targetDirectory = dirname(absolutePath);
+    const relationship = relative(workspace.root, targetDirectory);
+    if (
+      relationship === ".." ||
+      relationship.startsWith(`..${sep}`) ||
+      resolve(targetDirectory) === resolve(this.config.agentDir) ||
+      isPathInsideRoot(targetDirectory, resolve(this.config.agentDir))
+    ) {
+      return [];
+    }
+
+    const directories = [resolve(workspace.root)];
+    if (relationship) {
+      let current = resolve(workspace.root);
+      for (const segment of relationship.split(sep).filter(Boolean)) {
+        if (SKIPPED_CONTEXT_DIRS.has(segment)) break;
+        current = join(current, segment);
+        directories.push(current);
+      }
+    }
+
+    const loaded: LoadedAgentsFile[] = [];
+    for (const directory of directories) {
+      await this.discoverInstructionTree(workspace, directory, 0);
+      loaded.push(...await this.loadKnownInstructionsInDirectory(workspace, directory));
+    }
+    return loaded;
+  }
+
+  private async discoverInstructionTree(
+    workspace: Workspace,
+    directory: string,
+    remainingDepth: number,
+  ): Promise<void> {
+    const resolvedDirectory = resolve(directory);
+    if (workspace.scannedInstructionDirs.has(resolvedDirectory)) return;
+    workspace.scannedInstructionDirs.add(resolvedDirectory);
+
+    if (
+      resolvedDirectory !== resolve(workspace.root) &&
+      isPathInsideRoot(resolvedDirectory, resolve(this.config.agentDir))
+    ) {
+      return;
+    }
+
+    let entries;
+    try {
+      entries = await opendir(resolvedDirectory);
+    } catch {
+      return;
+    }
+
+    const instructionPaths: string[] = [];
+    const childDirectories: string[] = [];
+    for await (const entry of entries) {
+      const path = join(resolvedDirectory, entry.name);
+      if (entry.isFile() && CONTEXT_FILE_NAMES.has(entry.name)) {
+        instructionPaths.push(path);
+        continue;
+      }
+      if (
+        remainingDepth > 0 &&
+        entry.isDirectory() &&
+        !SKIPPED_CONTEXT_DIRS.has(entry.name)
+      ) {
+        childDirectories.push(path);
+      }
+    }
+
+    workspace.knownInstructionPathsByDir.set(
+      resolvedDirectory,
+      instructionPaths.sort((left, right) => left.localeCompare(right)),
+    );
+    if (remainingDepth <= 0) return;
+
+    for (const childDirectory of childDirectories) {
+      await this.discoverInstructionTree(workspace, childDirectory, remainingDepth - 1);
+    }
+  }
+
+  private async loadKnownInstructionsInDirectory(
+    workspace: Workspace,
+    directory: string,
+  ): Promise<LoadedAgentsFile[]> {
+    const resolvedDirectory = resolve(directory);
+    const paths = workspace.knownInstructionPathsByDir.get(resolvedDirectory) ?? [];
+    const loaded: LoadedAgentsFile[] = [];
+    const resolvedRoot = (await tryRealpath(workspace.root)) ?? resolve(workspace.root);
+    const realDirectory = (await tryRealpath(resolvedDirectory)) ?? resolvedDirectory;
+
+    for (const path of paths) {
+      const realPath = await tryRealpath(path);
+      if (!realPath) continue;
+      if (!isPathInsideRoot(realPath, resolvedRoot)) continue;
+      if (dirname(realPath) !== realDirectory) continue;
+      if (workspace.loadedInstructionRealPaths.has(realPath)) continue;
+
+      let content: string;
+      try {
+        content = await readFile(realPath, "utf8");
+      } catch (error) {
+        if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue;
+        throw error;
+      }
+
+      workspace.loadedInstructionRealPaths.add(realPath);
+      loaded.push({ path, content });
+    }
+    return loaded;
   }
 }
 
@@ -1429,26 +1542,9 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
   return relationship.split(sep).join("/");
 }
 
-function isProjectRootInstructionPath(path: string, root: string): boolean {
-  return isPathInsideRoot(path, root) && dirname(path) === root;
-}
-
 async function readSystemInstructions(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, "utf8");
-  } catch (error) {
-    if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-async function readResolvedProjectContextFile(path: string, root: string): Promise<string | undefined> {
-  try {
-    const resolvedPath = await realpath(path);
-    if (!isProjectRootInstructionPath(resolvedPath, root)) return undefined;
-    return await readFile(resolvedPath, "utf8");
   } catch (error) {
     if (isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
       return undefined;
@@ -1462,30 +1558,6 @@ async function tryRealpath(path: string): Promise<string | undefined> {
     return await realpath(path);
   } catch {
     return undefined;
-  }
-}
-
-async function walkWorkspace(
-  directory: string,
-  visit: (path: string, entry: { name: string; isFile(): boolean; isDirectory(): boolean }) => Promise<void> | void,
-): Promise<void> {
-  let entries;
-  try {
-    entries = await opendir(directory);
-  } catch {
-    return;
-  }
-
-  for await (const entry of entries) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!SKIPPED_CONTEXT_DIRS.has(entry.name)) {
-        await walkWorkspace(path, visit);
-      }
-      continue;
-    }
-
-    await visit(path, entry);
   }
 }
 
