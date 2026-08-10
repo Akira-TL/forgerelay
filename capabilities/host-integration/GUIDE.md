@@ -53,7 +53,7 @@ ForgeRelay 正常会广告 content-hashed：
 ui://forgerelay/workspace-app-<hash>.html
 ```
 
-`resources/read` 应返回 `text/html;profile=mcp-app`，并且 HTML 引用的 `/mcp-app-assets/` 资源必须可达。ForgeRelay 还保留 legacy `ui://forgerelay/workspace-app.html` 和历史 `workspace-app-*.html` 兼容指针，以容忍 Host 暂时持有旧 metadata snapshot。
+`resources/list` 与 `resources/read` 的 MCP App metadata 都应包含唯一 `_meta.ui.domain`，其值来自 resolved `publicBaseUrl` 的 origin；CSP 仍使用完整 public base URL 约束资源与连接域。`resources/read` 应返回 `text/html;profile=mcp-app`，并且 HTML 引用的 `/mcp-app-assets/` 资源必须可达。ForgeRelay 还保留 legacy `ui://forgerelay/workspace-app.html` 和历史 `workspace-app-*.html` 兼容指针，以容忍 Host 暂时持有旧 metadata snapshot。
 
 需要 live trace 时，可用：
 

@@ -495,6 +495,10 @@ ${stylesheets}
 </html>`;
 }
 
+function appDomain(config: ServerConfig): string {
+  return new URL(config.publicBaseUrl).origin;
+}
+
 function appCsp(config: ServerConfig): {
   resourceDomains: string[];
   connectDomains: string[];
@@ -555,6 +559,7 @@ async function readWorkspaceAppResource(
           text: workspaceAppHtml(config),
           _meta: {
             ui: {
+              domain: appDomain(config),
               csp: appCsp(config),
             },
           },
@@ -912,6 +917,7 @@ export function createMcpServer(
     description: "Interactive card for viewing ForgeRelay file diffs.",
     _meta: {
       ui: {
+        domain: appDomain(config),
         csp: appCsp(config),
       },
     },

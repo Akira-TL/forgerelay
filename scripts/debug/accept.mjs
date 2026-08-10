@@ -45,6 +45,18 @@ const { env } = createDebugEnvironment({
   hookLog,
   widgets: "full",
 });
+const doctor = spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", "doctor"], {
+  cwd: repoRoot,
+  env,
+  encoding: "utf8",
+});
+assert.equal(doctor.status, 0, doctor.stderr);
+assert.match(doctor.stdout, /Public base URL: http:\/\/127\.0\.0\.1:7677/);
+assert.match(doctor.stdout, /Tool mode: full/);
+assert.match(doctor.stdout, /Widgets: full/);
+assert.match(doctor.stdout, /Trust proxy: off/);
+pass("doctor resolved MCP shape", "public URL + tool/widgets/proxy state");
+
 const server = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", "serve"], {
   cwd: repoRoot,
   env,
@@ -161,7 +173,9 @@ try {
     method: "resources/list",
     params: {},
   }).message.result.resources;
-  assert.ok(resources.some((resource) => resource.uri === templateUri));
+  const currentResource = resources.find((resource) => resource.uri === templateUri);
+  assert.ok(currentResource);
+  assert.equal(currentResource._meta?.ui?.domain, debugBaseUrl);
   assert.ok(resources.some((resource) => resource.uri === "ui://forgerelay/workspace-app.html"));
 
   const resourceTemplates = mcpRequest(oauth.accessToken, sessionId, {
@@ -185,6 +199,7 @@ try {
   assert.equal(template.uri, templateUri);
   assert.equal(template.mimeType, "text/html;profile=mcp-app");
   assert.match(template.text ?? "", /<script type="module" crossorigin src="[^"]+\/mcp-app-assets\//);
+  assert.equal(template._meta?.ui?.domain, debugBaseUrl);
   assert.ok(template._meta?.ui?.csp?.resourceDomains?.includes(debugBaseUrl));
   const scriptUrl = template.text?.match(/<script type="module" crossorigin src="([^"]+)"/)?.[1];
   assert.ok(scriptUrl);

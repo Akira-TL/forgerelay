@@ -265,7 +265,14 @@ async function runDoctor(): Promise<void> {
   try {
     const config = loadConfig();
     console.log(`Local MCP URL: http://${config.host}:${config.port}/mcp`);
+    console.log(`Public base URL: ${config.publicBaseUrl}`);
     console.log(`Public MCP URL: ${new URL("/mcp", config.publicBaseUrl).toString()}`);
+    console.log(`Tool mode: ${config.toolMode}`);
+    console.log(`Widgets: ${config.widgets}`);
+    console.log(`Trust proxy: ${config.logging.trustProxy ? "one hop" : "off"}`);
+    console.log(`Artifacts: ${config.artifactsEnabled ? "enabled" : "disabled"}`);
+    console.log(`Subagents: ${config.subagents ? "enabled" : "disabled"}`);
+    console.log(`Skills: ${config.skillsEnabled ? "enabled" : "disabled"}`);
     console.log(`Allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`Allowed hosts: ${config.allowedHosts.join(", ")}`);
   } catch (error) {

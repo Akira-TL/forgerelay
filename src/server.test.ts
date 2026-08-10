@@ -115,6 +115,40 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(execCommandTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
 });
 
+test("workspace app resources expose a deployment domain alongside CSP metadata", async (t) => {
+  const context = await fixture(t, {
+    env: { DEVSPACE_PUBLIC_BASE_URL: "https://forge.example.com/base/path" },
+  });
+
+  const resources = await context.client.listResources();
+  const current = resources.resources.find((resource) =>
+    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
+  );
+  assert.ok(current);
+  const resourceMeta = current._meta as {
+    ui?: {
+      domain?: string;
+      csp?: { resourceDomains?: string[]; connectDomains?: string[] };
+    };
+  } | undefined;
+  assert.equal(resourceMeta?.ui?.domain, "https://forge.example.com");
+  assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, ["https://forge.example.com/base/path"]);
+  assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, ["https://forge.example.com/base/path"]);
+
+  const read = await context.client.readResource({ uri: current.uri });
+  const content = read.contents[0] as {
+    _meta?: {
+      ui?: {
+        domain?: string;
+        csp?: { resourceDomains?: string[]; connectDomains?: string[] };
+      };
+    };
+  } | undefined;
+  assert.equal(content?._meta?.ui?.domain, "https://forge.example.com");
+  assert.deepEqual(content?._meta?.ui?.csp?.resourceDomains, ["https://forge.example.com/base/path"]);
+  assert.deepEqual(content?._meta?.ui?.csp?.connectDomains, ["https://forge.example.com/base/path"]);
+});
+
 test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");

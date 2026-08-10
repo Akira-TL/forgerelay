@@ -24,6 +24,47 @@ for (const flag of ["-v", "--version"]) {
   assert.equal(output, packageJson.version);
 }
 
+const doctorRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-doctor-test-"));
+try {
+  const configDir = join(doctorRoot, ".forgerelay");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "config.json"),
+    JSON.stringify({
+      host: "127.0.0.1",
+      port: 7676,
+      allowedRoots: [doctorRoot],
+      publicBaseUrl: "https://forge.example.com/base/path",
+      subagents: true,
+      artifactsEnabled: true,
+    }),
+  );
+
+  const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", "doctor"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...cleanProductEnv,
+      FORGERELAY_CONFIG_DIR: configDir,
+      FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      FORGERELAY_TOOL_MODE: "minimal",
+      FORGERELAY_WIDGETS: "changes",
+      FORGERELAY_SKILLS: "0",
+    },
+  });
+
+  assert.match(output, /Public base URL: https:\/\/forge\.example\.com\/base\/path/);
+  assert.match(output, /Public MCP URL: https:\/\/forge\.example\.com\/mcp/);
+  assert.match(output, /Tool mode: minimal/);
+  assert.match(output, /Widgets: changes/);
+  assert.match(output, /Trust proxy: one hop/);
+  assert.match(output, /Artifacts: enabled/);
+  assert.match(output, /Subagents: enabled/);
+  assert.match(output, /Skills: disabled/);
+} finally {
+  rmSync(doctorRoot, { recursive: true, force: true });
+}
+
 const hooksRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-hooks-test-"));
 try {
   const configDir = join(hooksRoot, ".forgerelay");

@@ -4,6 +4,11 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- MCP App resources now advertise a unique `_meta.ui.domain` derived from the resolved public deployment origin while preserving existing CSP, content-hashed template identity, and legacy/historical compatibility resources.
+- `forgerelay doctor` now reports the resolved MCP runtime shape, including public base URL, tool/widget modes, proxy trust, and optional artifact/subagent/Skill capability switches.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added

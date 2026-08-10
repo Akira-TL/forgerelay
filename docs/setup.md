@@ -120,7 +120,9 @@ npx @akira-tl/forgerelay doctor
 ```
 
 The doctor command reports the resolved config, Node runtime, platform, Git,
-Bash, public URL, allowed hosts, and native SQLite dependency status.
+Bash, public URL, allowed hosts, native SQLite dependency status, and the MCP
+shape ForgeRelay will expose: tool mode, widget mode, one-hop proxy trust, and
+whether optional artifact, subagent, and Skill capabilities are enabled.
 
 ## Running from a local checkout
 
