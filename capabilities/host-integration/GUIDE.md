@@ -15,6 +15,8 @@ Host MCP URL:  https://forge.example.com/mcp
 
 临时覆盖可使用 `FORGERELAY_PUBLIC_BASE_URL`。Host-header/403 问题先运行 `forgerelay doctor` 检查 resolved public URL 与 allowed hosts；`FORGERELAY_ALLOWED_HOSTS="*"` 只适合明确的本地调试。
 
+当 ForgeRelay 绑定 loopback、但 `publicBaseUrl` 指向公网 tunnel/reverse proxy 时，ForgeRelay 会自动信任恰好 1 个上游代理 hop，让 Express 与 OAuth rate limiter 使用一致的客户端 IP。不要把 Express `trust proxy` 设为无条件 `true`；直接监听 `0.0.0.0` 等非 loopback 地址时也不会自动开启代理信任。可用 `FORGERELAY_TRUST_PROXY=0|1` 显式覆盖。
+
 ## OAuth owner flow
 
 ForgeRelay 使用 single-user Owner-password OAuth approval flow。新安装的 owner secret 通常保存在 `~/.forgerelay/auth.json`；迁移安装可能继续使用旧 `.devspace` 配置目录。不要把 owner token、refresh token 或 `auth.json` 内容放进 Agent 输出、项目文件或日志。

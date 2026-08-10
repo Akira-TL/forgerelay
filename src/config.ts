@@ -173,11 +173,12 @@ function parsePositiveInteger(
   return parsed;
 }
 
-function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
+function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxyDefault: boolean): LoggingConfig {
   const format = parseLogFormat(productEnv(env, "LOG_FORMAT"));
   const requests = productEnv(env, "LOG_REQUESTS");
   const toolCalls = productEnv(env, "LOG_TOOL_CALLS");
   const shellCommands = productEnv(env, "LOG_SHELL_COMMANDS");
+  const trustProxy = productEnv(env, "TRUST_PROXY");
   return {
     level: parseLogLevel(productEnv(env, "LOG_LEVEL")),
     format,
@@ -185,8 +186,17 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv): LoggingConfig {
     assets: parseBoolean(productEnv(env, "LOG_ASSETS")),
     toolCalls: toolCalls === undefined ? true : parseBoolean(toolCalls),
     shellCommands: shellCommands === undefined ? format === "pretty" : parseBoolean(shellCommands),
-    trustProxy: parseBoolean(productEnv(env, "TRUST_PROXY")),
+    trustProxy: trustProxy === undefined ? trustProxyDefault : parseBoolean(trustProxy),
   };
+}
+
+function shouldTrustOneProxyByDefault(host: string, publicBaseUrl: string): boolean {
+  return isLoopbackHost(host) && !isLoopbackHost(new URL(publicBaseUrl).hostname);
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 }
 
 function parseWidgetMode(value: string | undefined): WidgetMode {
@@ -318,7 +328,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       parseHookConfig(files.hooks),
       files.hookFiles,
     ),
-    logging: parseLoggingConfig(env),
+    logging: parseLoggingConfig(env, shouldTrustOneProxyByDefault(host, publicBaseUrl)),
   };
 }
 

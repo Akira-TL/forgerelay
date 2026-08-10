@@ -79,15 +79,7 @@ export function logEvent(
   }
 }
 
-export function requestIp(req: Request, trustProxy: boolean): string | undefined {
-  if (trustProxy) {
-    const cfConnectingIp = firstHeaderValue(req.header("cf-connecting-ip"));
-    if (cfConnectingIp) return cfConnectingIp;
-
-    const forwardedFor = firstHeaderValue(req.header("x-forwarded-for"));
-    if (forwardedFor) return forwardedFor;
-  }
-
+export function requestIp(req: Request): string | undefined {
   return req.ip ?? req.socket.remoteAddress;
 }
 
@@ -137,10 +129,6 @@ export function formatPrettyLogEntry(
   ].filter((value): value is string => Boolean(value)).join(" ");
 
   return `${prefix} ${formatPrettyMessage(entry, options)}`;
-}
-
-function firstHeaderValue(value: string | undefined): string | undefined {
-  return value?.split(",")[0]?.trim() || undefined;
 }
 
 function formatPrettyMessage(entry: LogFields, options: PrettyFormatOptions): string {

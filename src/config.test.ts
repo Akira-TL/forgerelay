@@ -260,6 +260,26 @@ assert.deepEqual(
   loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).allowedHosts,
   ["localhost", "127.0.0.1", "::1", "abc.trycloudflare.com"],
 );
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).logging.trustProxy,
+  true,
+);
+assert.equal(
+  loadConfig({
+    ...baseEnv,
+    DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+    DEVSPACE_TRUST_PROXY: "0",
+  }).logging.trustProxy,
+  false,
+);
+assert.equal(
+  loadConfig({
+    ...baseEnv,
+    HOST: "0.0.0.0",
+    DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+  }).logging.trustProxy,
+  false,
+);
 assert.deepEqual(
   loadConfig({ ...baseEnv, DEVSPACE_ALLOWED_HOSTS: "*" }).allowedHosts,
   ["*"],

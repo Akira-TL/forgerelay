@@ -369,7 +369,7 @@ Skill paths when subagents are enabled; ForgeRelay does not delete or rewrite it
 | `FORGERELAY_LOG_ASSETS` | `0` |
 | `FORGERELAY_LOG_TOOL_CALLS` | `1` |
 | `FORGERELAY_LOG_SHELL_COMMANDS` | `1` in `pretty`, `0` in `json` |
-| `FORGERELAY_TRUST_PROXY` | `0` |
+| `FORGERELAY_TRUST_PROXY` | auto: `1` only for loopback bind + non-loopback public URL; otherwise `0` |
 
 `pretty` is the human-facing local console format. It uses terminal-aware color,
 short timestamps, workspace-first context, and compact operation results while
@@ -385,6 +385,14 @@ Set `FORGERELAY_LOG_FORMAT=json` for machine collection. Unless explicitly
 overridden, JSON mode preserves request logging and omits shell command previews.
 `FORGERELAY_LOG_REQUESTS` and `FORGERELAY_LOG_SHELL_COMMANDS` always override
 these format-specific defaults when set.
+
+When ForgeRelay binds to loopback (`127.0.0.1`, `::1`, or `localhost`) but is
+configured with a non-loopback public URL, it automatically trusts exactly one
+upstream proxy hop. This matches the normal tunnel/reverse-proxy topology and
+keeps OAuth rate limiting aligned with Express client-IP resolution. Set
+`FORGERELAY_TRUST_PROXY=0` to disable this inference, or `=1` to enable one-hop
+trust explicitly. ForgeRelay never auto-enables proxy trust when binding to
+`0.0.0.0` or another directly reachable interface.
 
 ## Environment-only example
 

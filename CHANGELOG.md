@@ -19,6 +19,7 @@ All notable ForgeRelay changes are documented here.
 
 ### Fixed
 
+- Loopback deployments behind a public tunnel/reverse proxy now trust exactly one upstream proxy hop by default, preventing MCP SDK OAuth rate limiting from emitting `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`; explicit proxy trust also no longer maps to Express's unsafe blanket `trust proxy = true` mode.
 - Local checkout builds now restore the executable bit on `dist/cli.js`, so `npm run build && npm install -g .` produces a runnable `forgerelay` command on POSIX systems.
 
 ## [0.2.6] - 2026-08-10
