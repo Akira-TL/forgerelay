@@ -93,6 +93,9 @@ try {
   assert.match(serverInstructions, /Shell commands may modify ordinary project files/);
   assert.match(serverInstructions, /\/etc\/sudoers/);
   assert.match(serverInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
+  assert.match(serverInstructions, /managed-worktrees capability guide/);
+  assert.ok(serverInstructions.length < 3_000, `server instructions should stay compact, got ${serverInstructions.length} characters`);
+  assert.doesNotMatch(serverInstructions, /fast-forwards the original target branch/);
   assert.doesNotMatch(serverInstructions, /Do not create or modify files with bash/);
   pass(
     "MCP initialize",
@@ -118,13 +121,13 @@ try {
     assert.ok(toolNames.includes(expected), `missing debug tool ${expected}`);
   }
   const bashTool = tools.find((tool) => tool.name === "bash");
-  assert.match(bashTool?.description ?? "", /may modify ordinary project files/);
-  assert.match(bashTool?.description ?? "", /\/etc\/sudoers/);
+  assert.match(bashTool?.description ?? "", /local user's authority/);
+  assert.doesNotMatch(bashTool?.description ?? "", /may modify ordinary project files/);
+  assert.doesNotMatch(bashTool?.description ?? "", /\/etc\/sudoers/);
+  assert.doesNotMatch(bashTool?.description ?? "", /external device or hardware mutations/);
   assert.doesNotMatch(bashTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.equal(bashTool?.inputSchema?.properties?.timeout, undefined);
   assert.match(bashTool?.description ?? "", /waits up to 300 seconds/);
-  assert.match(bashTool?.description ?? "", /external device or hardware mutations/);
-  assert.match(bashTool?.description ?? "", /explicitly asks for the actual device-changing operation/);
   assert.match(bashTool?.description ?? "", /write_stdin/);
   const writeStdinTool = tools.find((tool) => tool.name === "write_stdin");
   assert.equal(writeStdinTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
@@ -140,6 +143,8 @@ try {
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.workspaceId);
   assert.ok(openWorkspaceTool?.inputSchema?.properties?.newWorkspace);
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.staleWorkspaces);
+  assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityFingerprint);
+  assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityGuides);
   const templateUri = bashTool?._meta?.ui?.resourceUri;
   assert.match(
     templateUri ?? "",
@@ -205,7 +210,30 @@ try {
   assert.match(workspaceId, /^ws_/);
   assert.equal(opened.structuredContent.root, checkoutWorkspace);
   assert.equal(opened.structuredContent.mode, "checkout");
-  pass("open_workspace", `${workspaceId} -> ${opened.structuredContent.root}`);
+  assert.deepEqual(opened.structuredContent.capabilityFingerprint, {
+    version: packageJson.version,
+    toolMode: "full",
+    capabilities: [
+      "workspace.close",
+      "worktree.managed",
+      "filesystem.rename-move",
+      "filesystem.delete",
+      "process.write-stdin",
+      "inspection.search-tools",
+    ],
+  });
+  const capabilityGuides = opened.structuredContent.capabilityGuides;
+  assert.deepEqual(capabilityGuides.map((guide) => guide.name), [
+    "lifecycle-hooks",
+    "managed-worktrees",
+  ]);
+  const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {
+    workspaceId,
+    path: capabilityGuides[0].path,
+  });
+  assert.match(hooksGuide.structuredContent.result, /BeforeTool/);
+  assert.match(hooksGuide.structuredContent.result, /BeforeWorktreeClose/);
+  pass("open_workspace", `${workspaceId} -> fingerprint + ${capabilityGuides.length} capability guides`);
 
   const written = callTool(oauth.accessToken, sessionId, 4, "write", {
     workspaceId,
