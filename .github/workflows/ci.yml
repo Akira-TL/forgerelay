@@ -49,5 +49,8 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Optional LSP interoperability
+        run: npm run lsp:interop
+
       - name: Doctor
         run: node dist/cli.js doctor

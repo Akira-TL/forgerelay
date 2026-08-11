@@ -20,6 +20,11 @@ import {
   debugRoot,
   repoRoot,
 } from "./runtime.mjs";
+import {
+  assertCodeIntelligenceShutdown as assertCodeIntelligenceAcceptanceShutdown,
+  exerciseCodeIntelligence as exerciseCodeIntelligenceAcceptance,
+  setupCodeIntelligenceProject as setupCodeIntelligenceAcceptanceProject,
+} from "./code-intelligence-accept.mjs";
 
 const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
 const acceptanceRoot = resolve(debugRoot, "acceptance");
@@ -27,6 +32,8 @@ const stateDir = resolve(acceptanceRoot, "state");
 const worktreeRoot = resolve(acceptanceRoot, "worktrees");
 const hookLog = resolve(acceptanceRoot, "hooks.jsonl");
 const checkoutWorkspace = resolve(acceptanceRoot, "workspace");
+const codeIntelligenceLog = resolve(acceptanceRoot, "code-intelligence-lsp.jsonl");
+const fakeLanguageServer = resolve(repoRoot, "src", "lsp", "test-fixtures", "fake-lsp-server.mjs");
 const gitProject = resolve(acceptanceRoot, "git-project");
 const releaseProject = resolve(acceptanceRoot, "release-project");
 const releaseRemote = resolve(acceptanceRoot, "release-remote.git");
@@ -38,6 +45,11 @@ await assertDebugPortFree();
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(acceptanceRoot, { recursive: true });
 setupGitProject(checkoutWorkspace);
+setupCodeIntelligenceAcceptanceProject({
+  root: checkoutWorkspace,
+  fakeLanguageServer,
+  logPath: codeIntelligenceLog,
+});
 
 const { env } = createDebugEnvironment({
   ownerToken,
@@ -64,6 +76,7 @@ const server = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", "serve"
   env,
   stdio: ["ignore", "inherit", "inherit"],
 });
+let acceptanceCompleted = false;
 
 try {
   const health = await waitForHealth(server);
@@ -349,6 +362,13 @@ try {
     (variant) => variant.properties.operation.const === "workspaceSymbols",
   );
   assert.ok(workspaceSymbolsSchema.required.includes("query"));
+  exerciseCodeIntelligenceAcceptance({
+    callTool,
+    accessToken: oauth.accessToken,
+    sessionId,
+    workspaceId,
+    pass,
+  });
   if (process.platform === "linux") {
     const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
       workspaceId,
@@ -569,15 +589,19 @@ try {
     headers: mcpHeaders(oauth.accessToken, sessionId),
   });
   assert.ok([200, 202, 204].includes(deleteSession.status));
-
-  console.log("\nForgeRelay 7677 acceptance passed.");
-  console.log(`Artifacts: ${acceptanceRoot}`);
+  acceptanceCompleted = true;
 } catch (error) {
   console.error("\nForgeRelay 7677 acceptance failed.");
   throw error;
 } finally {
   rmSync(tempAcceptanceRoot, { recursive: true, force: true });
   await stopServer(server);
+}
+
+if (acceptanceCompleted) {
+  assertCodeIntelligenceAcceptanceShutdown({ logPath: codeIntelligenceLog, pass });
+  console.log("\nForgeRelay 7677 acceptance passed.");
+  console.log(`Artifacts: ${acceptanceRoot}`);
 }
 
 function authorizeDebugClient(metadata) {
