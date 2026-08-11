@@ -11,6 +11,9 @@ const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
 const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
 const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
+const referenceDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_DELAY_MS ?? "0");
+const cancellationMode = process.env.FORGERELAY_FAKE_LSP_CANCELLATION_MODE ?? "aware";
+const pendingRequests = new Map();
 const documentSymbolsMode = process.env.FORGERELAY_FAKE_LSP_DOCUMENT_SYMBOLS_MODE ?? "hierarchical";
 const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_MODE ?? "normal";
 const workspaceSymbolCount = Number(process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOL_COUNT ?? "1");
@@ -263,6 +266,21 @@ function handle(message) {
     return;
   }
 
+  if (message.method === "$/cancelRequest") {
+    const requestId = message.params?.id;
+    const pending = pendingRequests.get(requestId);
+    if (pending && cancellationMode === "aware") {
+      clearTimeout(pending);
+      pendingRequests.delete(requestId);
+      send({
+        jsonrpc: "2.0",
+        id: requestId,
+        error: { code: -32800, message: "Request cancelled" },
+      });
+    }
+    return;
+  }
+
   if (message.method === "textDocument/references") {
     const target = targetPath ?? join(rootPath, "src", "target.ts");
     const locations = Array.from({ length: referenceCount }, () => ({
@@ -272,7 +290,15 @@ function handle(message) {
         end: { line: 0, character: 13 },
       },
     }));
-    respond(message.id, locations);
+    const finish = () => {
+      pendingRequests.delete(message.id);
+      respond(message.id, locations);
+    };
+    if (referenceDelayMs > 0) {
+      pendingRequests.set(message.id, setTimeout(finish, referenceDelayMs));
+    } else {
+      finish();
+    }
     return;
   }
 

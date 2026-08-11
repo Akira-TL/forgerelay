@@ -71,6 +71,7 @@ export interface CapabilityExecution {
 
 export interface CapabilityRunOptions {
   nativeFile?: unknown;
+  signal?: AbortSignal;
 }
 
 interface CapabilityDefinition {
@@ -84,7 +85,11 @@ interface CapabilityDefinition {
     available: boolean;
     reason?: string;
   };
-  run: (input: unknown, context: CapabilityContext) => Promise<CapabilityExecution>;
+  run: (
+    input: unknown,
+    context: CapabilityContext,
+    options: CapabilityRunOptions,
+  ) => Promise<CapabilityExecution>;
 }
 
 export interface CapabilityRegistryDependencies {
@@ -111,6 +116,7 @@ export interface CapabilityRegistryDependencies {
     run: (
       input: CodeIntelligenceInput,
       context: CapabilityContext,
+      options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
   };
 }
@@ -207,7 +213,7 @@ export class CapabilityRegistry {
     }
 
     try {
-      return await definition.run(parsed.data, context);
+      return await definition.run(parsed.data, context, options);
     } catch (error) {
       if (error instanceof CapabilityError) throw error;
       throw new CapabilityError(
@@ -324,10 +330,11 @@ export function createCapabilityRegistry(
             available: dependencies.codeIntelligence?.available ?? false,
             reason: dependencies.codeIntelligence?.unavailableReason,
           }),
-          run: async (input: unknown, context: CapabilityContext) =>
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.codeIntelligence!.run(
               input as CodeIntelligenceInput,
               context,
+              options,
             ),
         } satisfies CapabilityDefinition]
       : []),

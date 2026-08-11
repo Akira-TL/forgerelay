@@ -8,6 +8,8 @@ export class CodeIntelligenceError extends Error {
       | "code.configuration_invalid"
       | "code.operation_unsupported"
       | "code.request_timeout"
+      | "code.request_cancelled"
+      | "code.request_capacity"
       | "code.server_crashed"
       | "code.invalid_position"
       | "code.result_outside_policy"

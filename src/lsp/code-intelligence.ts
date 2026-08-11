@@ -8,9 +8,6 @@ import {
   DocumentDiagnosticReportKind,
   DocumentDiagnosticRequest,
   DocumentSymbolRequest,
-  DidChangeTextDocumentNotification,
-  DidCloseTextDocumentNotification,
-  DidOpenTextDocumentNotification,
   ExitNotification,
   HoverRequest,
   InitializeRequest,
@@ -20,17 +17,14 @@ import {
   PositionEncodingKind,
   PublishDiagnosticsNotification,
   ShutdownRequest,
-  TextDocumentSyncKind,
   WorkspaceSymbolRequest,
   type Hover,
   type InitializeParams,
   type InitializeResult,
-  type TextDocumentSyncOptions,
 } from "vscode-languageserver-protocol";
 import {
   LanguageServerConfigurationError,
   type ResolvedLanguageProject,
-  type ResolvedLanguageServerDefinition,
 } from "./language-server-config.js";
 import { terminateProcessTree } from "../process-platform.js";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
@@ -60,8 +54,10 @@ import {
   normalizeLocations,
   workspaceDisplayPath,
 } from "./normalization/locations.js";
-import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
+import { lspPositionFromUser, rangeFromLsp } from "./position-encoding.js";
 import { DiagnosticSnapshotStore } from "./runtime/diagnostic-snapshots.js";
+import { DocumentSynchronizer, type OpenDocument } from "./runtime/document-synchronizer.js";
+import { SemanticRequestCoordinator } from "./runtime/semantic-requests.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
 export type * from "./code-intelligence-types.js";
@@ -75,16 +71,10 @@ export interface CodeIntelligenceRuntimePolicy {
   startTimeoutMs: number;
   requestTimeoutMs: number;
   shutdownTimeoutMs: number;
+  maxConcurrentSemanticRequests: number;
+  maxQueuedSemanticRequests: number;
   maxDiagnosticDocuments: number;
   maxDiagnosticsPerDocument: number;
-}
-
-interface OpenDocument {
-  uri: string;
-  languageId: string;
-  version: number;
-  text: string;
-  openNotified: boolean;
 }
 
 export class LanguageService {
@@ -97,8 +87,9 @@ export class LanguageService {
   private initializePromise?: Promise<InitializeResult>;
   private positionEncoding: string = PositionEncodingKind.UTF16;
   private capabilities?: InitializeResult["capabilities"];
-  private readonly documents = new Map<string, OpenDocument>();
+  private readonly documents: DocumentSynchronizer;
   private readonly diagnosticSnapshots: DiagnosticSnapshotStore;
+  private readonly semanticRequests: SemanticRequestCoordinator;
   private stderrTail = Buffer.alloc(0);
   private closed = false;
 
@@ -108,10 +99,16 @@ export class LanguageService {
     private readonly policy: CodeIntelligenceRuntimePolicy,
   ) {
     this.key = languageServiceKey(project);
+    this.documents = new DocumentSynchronizer(project.definition);
     this.diagnosticSnapshots = new DiagnosticSnapshotStore(
       policy.maxDiagnosticDocuments,
       policy.maxDiagnosticsPerDocument,
     );
+    this.semanticRequests = new SemanticRequestCoordinator({
+      maxConcurrent: policy.maxConcurrentSemanticRequests,
+      maxQueued: policy.maxQueuedSemanticRequests,
+      deadlineMs: policy.requestTimeoutMs,
+    });
   }
 
   acquire(): void {
@@ -124,7 +121,10 @@ export class LanguageService {
     this.lastUsedAt = Date.now();
   }
 
-  async definition(input: CodeIntelligenceDefinitionInput): Promise<CodeIntelligenceDefinitionResult> {
+  async definition(
+    input: CodeIntelligenceDefinitionInput,
+    signal?: AbortSignal,
+  ): Promise<CodeIntelligenceDefinitionResult> {
     try {
       await this.ensureStarted();
       if (!this.capabilities?.definitionProvider) {
@@ -135,18 +135,15 @@ export class LanguageService {
       }
 
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      const document = await this.syncDocument(sourcePath);
+      const document = await this.syncDocumentOrdered(sourcePath);
       const position = lspPositionFromUser(document.text, input.line, input.column, this.positionEncoding);
-      const response = await withTimeout(
-        this.connection!.sendRequest(DefinitionRequest.type, {
+      const response = await this.semanticRequests.run(
+        `Definition request for ${input.path}`,
+        signal,
+        (token) => this.connection!.sendRequest(DefinitionRequest.type, {
           textDocument: { uri: document.uri },
           position,
-        }),
-        this.policy.requestTimeoutMs,
-        () => new CodeIntelligenceError(
-          "code.request_timeout",
-          `Definition request timed out for ${input.path}.`,
-        ),
+        }, token),
       );
       const locations = await normalizeLocations(
         locationEntries(response),
@@ -171,7 +168,10 @@ export class LanguageService {
     }
   }
 
-  async hover(input: CodeIntelligenceHoverInput): Promise<CodeIntelligenceHoverResult> {
+  async hover(
+    input: CodeIntelligenceHoverInput,
+    signal?: AbortSignal,
+  ): Promise<CodeIntelligenceHoverResult> {
     try {
       await this.ensureStarted();
       if (!this.capabilities?.hoverProvider) {
@@ -182,18 +182,15 @@ export class LanguageService {
       }
 
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      const document = await this.syncDocument(sourcePath);
+      const document = await this.syncDocumentOrdered(sourcePath);
       const position = lspPositionFromUser(document.text, input.line, input.column, this.positionEncoding);
-      const response: Hover | null = await withTimeout(
-        this.connection!.sendRequest(HoverRequest.type, {
+      const response: Hover | null = await this.semanticRequests.run(
+        `Hover request for ${input.path}`,
+        signal,
+        (token) => this.connection!.sendRequest(HoverRequest.type, {
           textDocument: { uri: document.uri },
           position,
-        }),
-        this.policy.requestTimeoutMs,
-        () => new CodeIntelligenceError(
-          "code.request_timeout",
-          `Hover request timed out for ${input.path}.`,
-        ),
+        }, token),
       );
       const common = {
         operation: "hover" as const,
@@ -221,7 +218,10 @@ export class LanguageService {
     }
   }
 
-  async references(input: CodeIntelligenceReferencesInput): Promise<CodeIntelligenceReferencesResult> {
+  async references(
+    input: CodeIntelligenceReferencesInput,
+    signal?: AbortSignal,
+  ): Promise<CodeIntelligenceReferencesResult> {
     try {
       await this.ensureStarted();
       if (!this.capabilities?.referencesProvider) {
@@ -232,19 +232,16 @@ export class LanguageService {
       }
 
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      const document = await this.syncDocument(sourcePath);
+      const document = await this.syncDocumentOrdered(sourcePath);
       const position = lspPositionFromUser(document.text, input.line, input.column, this.positionEncoding);
-      const response = await withTimeout(
-        this.connection!.sendRequest(ReferencesRequest.type, {
+      const response = await this.semanticRequests.run(
+        `References request for ${input.path}`,
+        signal,
+        (token) => this.connection!.sendRequest(ReferencesRequest.type, {
           textDocument: { uri: document.uri },
           position,
           context: { includeDeclaration: true },
-        }),
-        this.policy.requestTimeoutMs,
-        () => new CodeIntelligenceError(
-          "code.request_timeout",
-          `References request timed out for ${input.path}.`,
-        ),
+        }, token),
       );
       const entries = locationEntries(response ?? []);
       const limit = input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT;
@@ -273,6 +270,7 @@ export class LanguageService {
 
   async documentSymbols(
     input: CodeIntelligenceDocumentSymbolsInput,
+    signal?: AbortSignal,
   ): Promise<CodeIntelligenceDocumentSymbolsResult> {
     try {
       await this.ensureStarted();
@@ -284,16 +282,13 @@ export class LanguageService {
       }
 
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      const document = await this.syncDocument(sourcePath);
-      const response = await withTimeout(
-        this.connection!.sendRequest(DocumentSymbolRequest.type, {
+      const document = await this.syncDocumentOrdered(sourcePath);
+      const response = await this.semanticRequests.run(
+        `Document-symbol request for ${input.path}`,
+        signal,
+        (token) => this.connection!.sendRequest(DocumentSymbolRequest.type, {
           textDocument: { uri: document.uri },
-        }),
-        this.policy.requestTimeoutMs,
-        () => new CodeIntelligenceError(
-          "code.request_timeout",
-          `Document-symbol request timed out for ${input.path}.`,
-        ),
+        }, token),
       );
       const normalized = normalizeDocumentSymbols(
         response,
@@ -318,6 +313,7 @@ export class LanguageService {
 
   async workspaceSymbols(
     input: CodeIntelligenceWorkspaceSymbolsInput,
+    signal?: AbortSignal,
   ): Promise<CodeIntelligenceWorkspaceSymbolsResult> {
     try {
       await this.ensureStarted();
@@ -329,13 +325,14 @@ export class LanguageService {
       }
 
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      await this.syncDocument(sourcePath);
-      const response = await withTimeout(
-        this.connection!.sendRequest(WorkspaceSymbolRequest.type, { query: input.query }),
-        this.policy.requestTimeoutMs,
-        () => new CodeIntelligenceError(
-          "code.request_timeout",
-          `Workspace-symbol request timed out for ${JSON.stringify(input.query)}.`,
+      await this.syncDocumentOrdered(sourcePath);
+      const response = await this.semanticRequests.run(
+        `Workspace-symbol request for ${JSON.stringify(input.query)}`,
+        signal,
+        (token) => this.connection!.sendRequest(
+          WorkspaceSymbolRequest.type,
+          { query: input.query },
+          token,
         ),
       );
       const normalized = await normalizeWorkspaceSymbols(
@@ -359,11 +356,14 @@ export class LanguageService {
     }
   }
 
-  async diagnostics(input: CodeIntelligenceDiagnosticsInput): Promise<CodeIntelligenceDiagnosticsResult> {
+  async diagnostics(
+    input: CodeIntelligenceDiagnosticsInput,
+    signal?: AbortSignal,
+  ): Promise<CodeIntelligenceDiagnosticsResult> {
     try {
       await this.ensureStarted();
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
-      const document = await this.syncDocument(sourcePath);
+      const document = await this.syncDocumentOrdered(sourcePath);
       const limit = input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT;
       const common = {
         operation: "diagnostics" as const,
@@ -374,17 +374,14 @@ export class LanguageService {
       const diagnosticProvider = this.capabilities?.diagnosticProvider;
       if (diagnosticProvider) {
         const previousResultId = this.diagnosticSnapshots.previousPullResultId(document.uri);
-        const response = await withTimeout(
-          this.connection!.sendRequest(DocumentDiagnosticRequest.type, {
+        const response = await this.semanticRequests.run(
+          `Diagnostic request for ${input.path}`,
+          signal,
+          (token) => this.connection!.sendRequest(DocumentDiagnosticRequest.type, {
             textDocument: { uri: document.uri },
             ...(diagnosticProvider.identifier === undefined ? {} : { identifier: diagnosticProvider.identifier }),
             ...(previousResultId === undefined ? {} : { previousResultId }),
-          }),
-          this.policy.requestTimeoutMs,
-          () => new CodeIntelligenceError(
-            "code.request_timeout",
-            `Diagnostic request timed out for ${input.path}.`,
-          ),
+          }, token),
         );
         if (response.kind === DocumentDiagnosticReportKind.Full) {
           this.diagnosticSnapshots.capturePull(
@@ -434,16 +431,7 @@ export class LanguageService {
     const child = this.child;
 
     if (connection) {
-      for (const document of this.documents.values()) {
-        if (!document.openNotified) continue;
-        try {
-          await connection.sendNotification(DidCloseTextDocumentNotification.type, {
-            textDocument: { uri: document.uri },
-          });
-        } catch {
-          // The server may already be gone.
-        }
-      }
+      await this.documents.closeAll(connection);
       try {
         await withTimeout(
           connection.sendRequest(ShutdownRequest.type),
@@ -628,48 +616,13 @@ export class LanguageService {
     });
   }
 
-  private async syncDocument(sourcePath: string): Promise<OpenDocument> {
-    const uri = pathToFileURL(sourcePath).href;
-    const text = await readFile(sourcePath, "utf8");
-    const existing = this.documents.get(uri);
-    const languageId = languageIdForPath(this.project.definition, sourcePath);
-    const synchronization = textDocumentSynchronization(this.capabilities?.textDocumentSync);
-    if (!existing) {
-      const document: OpenDocument = { uri, languageId, version: 1, text, openNotified: false };
-      this.documents.set(uri, document);
-      if (synchronization.openClose) {
-        await this.connection!.sendNotification(DidOpenTextDocumentNotification.type, {
-          textDocument: {
-            uri: document.uri,
-            languageId: document.languageId,
-            version: document.version,
-            text: document.text,
-          },
-        });
-        document.openNotified = true;
-      }
-      return document;
-    }
-    if (existing.text !== text) {
-      const previousText = existing.text;
-      existing.version += 1;
-      existing.text = text;
-      if (synchronization.change === TextDocumentSyncKind.Full) {
-        await this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
-          textDocument: { uri, version: existing.version },
-          contentChanges: [{ text }],
-        });
-      } else if (synchronization.change === TextDocumentSyncKind.Incremental) {
-        await this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
-          textDocument: { uri, version: existing.version },
-          contentChanges: [{
-            range: wholeDocumentRange(previousText, this.positionEncoding),
-            text,
-          }],
-        });
-      }
-    }
-    return existing;
+  private async syncDocumentOrdered(sourcePath: string): Promise<OpenDocument> {
+    return this.documents.sync(
+      sourcePath,
+      this.connection!,
+      this.capabilities?.textDocumentSync,
+      this.positionEncoding,
+    );
   }
 
   private appendStderr(chunk: Buffer): void {
@@ -691,26 +644,6 @@ export function languageServiceKey(project: ResolvedLanguageProject): string {
     project.definition.id,
     project.definition.fingerprint,
   ]);
-}
-
-function languageIdForPath(definition: ResolvedLanguageServerDefinition, path: string): string {
-  const extension = path.slice(path.lastIndexOf(".")).toLowerCase();
-  return definition.languageIdByExtension[extension] ?? definition.languages[0]!;
-}
-
-function textDocumentSynchronization(
-  value: TextDocumentSyncOptions | TextDocumentSyncKind | undefined,
-): { openClose: boolean; change: TextDocumentSyncKind } {
-  if (typeof value === "number") {
-    return {
-      openClose: value !== TextDocumentSyncKind.None,
-      change: value,
-    };
-  }
-  return {
-    openClose: value?.openClose === true,
-    change: value?.change ?? TextDocumentSyncKind.None,
-  };
 }
 
 async function workspaceSourcePath(workspaceRoot: string, inputPath: string): Promise<string> {

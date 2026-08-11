@@ -20,6 +20,8 @@ const MAX_LANGUAGE_SERVICES = 16;
 const LANGUAGE_SERVICE_START_TIMEOUT_MS = 15_000;
 const LANGUAGE_REQUEST_TIMEOUT_MS = 10_000;
 const LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS = 2_000;
+const MAX_CONCURRENT_SEMANTIC_REQUESTS = 4;
+const MAX_QUEUED_SEMANTIC_REQUESTS = 16;
 const MAX_DIAGNOSTIC_DOCUMENTS = 128;
 const MAX_DIAGNOSTICS_PER_DOCUMENT = 1000;
 
@@ -30,6 +32,8 @@ export interface CodeIntelligenceManagerOptions {
   startTimeoutMs?: number;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+  maxConcurrentSemanticRequests?: number;
+  maxQueuedSemanticRequests?: number;
   maxDiagnosticDocuments?: number;
   maxDiagnosticsPerDocument?: number;
 }
@@ -52,6 +56,8 @@ export class CodeIntelligenceManager {
       startTimeoutMs: positiveInteger(options.startTimeoutMs, LANGUAGE_SERVICE_START_TIMEOUT_MS, "startTimeoutMs"),
       requestTimeoutMs: positiveInteger(options.requestTimeoutMs, LANGUAGE_REQUEST_TIMEOUT_MS, "requestTimeoutMs"),
       shutdownTimeoutMs: positiveInteger(options.shutdownTimeoutMs, LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs"),
+      maxConcurrentSemanticRequests: positiveInteger(options.maxConcurrentSemanticRequests, MAX_CONCURRENT_SEMANTIC_REQUESTS, "maxConcurrentSemanticRequests"),
+      maxQueuedSemanticRequests: positiveInteger(options.maxQueuedSemanticRequests, MAX_QUEUED_SEMANTIC_REQUESTS, "maxQueuedSemanticRequests"),
       maxDiagnosticDocuments: positiveInteger(options.maxDiagnosticDocuments, MAX_DIAGNOSTIC_DOCUMENTS, "maxDiagnosticDocuments"),
       maxDiagnosticsPerDocument: positiveInteger(options.maxDiagnosticsPerDocument, MAX_DIAGNOSTICS_PER_DOCUMENT, "maxDiagnosticsPerDocument"),
     };
@@ -64,6 +70,7 @@ export class CodeIntelligenceManager {
   async run(
     workspaceRoot: string,
     input: CodeIntelligenceInput,
+    options: { signal?: AbortSignal } = {},
   ): Promise<CodeIntelligenceResult> {
     let project: ResolvedLanguageProject;
     let canonicalWorkspaceRoot: string;
@@ -85,17 +92,17 @@ export class CodeIntelligenceManager {
     try {
       switch (input.operation) {
         case "definition":
-          return await service.definition(input);
+          return await service.definition(input, options.signal);
         case "hover":
-          return await service.hover(input);
+          return await service.hover(input, options.signal);
         case "references":
-          return await service.references(input);
+          return await service.references(input, options.signal);
         case "documentSymbols":
-          return await service.documentSymbols(input);
+          return await service.documentSymbols(input, options.signal);
         case "workspaceSymbols":
-          return await service.workspaceSymbols(input);
+          return await service.workspaceSymbols(input, options.signal);
         case "diagnostics":
-          return await service.diagnostics(input);
+          return await service.diagnostics(input, options.signal);
       }
     } finally {
       service.release();

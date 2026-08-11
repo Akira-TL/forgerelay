@@ -1032,10 +1032,10 @@ export function createMcpServer(
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
     codeIntelligence: {
       available: true,
-      run: async (input, context) => {
+      run: async (input, context, options) => {
         try {
           return {
-            value: await codeIntelligence.run(context.workspaceRoot, input),
+            value: await codeIntelligence.run(context.workspaceRoot, input, { signal: options.signal }),
           };
         } catch (error) {
           if (error instanceof CodeIntelligenceError) {
@@ -1638,7 +1638,7 @@ export function createMcpServer(
         openWorldHint: true,
       },
     },
-    async ({ workspaceId, name, action, arguments: capabilityArguments, file }) => {
+    async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       let changedPaths: string[] = [];
       return runToolWithHooks(hooks, {
@@ -1678,7 +1678,7 @@ export function createMcpServer(
               name,
               capabilityArguments ?? {},
               capabilityContextFor(workspace),
-              { nativeFile: file },
+              { nativeFile: file, signal: extra.signal },
             );
             changedPaths = execution.changedPaths ?? [];
             const result = {
