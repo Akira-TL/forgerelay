@@ -23,10 +23,17 @@ export interface CodeIntelligenceReferencesInput {
   limit?: number;
 }
 
+export interface CodeIntelligenceDocumentSymbolsInput {
+  operation: "documentSymbols";
+  path: string;
+  limit?: number;
+}
+
 export type CodeIntelligenceInput =
   | CodeIntelligenceDefinitionInput
   | CodeIntelligenceHoverInput
-  | CodeIntelligenceReferencesInput;
+  | CodeIntelligenceReferencesInput
+  | CodeIntelligenceDocumentSymbolsInput;
 
 export interface CodeIntelligencePosition {
   line: number;
@@ -70,7 +77,29 @@ export interface CodeIntelligenceReferencesResult {
   total?: number;
 }
 
+export interface CodeIntelligenceDocumentSymbol {
+  name: string;
+  kind: string;
+  detail?: string;
+  containerName?: string;
+  range: CodeIntelligenceRange;
+  selectionRange?: CodeIntelligenceRange;
+  children?: CodeIntelligenceDocumentSymbol[];
+}
+
+export interface CodeIntelligenceDocumentSymbolsResult {
+  operation: "documentSymbols";
+  selectedServer: string;
+  projectRoot: string;
+  hierarchical: boolean;
+  symbols: CodeIntelligenceDocumentSymbol[];
+  returned: number;
+  truncated: boolean;
+  total?: number;
+}
+
 export type CodeIntelligenceResult =
   | CodeIntelligenceDefinitionResult
   | CodeIntelligenceHoverResult
-  | CodeIntelligenceReferencesResult;
+  | CodeIntelligenceReferencesResult
+  | CodeIntelligenceDocumentSymbolsResult;

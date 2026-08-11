@@ -84,6 +84,8 @@ export class CodeIntelligenceManager {
           return await service.hover(input);
         case "references":
           return await service.references(input);
+        case "documentSymbols":
+          return await service.documentSymbols(input);
       }
     } finally {
       service.release();

@@ -11,6 +11,7 @@ const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
 const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
 const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
+const documentSymbolsMode = process.env.FORGERELAY_FAKE_LSP_DOCUMENT_SYMBOLS_MODE ?? "hierarchical";
 
 function log(event) {
   if (!logPath) return;
@@ -46,6 +47,7 @@ function handle(message) {
         definitionProvider: mode !== "unsupported-definition",
         hoverProvider: hoverMode !== "unsupported",
         referencesProvider: true,
+        documentSymbolProvider: documentSymbolsMode !== "unsupported",
         positionEncoding: "utf-16",
         textDocumentSync: syncKind,
       },
@@ -102,6 +104,54 @@ function handle(message) {
       return;
     }
     respond(message.id, { contents: { kind: "markdown", value: "**target**: `() => void`" }, range });
+    return;
+  }
+
+  if (message.method === "textDocument/documentSymbol") {
+    const uri = message.params?.textDocument?.uri;
+    if (documentSymbolsMode === "flat") {
+      respond(message.id, [
+        {
+          name: "Widget",
+          kind: 5,
+          location: {
+            uri,
+            range: { start: { line: 0, character: 0 }, end: { line: 3, character: 1 } },
+          },
+        },
+        {
+          name: "value",
+          kind: 13,
+          containerName: "module",
+          location: {
+            uri,
+            range: { start: { line: 4, character: 0 }, end: { line: 4, character: 15 } },
+          },
+        },
+      ]);
+      return;
+    }
+    respond(message.id, [{
+      name: "Widget",
+      detail: "class Widget",
+      kind: 5,
+      range: { start: { line: 0, character: 0 }, end: { line: 3, character: 1 } },
+      selectionRange: { start: { line: 0, character: 6 }, end: { line: 0, character: 12 } },
+      children: [
+        {
+          name: "run",
+          kind: 6,
+          range: { start: { line: 1, character: 2 }, end: { line: 1, character: 10 } },
+          selectionRange: { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } },
+        },
+        {
+          name: "stop",
+          kind: 6,
+          range: { start: { line: 2, character: 2 }, end: { line: 2, character: 11 } },
+          selectionRange: { start: { line: 2, character: 2 }, end: { line: 2, character: 6 } },
+        },
+      ],
+    }]);
     return;
   }
 

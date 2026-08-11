@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc/node";
 import {
   DefinitionRequest,
+  DocumentSymbolRequest,
   DidChangeTextDocumentNotification,
   DidCloseTextDocumentNotification,
   DidOpenTextDocumentNotification,
@@ -33,12 +34,15 @@ import { DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT } from "./code-intelligence-type
 import type {
   CodeIntelligenceDefinitionInput,
   CodeIntelligenceDefinitionResult,
+  CodeIntelligenceDocumentSymbolsInput,
+  CodeIntelligenceDocumentSymbolsResult,
   CodeIntelligenceHoverInput,
   CodeIntelligenceHoverResult,
   CodeIntelligenceReferencesInput,
   CodeIntelligenceReferencesResult,
 } from "./code-intelligence-types.js";
 import { normalizeHoverContents } from "./normalization/hover.js";
+import { normalizeDocumentSymbols } from "./normalization/symbols.js";
 import {
   isWithin,
   locationEntries,
@@ -248,6 +252,51 @@ export class LanguageService {
     }
   }
 
+  async documentSymbols(
+    input: CodeIntelligenceDocumentSymbolsInput,
+  ): Promise<CodeIntelligenceDocumentSymbolsResult> {
+    try {
+      await this.ensureStarted();
+      if (!this.capabilities?.documentSymbolProvider) {
+        throw new CodeIntelligenceError(
+          "code.operation_unsupported",
+          `Language server ${this.project.definition.id} does not advertise document-symbol support.`,
+        );
+      }
+
+      const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
+      const document = await this.syncDocument(sourcePath);
+      const response = await withTimeout(
+        this.connection!.sendRequest(DocumentSymbolRequest.type, {
+          textDocument: { uri: document.uri },
+        }),
+        this.policy.requestTimeoutMs,
+        () => new CodeIntelligenceError(
+          "code.request_timeout",
+          `Document-symbol request timed out for ${input.path}.`,
+        ),
+      );
+      const normalized = normalizeDocumentSymbols(
+        response,
+        document.text,
+        this.positionEncoding,
+        input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT,
+      );
+      return {
+        operation: "documentSymbols",
+        selectedServer: this.project.definition.id,
+        projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
+        ...normalized,
+      };
+    } catch (error) {
+      if (error instanceof CodeIntelligenceError) throw error;
+      throw new CodeIntelligenceError(
+        "code.server_crashed",
+        `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
+      );
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -383,6 +432,10 @@ export class LanguageService {
           },
           references: {
             dynamicRegistration: false,
+          },
+          documentSymbol: {
+            dynamicRegistration: false,
+            hierarchicalDocumentSymbolSupport: true,
           },
         },
       },
