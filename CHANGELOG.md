@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-11
+
+### Added
+
+- Added `code.intelligence` `hover` support through the same shared Language-service and filesystem synchronization path as definition lookup.
+
+### Changed
+
+- Hover responses now normalize Markdown/plaintext `MarkupContent` and supported legacy `MarkedString` payloads into a stable Agent-facing `contents` value with optional language and normalized range metadata.
+- Language Servers that do not advertise hover return `code.operation_unsupported` without invalidating the shared Language service.
+
 ## [0.4.0] - 2026-08-11
 
 ### Added

@@ -333,9 +333,9 @@ try {
   assert.equal(describedCodeIntelligence.isError, undefined);
   assert.equal(describedCodeIntelligence.structuredContent.capability.guide.name, "code-intelligence");
   assert.equal(describedCodeIntelligence.structuredContent.capability.inputSchema.type, "object");
-  assert.equal(
-    describedCodeIntelligence.structuredContent.capability.inputSchema.properties.operation.const,
-    "definition",
+  assert.deepEqual(
+    describedCodeIntelligence.structuredContent.capability.inputSchema.properties.operation.enum,
+    ["definition", "hover"],
   );
   if (process.platform === "linux") {
     const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
