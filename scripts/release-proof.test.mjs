@@ -4,17 +4,18 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const script = new URL("./release-proof.mjs", import.meta.url);
+const script = fileURLToPath(new URL("./release-proof.mjs", import.meta.url));
 
 async function git(cwd, args) {
   await execFileAsync("git", args, { cwd });
 }
 
 async function runProof(cwd, action, env = {}) {
-  return execFileAsync(process.execPath, [script.pathname, action], {
+  return execFileAsync(process.execPath, [script, action], {
     cwd,
     env: { ...process.env, ...env },
   });
