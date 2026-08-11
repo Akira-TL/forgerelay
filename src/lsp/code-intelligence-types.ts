@@ -12,7 +12,21 @@ export interface CodeIntelligenceHoverInput {
   column: number;
 }
 
-export type CodeIntelligenceInput = CodeIntelligenceDefinitionInput | CodeIntelligenceHoverInput;
+export const DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT = 100;
+export const MAX_CODE_INTELLIGENCE_RESULT_LIMIT = 1000;
+
+export interface CodeIntelligenceReferencesInput {
+  operation: "references";
+  path: string;
+  line: number;
+  column: number;
+  limit?: number;
+}
+
+export type CodeIntelligenceInput =
+  | CodeIntelligenceDefinitionInput
+  | CodeIntelligenceHoverInput
+  | CodeIntelligenceReferencesInput;
 
 export interface CodeIntelligencePosition {
   line: number;
@@ -46,4 +60,17 @@ export interface CodeIntelligenceHoverResult {
   range?: CodeIntelligenceRange;
 }
 
-export type CodeIntelligenceResult = CodeIntelligenceDefinitionResult | CodeIntelligenceHoverResult;
+export interface CodeIntelligenceReferencesResult {
+  operation: "references";
+  selectedServer: string;
+  projectRoot: string;
+  locations: CodeIntelligenceLocation[];
+  returned: number;
+  truncated: boolean;
+  total?: number;
+}
+
+export type CodeIntelligenceResult =
+  | CodeIntelligenceDefinitionResult
+  | CodeIntelligenceHoverResult
+  | CodeIntelligenceReferencesResult;

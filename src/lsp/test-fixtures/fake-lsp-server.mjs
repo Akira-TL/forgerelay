@@ -10,6 +10,7 @@ const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
 const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
+const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
 
 function log(event) {
   if (!logPath) return;
@@ -44,6 +45,7 @@ function handle(message) {
       capabilities: {
         definitionProvider: mode !== "unsupported-definition",
         hoverProvider: hoverMode !== "unsupported",
+        referencesProvider: true,
         positionEncoding: "utf-16",
         textDocumentSync: syncKind,
       },
@@ -100,6 +102,19 @@ function handle(message) {
       return;
     }
     respond(message.id, { contents: { kind: "markdown", value: "**target**: `() => void`" }, range });
+    return;
+  }
+
+  if (message.method === "textDocument/references") {
+    const target = targetPath ?? join(rootPath, "src", "target.ts");
+    const locations = Array.from({ length: referenceCount }, () => ({
+      uri: pathToFileURL(target).href,
+      range: {
+        start: { line: 0, character: 7 },
+        end: { line: 0, character: 13 },
+      },
+    }));
+    respond(message.id, locations);
     return;
   }
 

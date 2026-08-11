@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc/node";
 import {
   DefinitionRequest,
@@ -11,6 +11,7 @@ import {
   ExitNotification,
   HoverRequest,
   InitializeRequest,
+  ReferencesRequest,
   InitializedNotification,
   MarkupKind,
   PositionEncodingKind,
@@ -20,8 +21,6 @@ import {
   type InitializeParams,
   type InitializeResult,
   type TextDocumentSyncOptions,
-  type Location,
-  type LocationLink,
 } from "vscode-languageserver-protocol";
 import type { ServerConfig } from "../config.js";
 import {
@@ -32,6 +31,7 @@ import {
 } from "./language-server-config.js";
 import { terminateProcessTree } from "../process-platform.js";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
+import { DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT } from "./code-intelligence-types.js";
 import type {
   CodeIntelligenceDefinitionInput,
   CodeIntelligenceDefinitionResult,
@@ -39,9 +39,17 @@ import type {
   CodeIntelligenceHoverResult,
   CodeIntelligenceInput,
   CodeIntelligenceLocation,
+  CodeIntelligenceReferencesInput,
+  CodeIntelligenceReferencesResult,
   CodeIntelligenceResult,
 } from "./code-intelligence-types.js";
 import { normalizeHoverContents } from "./normalization/hover.js";
+import {
+  isWithin,
+  locationEntries,
+  normalizeLocations,
+  workspaceDisplayPath,
+} from "./normalization/locations.js";
 import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
@@ -137,8 +145,8 @@ class LanguageService {
           `Definition request timed out for ${input.path}.`,
         ),
       );
-      const locations = await normalizeDefinitionResponse(
-        response,
+      const locations = await normalizeLocations(
+        locationEntries(response),
         this.workspaceRoot,
         this.positionEncoding,
       );
@@ -197,6 +205,56 @@ class LanguageService {
         ...(response.range
           ? { range: rangeFromLsp(document.text, response.range, this.positionEncoding) }
           : {}),
+      };
+    } catch (error) {
+      if (error instanceof CodeIntelligenceError) throw error;
+      if (error instanceof LanguageServerConfigurationError) {
+        throw new CodeIntelligenceError(error.code, error.message);
+      }
+      throw new CodeIntelligenceError(
+        "code.server_crashed",
+        `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
+      );
+    }
+  }
+
+  async references(input: CodeIntelligenceReferencesInput): Promise<CodeIntelligenceReferencesResult> {
+    try {
+      await this.ensureStarted();
+      if (!this.capabilities?.referencesProvider) {
+        throw new CodeIntelligenceError(
+          "code.operation_unsupported",
+          `Language server ${this.project.definition.id} does not advertise references support.`,
+        );
+      }
+
+      const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
+      const document = await this.syncDocument(sourcePath);
+      const position = lspPositionFromUser(document.text, input.line, input.column, this.positionEncoding);
+      const response = await withTimeout(
+        this.connection!.sendRequest(ReferencesRequest.type, {
+          textDocument: { uri: document.uri },
+          position,
+          context: { includeDeclaration: true },
+        }),
+        this.policy.requestTimeoutMs,
+        () => new CodeIntelligenceError(
+          "code.request_timeout",
+          `References request timed out for ${input.path}.`,
+        ),
+      );
+      const entries = locationEntries(response ?? []);
+      const limit = input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT;
+      const selected = entries.slice(0, limit);
+      const locations = await normalizeLocations(selected, this.workspaceRoot, this.positionEncoding);
+      return {
+        operation: "references",
+        selectedServer: this.project.definition.id,
+        projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
+        locations,
+        returned: locations.length,
+        truncated: entries.length > locations.length,
+        total: entries.length,
       };
     } catch (error) {
       if (error instanceof CodeIntelligenceError) throw error;
@@ -342,6 +400,9 @@ class LanguageService {
           hover: {
             dynamicRegistration: false,
             contentFormat: [MarkupKind.Markdown, MarkupKind.PlainText],
+          },
+          references: {
+            dynamicRegistration: false,
           },
         },
       },
@@ -492,9 +553,14 @@ export class CodeIntelligenceManager {
 
     const service = await this.acquireService(canonicalWorkspaceRoot, project);
     try {
-      return input.operation === "definition"
-        ? await service.definition(input)
-        : await service.hover(input);
+      switch (input.operation) {
+        case "definition":
+          return await service.definition(input);
+        case "hover":
+          return await service.hover(input);
+        case "references":
+          return await service.references(input);
+      }
     } finally {
       service.release();
     }
@@ -648,59 +714,6 @@ async function workspaceSourcePath(workspaceRoot: string, inputPath: string): Pr
       `Unable to read code-intelligence source ${inputPath}: ${errorMessage(error)}`,
     );
   }
-}
-
-async function normalizeDefinitionResponse(
-  response: Location | Location[] | LocationLink[] | null,
-  workspaceRoot: string,
-  encoding: string,
-): Promise<CodeIntelligenceLocation[]> {
-  if (!response) return [];
-  const entries = Array.isArray(response) ? response : [response];
-  return Promise.all(entries.map(async (entry) => {
-    const uri = isLocationLink(entry) ? entry.targetUri : entry.uri;
-    const range = isLocationLink(entry) ? entry.targetRange : entry.range;
-    if (!uri.startsWith("file:")) {
-      throw new CodeIntelligenceError(
-        "code.result_outside_policy",
-        `Language server returned a non-file definition URI: ${uri}`,
-      );
-    }
-    const targetPath = fileURLToPath(uri);
-    const root = resolve(workspaceRoot);
-    let resolvedTarget: string;
-    let text: string;
-    try {
-      resolvedTarget = await realpath(targetPath);
-      text = await readFile(resolvedTarget, "utf8");
-    } catch (error) {
-      throw new CodeIntelligenceError(
-        "code.result_outside_policy",
-        `Unable to normalize definition location ${targetPath}: ${errorMessage(error)}`,
-      );
-    }
-    const external = !isWithin(root, resolvedTarget);
-    return {
-      path: external ? resolvedTarget : workspaceDisplayPath(root, resolvedTarget),
-      external,
-      range: rangeFromLsp(text, range, encoding),
-    };
-  }));
-}
-
-function isLocationLink(value: Location | LocationLink): value is LocationLink {
-  return "targetUri" in value;
-}
-
-function workspaceDisplayPath(workspaceRoot: string, path: string): string {
-  const rel = relative(resolve(workspaceRoot), resolve(path));
-  if (!rel) return ".";
-  return rel.split(sep).join("/");
-}
-
-function isWithin(root: string, candidate: string): boolean {
-  const rel = relative(root, candidate);
-  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
 }
 
 async function withTimeout<T>(

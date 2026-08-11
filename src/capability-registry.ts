@@ -1,4 +1,8 @@
 import { z, type ZodType } from "zod";
+import {
+  MAX_CODE_INTELLIGENCE_RESULT_LIMIT,
+  type CodeIntelligenceInput,
+} from "./lsp/code-intelligence-types.js";
 
 export type CapabilityErrorCode =
   | "unknown_capability"
@@ -105,7 +109,7 @@ export interface CapabilityRegistryDependencies {
     available: boolean;
     unavailableReason?: string;
     run: (
-      input: { operation: "definition" | "hover"; path: string; line: number; column: number },
+      input: CodeIntelligenceInput,
       context: CapabilityContext,
     ) => Promise<CapabilityExecution>;
   };
@@ -249,12 +253,20 @@ export function createCapabilityRegistry(
   dependencies: CapabilityRegistryDependencies,
 ): CapabilityRegistry {
   const hooksCheckInput = z.object({}).strict();
-  const codeIntelligenceInput = z.object({
-    operation: z.enum(["definition", "hover"]),
+  const positionInput = {
     path: z.string().min(1),
     line: z.number().int(),
     column: z.number().int(),
-  }).strict();
+  };
+  const codeIntelligenceInput = z.discriminatedUnion("operation", [
+    z.object({ operation: z.literal("definition"), ...positionInput }).strict(),
+    z.object({ operation: z.literal("hover"), ...positionInput }).strict(),
+    z.object({
+      operation: z.literal("references"),
+      ...positionInput,
+      limit: z.number().int().min(1).max(MAX_CODE_INTELLIGENCE_RESULT_LIMIT).optional(),
+    }).strict(),
+  ]);
 
   return new CapabilityRegistry([
     {
@@ -298,7 +310,7 @@ export function createCapabilityRegistry(
           }),
           run: async (input: unknown, context: CapabilityContext) =>
             dependencies.codeIntelligence!.run(
-              input as { operation: "definition" | "hover"; path: string; line: number; column: number },
+              input as CodeIntelligenceInput,
               context,
             ),
         } satisfies CapabilityDefinition]
