@@ -154,7 +154,7 @@ force a Host to invalidate its cached schema.
 ### LSP code intelligence
 
 ForgeRelay advertises `code.intelligence` through the Capability Gateway; it does
-not add language-specific top-level MCP tools. ForgeRelay 0.4.5 supports
+not add language-specific top-level MCP tools. ForgeRelay 0.4 LSP v1 supports
 `definition`, `hover`, `references`, `documentSymbols`, `workspaceSymbols`, and
 `diagnostics`.
 Position-based operations accept the same workspace-relative source position. Hover
@@ -173,7 +173,10 @@ snapshot. Push and pull use one normalized result shape with `provider`,
 filesystem document version. Bounded collection results report `returned`, `truncated`,
 and the real `total` when the complete Language-server response makes it known. Language Servers are external
 dependencies: ForgeRelay may discover an executable already installed on the
-machine, but it never downloads or installs one automatically.
+machine, but it never downloads or installs one automatically. Built-in discovery
+knows `typescript-language-server`, `pyright-langserver`, `rust-analyzer`, `gopls`,
+and `clangd`. See `examples/language-servers.json` for copyable explicit TypeScript
+and Pyright definitions.
 
 ForgeRelay 0.4.5 hardens this shared Language-service runtime. Semantic requests
 have one internal bounded deadline, Host cancellation propagates to LSP cancellation,
@@ -243,6 +246,11 @@ not recursively scan the Workspace.
 
 Code-intelligence input positions are 1-based line and 1-based Unicode code-point
 column values. The Workspace filesystem is the only v1 document source of truth.
+
+For contributor/release interoperability checks, run `npm run lsp:interop`. The
+command tests each supported real Language server that is already on `PATH` through
+ForgeRelay built-in discovery and stdio LSP, reports a clear skip when an executable
+is absent, and never installs external dependencies.
 Definition results may point outside the Workspace and are then marked
 `external: true`; this is informational only and does not expand allowed roots or
 file-tool authority.

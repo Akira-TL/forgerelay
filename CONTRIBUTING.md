@@ -59,6 +59,8 @@ Changes should be as small as the problem reasonably allows while still being co
 
 New behavior should have appropriate regression coverage. Bug fixes should demonstrate the failure being fixed when practical. Performance work should include evidence that the relevant behavior improves. Public behavior and compatibility changes should be tested through the same interfaces users actually consume.
 
+For LSP/code-intelligence changes, keep the deterministic fake-LSP MCP coverage green and run `npm run lsp:interop`. That interoperability command exercises supported Language servers already present on `PATH` and reports explicit skips for missing executables; do not add automatic Language-server installation just to make the check run.
+
 Avoid unnecessary abstractions, speculative infrastructure, unrelated cleanup, and large rewrites when a smaller change solves the problem.
 
 For UI changes, include clear before-and-after images. If the change depends on motion, timing, transitions, or interaction behavior, include a short recording as well.

@@ -240,6 +240,13 @@ and verify publication before work begins on the next boundary:
 - **0.4.6** — optional real-server interoperability, cross-platform checks, fresh Host
   acceptance, documentation, and final LSP v1 closure.
 
+The shipping 0.4 LSP v1 contract keeps the canonical nine Core MCP tools unchanged
+and exposes semantic operations only through `code.intelligence`. Deterministic
+fake-LSP coverage remains the primary cross-platform protocol/lifecycle gate, while
+`npm run lsp:interop` exercises `typescript-language-server`, Pyright,
+`rust-analyzer`, `gopls`, and `clangd` only when those external executables are
+already present and otherwise reports explicit skips without installing them.
+
 ## 0.5 — First-class subagent MCP
 
 ForgeRelay already owns provider adapters and resumable local agent sessions.

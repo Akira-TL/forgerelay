@@ -112,6 +112,22 @@ reports a semantic capability but the Host still shows an older tool snapshot,
 refresh or reconnect the integration rather than assuming the capability is
 missing from ForgeRelay.
 
+## LSP code intelligence
+
+ForgeRelay 0.4 LSP v1 exposes semantic code navigation through the
+`code.intelligence` Capability without adding language-specific top-level MCP tools.
+The v1 operations are definition, hover/type information, references, document
+symbols, workspace symbols, and diagnostics. Results use ForgeRelay-owned normalized
+locations, ranges, symbols, hover content, and diagnostic shapes rather than raw LSP
+wire unions.
+
+Language servers remain external dependencies. ForgeRelay can discover
+`typescript-language-server`, `pyright-langserver`, `rust-analyzer`, `gopls`, and
+`clangd` when they already exist on `PATH`, or use structured project/global
+configuration, but it never installs a server automatically. See
+[Configuration Reference](docs/configuration.md#lsp-code-intelligence) and
+[`examples/language-servers.json`](examples/language-servers.json).
+
 ## Worktrees without the usual cleanup mess
 
 A new managed worktree gets its own `forgerelay/*` branch instead of a detached
@@ -247,13 +263,13 @@ forgerelay doctor
 
 ## Where ForgeRelay is going
 
-The next additions are focused on making the local execution layer more useful,
-not on turning ForgeRelay into another all-in-one agent framework:
+With LSP code intelligence established in the 0.4 line, the next additions remain
+focused on making the local execution layer more useful, not on turning ForgeRelay
+into another all-in-one agent framework:
 
-1. LSP-backed code intelligence;
-2. first-class MCP subagent delegation;
-3. stronger worktree verification and recovery;
-4. checkpoint/rewind and retention improvements.
+1. first-class MCP subagent delegation;
+2. stronger worktree verification and recovery;
+3. checkpoint/rewind and retention improvements.
 
 ForgeRelay does not plan to add its own shell sandbox, long-term memory system,
 or plugin marketplace. Conversation, planning, web access, and other host-native
