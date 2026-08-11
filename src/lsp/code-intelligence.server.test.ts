@@ -90,6 +90,124 @@ test("code.intelligence definition resolves through a real stdio LSP child proce
   assert.ok(fakeLog.includes('"method":"exit"'));
 });
 
+test("code.intelligence hover normalizes markdown through the shared stdio LSP path", async (t) => {
+  const context = await fixture(t);
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("./test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp-hover.log");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(sourceDir, "main.ts"), "const value = target();\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      "typescript-test": {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: {
+          FORGERELAY_FAKE_LSP_LOG: fakeLogPath,
+          FORGERELAY_FAKE_LSP_HOVER_MODE: "markdown",
+        },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const opened = await callOpen(context.client, context.project, "code-intelligence-hover-chat");
+  const result = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: structuredContent(opened).workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: {
+        operation: "hover",
+        path: "src/main.ts",
+        line: 1,
+        column: 15,
+      },
+    },
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(structuredContent(result), {
+    name: "code.intelligence",
+    action: "run",
+    result: {
+      operation: "hover",
+      selectedServer: "typescript-test",
+      projectRoot: ".",
+      contents: "**target**: `() => void`",
+      range: {
+        start: { line: 1, column: 15 },
+        end: { line: 1, column: 21 },
+      },
+    },
+  });
+
+  const fakeLog = await readFile(fakeLogPath, "utf8");
+  assert.ok(fakeLog.includes('\"method\":\"textDocument/hover\"'));
+  assert.ok(fakeLog.includes('\"hover\":{\"dynamicRegistration\":false'));
+});
+
+test("code.intelligence reports unsupported hover without destabilizing the shared Language service", async (t) => {
+  const context = await fixture(t);
+  const fakeServerPath = fileURLToPath(new URL("./test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp-hover-unsupported.log");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(join(context.project, "src"), { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(context.project, "src", "main.ts"), "const value = target();\n");
+  await writeFile(join(context.project, "src", "target.ts"), "export target;\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      test: {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: {
+          FORGERELAY_FAKE_LSP_LOG: fakeLogPath,
+          FORGERELAY_FAKE_LSP_HOVER_MODE: "unsupported",
+        },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }) + "\n",
+  );
+
+  const opened = await callOpen(context.client, context.project, "code-intelligence-hover-unsupported");
+  const workspaceId = structuredContent(opened).workspaceId;
+  const hover = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "hover", path: "src/main.ts", line: 1, column: 15 },
+    },
+  });
+  assert.equal(hover.isError, true);
+  assert.equal((structuredContent(hover).error as { code?: string }).code, "code.operation_unsupported");
+
+  const definition = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "code.intelligence",
+      action: "run",
+      arguments: { operation: "definition", path: "src/main.ts", line: 1, column: 15 },
+    },
+  });
+  assert.equal(definition.isError, undefined);
+  const fakeLog = await readFile(fakeLogPath, "utf8");
+  assert.equal(fakeLog.match(/\"method\":\"initialize\"/g)?.length, 1);
+  assert.ok(fakeLog.includes('\"method\":\"textDocument/definition\"'));
+});
+
 test("code.intelligence shares one Language service across logical workspaces for the same project", async (t) => {
   const context = await fixture(t);
   const sourceDir = join(context.project, "src");

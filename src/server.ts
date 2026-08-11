@@ -1034,7 +1034,7 @@ export function createMcpServer(
       run: async (input, context) => {
         try {
           return {
-            value: await codeIntelligence.definition(context.workspaceRoot, input),
+            value: await codeIntelligence.run(context.workspaceRoot, input),
           };
         } catch (error) {
           if (error instanceof CodeIntelligenceError) {

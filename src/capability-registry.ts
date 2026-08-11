@@ -105,7 +105,7 @@ export interface CapabilityRegistryDependencies {
     available: boolean;
     unavailableReason?: string;
     run: (
-      input: { operation: "definition"; path: string; line: number; column: number },
+      input: { operation: "definition" | "hover"; path: string; line: number; column: number },
       context: CapabilityContext,
     ) => Promise<CapabilityExecution>;
   };
@@ -250,7 +250,7 @@ export function createCapabilityRegistry(
 ): CapabilityRegistry {
   const hooksCheckInput = z.object({}).strict();
   const codeIntelligenceInput = z.object({
-    operation: z.literal("definition"),
+    operation: z.enum(["definition", "hover"]),
     path: z.string().min(1),
     line: z.number().int(),
     column: z.number().int(),
@@ -298,7 +298,7 @@ export function createCapabilityRegistry(
           }),
           run: async (input: unknown, context: CapabilityContext) =>
             dependencies.codeIntelligence!.run(
-              input as { operation: "definition"; path: string; line: number; column: number },
+              input as { operation: "definition" | "hover"; path: string; line: number; column: number },
               context,
             ),
         } satisfies CapabilityDefinition]

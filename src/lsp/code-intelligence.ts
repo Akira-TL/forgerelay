@@ -9,11 +9,14 @@ import {
   DidCloseTextDocumentNotification,
   DidOpenTextDocumentNotification,
   ExitNotification,
+  HoverRequest,
   InitializeRequest,
   InitializedNotification,
+  MarkupKind,
   PositionEncodingKind,
   ShutdownRequest,
   TextDocumentSyncKind,
+  type Hover,
   type InitializeParams,
   type InitializeResult,
   type TextDocumentSyncOptions,
@@ -29,9 +32,20 @@ import {
 } from "./language-server-config.js";
 import { terminateProcessTree } from "../process-platform.js";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
+import type {
+  CodeIntelligenceDefinitionInput,
+  CodeIntelligenceDefinitionResult,
+  CodeIntelligenceHoverInput,
+  CodeIntelligenceHoverResult,
+  CodeIntelligenceInput,
+  CodeIntelligenceLocation,
+  CodeIntelligenceResult,
+} from "./code-intelligence-types.js";
+import { normalizeHoverContents } from "./hover-normalization.js";
 import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
+export type * from "./code-intelligence-types.js";
 
 const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
 const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
@@ -57,36 +71,6 @@ interface CodeIntelligenceRuntimePolicy {
   startTimeoutMs: number;
   requestTimeoutMs: number;
   shutdownTimeoutMs: number;
-}
-
-export interface CodeIntelligenceDefinitionInput {
-  operation: "definition";
-  path: string;
-  line: number;
-  column: number;
-}
-
-export interface CodeIntelligencePosition {
-  line: number;
-  column: number;
-}
-
-export interface CodeIntelligenceRange {
-  start: CodeIntelligencePosition;
-  end: CodeIntelligencePosition;
-}
-
-export interface CodeIntelligenceLocation {
-  path: string;
-  external: boolean;
-  range: CodeIntelligenceRange;
-}
-
-export interface CodeIntelligenceDefinitionResult {
-  operation: "definition";
-  selectedServer: string;
-  projectRoot: string;
-  locations: CodeIntelligenceLocation[];
 }
 
 interface OpenDocument {
@@ -163,6 +147,56 @@ class LanguageService {
         selectedServer: this.project.definition.id,
         projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
         locations,
+      };
+    } catch (error) {
+      if (error instanceof CodeIntelligenceError) throw error;
+      if (error instanceof LanguageServerConfigurationError) {
+        throw new CodeIntelligenceError(error.code, error.message);
+      }
+      throw new CodeIntelligenceError(
+        "code.server_crashed",
+        `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
+      );
+    }
+  }
+
+  async hover(input: CodeIntelligenceHoverInput): Promise<CodeIntelligenceHoverResult> {
+    try {
+      await this.ensureStarted();
+      if (!this.capabilities?.hoverProvider) {
+        throw new CodeIntelligenceError(
+          "code.operation_unsupported",
+          `Language server ${this.project.definition.id} does not advertise hover support.`,
+        );
+      }
+
+      const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
+      const document = await this.syncDocument(sourcePath);
+      const position = lspPositionFromUser(document.text, input.line, input.column, this.positionEncoding);
+      const response: Hover | null = await withTimeout(
+        this.connection!.sendRequest(HoverRequest.type, {
+          textDocument: { uri: document.uri },
+          position,
+        }),
+        this.policy.requestTimeoutMs,
+        () => new CodeIntelligenceError(
+          "code.request_timeout",
+          `Hover request timed out for ${input.path}.`,
+        ),
+      );
+      const common = {
+        operation: "hover" as const,
+        selectedServer: this.project.definition.id,
+        projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
+      };
+      if (!response) return { ...common, contents: null };
+      const normalized = normalizeHoverContents(response.contents);
+      return {
+        ...common,
+        ...normalized,
+        ...(response.range
+          ? { range: rangeFromLsp(document.text, response.range, this.positionEncoding) }
+          : {}),
       };
     } catch (error) {
       if (error instanceof CodeIntelligenceError) throw error;
@@ -305,6 +339,10 @@ class LanguageService {
             dynamicRegistration: false,
             linkSupport: true,
           },
+          hover: {
+            dynamicRegistration: false,
+            contentFormat: [MarkupKind.Markdown, MarkupKind.PlainText],
+          },
         },
       },
     };
@@ -432,10 +470,10 @@ export class CodeIntelligenceManager {
     this.cleanupTimer.unref();
   }
 
-  async definition(
+  async run(
     workspaceRoot: string,
-    input: CodeIntelligenceDefinitionInput,
-  ): Promise<CodeIntelligenceDefinitionResult> {
+    input: CodeIntelligenceInput,
+  ): Promise<CodeIntelligenceResult> {
     let project: ResolvedLanguageProject;
     let canonicalWorkspaceRoot: string;
     try {
@@ -454,7 +492,9 @@ export class CodeIntelligenceManager {
 
     const service = await this.acquireService(canonicalWorkspaceRoot, project);
     try {
-      return await service.definition(input);
+      return input.operation === "definition"
+        ? await service.definition(input)
+        : await service.hover(input);
     } finally {
       service.release();
     }

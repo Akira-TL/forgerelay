@@ -9,6 +9,7 @@ const mode = process.env.FORGERELAY_FAKE_LSP_MODE ?? "location";
 const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
+const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
 
 function log(event) {
   if (!logPath) return;
@@ -42,6 +43,7 @@ function handle(message) {
     respond(message.id, {
       capabilities: {
         definitionProvider: mode !== "unsupported-definition",
+        hoverProvider: hoverMode !== "unsupported",
         positionEncoding: "utf-16",
         textDocumentSync: syncKind,
       },
@@ -70,6 +72,34 @@ function handle(message) {
         },
       },
     });
+    return;
+  }
+
+  if (message.method === "textDocument/hover") {
+    const range = {
+      start: { line: 0, character: 14 },
+      end: { line: 0, character: 20 },
+    };
+    if (hoverMode === "plaintext") {
+      respond(message.id, { contents: { kind: "plaintext", value: "target: () => void" }, range });
+      return;
+    }
+    if (hoverMode === "legacy-string") {
+      respond(message.id, { contents: "legacy hover", range });
+      return;
+    }
+    if (hoverMode === "legacy-marked") {
+      respond(message.id, { contents: { language: "typescript", value: "const target: () => void" }, range });
+      return;
+    }
+    if (hoverMode === "legacy-array") {
+      respond(message.id, {
+        contents: ["Target signature:", { language: "typescript", value: "const target: () => void" }],
+        range,
+      });
+      return;
+    }
+    respond(message.id, { contents: { kind: "markdown", value: "**target**: `() => void`" }, range });
     return;
   }
 

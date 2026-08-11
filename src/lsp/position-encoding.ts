@@ -1,6 +1,6 @@
 import { PositionEncodingKind, type Position, type Range } from "vscode-languageserver-protocol";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
-import type { CodeIntelligencePosition, CodeIntelligenceRange } from "./code-intelligence.js";
+import type { CodeIntelligencePosition, CodeIntelligenceRange } from "./code-intelligence-types.js";
 
 export function lspPositionFromUser(
   text: string,
