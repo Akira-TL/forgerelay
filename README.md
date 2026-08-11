@@ -293,10 +293,13 @@ npm run release:verify
 ```
 
 Daily branch pushes do not run cloud CI. When preparing a release, run the full
-local release verification first. Pushing a matching `vX.Y.Z` tag to
-`Akira-TL/forgerelay` is the only cloud CI and publish trigger: GitHub Actions
-runs the reusable multi-platform CI, then publishes `@akira-tl/forgerelay` and
-creates the matching GitHub Release only after CI succeeds.
+local release verification first. `release:verify` includes a focused parity pass
+in an isolated Node 22.19.0 environment with its own `npm ci`, matching the cloud
+CI runtime for native addons and high-risk LSP lifecycle tests. Pushing a matching
+`vX.Y.Z` tag to `Akira-TL/forgerelay` is the only cloud CI and publish trigger:
+GitHub Actions runs the reusable multi-platform CI, then publishes
+`@akira-tl/forgerelay` and creates the matching GitHub Release only after CI
+succeeds.
 
 See [Versioning and Release Management](docs/versioning.md) for the bootstrap and
 Trusted Publishing setup.

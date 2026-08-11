@@ -85,6 +85,18 @@ Run the full local release gate with:
 npm run release:verify
 ```
 
+`release:verify` checks the current development runtime and then runs a focused
+`release:parity` gate in an isolated Node 22.19.0 sandbox. The parity sandbox
+performs its own `npm ci` so native addons use the same Node ABI as cloud CI,
+then reruns the LSP/release tests most sensitive to event-loop timing, process
+lifecycle, path canonicalization, executable discovery, and cleanup behavior.
+It also tests that a command which exists on `PATH` but fails its `--version`
+preflight is treated as unavailable rather than as an installed Language server.
+
+Cloud verification and the publication job are both pinned to Node 22.19.0, the
+minimum supported Node release, so local parity and the release runners use the
+same runtime instead of drifting across separate Node 22/24 variants.
+
 Validate a specific tag with:
 
 ```bash
@@ -158,8 +170,9 @@ npm publishing token.
 3. Run the appropriate `release:patch`, `release:minor`, or `release:major`
    command.
 4. Review the generated version and changelog diff.
-5. Run `npm run release:verify` locally. This full local gate is a release-time
-   operation; ordinary development pushes do not need to run the full release gate.
+5. Run `npm run release:verify` locally. This full local gate includes the isolated
+   Node 22.19.0 parity sandbox and is a release-time operation; ordinary development
+   pushes do not need to run the full release gate.
 6. Commit the release-ready code and metadata and push `main`.
 7. Create the exact version tag, for example:
 

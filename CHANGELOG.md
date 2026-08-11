@@ -13,7 +13,8 @@ All notable ForgeRelay changes are documented here.
 
 ### Changed
 
-- Cloud release CI now runs optional real-server interoperability after the normal deterministic fake-LSP test/build gate on Linux, macOS, and Windows.
+- Cloud release CI now runs optional real-server interoperability after the normal deterministic fake-LSP test/build gate on Linux, macOS, and Windows. Executable preflight now distinguishes a runnable Language server from PATH shims/proxies that exist but fail to launch, so incomplete rustup components are skipped rather than misreported as installed servers.
+- Local `release:verify` now includes an isolated Node 22.19.0 parity sandbox with its own `npm ci` and focused LSP/release regression suite; cloud CI and publication use the same Node 22.19.0 runtime to reduce local/cloud drift, while Windows test cleanup retries transient locked-directory removal.
 - Completed the 0.4 LSP v1 user, configuration, roadmap, contributor, and explicit Language-server example documentation, and hardened cross-platform/concurrency acceptance timing exposed during final release validation.
 
 ## [0.4.5] - 2026-08-11
