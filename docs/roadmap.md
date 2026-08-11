@@ -225,6 +225,21 @@ Candidate servers include `typescript-language-server`/tsserver, Pyright,
 `rust-analyzer`, `gopls`, and `clangd`, but ForgeRelay should treat server
 commands/configuration as external dependencies.
 
+0.4 is delivered as independently published patch releases rather than one large
+0.4.0 batch. Every boundary must complete local acceptance, update release metadata,
+create and push its matching tag, pass cloud CI, publish npm and the GitHub Release,
+and verify publication before work begins on the next boundary:
+
+- **0.4.0** — Language-service foundation plus the complete `definition` tracer bullet;
+- **0.4.1** — hover/type information;
+- **0.4.2** — references and bounded semantic-location results;
+- **0.4.3** — hierarchical document symbols and bounded workspace symbols;
+- **0.4.4** — push/pull diagnostics and Diagnostic snapshots;
+- **0.4.5** — cancellation, deadlines, crash recovery/config invalidation, concurrency,
+  and full Language-service resource/lifecycle hardening;
+- **0.4.6** — optional real-server interoperability, cross-platform checks, fresh Host
+  acceptance, documentation, and final LSP v1 closure.
+
 ## 0.5 — First-class subagent MCP
 
 ForgeRelay already owns provider adapters and resumable local agent sessions.

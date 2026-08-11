@@ -4,6 +4,25 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-11
+
+### Added
+
+- Added `code.intelligence` as a Capability Gateway-only LSP code-intelligence surface. ForgeRelay 0.4.0 ships the first complete `definition` tracer bullet without changing the canonical nine Core MCP tools.
+- Added Language-server definitions with project (`.forgerelay/language-servers.json`), global (`~/.forgerelay/config.json`), and built-in discovery precedence. Common built-ins cover TypeScript/JavaScript, Pyright, rust-analyzer, gopls, and clangd when those executables are already installed.
+- Added a deterministic child-process fake LSP server and MCP-level regression seam covering initialize/shutdown, document synchronization, definition normalization, shared Language-service identity, capacity limits, and server-initiated edit rejection.
+
+### Changed
+
+- Code-intelligence positions use ForgeRelay's 1-based line and Unicode code-point column contract and are converted internally to the position encoding negotiated with the Language Server.
+- Language services are shared by canonical Language project root plus effective server-definition fingerprint rather than logical workspace ID, remain capacity/idle bounded, and use structured no-shell process launch over Microsoft's `vscode-jsonrpc` / `vscode-languageserver-protocol` substrate.
+- Language-server configuration can explicitly disable built-in discovery; nested Language projects resolve by walking ancestors of the requested source path instead of recursively scanning the Workspace.
+
+### Fixed
+
+- External LSP definition targets are marked as informational external locations without expanding ForgeRelay file-read authority, including symlink-escape protection and canonical Workspace-root handling.
+- Language-server startup failure/timeout, unsupported operations, invalid positions, configuration ambiguity, capacity exhaustion, and other policy failures now use stable ForgeRelay `code.*` errors instead of leaking raw JSON-RPC failures.
+
 ## [0.3.7] - 2026-08-10
 
 ### Added

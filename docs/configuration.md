@@ -151,6 +151,68 @@ snapshot, treat that as stale Host MCP metadata: reconnect/refresh the integrati
 or use a Host context that reloads `tools/list`. The ForgeRelay process cannot
 force a Host to invalidate its cached schema.
 
+### LSP code intelligence
+
+ForgeRelay advertises `code.intelligence` through the Capability Gateway; it does
+not add language-specific top-level MCP tools. ForgeRelay 0.4.0 supports the
+`definition` operation. Language Servers are external dependencies: ForgeRelay may
+discover an executable already installed on the machine, but it never downloads or
+installs one automatically.
+
+Effective Language-server definitions resolve in this order:
+
+1. project configuration in `.forgerelay/language-servers.json`;
+2. global definitions from the `languageServers` object in
+   `~/.forgerelay/config.json`;
+3. built-in discovery for known executables.
+
+A project configuration file is an object keyed by definition name. Definitions
+use structured process launch and never go through a shell:
+
+```json
+{
+  "typescript": {
+    "command": "typescript-language-server",
+    "args": ["--stdio"],
+    "env": {},
+    "languages": ["typescript", "typescriptreact", "javascript", "javascriptreact"],
+    "extensions": [".ts", ".tsx", ".js", ".jsx"],
+    "languageIdByExtension": {
+      ".ts": "typescript",
+      ".tsx": "typescriptreact",
+      ".js": "javascript",
+      ".jsx": "javascriptreact"
+    },
+    "projectMarkers": ["tsconfig.json", "jsconfig.json"]
+  }
+}
+```
+
+Global configuration uses the same definition shape under `languageServers`:
+
+```json
+{
+  "languageServers": {
+    "typescript": {
+      "command": "/absolute/path/to/typescript-language-server",
+      "args": ["--stdio"]
+    }
+  }
+}
+```
+
+Explicit configuration can set `"enabled": false` to suppress the matching
+built-in definition. Project values override global values, and both override
+built-in defaults. ForgeRelay resolves a Language project by walking ancestors of
+the requested source file according to that definition's `projectMarkers`; it does
+not recursively scan the Workspace.
+
+Code-intelligence input positions are 1-based line and 1-based Unicode code-point
+column values. The Workspace filesystem is the only v1 document source of truth.
+Definition results may point outside the Workspace and are then marked
+`external: true`; this is informational only and does not expand allowed roots or
+file-tool authority.
+
 `rename` is the canonical move/rename primitive for files and directories; there
 is no separate `move` MCP tool.
 
