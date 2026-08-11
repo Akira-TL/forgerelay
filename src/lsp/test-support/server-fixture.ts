@@ -11,7 +11,7 @@ import { ProcessManager } from "../../process-sessions.js";
 import { createMcpServer } from "../../server.js";
 import { SqliteWorkspaceStore } from "../../workspace-store.js";
 import { WorkspaceRegistry } from "../../workspaces.js";
-import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "../code-intelligence.js";
+import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "../runtime/manager.js";
 
 export interface CodeIntelligenceServerFixture {
   client: Client;

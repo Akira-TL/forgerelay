@@ -33,7 +33,8 @@ import {
 } from "./artifact-tools.js";
 import { ArtifactError } from "./artifact-error.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
-import { CodeIntelligenceError, CodeIntelligenceManager } from "./lsp/code-intelligence.js";
+import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
+import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
 import { checkHookConfiguration } from "./hook-cli.js";
 import {

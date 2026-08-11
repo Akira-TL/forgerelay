@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
-import { CodeIntelligenceManager } from "./lsp/code-intelligence.js";
+import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { openDatabase } from "./db/client.js";
 import { parseHookConfig, type HookConfigInput } from "./hooks.js";

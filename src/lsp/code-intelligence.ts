@@ -22,10 +22,8 @@ import {
   type InitializeResult,
   type TextDocumentSyncOptions,
 } from "vscode-languageserver-protocol";
-import type { ServerConfig } from "../config.js";
 import {
   LanguageServerConfigurationError,
-  resolveLanguageProject,
   type ResolvedLanguageProject,
   type ResolvedLanguageServerDefinition,
 } from "./language-server-config.js";
@@ -37,11 +35,8 @@ import type {
   CodeIntelligenceDefinitionResult,
   CodeIntelligenceHoverInput,
   CodeIntelligenceHoverResult,
-  CodeIntelligenceInput,
-  CodeIntelligenceLocation,
   CodeIntelligenceReferencesInput,
   CodeIntelligenceReferencesResult,
-  CodeIntelligenceResult,
 } from "./code-intelligence-types.js";
 import { normalizeHoverContents } from "./normalization/hover.js";
 import {
@@ -55,24 +50,9 @@ import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./positio
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
 export type * from "./code-intelligence-types.js";
 
-const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
-const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
-const MAX_LANGUAGE_SERVICES = 16;
-const LANGUAGE_SERVICE_START_TIMEOUT_MS = 15_000;
-const LANGUAGE_REQUEST_TIMEOUT_MS = 10_000;
-const LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS = 2_000;
 const STDERR_TAIL_BYTES = 64 * 1024;
 
-export interface CodeIntelligenceManagerOptions {
-  idleMs?: number;
-  cleanupIntervalMs?: number;
-  maxServices?: number;
-  startTimeoutMs?: number;
-  requestTimeoutMs?: number;
-  shutdownTimeoutMs?: number;
-}
-
-interface CodeIntelligenceRuntimePolicy {
+export interface CodeIntelligenceRuntimePolicy {
   idleMs: number;
   cleanupIntervalMs: number;
   maxServices: number;
@@ -89,7 +69,7 @@ interface OpenDocument {
   openNotified: boolean;
 }
 
-class LanguageService {
+export class LanguageService {
   readonly key: string;
   lastUsedAt = Date.now();
   inFlight = 0;
@@ -506,161 +486,7 @@ class LanguageService {
   }
 }
 
-export class CodeIntelligenceManager {
-  private readonly services = new Map<string, LanguageService>();
-  private readonly serviceCreations = new Map<string, Promise<LanguageService>>();
-  private serviceCreationQueue: Promise<void> = Promise.resolve();
-  private readonly cleanupTimer: NodeJS.Timeout;
-  private readonly policy: CodeIntelligenceRuntimePolicy;
-
-  constructor(
-    private readonly config: Pick<ServerConfig, "languageServers">,
-    options: CodeIntelligenceManagerOptions = {},
-  ) {
-    this.policy = {
-      idleMs: positiveInteger(options.idleMs, LANGUAGE_SERVICE_IDLE_MS, "idleMs"),
-      cleanupIntervalMs: positiveInteger(options.cleanupIntervalMs, LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS, "cleanupIntervalMs"),
-      maxServices: positiveInteger(options.maxServices, MAX_LANGUAGE_SERVICES, "maxServices"),
-      startTimeoutMs: positiveInteger(options.startTimeoutMs, LANGUAGE_SERVICE_START_TIMEOUT_MS, "startTimeoutMs"),
-      requestTimeoutMs: positiveInteger(options.requestTimeoutMs, LANGUAGE_REQUEST_TIMEOUT_MS, "requestTimeoutMs"),
-      shutdownTimeoutMs: positiveInteger(options.shutdownTimeoutMs, LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs"),
-    };
-    this.cleanupTimer = setInterval(() => {
-      void this.closeIdle();
-    }, this.policy.cleanupIntervalMs);
-    this.cleanupTimer.unref();
-  }
-
-  async run(
-    workspaceRoot: string,
-    input: CodeIntelligenceInput,
-  ): Promise<CodeIntelligenceResult> {
-    let project: ResolvedLanguageProject;
-    let canonicalWorkspaceRoot: string;
-    try {
-      canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
-      project = await resolveLanguageProject({
-        workspaceRoot: canonicalWorkspaceRoot,
-        sourcePath: input.path,
-        globalConfig: this.config.languageServers,
-      });
-    } catch (error) {
-      if (error instanceof LanguageServerConfigurationError) {
-        throw new CodeIntelligenceError(error.code, error.message);
-      }
-      throw error;
-    }
-
-    const service = await this.acquireService(canonicalWorkspaceRoot, project);
-    try {
-      switch (input.operation) {
-        case "definition":
-          return await service.definition(input);
-        case "hover":
-          return await service.hover(input);
-        case "references":
-          return await service.references(input);
-      }
-    } finally {
-      service.release();
-    }
-  }
-
-  async shutdown(): Promise<void> {
-    clearInterval(this.cleanupTimer);
-    await Promise.allSettled(this.serviceCreations.values());
-    this.serviceCreations.clear();
-    const services = [...this.services.values()];
-    this.services.clear();
-    await Promise.allSettled(services.map((service) => service.shutdown()));
-  }
-
-  get size(): number {
-    return this.services.size;
-  }
-
-  private async acquireService(
-    workspaceRoot: string,
-    project: ResolvedLanguageProject,
-  ): Promise<LanguageService> {
-    const key = languageServiceKey(project);
-    const existing = this.services.get(key);
-    if (existing) {
-      existing.acquire();
-      return existing;
-    }
-
-    const pending = this.serviceCreations.get(key);
-    if (pending) {
-      const service = await pending;
-      service.acquire();
-      return service;
-    }
-
-    const creation = this.withServiceCreationLock(async () => {
-      const current = this.services.get(key);
-      if (current) {
-        current.acquire();
-        return current;
-      }
-      await this.ensureCapacity();
-      const service = new LanguageService(workspaceRoot, project, this.policy);
-      service.acquire();
-      this.services.set(key, service);
-      return service;
-    });
-    this.serviceCreations.set(key, creation);
-    try {
-      return await creation;
-    } finally {
-      if (this.serviceCreations.get(key) === creation) {
-        this.serviceCreations.delete(key);
-      }
-    }
-  }
-
-  private async withServiceCreationLock<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = this.serviceCreationQueue;
-    let release = (): void => undefined;
-    this.serviceCreationQueue = new Promise<void>((resolvePromise) => {
-      release = resolvePromise;
-    });
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-    }
-  }
-
-  private async closeIdle(now = Date.now()): Promise<void> {
-    const stale = [...this.services.entries()].filter(([, service]) =>
-      service.inFlight === 0 && now - service.lastUsedAt >= this.policy.idleMs
-    );
-    for (const [key, service] of stale) {
-      this.services.delete(key);
-      await service.shutdown();
-    }
-  }
-
-  private async ensureCapacity(): Promise<void> {
-    if (this.services.size < this.policy.maxServices) return;
-    const idle = [...this.services.entries()]
-      .filter(([, service]) => service.inFlight === 0)
-      .sort((left, right) => left[1].lastUsedAt - right[1].lastUsedAt);
-    const candidate = idle[0];
-    if (!candidate) {
-      throw new CodeIntelligenceError(
-        "code.language_service_capacity",
-        `Language service capacity reached (${this.policy.maxServices}) with no idle service available for eviction.`,
-      );
-    }
-    this.services.delete(candidate[0]);
-    await candidate[1].shutdown();
-  }
-}
-
-function languageServiceKey(project: ResolvedLanguageProject): string {
+export function languageServiceKey(project: ResolvedLanguageProject): string {
   return JSON.stringify([
     resolve(project.projectRoot),
     project.definition.id,
@@ -767,14 +593,6 @@ async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs
     timer = setTimeout(() => finish(false), timeoutMs);
     timer.unref();
   });
-}
-
-function positiveInteger(value: number | undefined, fallback: number, label: string): number {
-  const resolvedValue = value ?? fallback;
-  if (!Number.isInteger(resolvedValue) || resolvedValue < 1) {
-    throw new Error(`Code-intelligence ${label} must be a positive integer.`);
-  }
-  return resolvedValue;
 }
 
 function errorMessage(error: unknown): string {
