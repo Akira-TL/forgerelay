@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-11
+
+### Added
+
+- Added `documentSymbols` code intelligence with hierarchy-preserving normalization for LSP `DocumentSymbol` trees and flat handling for legacy `SymbolInformation` responses.
+- Added bounded `workspaceSymbols` semantic search over one selected Language service, with normalized flat symbol metadata and External location handling.
+
+### Changed
+
+- Symbol collection limits reuse the 100 default / 1000 hard maximum budget. Document-symbol limits count tree nodes while preserving required ancestors; workspace-symbol results expose `returned`, `truncated`, and known `total` like references.
+- Workspace-symbol requests use a workspace-relative `path` to select and synchronize the Language project/service before applying the project-wide `query`; ForgeRelay does not silently merge nested Language services.
+
 ## [0.4.2] - 2026-08-11
 
 ### Added

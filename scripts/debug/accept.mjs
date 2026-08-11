@@ -336,13 +336,19 @@ try {
   assert.ok(Array.isArray(codeIntelligenceSchema.oneOf));
   assert.deepEqual(
     codeIntelligenceSchema.oneOf.map((variant) => variant.properties.operation.const),
-    ["definition", "hover", "references"],
+    ["definition", "hover", "references", "documentSymbols", "workspaceSymbols"],
   );
-  const referencesSchema = codeIntelligenceSchema.oneOf.find(
-    (variant) => variant.properties.operation.const === "references",
+  for (const operation of ["references", "documentSymbols", "workspaceSymbols"]) {
+    const boundedSchema = codeIntelligenceSchema.oneOf.find(
+      (variant) => variant.properties.operation.const === operation,
+    );
+    assert.equal(boundedSchema.properties.limit.minimum, 1);
+    assert.equal(boundedSchema.properties.limit.maximum, 1000);
+  }
+  const workspaceSymbolsSchema = codeIntelligenceSchema.oneOf.find(
+    (variant) => variant.properties.operation.const === "workspaceSymbols",
   );
-  assert.equal(referencesSchema.properties.limit.minimum, 1);
-  assert.equal(referencesSchema.properties.limit.maximum, 1000);
+  assert.ok(workspaceSymbolsSchema.required.includes("query"));
   if (process.platform === "linux") {
     const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
       workspaceId,
