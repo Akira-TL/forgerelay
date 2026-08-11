@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
@@ -45,7 +45,7 @@ test("project Language-server definition beats global configuration and resolves
 
   assert.equal(resolved.definition.id, "project-ts");
   assert.equal(resolved.definition.source, "project");
-  assert.equal(resolved.projectRoot, projectRoot);
+  assert.equal(resolved.projectRoot, await realpath(projectRoot));
 });
 
 test("global explicit Language-server definition beats built-in discovery", async (t) => {
@@ -86,9 +86,15 @@ test("built-in TypeScript discovery maps JavaScript extensions to the correct LS
   await mkdir(bin, { recursive: true });
   await writeFile(join(root, "jsconfig.json"), "{}\n");
   await writeFile(join(root, "src", "main.js"), "const value = 1;\n");
-  const builtinExecutable = join(bin, "typescript-language-server");
-  await writeFile(builtinExecutable, "#!/bin/sh\nexit 0\n");
-  await chmod(builtinExecutable, 0o755);
+  const builtinExecutable = join(
+    bin,
+    process.platform === "win32" ? "typescript-language-server.cmd" : "typescript-language-server",
+  );
+  await writeFile(
+    builtinExecutable,
+    process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+  );
+  if (process.platform !== "win32") await chmod(builtinExecutable, 0o755);
 
   const resolved = await resolveLanguageProject({
     workspaceRoot: root,
@@ -186,7 +192,7 @@ test("Language project discovery preserves a symlinked Workspace alias by canoni
     },
   });
 
-  assert.equal(resolved.projectRoot, root);
+  assert.equal(resolved.projectRoot, await realpath(root));
 });
 
 test("Language project discovery rejects a source symlink that escapes the Workspace", { skip: process.platform === "win32" }, async (t) => {
