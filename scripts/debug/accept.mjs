@@ -336,9 +336,9 @@ try {
   assert.ok(Array.isArray(codeIntelligenceSchema.oneOf));
   assert.deepEqual(
     codeIntelligenceSchema.oneOf.map((variant) => variant.properties.operation.const),
-    ["definition", "hover", "references", "documentSymbols", "workspaceSymbols"],
+    ["definition", "hover", "references", "documentSymbols", "workspaceSymbols", "diagnostics"],
   );
-  for (const operation of ["references", "documentSymbols", "workspaceSymbols"]) {
+  for (const operation of ["references", "documentSymbols", "workspaceSymbols", "diagnostics"]) {
     const boundedSchema = codeIntelligenceSchema.oneOf.find(
       (variant) => variant.properties.operation.const === operation,
     );

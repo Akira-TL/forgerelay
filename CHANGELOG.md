@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-11
+
+### Added
+
+- Added `code.intelligence` `diagnostics` with one normalized Agent-facing contract for traditional push diagnostics and LSP 3.17 pull diagnostics.
+- Added bounded latest Diagnostic snapshots with per-document freshness/version metadata, replacement/clear semantics, and no historical accumulation.
+
+### Changed
+
+- Pull diagnostics are preferred when a Language server advertises `diagnosticProvider`; ForgeRelay sends the previous `resultId`, handles `unchanged` reports, and keeps pull state independent from asynchronous push snapshots on mixed-capability servers.
+- Diagnostic collections reuse the 100 default / 1000 hard request limit while runtime caches independently bound document count and retained diagnostics per document. Filesystem synchronization makes stale push snapshots explicit and pull reports fresh against the synchronized document version.
+
 ## [0.4.3] - 2026-08-11
 
 ### Added
