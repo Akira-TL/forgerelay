@@ -4,6 +4,19 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-08-11
+
+### Added
+
+- Added Host-to-LSP cancellation propagation, bounded per-service semantic concurrency/queueing, and stable request timeout/cancellation/capacity errors without exposing arbitrary Agent-controlled timeout values.
+- Added aggregate Language-service runtime telemetry for service/process/request/document/diagnostic/stderr retention without logging source contents or paths.
+
+### Changed
+
+- Language services now retry one unexpected server crash, enter a bounded cooldown after repeated crashes, and invalidate only affected services when the effective server-definition fingerprint changes.
+- Language-service lifecycle now distinguishes truly idle services from cancellation-ignoring requests, evicts only the least-recently-used safe idle service at capacity, shares one service across logical workspaces on the same physical project, and releases managed-worktree services before finalization.
+- Idle shutdown and repeated open/query/config/crash cycles now explicitly release and bound server processes, synchronized documents, diagnostic snapshots, request state, stderr tails, and service counts.
+
 ## [0.4.4] - 2026-08-11
 
 ### Added

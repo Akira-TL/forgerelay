@@ -154,7 +154,7 @@ force a Host to invalidate its cached schema.
 ### LSP code intelligence
 
 ForgeRelay advertises `code.intelligence` through the Capability Gateway; it does
-not add language-specific top-level MCP tools. ForgeRelay 0.4.4 supports
+not add language-specific top-level MCP tools. ForgeRelay 0.4.5 supports
 `definition`, `hover`, `references`, `documentSymbols`, `workspaceSymbols`, and
 `diagnostics`.
 Position-based operations accept the same workspace-relative source position. Hover
@@ -174,6 +174,24 @@ filesystem document version. Bounded collection results report `returned`, `trun
 and the real `total` when the complete Language-server response makes it known. Language Servers are external
 dependencies: ForgeRelay may discover an executable already installed on the
 machine, but it never downloads or installs one automatically.
+
+ForgeRelay 0.4.5 hardens this shared Language-service runtime. Semantic requests
+have one internal bounded deadline, Host cancellation propagates to LSP cancellation,
+and each service has finite concurrent and queued request budgets rather than
+Agent-configurable timeouts. An unexpected server crash is retried at most once;
+repeated crashes enter a short cooldown. Effective server-definition fingerprints
+invalidate only the affected project/service on the next resolution without adding
+a recursive filesystem watcher.
+
+Language services are keyed by physical Language project identity, so logical
+workspaces over the same checkout reuse one process. Truly idle services are
+reclaimed after a bounded TTL and the global service cap evicts the least-recently-
+used safe idle service. A server request that ignores cancellation still counts as
+active until the underlying JSON-RPC request settles. Managed-worktree finalization
+releases services rooted in that worktree before removal and refuses finalization
+while semantic work is active. Debug `runtime_resources` telemetry includes only
+aggregate Language-service/process/request/document/diagnostic/stderr counts; it
+does not log source contents or source paths.
 
 Effective Language-server definitions resolve in this order:
 
