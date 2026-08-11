@@ -1302,7 +1302,7 @@ test("Host cancellation during a blocking BeforeTool Hook prevents the original 
     JSON.stringify({
       event: "BeforeTool",
       matcher: { tool: "bash", commandRegex: "cancelled-operation\\.mjs" },
-      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScript)}`,
+      command: `node "${hookScript}"`,
       timeoutSeconds: 30,
     }),
   );
@@ -1339,7 +1339,7 @@ test("Host cancellation before processId delivery discards a process created bef
     JSON.stringify({
       event: "AfterTool",
       matcher: { tool: "bash" },
-      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScript)}`,
+      command: `node "${hookScript}"`,
       timeoutSeconds: 30,
     }),
   );

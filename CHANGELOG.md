@@ -20,7 +20,7 @@ All notable ForgeRelay changes are documented here.
 
 - Propagated Host request cancellation through lifecycle Hooks and shell process waits. If a Host cancels while a blocking `BeforeTool` Hook is still running, ForgeRelay terminates the Hook and does not execute the original tool side effect; cancellation of an initial shell run also terminates a process whose `processId` has not yet been delivered.
 - Corrected `ProcessManager` yield bounding so a configured maximum also caps the default feedback window rather than only explicit `yieldTimeMs` values.
-- Made the release-proof test harness convert module URLs with Node's filesystem-aware `fileURLToPath`, so the release gate runs correctly on Windows drive-letter paths as well as POSIX hosts.
+- Made the new release-proof and Hook-cancellation test harnesses use cross-platform Node path and shell invocation forms, covering Windows drive-letter paths and `cmd.exe` Hook execution as well as POSIX hosts.
 
 ## [0.4.6] - 2026-08-11
 
