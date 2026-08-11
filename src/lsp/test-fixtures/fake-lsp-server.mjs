@@ -56,6 +56,16 @@ function fakeDiagnostics(count, replacement = false) {
   }));
 }
 
+function fakePullDiagnostics(count) {
+  return Array.from({ length: count }, (_unused, index) => ({
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+    severity: 1,
+    code: `P${index + 1}`,
+    source: "fake-lsp",
+    message: `pulled diagnostic ${index + 1}`,
+  }));
+}
+
 function publishDiagnostics(uri, version, diagnostics) {
   notify("textDocument/publishDiagnostics", { uri, version, diagnostics });
 }
@@ -81,6 +91,15 @@ function handle(message) {
         referencesProvider: true,
         documentSymbolProvider: documentSymbolsMode !== "unsupported",
         workspaceSymbolProvider: workspaceSymbolsMode !== "unsupported",
+        ...((diagnosticsMode.startsWith("pull") || diagnosticsMode === "mixed")
+          ? {
+              diagnosticProvider: {
+                identifier: "fake",
+                interFileDependencies: false,
+                workspaceDiagnostics: false,
+              },
+            }
+          : {}),
         positionEncoding: "utf-16",
         textDocumentSync: syncKind,
       },
@@ -115,7 +134,7 @@ function handle(message) {
   if (message.method === "textDocument/didOpen") {
     const uri = message.params?.textDocument?.uri;
     const version = message.params?.textDocument?.version;
-    if (typeof uri === "string" && diagnosticsMode.startsWith("push")) {
+    if (typeof uri === "string" && (diagnosticsMode.startsWith("push") || diagnosticsMode === "mixed")) {
       publishDiagnostics(uri, version, fakeDiagnostics(diagnosticCount));
       if (diagnosticsMode === "push-replace") {
         publishDiagnostics(uri, version, fakeDiagnostics(1, true));
@@ -132,6 +151,21 @@ function handle(message) {
       else if (diagnosticsMode === "push") publishDiagnostics(uri, version, fakeDiagnostics(diagnosticCount));
     }
     return;
+  }
+
+  if (message.method === "textDocument/diagnostic") {
+    if (diagnosticsMode === "pull-unchanged" && message.params?.previousResultId === "pull-1") {
+      respond(message.id, { kind: "unchanged", resultId: "pull-1" });
+      return;
+    }
+    if (diagnosticsMode.startsWith("pull") || diagnosticsMode === "mixed") {
+      respond(message.id, {
+        kind: "full",
+        resultId: "pull-1",
+        items: fakePullDiagnostics(diagnosticCount),
+      });
+      return;
+    }
   }
 
   if (message.method === "textDocument/hover") {

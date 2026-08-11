@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc/node";
 import {
   DefinitionRequest,
+  DocumentDiagnosticReportKind,
+  DocumentDiagnosticRequest,
   DocumentSymbolRequest,
   DidChangeTextDocumentNotification,
   DidCloseTextDocumentNotification,
@@ -362,16 +364,59 @@ export class LanguageService {
       await this.ensureStarted();
       const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
       const document = await this.syncDocument(sourcePath);
-      return {
-        operation: "diagnostics",
+      const limit = input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT;
+      const common = {
+        operation: "diagnostics" as const,
         selectedServer: this.project.definition.id,
         projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
         path: workspaceDisplayPath(this.workspaceRoot, sourcePath),
+      };
+      const diagnosticProvider = this.capabilities?.diagnosticProvider;
+      if (diagnosticProvider) {
+        const previousResultId = this.diagnosticSnapshots.previousPullResultId(document.uri);
+        const response = await withTimeout(
+          this.connection!.sendRequest(DocumentDiagnosticRequest.type, {
+            textDocument: { uri: document.uri },
+            ...(diagnosticProvider.identifier === undefined ? {} : { identifier: diagnosticProvider.identifier }),
+            ...(previousResultId === undefined ? {} : { previousResultId }),
+          }),
+          this.policy.requestTimeoutMs,
+          () => new CodeIntelligenceError(
+            "code.request_timeout",
+            `Diagnostic request timed out for ${input.path}.`,
+          ),
+        );
+        if (response.kind === DocumentDiagnosticReportKind.Full) {
+          this.diagnosticSnapshots.capturePull(
+            response.items,
+            document,
+            this.positionEncoding,
+            response.resultId,
+          );
+        } else if (!this.diagnosticSnapshots.markPullUnchanged(document, response.resultId)) {
+          throw new CodeIntelligenceError(
+            "code.result_outside_policy",
+            `Language server ${this.project.definition.id} returned unchanged diagnostics without a previous full report.`,
+          );
+        }
+        return {
+          ...common,
+          provider: "pull",
+          ...this.diagnosticSnapshots.readPull(document, limit),
+        };
+      }
+
+      const snapshot = this.diagnosticSnapshots.readPush(document, limit);
+      if (snapshot.freshness.state === "missing" && !this.diagnosticSnapshots.hasObservedPushDiagnostics()) {
+        throw new CodeIntelligenceError(
+          "code.operation_unsupported",
+          `Language server ${this.project.definition.id} does not provide pull diagnostics and has not published push diagnostics.`,
+        );
+      }
+      return {
+        ...common,
         provider: "push",
-        ...this.diagnosticSnapshots.read(
-          document,
-          input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT,
-        ),
+        ...snapshot,
       };
     } catch (error) {
       if (error instanceof CodeIntelligenceError) throw error;
@@ -526,6 +571,10 @@ export class LanguageService {
             dynamicRegistration: false,
             hierarchicalDocumentSymbolSupport: true,
           },
+          diagnostic: {
+            dynamicRegistration: false,
+            relatedDocumentSupport: false,
+          },
         },
       },
     };
@@ -571,7 +620,7 @@ export class LanguageService {
     connection.onNotification("window/logMessage", () => undefined);
     connection.onNotification("window/showMessage", () => undefined);
     connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
-      this.diagnosticSnapshots.capture(
+      this.diagnosticSnapshots.capturePush(
         params,
         this.documents.get(params.uri),
         this.positionEncoding,
