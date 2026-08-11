@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-08-11
+
+### Added
+
+- Added published `npm run lsp:interop` acceptance for `typescript-language-server`, Pyright, `rust-analyzer`, `gopls`, and `clangd`: detected executables run through built-in discovery and real stdio LSP, while missing external servers are reported as explicit skips without automatic installation.
+- Extended the real 7677 HTTP/OAuth/MCP acceptance path to execute all six `code.intelligence` v1 operations, normalized results, a stable error path, and Language-service `shutdown -> exit` behavior while keeping exactly nine Core MCP tools.
+
+### Changed
+
+- Cloud release CI now runs optional real-server interoperability after the normal deterministic fake-LSP test/build gate on Linux, macOS, and Windows.
+- Completed the 0.4 LSP v1 user, configuration, roadmap, contributor, and explicit Language-server example documentation, and hardened cross-platform/concurrency acceptance timing exposed during final release validation.
+
 ## [0.4.5] - 2026-08-11
 
 ### Added
