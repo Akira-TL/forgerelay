@@ -332,11 +332,17 @@ try {
   });
   assert.equal(describedCodeIntelligence.isError, undefined);
   assert.equal(describedCodeIntelligence.structuredContent.capability.guide.name, "code-intelligence");
-  assert.equal(describedCodeIntelligence.structuredContent.capability.inputSchema.type, "object");
+  const codeIntelligenceSchema = describedCodeIntelligence.structuredContent.capability.inputSchema;
+  assert.ok(Array.isArray(codeIntelligenceSchema.oneOf));
   assert.deepEqual(
-    describedCodeIntelligence.structuredContent.capability.inputSchema.properties.operation.enum,
-    ["definition", "hover"],
+    codeIntelligenceSchema.oneOf.map((variant) => variant.properties.operation.const),
+    ["definition", "hover", "references"],
   );
+  const referencesSchema = codeIntelligenceSchema.oneOf.find(
+    (variant) => variant.properties.operation.const === "references",
+  );
+  assert.equal(referencesSchema.properties.limit.minimum, 1);
+  assert.equal(referencesSchema.properties.limit.maximum, 1000);
   if (process.platform === "linux") {
     const describedArtifact = callTool(oauth.accessToken, sessionId, 82, "capability", {
       workspaceId,

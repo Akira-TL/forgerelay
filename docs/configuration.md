@@ -154,13 +154,16 @@ force a Host to invalidate its cached schema.
 ### LSP code intelligence
 
 ForgeRelay advertises `code.intelligence` through the Capability Gateway; it does
-not add language-specific top-level MCP tools. ForgeRelay 0.4.1 supports
-`definition` and `hover`. Both operations accept the same workspace-relative source
-position. Hover results normalize plaintext, Markdown, and supported legacy LSP
-payloads into one `contents` string with optional `language` and normalized `range`
-metadata. Language Servers are external dependencies: ForgeRelay may discover an
-executable already installed on the machine, but it never downloads or installs one
-automatically.
+not add language-specific top-level MCP tools. ForgeRelay 0.4.2 supports
+`definition`, `hover`, and `references`. Position-based operations accept the same
+workspace-relative source position. Hover results normalize plaintext, Markdown,
+and supported legacy LSP payloads into one `contents` string with optional
+`language` and normalized `range` metadata. References use the same normalized
+location shape as definition, default to 100 returned locations, and accept a
+`limit` from 1 through 1000; results report `returned`, `truncated`, and the real
+`total` when the complete Language-server response makes it known. Language Servers
+are external dependencies: ForgeRelay may discover an executable already installed
+on the machine, but it never downloads or installs one automatically.
 
 Effective Language-server definitions resolve in this order:
 

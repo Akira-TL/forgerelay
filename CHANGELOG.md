@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-11
+
+### Added
+
+- Added bounded `code.intelligence` `references` support through the shared Language-service path, using the same normalized location contract as definition results.
+
+### Changed
+
+- References default to 100 returned locations, accept an explicit limit up to 1000, and report `returned`, `truncated`, and the real `total` when the complete Language-server response is known.
+- Shared semantic-location normalization now preserves External code location metadata for both definition and references without expanding ForgeRelay file authority.
+- Split Language-service management from the protocol runtime so later code-intelligence operations can grow without concentrating lifecycle and request logic in one module.
+
 ## [0.4.1] - 2026-08-11
 
 ### Added
