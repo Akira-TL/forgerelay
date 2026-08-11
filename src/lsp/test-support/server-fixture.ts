@@ -73,7 +73,12 @@ export async function createCodeIntelligenceServerFixture(
 
   t.after(async () => {
     await close();
-    await rm(root, { recursive: true, force: true });
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 100,
+    });
   });
 
   return { client, project, codeIntelligence, close };

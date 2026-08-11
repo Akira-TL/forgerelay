@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { accessSync, constants, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeIntelligenceManager } from "../dist/lsp/runtime/manager.js";
+import { findExecutable, probeExecutable } from "./lsp-interop-support.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const interopRoot = resolve(repoRoot, ".forgerelay-debug", "lsp-interop");
@@ -111,6 +112,12 @@ for (const fixture of fixtures) {
     console.log(`SKIP ${fixture.id}: ${fixture.command} not found on PATH; ForgeRelay does not install Language servers.`);
     continue;
   }
+  const preflight = probeExecutable(executable);
+  if (!preflight.available) {
+    skipped += 1;
+    console.log(`SKIP ${fixture.id}: ${executable} is present but not runnable: ${preflight.reason}`);
+    continue;
+  }
 
   const root = join(interopRoot, fixture.id);
   fixture.setup(root);
@@ -170,26 +177,4 @@ function write(root, relativePath, content) {
   const path = join(root, relativePath);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content, "utf8");
-}
-
-function findExecutable(command) {
-  const pathValue = process.env.PATH ?? process.env.Path ?? "";
-  const pathEntries = pathValue.split(delimiter).filter(Boolean);
-  const extensions = process.platform === "win32"
-    ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
-    : [""];
-  const accessMode = process.platform === "win32" ? constants.F_OK : constants.X_OK;
-
-  for (const directory of pathEntries) {
-    for (const extension of extensions) {
-      const candidate = join(directory, process.platform === "win32" ? `${command}${extension}` : command);
-      try {
-        accessSync(candidate, accessMode);
-        return candidate;
-      } catch {
-        // Continue searching PATH without invoking or installing anything.
-      }
-    }
-  }
-  return undefined;
 }
