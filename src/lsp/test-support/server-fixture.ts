@@ -16,6 +16,7 @@ import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "..
 export interface CodeIntelligenceServerFixture {
   client: Client;
   project: string;
+  codeIntelligence: CodeIntelligenceManager;
   close: () => Promise<void>;
 }
 
@@ -75,7 +76,7 @@ export async function createCodeIntelligenceServerFixture(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, close };
+  return { client, project, codeIntelligence, close };
 }
 
 export async function callOpen(

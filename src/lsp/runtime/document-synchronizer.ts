@@ -29,6 +29,10 @@ export class DocumentSynchronizer {
     return this.documents.get(uri);
   }
 
+  get size(): number {
+    return this.documents.size;
+  }
+
   async sync(
     sourcePath: string,
     connection: MessageConnection,

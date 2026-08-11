@@ -14,7 +14,8 @@ export class CodeIntelligenceError extends Error {
       | "code.invalid_position"
       | "code.result_outside_policy"
       | "code.language_service_capacity"
-      | "code.language_service_cooldown",
+      | "code.language_service_cooldown"
+      | "code.language_service_busy",
     message: string,
   ) {
     super(message);

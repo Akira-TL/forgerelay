@@ -283,7 +283,17 @@ function formatRuntimeResources(entry: LogFields): string {
   const completed = numberField(entry.processesCompleted) ?? 0;
   const workspaces = numberField(entry.cachedWorkspaces) ?? 0;
   const reviewStates = numberField(entry.reviewStates) ?? 0;
-  return `runtime rss=${rssMb}MB heap=${heapUsedMb}/${heapTotalMb}MB transports=${transports} processes=${running} running/${completed} completed workspaces=${workspaces} review=${reviewStates}`;
+  const languageServices = numberField(entry.languageServices) ?? 0;
+  const languageServicesActive = numberField(entry.languageServicesActive) ?? 0;
+  const languageProcesses = numberField(entry.languageProcessesRunning) ?? 0;
+  const languageRequestsActive = numberField(entry.languageRequestsActive) ?? 0;
+  const languageRequestsQueued = numberField(entry.languageRequestsQueued) ?? 0;
+  const languageDocuments = numberField(entry.languageOpenDocuments) ?? 0;
+  const languageDiagnosticSnapshots = numberField(entry.languageDiagnosticSnapshots) ?? 0;
+  const languageDiagnosticsRetained = numberField(entry.languageDiagnosticsRetained) ?? 0;
+  const languageStderrBytes = numberField(entry.languageStderrBytes) ?? 0;
+  const languageCooldowns = numberField(entry.languageCrashCooldowns) ?? 0;
+  return `runtime rss=${rssMb}MB heap=${heapUsedMb}/${heapTotalMb}MB transports=${transports} processes=${running} running/${completed} completed workspaces=${workspaces} review=${reviewStates} lsp=${languageServices} services/${languageServicesActive} active/${languageProcesses} processes requests=${languageRequestsActive} active/${languageRequestsQueued} queued docs=${languageDocuments} diagnostics=${languageDiagnosticSnapshots} snapshots/${languageDiagnosticsRetained} retained stderr=${languageStderrBytes}B cooldowns=${languageCooldowns}`;
 }
 
 function bytesToMegabytes(value: number | undefined): number {

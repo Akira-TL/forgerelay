@@ -106,6 +106,13 @@ export class DiagnosticSnapshotStore {
     return this.pushSnapshots.size + this.pullSnapshots.size;
   }
 
+  get retainedDiagnostics(): number {
+    let total = 0;
+    for (const snapshot of this.pushSnapshots.values()) total += snapshot.diagnostics.length;
+    for (const snapshot of this.pullSnapshots.values()) total += snapshot.diagnostics.length;
+    return total;
+  }
+
   private normalizeSnapshot(
     diagnostics: Diagnostic[],
     document: DiagnosticDocumentState,

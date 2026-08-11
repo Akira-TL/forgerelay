@@ -77,6 +77,17 @@ export interface CodeIntelligenceRuntimePolicy {
   maxDiagnosticsPerDocument: number;
 }
 
+export interface LanguageServiceRuntimeStats {
+  operationInFlight: number;
+  semanticRequestsActive: number;
+  semanticRequestsQueued: number;
+  openDocuments: number;
+  diagnosticSnapshots: number;
+  diagnosticsRetained: number;
+  stderrBytes: number;
+  processRunning: boolean;
+}
+
 export class LanguageService {
   readonly key: string;
   lastUsedAt = Date.now();
@@ -119,6 +130,26 @@ export class LanguageService {
   release(): void {
     this.inFlight = Math.max(0, this.inFlight - 1);
     this.lastUsedAt = Date.now();
+  }
+
+  get isIdle(): boolean {
+    return this.inFlight === 0 &&
+      this.semanticRequests.activeCount === 0 &&
+      this.semanticRequests.queuedCount === 0;
+  }
+
+  get runtimeStats(): LanguageServiceRuntimeStats {
+    const child = this.child;
+    return {
+      operationInFlight: this.inFlight,
+      semanticRequestsActive: this.semanticRequests.activeCount,
+      semanticRequestsQueued: this.semanticRequests.queuedCount,
+      openDocuments: this.documents.size,
+      diagnosticSnapshots: this.diagnosticSnapshots.size,
+      diagnosticsRetained: this.diagnosticSnapshots.retainedDiagnostics,
+      stderrBytes: this.stderrTail.length,
+      processRunning: Boolean(child && child.exitCode === null && child.signalCode === null),
+    };
   }
 
   async definition(
@@ -456,6 +487,9 @@ export class LanguageService {
     this.child = undefined;
     this.connection = undefined;
     this.initializePromise = undefined;
+    this.capabilities = undefined;
+    this.positionEncoding = PositionEncodingKind.UTF16;
+    this.stderrTail = Buffer.alloc(0);
   }
 
   private async ensureStarted(): Promise<void> {

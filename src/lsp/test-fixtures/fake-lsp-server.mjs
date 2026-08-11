@@ -26,7 +26,7 @@ const diagnosticCount = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT 
 
 function log(event) {
   if (!logPath) return;
-  appendFileSync(logPath, `${JSON.stringify(event)}\n`);
+  appendFileSync(logPath, `${JSON.stringify({ pid: process.pid, ...event })}\n`);
 }
 
 function send(message) {

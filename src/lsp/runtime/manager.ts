@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import type { ServerConfig } from "../../config.js";
 import {
   CodeIntelligenceError,
@@ -40,6 +40,29 @@ export interface CodeIntelligenceManagerOptions {
   crashCooldownMs?: number;
 }
 
+export interface CodeIntelligenceManagerStats {
+  servicesTotal: number;
+  servicesActive: number;
+  servicesIdle: number;
+  processesRunning: number;
+  operationsInFlight: number;
+  semanticRequestsActive: number;
+  semanticRequestsQueued: number;
+  openDocuments: number;
+  diagnosticSnapshots: number;
+  diagnosticsRetained: number;
+  stderrBytes: number;
+  pendingCreations: number;
+  crashCooldowns: number;
+  invalidatedServices: number;
+  retiredWorkspaceRoots: number;
+}
+
+export interface WorkspaceRootRetirement {
+  root: string;
+  releasedServices: number;
+}
+
 interface CrashState {
   failures: number;
   cooldownUntil: number;
@@ -50,6 +73,7 @@ export class CodeIntelligenceManager {
   private readonly serviceCreations = new Map<string, Promise<LanguageService>>();
   private readonly invalidatedServiceKeys = new Set<string>();
   private readonly crashStates = new Map<string, CrashState>();
+  private readonly retiredWorkspaceRoots = new Set<string>();
   private serviceCreationQueue: Promise<void> = Promise.resolve();
   private readonly cleanupTimer: NodeJS.Timeout;
   private readonly policy: CodeIntelligenceRuntimePolicy;
@@ -91,6 +115,7 @@ export class CodeIntelligenceManager {
     let canonicalWorkspaceRoot: string;
     try {
       canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
+      this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
       project = await resolveLanguageProject({
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
@@ -109,6 +134,7 @@ export class CodeIntelligenceManager {
 
     let lastCrash: CodeIntelligenceError | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
       const service = await this.acquireService(canonicalWorkspaceRoot, project);
       let crashed = false;
       try {
@@ -155,11 +181,96 @@ export class CodeIntelligenceManager {
     this.services.clear();
     this.invalidatedServiceKeys.clear();
     this.crashStates.clear();
+    this.retiredWorkspaceRoots.clear();
     await Promise.allSettled(services.map((service) => service.shutdown()));
   }
 
   get size(): number {
     return this.services.size;
+  }
+
+  stats(): CodeIntelligenceManagerStats {
+    const services = [...this.services.values()];
+    const now = Date.now();
+    return services.reduce<CodeIntelligenceManagerStats>((stats, service) => {
+      const serviceStats = service.runtimeStats;
+      stats.servicesActive += service.isIdle ? 0 : 1;
+      stats.servicesIdle += service.isIdle ? 1 : 0;
+      stats.processesRunning += serviceStats.processRunning ? 1 : 0;
+      stats.operationsInFlight += serviceStats.operationInFlight;
+      stats.semanticRequestsActive += serviceStats.semanticRequestsActive;
+      stats.semanticRequestsQueued += serviceStats.semanticRequestsQueued;
+      stats.openDocuments += serviceStats.openDocuments;
+      stats.diagnosticSnapshots += serviceStats.diagnosticSnapshots;
+      stats.diagnosticsRetained += serviceStats.diagnosticsRetained;
+      stats.stderrBytes += serviceStats.stderrBytes;
+      return stats;
+    }, {
+      servicesTotal: services.length,
+      servicesActive: 0,
+      servicesIdle: 0,
+      processesRunning: 0,
+      operationsInFlight: 0,
+      semanticRequestsActive: 0,
+      semanticRequestsQueued: 0,
+      openDocuments: 0,
+      diagnosticSnapshots: 0,
+      diagnosticsRetained: 0,
+      stderrBytes: 0,
+      pendingCreations: this.serviceCreations.size,
+      crashCooldowns: [...this.crashStates.values()].filter((state) => state.cooldownUntil > now).length,
+      invalidatedServices: this.invalidatedServiceKeys.size,
+      retiredWorkspaceRoots: this.retiredWorkspaceRoots.size,
+    });
+  }
+
+  async retireWorkspaceRoot(workspaceRoot: string): Promise<WorkspaceRootRetirement> {
+    const canonicalRoot = await realpath(resolve(workspaceRoot));
+    this.retiredWorkspaceRoots.add(canonicalRoot);
+    await Promise.allSettled(this.serviceCreations.values());
+    const matching = [...this.services.entries()].filter(([, service]) =>
+      resolve(service.workspaceRoot) === canonicalRoot
+    );
+    const active = matching.filter(([, service]) => !service.isIdle);
+    if (active.length > 0) {
+      this.retiredWorkspaceRoots.delete(canonicalRoot);
+      throw new CodeIntelligenceError(
+        "code.language_service_busy",
+        `Cannot finalize Workspace ${canonicalRoot} while ${active.length} Language service request(s) are still active.`,
+      );
+    }
+
+    let releasedServices = 0;
+    for (const [key, service] of matching) {
+      if (this.services.get(key) === service) this.services.delete(key);
+      this.invalidatedServiceKeys.delete(key);
+      this.crashStates.delete(key);
+      await service.shutdown();
+      releasedServices += 1;
+    }
+    this.clearIdentityStateForWorkspaceRoot(canonicalRoot);
+    return { root: canonicalRoot, releasedServices };
+  }
+
+  restoreWorkspaceRoot(root: string): void {
+    this.retiredWorkspaceRoots.delete(resolve(root));
+  }
+
+  private assertWorkspaceRootAvailable(workspaceRoot: string): void {
+    if (!this.retiredWorkspaceRoots.has(resolve(workspaceRoot))) return;
+    throw new CodeIntelligenceError(
+      "code.language_service_unavailable",
+      "Code intelligence is unavailable because this managed-worktree Workspace is being finalized.",
+    );
+  }
+
+  private clearIdentityStateForWorkspaceRoot(workspaceRoot: string): void {
+    for (const key of [...this.crashStates.keys()]) {
+      if (identityBelongsToWorkspaceRoot(key, workspaceRoot)) this.crashStates.delete(key);
+    }
+    for (const key of [...this.invalidatedServiceKeys]) {
+      if (identityBelongsToWorkspaceRoot(key, workspaceRoot)) this.invalidatedServiceKeys.delete(key);
+    }
   }
 
   private async executeOperation(
@@ -208,7 +319,7 @@ export class CodeIntelligenceManager {
       ) {
         this.invalidatedServiceKeys.add(key);
         this.crashStates.delete(key);
-        if (service.inFlight === 0) invalidated.push([key, service]);
+        if (service.isIdle) invalidated.push([key, service]);
       }
     }
     for (const [key, service] of invalidated) {
@@ -220,7 +331,7 @@ export class CodeIntelligenceManager {
 
   private async releaseService(service: LanguageService): Promise<void> {
     service.release();
-    if (!this.invalidatedServiceKeys.has(service.key) || service.inFlight !== 0) return;
+    if (!this.invalidatedServiceKeys.has(service.key) || !service.isIdle) return;
     if (this.services.get(service.key) === service) this.services.delete(service.key);
     this.invalidatedServiceKeys.delete(service.key);
     await service.shutdown();
@@ -288,7 +399,7 @@ export class CodeIntelligenceManager {
 
   private async closeIdle(now = Date.now()): Promise<void> {
     const stale = [...this.services.entries()].filter(([, service]) =>
-      service.inFlight === 0 && now - service.lastUsedAt >= this.policy.idleMs
+      service.isIdle && now - service.lastUsedAt >= this.policy.idleMs
     );
     for (const [key, service] of stale) {
       this.services.delete(key);
@@ -299,7 +410,7 @@ export class CodeIntelligenceManager {
   private async ensureCapacity(): Promise<void> {
     if (this.services.size < this.policy.maxServices) return;
     const idle = [...this.services.entries()]
-      .filter(([, service]) => service.inFlight === 0)
+      .filter(([, service]) => service.isIdle)
       .sort((left, right) => left[1].lastUsedAt - right[1].lastUsedAt);
     const candidate = idle[0];
     if (!candidate) {
@@ -310,6 +421,20 @@ export class CodeIntelligenceManager {
     }
     this.services.delete(candidate[0]);
     await candidate[1].shutdown();
+  }
+}
+
+function identityBelongsToWorkspaceRoot(identity: string, workspaceRoot: string): boolean {
+  try {
+    const parsed = JSON.parse(identity) as unknown;
+    const projectRoot = Array.isArray(parsed) && typeof parsed[0] === "string"
+      ? resolve(parsed[0])
+      : undefined;
+    if (!projectRoot) return false;
+    const root = resolve(workspaceRoot);
+    return projectRoot === root || projectRoot.startsWith(`${root}${sep}`);
+  } catch {
+    return false;
   }
 }
 

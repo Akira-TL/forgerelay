@@ -1793,7 +1793,13 @@ export function createMcpServer(
               );
             }
             const startedAt = performance.now();
-            const closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+            const retirement = await codeIntelligence.retireWorkspaceRoot(workspace.root);
+            let closed: Awaited<ReturnType<WorkspaceRegistry["closeWorktree"]>>;
+            try {
+              closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+            } finally {
+              codeIntelligence.restoreWorkspaceRoot(retirement.root);
+            }
             await Promise.all(
               physicalWorkspaceIds.map((id) => reviewCheckpoints.releaseWorkspace(id)),
             );
@@ -2693,6 +2699,7 @@ export function createServer(
   const logRuntimeResources = (): void => {
     const memory = process.memoryUsage();
     const processStats = processSessions.stats();
+    const codeStats = codeIntelligence.stats();
     logEvent(config.logging, "debug", "runtime_resources", {
       rssBytes: memory.rss,
       heapUsedBytes: memory.heapUsed,
@@ -2705,7 +2712,20 @@ export function createServer(
       processesCompleted: processStats.completed,
       cachedWorkspaces: workspaces.cachedWorkspaceCount,
       reviewStates: reviewCheckpoints.stateCount,
-      languageServices: codeIntelligence.size,
+      languageServices: codeStats.servicesTotal,
+      languageServicesActive: codeStats.servicesActive,
+      languageProcessesRunning: codeStats.processesRunning,
+      languageOperationsInFlight: codeStats.operationsInFlight,
+      languageRequestsActive: codeStats.semanticRequestsActive,
+      languageRequestsQueued: codeStats.semanticRequestsQueued,
+      languageOpenDocuments: codeStats.openDocuments,
+      languageDiagnosticSnapshots: codeStats.diagnosticSnapshots,
+      languageDiagnosticsRetained: codeStats.diagnosticsRetained,
+      languageStderrBytes: codeStats.stderrBytes,
+      languagePendingCreations: codeStats.pendingCreations,
+      languageCrashCooldowns: codeStats.crashCooldowns,
+      languageInvalidatedServices: codeStats.invalidatedServices,
+      languageRetiredWorkspaceRoots: codeStats.retiredWorkspaceRoots,
     });
   };
   const transportCleanupTimer = setInterval(() => {
