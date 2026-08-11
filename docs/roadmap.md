@@ -238,7 +238,10 @@ and verify publication before work begins on the next boundary:
 - **0.4.5** — cancellation, deadlines, crash recovery/config invalidation, concurrency,
   and full Language-service resource/lifecycle hardening;
 - **0.4.6** — optional real-server interoperability, cross-platform checks, fresh Host
-  acceptance, documentation, and final LSP v1 closure.
+  acceptance, documentation, and final LSP v1 closure;
+- **0.4.7** — post-acceptance Hook/process lifecycle hardening: independent bash feedback
+  and execution deadlines, Host cancellation propagation, longer bounded completion delivery,
+  and proof-based release Hooks that do not hold a multi-minute MCP request open.
 
 The shipping 0.4 LSP v1 contract keeps the canonical nine Core MCP tools unchanged
 and exposes semantic operations only through `code.intelligence`. Deterministic

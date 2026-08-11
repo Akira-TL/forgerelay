@@ -305,16 +305,25 @@ context-delivery checkpoints, and other semantic state transitions remain immedi
 persistent writes. A hard process crash may therefore lose only the most recent
 activity timestamp window, not the existence or closed/open state of a workspace.
 
-Regular `bash` has no execution-timeout input. `action="run"` (the default) waits
-in the foreground for at most 300 seconds; if the process is still alive, the
-result contains `running: true` and a canonical `processId`. Reuse the same `bash`
-with `action="process"` to poll/wait, send `input`, resize a PTY, or set
-`interrupt:true`; each wait can be up to 300 seconds. ForgeRelay does not kill a
-process merely because a wait window expires. Completed background processes are
-delivered once with a later tool result for the same logical workspace ID. An
-unconsumed completed-process notice is retained for at most five minutes, and
-ForgeRelay also bounds active and completed process counts so repeated background
-commands cannot grow server memory without limit.
+Regular `bash` separates the **feedback window** from the **execution deadline**. For
+`action="run"`, `yieldTimeMs` controls how long the current MCP request waits before
+returning `running: true` plus a canonical `processId`; it defaults to 10 seconds and
+`0` is the intentional-background form. `timeoutMs` is independent: when explicitly
+set it limits total runtime from process start and ForgeRelay terminates the process
+on expiry; when omitted ForgeRelay imposes no execution deadline. Reuse the same
+`bash` with `action="process"` to poll incremental output, wait, send `input`, resize
+a PTY, or set `interrupt:true`; each poll wait can be up to 300 seconds and does not
+kill the process merely because the feedback window expires. Host cancellation of
+the initial run request terminates a not-yet-handed-off process so ForgeRelay does
+not leave an orphan process whose `processId` the Agent never received.
+
+Completed background processes are delivered once with a later tool result for the
+same logical workspace ID. Full buffered completion output is retained for five
+minutes; after that ForgeRelay compacts the completion to a bounded head/tail record
+and keeps it deliverable for up to 24 hours, still subject to the global completed
+process count bound. Completed processes no longer prevent `close_workspace`; the
+close response itself delivers any available completion notice. Running processes
+continue to block close until they finish or are interrupted.
 
 Codex mode retains `write_stdin` only as an experimental compatibility adapter;
 regular Agent workflows should use the single `bash` process lifecycle.
@@ -358,13 +367,13 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
     "tool": "bash",
     "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
   },
-  "command": "npm run release:verify",
-  "timeoutSeconds": 300,
+  "command": "node scripts/release-proof.mjs check-hook",
+  "timeoutSeconds": 30,
   "report": true
 }
 ```
 
-这个例子可以保存为 `.forgerelay/hooks/release-tag-local-ci.json`。Agent 通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 先跑本地发布检查；成功后才执行原始 `git push`，失败则直接阻断并把 `release-tag-local-ci` 的失败报告返回给 Agent。
+这个例子可以保存为 `.forgerelay/hooks/release-tag-local-ci.json`。耗时的 `npm run release:verify` 应在已提交的 release-ready HEAD 上提前运行，并在 `.git/forgerelay/` 写入 release proof。Agent 之后通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 只快速校验 proof、当前 HEAD/package version、clean working tree（含 untracked）与本地 tag 指向；全部一致才执行原始 `git push`。因此发布 gate 不再依赖一个持续数分钟的单次 MCP request，同时任何验证后的代码变化都会使 proof 失效并阻断推送。
 
 独立 Hook 文件支持这些顶层字段：
 
@@ -423,7 +432,7 @@ Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令�
 | `SubagentStart` | 本地 subagent worker 进入执行时触发。 |
 | `SubagentStop` | subagent 完成或进入 error 状态时触发。 |
 
-`BeforeTool` 与 `BeforeWorktreeClose` 是 blocking 事件。其他事件是 observational：失败会被记录并报告，但不会回滚已经完成的文件、Git、进程或网络副作用。Blocking 同样不是事务；Hook 命令自己已经产生的副作用不会因 exit code 非零而撤销。
+`BeforeTool` 与 `BeforeWorktreeClose` 是 blocking 事件。其他事件是 observational：失败会被记录并报告，但不会回滚已经完成的文件、Git、进程或网络副作用。Blocking 同样不是事务；Hook 命令自己已经产生的副作用不会因 exit code 非零而撤销。Host 在 blocking Hook 仍运行时取消 MCP request，会终止该 Hook 并阻止原始 tool operation 开始，因此不会出现 Host 已放弃请求后 Hook 又放行后续原始副作用的情况。
 
 ### Agent 可见报告
 
@@ -431,7 +440,7 @@ Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令�
 
 ```text
 Hook results:
-✓ release-tag-local-ci (BeforeTool, project) passed in 38124ms
+✓ release-tag-local-ci (BeforeTool, project) passed in 42ms
 ```
 
 阻断失败会明确显示 `failed`。ForgeRelay 的 server instructions 要求 Agent 在出现 Hook results 时，向用户说明有意义的 Hook 是否通过或阻断了操作。异步 subagent 的 `SubagentStart` / `SubagentStop` 报告会随 session 持久化，并由 `forgerelay agents show` 展示。

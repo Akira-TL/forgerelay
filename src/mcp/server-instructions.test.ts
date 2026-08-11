@@ -140,7 +140,8 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.ok(descriptions.shell.length < 900, `shell description should stay compact, got ${descriptions.shell.length} characters`);
   assert.match(descriptions.shell, /local user's authority/);
   assert.match(descriptions.shell, /does not make shell execution a sandbox/);
-  assert.match(descriptions.shell, /300 seconds/);
+  assert.match(descriptions.shell, /yieldTimeMs/);
+  assert.match(descriptions.shell, /timeoutMs/);
   assert.match(descriptions.shell, /action=process/);
   assert.doesNotMatch(descriptions.shell, /write_stdin/);
   assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);

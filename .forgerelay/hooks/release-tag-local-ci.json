@@ -4,7 +4,7 @@
     "tool": "bash",
     "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
   },
-  "command": "npm run release:verify",
-  "timeoutSeconds": 300,
+  "command": "node scripts/release-proof.mjs check-hook",
+  "timeoutSeconds": 30,
   "report": true
 }

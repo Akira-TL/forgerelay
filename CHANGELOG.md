@@ -4,6 +4,23 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-08-11
+
+### Added
+
+- Added independent `bash` execution deadlines with optional `timeoutMs`; `yieldTimeMs` now remains purely a feedback window, including `yieldTimeMs: 0` for immediate background handoff to a canonical `processId`.
+
+### Changed
+
+- Regular `bash` now defaults to a 10-second feedback window instead of occupying a full 300-second Host request; Agent-selected waits can still be up to 300 seconds, while execution can continue without a ForgeRelay deadline when `timeoutMs` is omitted.
+- Completed background processes keep full buffered output for five minutes, then compact to a bounded completion record deliverable for up to 24 hours. Completed results no longer block workspace close and are delivered with the close response when available.
+- Local `release:verify` now records a proof for the committed release HEAD, while the stable-tag `BeforeTool` Hook performs only a fast proof/HEAD/version/tag check before the push instead of rerunning the multi-minute release gate inside one MCP request.
+
+### Fixed
+
+- Propagated Host request cancellation through lifecycle Hooks and shell process waits. If a Host cancels while a blocking `BeforeTool` Hook is still running, ForgeRelay terminates the Hook and does not execute the original tool side effect; cancellation of an initial shell run also terminates a process whose `processId` has not yet been delivered.
+- Corrected `ProcessManager` yield bounding so a configured maximum also caps the default feedback window rather than only explicit `yieldTimeMs` values.
+
 ## [0.4.6] - 2026-08-11
 
 ### Added

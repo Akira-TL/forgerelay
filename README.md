@@ -163,13 +163,13 @@ Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一
     "tool": "bash",
     "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
   },
-  "command": "npm run release:verify",
-  "timeoutSeconds": 300,
+  "command": "node scripts/release-proof.mjs check-hook",
+  "timeoutSeconds": 30,
   "report": true
 }
 ```
 
-命中 `BeforeTool` 后，Hook 先执行；成功才继续原始 `git push`，失败则直接阻断。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
+耗时的 `npm run release:verify` 应先在已提交的 release-ready HEAD 上运行，它会写入绑定 HEAD/package version 的本地 release proof。命中 `BeforeTool` 后，Hook 只快速验证该 proof、clean working tree（含 untracked）与 tag 指向；成功才继续原始 `git push`，失败则直接阻断。这样发布 gate 不依赖一个持续数分钟的 MCP 请求。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
 
 旧的 inline `hooks` 和聚合 `hooks.json` 仍兼容；新配置建议都用独立 `hooks/*.json` 文件。
 
@@ -292,10 +292,11 @@ npm run release:major
 npm run release:verify
 ```
 
-Daily branch pushes do not run cloud CI. When preparing a release, run the full
-local release verification first. `release:verify` includes a focused parity pass
-in an isolated Node 22.19.0 environment with its own `npm ci`, matching the cloud
-CI runtime for native addons and high-risk LSP lifecycle tests. Pushing a matching
+Daily branch pushes do not run cloud CI. When preparing a release, commit the
+release-ready tree and run the full local release verification on that clean HEAD.
+`release:verify` includes a focused parity pass in an isolated Node 22.19.0 environment
+with its own `npm ci`, matching the cloud CI runtime for native addons and high-risk
+LSP lifecycle tests, then writes the local proof consumed by the tag-push Hook. Pushing a matching
 `vX.Y.Z` tag to `Akira-TL/forgerelay` is the only cloud CI and publish trigger:
 GitHub Actions runs the reusable multi-platform CI, then publishes
 `@akira-tl/forgerelay` and creates the matching GitHub Release only after CI

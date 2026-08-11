@@ -7,11 +7,15 @@ const DEFAULT_POLL_YIELD_MS = 5_000;
 const MAX_START_YIELD_MS = 300_000;
 const MAX_COMMAND_YIELD_MS = 300_000;
 const MAX_POLL_YIELD_MS = 300_000;
+const MAX_EXECUTION_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
 const DEFAULT_BUFFER_CHARACTERS = 256_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 64;
 const DEFAULT_MAX_COMPLETED_PROCESSES = 128;
 const COMPLETED_PROCESS_TTL_MS = 5 * 60 * 1_000;
+const COMPACT_COMPLETION_TTL_MS = 24 * 60 * 60 * 1_000;
+const COMPACT_COMPLETION_CHARACTERS = 16 * 1024;
+const COMPACT_COMPLETION_OUTPUT_TOKENS = COMPACT_COMPLETION_CHARACTERS / 4;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 
@@ -24,8 +28,10 @@ export interface StartCommandInput {
   columns?: number;
   rows?: number;
   yieldTimeMs?: number;
+  timeoutMs?: number;
   maxOutputTokens?: number;
   codexCi?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface WriteStdinInput {
@@ -38,6 +44,7 @@ export interface WriteStdinInput {
   rows?: number;
   yieldTimeMs?: number;
   maxOutputTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface ProcessSnapshot {
@@ -49,6 +56,7 @@ export interface ProcessSnapshot {
   running: boolean;
   exitCode?: number;
   signal?: string;
+  timedOut: boolean;
   wallTimeMs: number;
 }
 
@@ -77,16 +85,22 @@ interface ProcessEntry {
   command: string;
   process?: ManagedProcess;
   startedAtMonotonic: number;
+  finishedAtMonotonic?: number;
   columns: number;
   rows: number;
   buffer: HeadTailBuffer;
   running: boolean;
   exitCode?: number;
   signal?: string;
+  timedOut: boolean;
+  outputWasTruncated: boolean;
   background: boolean;
+  discardOnFinish: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
   cleanupTimer?: NodeJS.Timeout;
+  executionTimeoutTimer?: NodeJS.Timeout;
+  forceKillTimer?: NodeJS.Timeout;
 }
 
 interface ProcessManagerOptions {
@@ -101,11 +115,19 @@ interface ProcessManagerOptions {
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
-  if (value === undefined) return fallback;
+  if (value === undefined) return Math.min(fallback, maximum);
   if (!Number.isFinite(value) || value < 0) {
     throw new Error("Duration and output limits must be non-negative.");
   }
   return Math.min(Math.floor(value), maximum);
+}
+
+function optionalExecutionTimeout(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1 || value > MAX_EXECUTION_TIMEOUT_MS) {
+    throw new Error(`Execution timeout must be an integer between 1 and ${MAX_EXECUTION_TIMEOUT_MS}ms.`);
+  }
+  return value;
 }
 
 function terminalSize(value: number | undefined, fallback: number): number {
@@ -336,11 +358,13 @@ export class ProcessManager {
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
+    input.signal?.throwIfAborted();
     if (this.stats().running >= this.maxActiveProcesses) {
       throw new Error(
         `Active process limit reached (${this.maxActiveProcesses}). Poll, interrupt, or wait for an existing process before starting another.`,
       );
     }
+    const executionTimeoutMs = optionalExecutionTimeout(input.timeoutMs);
     const processEntry = this.createProcess(input);
     this.processes.set(processEntry.id, processEntry);
 
@@ -352,8 +376,18 @@ export class ProcessManager {
       throw error;
     }
 
+    this.armExecutionTimeout(processEntry, executionTimeoutMs);
     const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, this.maxStartYieldMs);
-    await this.waitForExit(processEntry, yieldTimeMs);
+    try {
+      await this.waitForExit(processEntry, yieldTimeMs, input.signal);
+      input.signal?.throwIfAborted();
+    } catch (error) {
+      if (input.signal?.aborted) {
+        processEntry.discardOnFinish = true;
+        this.stopProcess(processEntry, "SIGTERM");
+      }
+      throw error;
+    }
 
     if (processEntry.running) processEntry.background = true;
     const snapshot = this.consume(processEntry, input.maxOutputTokens);
@@ -388,7 +422,7 @@ export class ProcessManager {
       const fallback = interactionRequested ? DEFAULT_INTERACTIVE_YIELD_MS : DEFAULT_POLL_YIELD_MS;
       const maximum = interactionRequested ? MAX_COMMAND_YIELD_MS : MAX_POLL_YIELD_MS;
       const yieldTimeMs = boundedInteger(input.yieldTimeMs, fallback, maximum);
-      await this.waitForExit(processEntry, yieldTimeMs);
+      await this.waitForExit(processEntry, yieldTimeMs, input.signal);
     }
 
     const snapshot = this.consume(processEntry, input.maxOutputTokens);
@@ -397,7 +431,11 @@ export class ProcessManager {
   }
 
   activeWorkspaceIds(): Set<string> {
-    return new Set([...this.processes.values()].map((processEntry) => processEntry.workspaceId));
+    return new Set(
+      [...this.processes.values()]
+        .filter((processEntry) => processEntry.running)
+        .map((processEntry) => processEntry.workspaceId),
+    );
   }
 
   stats(): ProcessManagerStats {
@@ -440,9 +478,16 @@ export class ProcessManager {
     if (processEntry.running) processEntry.process?.kill("SIGTERM");
   }
 
+  discardUndelivered(workspaceId: string, processId: number): void {
+    const processEntry = this.getOwnedProcess(workspaceId, processId);
+    processEntry.discardOnFinish = true;
+    if (processEntry.running) this.stopProcess(processEntry, "SIGTERM");
+    else this.removeProcess(processEntry.id);
+  }
+
   shutdown(): void {
     for (const processEntry of this.processes.values()) {
-      if (processEntry.cleanupTimer) clearTimeout(processEntry.cleanupTimer);
+      this.clearProcessTimers(processEntry);
       if (processEntry.running) processEntry.process?.kill("SIGTERM");
     }
     this.processes.clear();
@@ -450,17 +495,33 @@ export class ProcessManager {
     this.completedProcessIds.length = 0;
   }
 
-  private async waitForExit(processEntry: ProcessEntry, yieldTimeMs: number): Promise<void> {
+  private async waitForExit(
+    processEntry: ProcessEntry,
+    yieldTimeMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
     let timer: NodeJS.Timeout | undefined;
+    let abortListener: (() => void) | undefined;
     try {
-      await Promise.race([
+      const waits: Promise<void>[] = [
         processEntry.exitPromise,
         new Promise<void>((resolve) => {
           timer = setTimeout(resolve, yieldTimeMs);
         }),
-      ]);
+      ];
+      if (signal) {
+        waits.push(new Promise<void>((_resolve, reject) => {
+          abortListener = () => reject(signal.reason instanceof Error
+            ? signal.reason
+            : Object.assign(new Error("Process wait cancelled by Host."), { name: "AbortError" }));
+          signal.addEventListener("abort", abortListener, { once: true });
+        }));
+      }
+      await Promise.race(waits);
     } finally {
       if (timer) clearTimeout(timer);
+      if (signal && abortListener) signal.removeEventListener("abort", abortListener);
     }
   }
 
@@ -479,7 +540,10 @@ export class ProcessManager {
       rows: terminalSize(input.rows, DEFAULT_ROWS),
       buffer: new HeadTailBuffer(this.maxBufferCharacters),
       running: true,
+      timedOut: false,
+      outputWasTruncated: false,
       background: false,
+      discardOnFinish: false,
       exitPromise,
       resolveExit,
     };
@@ -554,10 +618,17 @@ export class ProcessManager {
     processEntry.running = false;
     processEntry.exitCode = exitCode;
     processEntry.signal = signal;
+    processEntry.finishedAtMonotonic = this.monotonicNow();
     processEntry.process = undefined;
+    if (processEntry.executionTimeoutTimer) clearTimeout(processEntry.executionTimeoutTimer);
+    if (processEntry.forceKillTimer) clearTimeout(processEntry.forceKillTimer);
     processEntry.resolveExit();
+    if (processEntry.discardOnFinish) {
+      this.removeProcess(processEntry.id);
+      return;
+    }
     processEntry.cleanupTimer = setTimeout(
-      () => this.removeProcess(processEntry.id),
+      () => this.compactCompletedProcess(processEntry),
       this.completedProcessTtlMs,
     );
     processEntry.cleanupTimer.unref();
@@ -576,6 +647,17 @@ export class ProcessManager {
     }
   }
 
+  private compactCompletedProcess(processEntry: ProcessEntry): void {
+    if (processEntry.running || !this.processes.has(processEntry.id)) return;
+    const compacted = this.consume(processEntry, COMPACT_COMPLETION_OUTPUT_TOKENS);
+    processEntry.buffer = new HeadTailBuffer(COMPACT_COMPLETION_CHARACTERS);
+    processEntry.buffer.append(compacted.output);
+    processEntry.outputWasTruncated = compacted.outputTruncated;
+    const remainingMs = Math.max(1, COMPACT_COMPLETION_TTL_MS - this.completedProcessTtlMs);
+    processEntry.cleanupTimer = setTimeout(() => this.removeProcess(processEntry.id), remainingMs);
+    processEntry.cleanupTimer.unref();
+  }
+
   private append(processEntry: ProcessEntry, output: string): void {
     processEntry.buffer.append(output);
   }
@@ -584,21 +666,50 @@ export class ProcessManager {
     const limit = boundedInteger(maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, 100_000);
     const maxCharacters = Math.max(256, limit * 4);
     const buffered = processEntry.buffer.drain(maxCharacters);
+    if (buffered.truncated) processEntry.outputWasTruncated = true;
     const processId = processEntry.running ? processEntry.id : undefined;
+    const endedAt = processEntry.finishedAtMonotonic ?? this.monotonicNow();
 
     return {
       processId,
       sessionId: processId,
       output: buffered.output,
-      outputTruncated: buffered.truncated,
+      outputTruncated: processEntry.outputWasTruncated,
       running: processEntry.running,
       exitCode: processEntry.exitCode,
       signal: processEntry.signal,
+      timedOut: processEntry.timedOut,
       wallTimeMs: Math.max(
         0,
-        Math.round(this.monotonicNow() - processEntry.startedAtMonotonic),
+        Math.round(endedAt - processEntry.startedAtMonotonic),
       ),
     };
+  }
+
+  private armExecutionTimeout(processEntry: ProcessEntry, timeoutMs: number | undefined): void {
+    if (timeoutMs === undefined) return;
+    processEntry.executionTimeoutTimer = setTimeout(() => {
+      if (!processEntry.running) return;
+      processEntry.timedOut = true;
+      this.stopProcess(processEntry, "SIGTERM");
+    }, timeoutMs);
+    processEntry.executionTimeoutTimer.unref();
+  }
+
+  private stopProcess(processEntry: ProcessEntry, signal: NodeJS.Signals): void {
+    if (!processEntry.running) return;
+    processEntry.process?.kill(signal);
+    if (processEntry.forceKillTimer) clearTimeout(processEntry.forceKillTimer);
+    processEntry.forceKillTimer = setTimeout(() => {
+      if (processEntry.running) processEntry.process?.kill("SIGKILL");
+    }, 500);
+    processEntry.forceKillTimer.unref();
+  }
+
+  private clearProcessTimers(processEntry: ProcessEntry): void {
+    if (processEntry.cleanupTimer) clearTimeout(processEntry.cleanupTimer);
+    if (processEntry.executionTimeoutTimer) clearTimeout(processEntry.executionTimeoutTimer);
+    if (processEntry.forceKillTimer) clearTimeout(processEntry.forceKillTimer);
   }
 
   private getOwnedProcess(workspaceId: string, processId: number): ProcessEntry {
@@ -612,7 +723,7 @@ export class ProcessManager {
 
   private removeProcess(processId: number): void {
     const processEntry = this.processes.get(processId);
-    if (processEntry?.cleanupTimer) clearTimeout(processEntry.cleanupTimer);
+    if (processEntry) this.clearProcessTimers(processEntry);
     this.processes.delete(processId);
     const completedIndex = this.completedProcessIds.indexOf(processId);
     if (completedIndex >= 0) this.completedProcessIds.splice(completedIndex, 1);

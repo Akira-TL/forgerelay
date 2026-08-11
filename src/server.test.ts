@@ -81,6 +81,8 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellInputProperties?.input?.description ?? "", /action=process/);
   assert.match(shellInputProperties?.interrupt?.description ?? "", /SIGINT/);
   assert.equal(shellInputProperties?.timeout, undefined);
+  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /feedback window/i);
+  assert.match(shellInputProperties?.timeoutMs?.description ?? "", /total execution timeout/i);
   assert.match(
     shellToolMeta?.ui?.resourceUri ?? "",
     /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
@@ -94,7 +96,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.ok(closeWorkspaceTool);
   assert.match(readTool?.description ?? "", /capability guides/);
   assert.ok((openWorkspaceTool?.description?.length ?? Infinity) < 450);
-  assert.ok((closeWorkspaceTool?.description?.length ?? Infinity) < 420);
+  assert.ok((closeWorkspaceTool?.description?.length ?? Infinity) < 500);
   assert.match(closeWorkspaceTool?.description ?? "", /Managed-worktree-backed/);
   assert.match(closeWorkspaceTool?.description ?? "", /commitMessage/);
 
@@ -1249,6 +1251,118 @@ test("side-effect tools stop before mutation when lazy instructions are discover
   assert.equal(await readFile(target, "utf8"), "created after instructions\n");
 });
 
+test("bash separates feedback yield from the total execution timeout", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-shell-yield-timeout");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const startedAt = performance.now();
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "console.log('started'); setInterval(() => {}, 1_000)"`,
+      yieldTimeMs: 0,
+      timeoutMs: 100,
+    },
+  });
+
+  assert.equal(shell.isError, undefined, allResponseText(shell));
+  assert.equal(structuredContent(shell).running, true);
+  assert.equal(typeof structuredContent(shell).processId, "number");
+  assert.ok(performance.now() - startedAt < 500, "yieldTimeMs=0 should return a processId promptly");
+  const processId = Number(structuredContent(shell).processId);
+
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  const completed = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 1_000 },
+  });
+  assert.equal(structuredContent(completed).running, false);
+  assert.equal(structuredContent(completed).timedOut, true);
+  assert.match(allResponseText(completed), /timed out/i);
+});
+
+test("Host cancellation during a blocking BeforeTool Hook prevents the original bash command", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-hook-cancel");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const hookDir = join(context.project, ".forgerelay", "hooks");
+  const hookScript = join(context.project, "blocking-hook.mjs");
+  const operationScript = join(context.project, "cancelled-operation.mjs");
+  const operationMarker = join(context.project, "cancelled-operation-ran.txt");
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(hookScript, "setTimeout(() => {}, 250);\n");
+  await writeFile(
+    operationScript,
+    `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(operationMarker)}, "ran");\n`,
+  );
+  await writeFile(
+    join(hookDir, "blocking-cancel.json"),
+    JSON.stringify({
+      event: "BeforeTool",
+      matcher: { tool: "bash", commandRegex: "cancelled-operation\\.mjs" },
+      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScript)}`,
+      timeoutSeconds: 30,
+    }),
+  );
+
+  const controller = new AbortController();
+  const pending = context.client.callTool(
+    {
+      name: "bash",
+      arguments: {
+        workspaceId,
+        command: `${JSON.stringify(process.execPath)} ${JSON.stringify(operationScript)}`,
+        yieldTimeMs: 0,
+      },
+    },
+    undefined,
+    { signal: controller.signal, timeout: 5_000 },
+  );
+  setTimeout(() => controller.abort(), 30);
+  await assert.rejects(pending, /abort|cancel/i);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await assert.rejects(() => readFile(operationMarker, "utf8"), /ENOENT/);
+});
+
+test("Host cancellation before processId delivery discards a process created before an AfterTool Hook", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-shell-after-hook-cancel");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const hookDir = join(context.project, ".forgerelay", "hooks");
+  const hookScript = join(context.project, "after-tool-delay.mjs");
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(hookScript, "setTimeout(() => {}, 250);\n");
+  await writeFile(
+    join(hookDir, "after-tool-delay.json"),
+    JSON.stringify({
+      event: "AfterTool",
+      matcher: { tool: "bash" },
+      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(hookScript)}`,
+      timeoutSeconds: 30,
+    }),
+  );
+
+  const controller = new AbortController();
+  const pending = context.client.callTool(
+    {
+      name: "bash",
+      arguments: {
+        workspaceId,
+        command: `${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1_000)"`,
+        yieldTimeMs: 0,
+      },
+    },
+    undefined,
+    { signal: controller.signal, timeout: 5_000 },
+  );
+  setTimeout(() => controller.abort(), 40);
+  await assert.rejects(pending, /abort|cancel/i);
+  await new Promise((resolve) => setTimeout(resolve, 650));
+  assert.deepEqual(context.processSessions.stats(), { total: 0, running: 0, completed: 0 });
+});
+
 test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
   const processSessions = new ProcessManager({
     maxStartYieldMs: 20,
@@ -1290,6 +1404,34 @@ test("bash returns a processId instead of killing a command after the foreground
   assert.doesNotMatch(allResponseText(readAgain), /Background process/);
 });
 
+test("completed background results remain deliverable after the full-output retention window", async (t) => {
+  const processSessions = new ProcessManager({
+    maxStartYieldMs: 1,
+    completedProcessTtlMs: 50,
+  });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-retained-completion");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('retained-completion'), 20)"`,
+      yieldTimeMs: 0,
+    },
+  });
+  assert.equal(structuredContent(shell).running, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+  });
+  assert.match(allResponseText(read), /Background process \d+ exited with code 0/);
+  assert.match(allResponseText(read), /retained-completion/);
+});
+
 test("a failed workspace tool call still carries a completed background process notice", async (t) => {
   const processSessions = new ProcessManager({
     maxStartYieldMs: 20,
@@ -1321,6 +1463,32 @@ test("a failed workspace tool call still carries a completed background process 
   assert.match(allResponseText(failedRead), /notice-on-error/);
 });
 
+test("close_workspace delivers a completed background result instead of blocking on it", async (t) => {
+  const processSessions = new ProcessManager({ maxStartYieldMs: 1 });
+  const context = await fixture(t, { processSessions });
+  const opened = await callOpen(context.client, context.project, "chat-shell-close-completed");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('close-completed'), 20)"`,
+      yieldTimeMs: 0,
+    },
+  });
+  assert.equal(structuredContent(shell).running, true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.match(allResponseText(closed), /Background process \d+ exited with code 0/);
+  assert.match(allResponseText(closed), /close-completed/);
+});
+
 test("close_workspace refuses a logical workspace with a running process", async (t) => {
   const processSessions = new ProcessManager({ maxStartYieldMs: 10 });
   const context = await fixture(t, { processSessions });
@@ -1342,7 +1510,7 @@ test("close_workspace refuses a logical workspace with a running process", async
     arguments: { workspaceId },
   });
   assert.equal(blockedClose.isError, true);
-  assert.match(allResponseText(blockedClose), /running process or an unconsumed process completion/);
+  assert.match(allResponseText(blockedClose), /still owns a running process/);
 
   await context.client.callTool({
     name: "bash",

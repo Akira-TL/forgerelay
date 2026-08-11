@@ -264,11 +264,16 @@ capability
 
 In minimal mode, normal shell inspection commands such as `rg`, `find`, and `ls`
 can be used rather than dedicated MCP search tools. `bash(action="run")` (or plain
-`bash`, since `run` is the default) waits in the foreground for at most 300 seconds.
-If the command is still running, ForgeRelay returns a canonical `processId` without
-killing it. Reuse `bash(action="process", processId=...)` to poll/wait, send input,
-resize a PTY, or interrupt the existing process; or continue other work and consume
-the one-shot completion notice from a later result in the same workspace.
+`bash`, since `run` is the default) separates feedback from execution lifetime:
+`yieldTimeMs` controls how long to wait before returning a canonical `processId`
+(default 10 seconds; use `0` when intentionally starting background work), while
+optional `timeoutMs` independently caps total process runtime. A routine command can
+use a longer feedback window such as 60 seconds when that remains below the Host
+request deadline. Reuse `bash(action="process", processId=...)` to poll incremental
+output/wait, send input, resize a PTY, or interrupt the existing process; or continue
+other work and consume the one-shot completion notice from a later result in the same
+workspace. Full completed output is retained for five minutes and then compacted to a
+bounded completion record that remains deliverable for up to 24 hours.
 
 `FORGERELAY_TOOL_MODE=full` is retained as a compatibility value and exposes the
 same canonical 9-tool surface as `minimal`; use `bash` for search and directory

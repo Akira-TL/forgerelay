@@ -682,16 +682,20 @@ async function readWorkspaceAppResource(
 function processResult(snapshot: ProcessSnapshot): string {
   const status = snapshot.running
     ? `Process running with process ID ${snapshot.processId}.`
-    : snapshot.signal
-      ? `Process exited after signal ${snapshot.signal}.`
-      : `Process exited with code ${snapshot.exitCode ?? "unknown"}.`;
+    : snapshot.timedOut
+      ? "Process timed out and was terminated."
+      : snapshot.signal
+        ? `Process exited after signal ${snapshot.signal}.`
+        : `Process exited with code ${snapshot.exitCode ?? "unknown"}.`;
   return snapshot.output ? `${snapshot.output.replace(/\n$/, "")}\n${status}` : status;
 }
 
 function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
-  const status = snapshot.signal
-    ? `Background process ${snapshot.processId} exited after signal ${snapshot.signal}.`
-    : `Background process ${snapshot.processId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
+  const status = snapshot.timedOut
+    ? `Background process ${snapshot.processId} timed out and was terminated.`
+    : snapshot.signal
+      ? `Background process ${snapshot.processId} exited after signal ${snapshot.signal}.`
+      : `Background process ${snapshot.processId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
   const command = `Command: ${snapshot.command}`;
   const output = snapshot.output ? `\n${snapshot.output.replace(/\n$/, "")}` : "";
   return `${status}\n${command}${output}`;
@@ -743,6 +747,7 @@ function processOutputSchema(): z.ZodRawShape {
     running: z.boolean(),
     exitCode: z.number().int().optional(),
     signal: z.string().optional(),
+    timedOut: z.boolean(),
     wallTimeMs: z.number().nonnegative(),
     outputTruncated: z.boolean(),
   });
@@ -784,6 +789,7 @@ function processToolResponse(
       running: snapshot.running,
       exitCode: snapshot.exitCode,
       signal: snapshot.signal,
+      timedOut: snapshot.timedOut,
       wallTimeMs: snapshot.wallTimeMs,
       outputTruncated: snapshot.outputTruncated,
     },
@@ -859,9 +865,16 @@ function registerProcessTools(
           .number()
           .int()
           .min(0)
-          .max(30_000)
+          .max(300_000)
           .optional()
-          .describe("Milliseconds to wait before returning a running process. Defaults to 10000."),
+          .describe("Feedback window before returning a processId. Use 0 for immediate background handoff. Defaults to 10000ms."),
+        timeoutMs: z
+          .number()
+          .int()
+          .min(1)
+          .max(86_400_000)
+          .optional()
+          .describe("Total execution timeout from process start. On expiry ForgeRelay terminates the process. Omit for no ForgeRelay execution deadline."),
         maxOutputTokens: z
           .number()
           .int()
@@ -874,13 +887,16 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, maxOutputTokens }, extra) => {
+    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        tool: "exec_command",
-        invocation: workspaceHookInvocation(workspace),
-        payload: { command: cmd, workingDirectory: workingDirectory ?? "." },
-        operation: async () => {
+      let undeliveredProcessId: number | undefined;
+      try {
+        const result = await runToolWithHooks(hooks, {
+          signal: extra.signal,
+          tool: "exec_command",
+          invocation: workspaceHookInvocation(workspace),
+          payload: { command: cmd, workingDirectory: workingDirectory ?? "." },
+          operation: async () => {
           const startedAt = performance.now();
           const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
           await assertWorkspaceInstructionsLoadedBeforeSideEffect(
@@ -888,20 +904,23 @@ function registerProcessTools(
             workspace,
             [cwd],
           );
-          const snapshot = await processSessions.start({
-            workspaceId,
-            command: cmd,
-            cwd,
-            workspaceRoot: workspace.root,
-            tty,
-            columns,
-            rows,
-            yieldTimeMs,
-            maxOutputTokens,
-            codexCi: true,
-          });
+            const snapshot = await processSessions.start({
+              workspaceId,
+              command: cmd,
+              cwd,
+              workspaceRoot: workspace.root,
+              tty,
+              columns,
+              rows,
+              yieldTimeMs,
+              timeoutMs,
+              maxOutputTokens,
+              codexCi: true,
+              signal: extra.signal,
+            });
+            undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
 
-          logToolCall(config, {
+            logToolCall(config, {
             tool: "exec_command",
             ...workspaceLogContext(workspace, extra.sessionId),
             workingDirectory: workingDirectory ?? ".",
@@ -914,15 +933,23 @@ function registerProcessTools(
             durationMs: Math.round(performance.now() - startedAt),
           });
 
-          return processToolResponse("exec_command", workspaceId, snapshot, {
-            command: cmd,
-            workingDirectory: workingDirectory ?? ".",
-            running: snapshot.running,
-            exitCode: snapshot.exitCode,
-            wallTimeMs: snapshot.wallTimeMs,
-          });
-        },
-      });
+            return processToolResponse("exec_command", workspaceId, snapshot, {
+              command: cmd,
+              workingDirectory: workingDirectory ?? ".",
+              running: snapshot.running,
+              exitCode: snapshot.exitCode,
+              wallTimeMs: snapshot.wallTimeMs,
+            });
+          },
+        });
+        extra.signal.throwIfAborted();
+        return result;
+      } catch (error) {
+        if (undeliveredProcessId !== undefined) {
+          processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
+        }
+        throw error;
+      }
     },
     );
   }
@@ -966,6 +993,7 @@ function registerProcessTools(
       const workspace = workspaces.getWorkspace(workspaceId);
       const resolvedProcessId = resolveProcessId(processId, sessionId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: "write_stdin",
         invocation: workspaceHookInvocation(workspace),
         payload: {
@@ -984,6 +1012,7 @@ function registerProcessTools(
             rows,
             yieldTimeMs,
             maxOutputTokens,
+            signal: extra.signal,
           });
 
           logToolCall(config, {
@@ -1642,6 +1671,7 @@ export function createMcpServer(
       const workspace = workspaces.getWorkspace(workspaceId);
       let changedPaths: string[] = [];
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.capability,
         invocation: workspaceHookInvocation(workspace),
         payload: { name, action },
@@ -1743,7 +1773,7 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close one workspace after the user chooses cleanup. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running or unconsumed processes prevent closure.",
+        "Close one workspace after the user chooses cleanup. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running processes prevent closure; completed background results are delivered with the close response when available.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close."),
         commitMessage: z
@@ -1769,6 +1799,7 @@ export function createMcpServer(
     async ({ workspaceId, commitMessage }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
         payload: { workspaceId, commitMessage, mode: workspace.mode },
@@ -1789,7 +1820,7 @@ export function createMcpServer(
               .filter((id) => processSessions.activeWorkspaceIds().has(id));
             if (busyWorkspaceIds.length > 0) {
               throw new Error(
-                `Cannot close this worktree-backed workspace while logical workspace processes are still running or awaiting completion delivery: ${busyWorkspaceIds.join(", ")}.`,
+                `Cannot close this worktree-backed workspace while logical workspace processes are still running: ${busyWorkspaceIds.join(", ")}.`,
               );
             }
             const startedAt = performance.now();
@@ -1841,7 +1872,7 @@ export function createMcpServer(
           }
           if (processSessions.activeWorkspaceIds().has(workspaceId)) {
             throw new Error(
-              `Workspace ${workspaceId} still owns a running process or an unconsumed process completion. Poll or consume it before closing this workspace.`,
+              `Workspace ${workspaceId} still owns a running process. Poll, interrupt, or wait for it before closing this workspace.`,
             );
           }
           workspaces.closeWorkspace(workspaceId);
@@ -1895,6 +1926,7 @@ export function createMcpServer(
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.read,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path, offset: input.offset, limit: input.limit },
@@ -1996,6 +2028,7 @@ export function createMcpServer(
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.write,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path },
@@ -2096,6 +2129,7 @@ export function createMcpServer(
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.edit,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path, editCount: input.edits.length },
@@ -2187,6 +2221,7 @@ export function createMcpServer(
     async ({ workspaceId, path, newPath }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.rename,
         invocation: workspaceHookInvocation(workspace),
         payload: { path, newPath, paths: [path, newPath] },
@@ -2268,6 +2303,7 @@ export function createMcpServer(
     async ({ workspaceId, path, recursive }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       return runToolWithHooks(hooks, {
+        signal: extra.signal,
         tool: toolNames.delete,
         invocation: workspaceHookInvocation(workspace),
         payload: { path, recursive: recursive ?? false },
@@ -2359,6 +2395,7 @@ export function createMcpServer(
       async ({ workspaceId, patch }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
         return runToolWithHooks(hooks, {
+          signal: extra.signal,
           tool: "apply_patch",
           invocation: workspaceHookInvocation(workspace),
           payload: { patchBytes: Buffer.byteLength(patch) },
@@ -2474,7 +2511,14 @@ export function createMcpServer(
             .min(0)
             .max(300_000)
             .optional()
-            .describe("Milliseconds to wait before returning. Run preserves the existing 300000ms default; process polling defaults to 5000ms and interaction to 250ms."),
+            .describe("Feedback window before returning. For action=run, use 0 for immediate background handoff; otherwise defaults to 10000ms. For action=process, polling defaults to 5000ms and interaction to 250ms."),
+          timeoutMs: z
+            .number()
+            .int()
+            .min(1)
+            .max(86_400_000)
+            .optional()
+            .describe("For action=run, total execution timeout from process start. On expiry ForgeRelay terminates the process. Omit for no ForgeRelay execution deadline."),
           maxOutputTokens: z
             .number()
             .int()
@@ -2499,6 +2543,7 @@ export function createMcpServer(
         rows,
         workingDirectory,
         yieldTimeMs,
+        timeoutMs,
         maxOutputTokens,
       }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
@@ -2507,16 +2552,19 @@ export function createMcpServer(
           if (processId !== undefined || input !== undefined || interrupt !== undefined) {
             throw new Error("bash action=run does not accept processId, input, or interrupt.");
           }
-          return runToolWithHooks(hooks, {
-            tool: toolNames.shell,
-            invocation: workspaceHookInvocation(workspace),
-            payload: {
-              action,
-              command,
-              workingDirectory: workingDirectory ?? ".",
-            },
-            isFailure: toolResultIsError,
-            operation: async () => {
+          let undeliveredProcessId: number | undefined;
+          try {
+            const result = await runToolWithHooks(hooks, {
+              signal: extra.signal,
+              tool: toolNames.shell,
+              invocation: workspaceHookInvocation(workspace),
+              payload: {
+                action,
+                command,
+                workingDirectory: workingDirectory ?? ".",
+              },
+              isFailure: toolResultIsError,
+              operation: async () => {
               const startedAt = performance.now();
               const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
               await assertWorkspaceInstructionsLoadedBeforeSideEffect(
@@ -2524,19 +2572,22 @@ export function createMcpServer(
                 workspace,
                 [cwd],
               );
-              const snapshot = await processSessions.start({
-                workspaceId,
-                command,
-                cwd,
-                workspaceRoot: workspace.root,
-                tty,
-                columns,
-                rows,
-                yieldTimeMs: yieldTimeMs ?? 300_000,
-                maxOutputTokens,
-              });
+                const snapshot = await processSessions.start({
+                  workspaceId,
+                  command,
+                  cwd,
+                  workspaceRoot: workspace.root,
+                  tty,
+                  columns,
+                  rows,
+                  yieldTimeMs,
+                  timeoutMs,
+                  maxOutputTokens,
+                  signal: extra.signal,
+                });
+                undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
 
-              logToolCall(config, {
+                logToolCall(config, {
                 tool: toolNames.shell,
                 ...workspaceLogContext(workspace, extra.sessionId),
                 workingDirectory: workingDirectory ?? ".",
@@ -2549,29 +2600,38 @@ export function createMcpServer(
                 durationMs: Math.round(performance.now() - startedAt),
               });
 
-              const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
-                action,
-                command,
-                workingDirectory: workingDirectory ?? ".",
-                running: snapshot.running,
-                exitCode: snapshot.exitCode,
-                wallTimeMs: snapshot.wallTimeMs,
-              });
-              return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
-                ? { ...response, isError: true }
-                : response;
-            },
-          });
+                const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
+                  action,
+                  command,
+                  workingDirectory: workingDirectory ?? ".",
+                  running: snapshot.running,
+                  exitCode: snapshot.exitCode,
+                  wallTimeMs: snapshot.wallTimeMs,
+                });
+                return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
+                  ? { ...response, isError: true }
+                  : response;
+              },
+            });
+            extra.signal.throwIfAborted();
+            return result;
+          } catch (error) {
+            if (undeliveredProcessId !== undefined) {
+              processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
+            }
+            throw error;
+          }
         }
 
-        if (command !== undefined || workingDirectory !== undefined || tty !== undefined) {
-          throw new Error("bash action=process does not accept command, workingDirectory, or tty.");
+        if (command !== undefined || workingDirectory !== undefined || tty !== undefined || timeoutMs !== undefined) {
+          throw new Error("bash action=process does not accept command, workingDirectory, tty, or timeoutMs.");
         }
         if (processId === undefined) throw new Error("bash action=process requires processId.");
         if (interrupt && input !== undefined) {
           throw new Error("bash action=process cannot combine interrupt with input.");
         }
         return runToolWithHooks(hooks, {
+          signal: extra.signal,
           tool: toolNames.shell,
           invocation: workspaceHookInvocation(workspace),
           payload: {
@@ -2593,6 +2653,7 @@ export function createMcpServer(
               rows,
               yieldTimeMs,
               maxOutputTokens,
+              signal: extra.signal,
             });
             logToolCall(config, {
               tool: toolNames.shell,

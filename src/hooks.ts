@@ -175,6 +175,7 @@ export interface ToolHookOptions<T> {
   tool: string;
   invocation: Omit<HookInvocation, "payload" | "cwd">;
   payload?: Record<string, unknown>;
+  signal?: AbortSignal;
   operation: () => Promise<T>;
   isFailure?: (result: T) => boolean;
   changedPaths?: (result: T) => string[];
@@ -198,7 +199,8 @@ export async function runToolWithHooks<T>(
     executions.push(...await runner.run("BeforeTool", {
       ...options.invocation,
       payload: basePayload,
-    }));
+    }, options.signal));
+    options.signal?.throwIfAborted();
     const result = await options.operation();
     const afterCwd = options.afterCwd?.(result);
 
@@ -207,7 +209,7 @@ export async function runToolWithHooks<T>(
         ...options.invocation,
         cwd: afterCwd,
         payload: basePayload,
-      }));
+      }, options.signal));
       const reported = attachHookReports(result, executions);
       return decorateToolResult(runner, options.invocation.workspaceId, reported);
     }
@@ -216,14 +218,14 @@ export async function runToolWithHooks<T>(
       ...options.invocation,
       cwd: afterCwd,
       payload: basePayload,
-    }));
+    }, options.signal));
     const changedPaths = options.changedPaths?.(result) ?? [];
     if (changedPaths.length > 0) {
       executions.push(...await runner.run("AfterFileChange", {
         ...options.invocation,
         cwd: afterCwd,
         payload: { ...basePayload, paths: changedPaths },
-      }));
+      }, options.signal));
     }
     const reported = attachHookReports(result, executions);
     return decorateToolResult(runner, options.invocation.workspaceId, reported);
@@ -231,13 +233,15 @@ export async function runToolWithHooks<T>(
     if (error instanceof HookExecutionError) {
       executions.push(...error.executions);
     }
-    executions.push(...await runner.run("AfterToolFailure", {
-      ...options.invocation,
-      payload: {
-        ...basePayload,
-        errorType: error instanceof Error ? error.name : "Error",
-      },
-    }));
+    if (!options.signal?.aborted) {
+      executions.push(...await runner.run("AfterToolFailure", {
+        ...options.invocation,
+        payload: {
+          ...basePayload,
+          errorType: error instanceof Error ? error.name : "Error",
+        },
+      }, options.signal));
+    }
     const reportedError = appendHookReportsToError(error, executions);
     throw decorateToolResult(runner, options.invocation.workspaceId, reportedError);
   }
@@ -324,7 +328,12 @@ export class HookRunner {
     return (this.resultDecorator?.(workspaceId, result) ?? result) as T;
   }
 
-  async run(event: HookEvent, invocation: HookInvocation): Promise<HookExecutionReport[]> {
+  async run(
+    event: HookEvent,
+    invocation: HookInvocation,
+    signal?: AbortSignal,
+  ): Promise<HookExecutionReport[]> {
+    signal?.throwIfAborted();
     const projectRoot = event === "AfterWorktreeClose" && invocation.sourceRoot
       ? invocation.sourceRoot
       : invocation.workspaceRoot;
@@ -351,7 +360,8 @@ export class HookRunner {
       : [];
 
     for (const [index, { scope, handler, invocation: matchedInvocation }] of handlers.entries()) {
-      const execution = await this.runHandler(event, handler, index, matchedInvocation, scope);
+      signal?.throwIfAborted();
+      const execution = await this.runHandler(event, handler, index, matchedInvocation, scope, signal);
       executions.push(execution);
       logEvent(this.logging, execution.status === "passed" ? "info" : "warn", "hook_call", {
         hookEvent: event,
@@ -380,6 +390,7 @@ export class HookRunner {
     index: number,
     invocation: HookInvocation,
     scope: HookExecutionReport["scope"],
+    signal?: AbortSignal,
   ): Promise<HookExecutionReport> {
     const startedAt = performance.now();
     const name = handler.name ?? `${event} handler ${index + 1}`;
@@ -396,6 +407,7 @@ export class HookRunner {
         env,
         timeoutMs: handler.timeoutSeconds * 1_000,
         detached,
+        signal,
       });
 
       const durationMs = Math.round(performance.now() - startedAt);
@@ -426,6 +438,7 @@ export class HookRunner {
         error: `Hook ${name} ${reason}${output ? `: ${output}` : ""}`,
       };
     } catch (error) {
+      if (signal?.aborted) throw error;
       return {
         event,
         name,
@@ -689,6 +702,7 @@ interface ExecuteHookCommandInput {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
   detached: boolean;
+  signal?: AbortSignal;
 }
 
 interface ExecuteHookCommandResult {
@@ -700,6 +714,7 @@ interface ExecuteHookCommandResult {
 }
 
 function executeHookCommand(input: ExecuteHookCommandInput): Promise<ExecuteHookCommandResult> {
+  input.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(input.executable, input.args, {
       cwd: input.cwd,
@@ -713,6 +728,17 @@ function executeHookCommand(input: ExecuteHookCommandInput): Promise<ExecuteHook
     let stderr = "";
     let timedOut = false;
     let forceKillTimer: NodeJS.Timeout | undefined;
+    let aborted = false;
+    const abort = () => {
+      if (aborted) return;
+      aborted = true;
+      terminateProcessTree(child, "SIGTERM", input.detached);
+      forceKillTimer = setTimeout(() => {
+        terminateProcessTree(child, "SIGKILL", input.detached);
+      }, 500);
+      forceKillTimer.unref();
+    };
+    input.signal?.addEventListener("abort", abort, { once: true });
 
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout = appendCaptured(stdout, chunk);
@@ -734,11 +760,19 @@ function executeHookCommand(input: ExecuteHookCommandInput): Promise<ExecuteHook
     child.once("error", (error) => {
       clearTimeout(timeout);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      input.signal?.removeEventListener("abort", abort);
       reject(error);
     });
     child.once("close", (exitCode, signal) => {
       clearTimeout(timeout);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      input.signal?.removeEventListener("abort", abort);
+      if (aborted) {
+        reject(input.signal?.reason instanceof Error
+          ? input.signal.reason
+          : Object.assign(new Error("Hook execution cancelled by Host."), { name: "AbortError" }));
+        return;
+      }
       resolve({ exitCode, signal, stdout, stderr, timedOut });
     });
   });

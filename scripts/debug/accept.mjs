@@ -164,6 +164,7 @@ try {
   assert.equal(bashTool?.inputSchema?.properties?.timeout, undefined);
   assert.match(bashTool?.description ?? "", /action=process/);
   assert.equal(bashTool?.inputSchema?.properties?.yieldTimeMs?.maximum, 300000);
+  assert.equal(bashTool?.inputSchema?.properties?.timeoutMs?.maximum, 86400000);
   assert.match(bashTool?.inputSchema?.properties?.processId?.description ?? "", /action=process/);
   assert.match(bashTool?.inputSchema?.properties?.interrupt?.description ?? "", /SIGINT/);
   const openWorkspaceTool = tools.find((tool) => tool.name === "open_workspace");
