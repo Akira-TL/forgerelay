@@ -86,6 +86,8 @@ export class CodeIntelligenceManager {
           return await service.references(input);
         case "documentSymbols":
           return await service.documentSymbols(input);
+        case "workspaceSymbols":
+          return await service.workspaceSymbols(input);
       }
     } finally {
       service.release();

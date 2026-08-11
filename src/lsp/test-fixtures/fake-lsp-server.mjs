@@ -12,6 +12,8 @@ const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELA
 const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
 const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
 const documentSymbolsMode = process.env.FORGERELAY_FAKE_LSP_DOCUMENT_SYMBOLS_MODE ?? "hierarchical";
+const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_MODE ?? "normal";
+const workspaceSymbolCount = Number(process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOL_COUNT ?? "1");
 
 function log(event) {
   if (!logPath) return;
@@ -48,6 +50,7 @@ function handle(message) {
         hoverProvider: hoverMode !== "unsupported",
         referencesProvider: true,
         documentSymbolProvider: documentSymbolsMode !== "unsupported",
+        workspaceSymbolProvider: workspaceSymbolsMode !== "unsupported",
         positionEncoding: "utf-16",
         textDocumentSync: syncKind,
       },
@@ -104,6 +107,25 @@ function handle(message) {
       return;
     }
     respond(message.id, { contents: { kind: "markdown", value: "**target**: `() => void`" }, range });
+    return;
+  }
+
+  if (message.method === "workspace/symbol") {
+    if (workspaceSymbolsMode === "empty") {
+      respond(message.id, []);
+      return;
+    }
+    const target = targetPath ?? join(rootPath, "src", "target.ts");
+    const count = workspaceSymbolsMode === "large" ? workspaceSymbolCount : 1;
+    respond(message.id, Array.from({ length: count }, (_unused, index) => ({
+      name: count === 1 ? "Target" : `Target${index}`,
+      kind: 5,
+      containerName: "workspace",
+      location: {
+        uri: pathToFileURL(target).href,
+        range: { start: { line: 0, character: 7 }, end: { line: 0, character: 19 } },
+      },
+    })));
     return;
   }
 

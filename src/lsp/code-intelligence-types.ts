@@ -29,11 +29,19 @@ export interface CodeIntelligenceDocumentSymbolsInput {
   limit?: number;
 }
 
+export interface CodeIntelligenceWorkspaceSymbolsInput {
+  operation: "workspaceSymbols";
+  path: string;
+  query: string;
+  limit?: number;
+}
+
 export type CodeIntelligenceInput =
   | CodeIntelligenceDefinitionInput
   | CodeIntelligenceHoverInput
   | CodeIntelligenceReferencesInput
-  | CodeIntelligenceDocumentSymbolsInput;
+  | CodeIntelligenceDocumentSymbolsInput
+  | CodeIntelligenceWorkspaceSymbolsInput;
 
 export interface CodeIntelligencePosition {
   line: number;
@@ -98,8 +106,26 @@ export interface CodeIntelligenceDocumentSymbolsResult {
   total?: number;
 }
 
+export interface CodeIntelligenceWorkspaceSymbol {
+  name: string;
+  kind: string;
+  containerName?: string;
+  location: CodeIntelligenceLocation;
+}
+
+export interface CodeIntelligenceWorkspaceSymbolsResult {
+  operation: "workspaceSymbols";
+  selectedServer: string;
+  projectRoot: string;
+  symbols: CodeIntelligenceWorkspaceSymbol[];
+  returned: number;
+  truncated: boolean;
+  total?: number;
+}
+
 export type CodeIntelligenceResult =
   | CodeIntelligenceDefinitionResult
   | CodeIntelligenceHoverResult
   | CodeIntelligenceReferencesResult
-  | CodeIntelligenceDocumentSymbolsResult;
+  | CodeIntelligenceDocumentSymbolsResult
+  | CodeIntelligenceWorkspaceSymbolsResult;

@@ -2,8 +2,14 @@ import {
   SymbolKind,
   type DocumentSymbol,
   type SymbolInformation,
+  type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
-import type { CodeIntelligenceDocumentSymbol } from "../code-intelligence-types.js";
+import { CodeIntelligenceError } from "../code-intelligence-error.js";
+import type {
+  CodeIntelligenceDocumentSymbol,
+  CodeIntelligenceWorkspaceSymbol,
+} from "../code-intelligence-types.js";
+import { normalizeLocations } from "./locations.js";
 import { rangeFromLsp } from "../position-encoding.js";
 
 export interface NormalizedDocumentSymbols {
@@ -89,6 +95,43 @@ function countDocumentSymbols(symbols: DocumentSymbol[]): number {
 
 function isFlatSymbolInformation(symbol: DocumentSymbol | SymbolInformation): symbol is SymbolInformation {
   return "location" in symbol;
+}
+
+export async function normalizeWorkspaceSymbols(
+  response: SymbolInformation[] | WorkspaceSymbol[] | null,
+  workspaceRoot: string,
+  encoding: string,
+  limit: number,
+): Promise<{
+  symbols: CodeIntelligenceWorkspaceSymbol[];
+  returned: number;
+  truncated: boolean;
+  total: number;
+}> {
+  const all = response ?? [];
+  const selected = all.slice(0, limit);
+  const locationEntries = selected.map((symbol) => {
+    if (!("range" in symbol.location)) {
+      throw new CodeIntelligenceError(
+        "code.result_outside_policy",
+        `Language server returned unresolved workspace symbol ${symbol.name} without a range.`,
+      );
+    }
+    return { uri: symbol.location.uri, range: symbol.location.range };
+  });
+  const locations = await normalizeLocations(locationEntries, workspaceRoot, encoding);
+  const symbols = selected.map((symbol, index) => ({
+    name: symbol.name,
+    kind: symbolKindName(symbol.kind),
+    ...(symbol.containerName ? { containerName: symbol.containerName } : {}),
+    location: locations[index]!,
+  }));
+  return {
+    symbols,
+    returned: symbols.length,
+    truncated: all.length > symbols.length,
+    total: all.length,
+  };
 }
 
 export function symbolKindName(kind: number): string {

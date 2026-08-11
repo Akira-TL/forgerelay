@@ -18,6 +18,7 @@ import {
   PositionEncodingKind,
   ShutdownRequest,
   TextDocumentSyncKind,
+  WorkspaceSymbolRequest,
   type Hover,
   type InitializeParams,
   type InitializeResult,
@@ -40,9 +41,14 @@ import type {
   CodeIntelligenceHoverResult,
   CodeIntelligenceReferencesInput,
   CodeIntelligenceReferencesResult,
+  CodeIntelligenceWorkspaceSymbolsInput,
+  CodeIntelligenceWorkspaceSymbolsResult,
 } from "./code-intelligence-types.js";
 import { normalizeHoverContents } from "./normalization/hover.js";
-import { normalizeDocumentSymbols } from "./normalization/symbols.js";
+import {
+  normalizeDocumentSymbols,
+  normalizeWorkspaceSymbols,
+} from "./normalization/symbols.js";
 import {
   isWithin,
   locationEntries,
@@ -297,6 +303,49 @@ export class LanguageService {
     }
   }
 
+  async workspaceSymbols(
+    input: CodeIntelligenceWorkspaceSymbolsInput,
+  ): Promise<CodeIntelligenceWorkspaceSymbolsResult> {
+    try {
+      await this.ensureStarted();
+      if (!this.capabilities?.workspaceSymbolProvider) {
+        throw new CodeIntelligenceError(
+          "code.operation_unsupported",
+          `Language server ${this.project.definition.id} does not advertise workspace-symbol support.`,
+        );
+      }
+
+      const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
+      await this.syncDocument(sourcePath);
+      const response = await withTimeout(
+        this.connection!.sendRequest(WorkspaceSymbolRequest.type, { query: input.query }),
+        this.policy.requestTimeoutMs,
+        () => new CodeIntelligenceError(
+          "code.request_timeout",
+          `Workspace-symbol request timed out for ${JSON.stringify(input.query)}.`,
+        ),
+      );
+      const normalized = await normalizeWorkspaceSymbols(
+        response,
+        this.workspaceRoot,
+        this.positionEncoding,
+        input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT,
+      );
+      return {
+        operation: "workspaceSymbols",
+        selectedServer: this.project.definition.id,
+        projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
+        ...normalized,
+      };
+    } catch (error) {
+      if (error instanceof CodeIntelligenceError) throw error;
+      throw new CodeIntelligenceError(
+        "code.server_crashed",
+        `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
+      );
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -416,6 +465,9 @@ export class LanguageService {
         workspace: {
           workspaceFolders: true,
           configuration: true,
+          symbol: {
+            dynamicRegistration: false,
+          },
         },
         textDocument: {
           synchronization: {
