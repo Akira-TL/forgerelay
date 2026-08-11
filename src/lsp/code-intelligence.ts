@@ -200,6 +200,9 @@ class LanguageService {
           () => new Error("Language-server shutdown timed out."),
         );
         await connection.sendNotification(ExitNotification.type);
+        if (child) {
+          await waitForChildExit(child, this.policy.shutdownTimeoutMs);
+        }
       } catch {
         // Fall through to process-tree termination below.
       }
@@ -694,6 +697,22 @@ async function waitForChildSpawn(child: ChildProcessWithoutNullStreams, serverId
     };
     child.once("spawn", onSpawn);
     child.once("error", onError);
+  });
+}
+
+async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise<boolean>((resolvePromise) => {
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (exited: boolean) => {
+      child.off("exit", onExit);
+      if (timer) clearTimeout(timer);
+      resolvePromise(exited);
+    };
+    const onExit = () => finish(true);
+    child.once("exit", onExit);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref();
   });
 }
 
