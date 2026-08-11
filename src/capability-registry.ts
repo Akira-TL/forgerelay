@@ -277,6 +277,11 @@ export function createCapabilityRegistry(
       query: z.string(),
       limit: z.number().int().min(1).max(MAX_CODE_INTELLIGENCE_RESULT_LIMIT).optional(),
     }).strict(),
+    z.object({
+      operation: z.literal("diagnostics"),
+      path: z.string().min(1),
+      limit: z.number().int().min(1).max(MAX_CODE_INTELLIGENCE_RESULT_LIMIT).optional(),
+    }).strict(),
   ]);
 
   return new CapabilityRegistry([

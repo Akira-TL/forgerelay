@@ -16,6 +16,7 @@ import {
   InitializedNotification,
   MarkupKind,
   PositionEncodingKind,
+  PublishDiagnosticsNotification,
   ShutdownRequest,
   TextDocumentSyncKind,
   WorkspaceSymbolRequest,
@@ -35,6 +36,8 @@ import { DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT } from "./code-intelligence-type
 import type {
   CodeIntelligenceDefinitionInput,
   CodeIntelligenceDefinitionResult,
+  CodeIntelligenceDiagnosticsInput,
+  CodeIntelligenceDiagnosticsResult,
   CodeIntelligenceDocumentSymbolsInput,
   CodeIntelligenceDocumentSymbolsResult,
   CodeIntelligenceHoverInput,
@@ -56,6 +59,7 @@ import {
   workspaceDisplayPath,
 } from "./normalization/locations.js";
 import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
+import { DiagnosticSnapshotStore } from "./runtime/diagnostic-snapshots.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
 export type * from "./code-intelligence-types.js";
@@ -69,6 +73,8 @@ export interface CodeIntelligenceRuntimePolicy {
   startTimeoutMs: number;
   requestTimeoutMs: number;
   shutdownTimeoutMs: number;
+  maxDiagnosticDocuments: number;
+  maxDiagnosticsPerDocument: number;
 }
 
 interface OpenDocument {
@@ -90,6 +96,7 @@ export class LanguageService {
   private positionEncoding: string = PositionEncodingKind.UTF16;
   private capabilities?: InitializeResult["capabilities"];
   private readonly documents = new Map<string, OpenDocument>();
+  private readonly diagnosticSnapshots: DiagnosticSnapshotStore;
   private stderrTail = Buffer.alloc(0);
   private closed = false;
 
@@ -99,6 +106,10 @@ export class LanguageService {
     private readonly policy: CodeIntelligenceRuntimePolicy,
   ) {
     this.key = languageServiceKey(project);
+    this.diagnosticSnapshots = new DiagnosticSnapshotStore(
+      policy.maxDiagnosticDocuments,
+      policy.maxDiagnosticsPerDocument,
+    );
   }
 
   acquire(): void {
@@ -346,6 +357,31 @@ export class LanguageService {
     }
   }
 
+  async diagnostics(input: CodeIntelligenceDiagnosticsInput): Promise<CodeIntelligenceDiagnosticsResult> {
+    try {
+      await this.ensureStarted();
+      const sourcePath = await workspaceSourcePath(this.workspaceRoot, input.path);
+      const document = await this.syncDocument(sourcePath);
+      return {
+        operation: "diagnostics",
+        selectedServer: this.project.definition.id,
+        projectRoot: workspaceDisplayPath(this.workspaceRoot, this.project.projectRoot),
+        path: workspaceDisplayPath(this.workspaceRoot, sourcePath),
+        provider: "push",
+        ...this.diagnosticSnapshots.read(
+          document,
+          input.limit ?? DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT,
+        ),
+      };
+    } catch (error) {
+      if (error instanceof CodeIntelligenceError) throw error;
+      throw new CodeIntelligenceError(
+        "code.server_crashed",
+        `Language server ${this.project.definition.id} failed: ${errorMessage(error)}${this.stderrSuffix()}`,
+      );
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -380,6 +416,7 @@ export class LanguageService {
     }
 
     this.documents.clear();
+    this.diagnosticSnapshots.clear();
     if (child && child.exitCode === null && child.signalCode === null) {
       terminateProcessTree(child, "SIGTERM", process.platform !== "win32");
     }
@@ -519,6 +556,7 @@ export class LanguageService {
     this.connection = undefined;
     this.child = undefined;
     this.documents.clear();
+    this.diagnosticSnapshots.clear();
   }
 
   private registerClientHandlers(connection: MessageConnection): void {
@@ -532,6 +570,13 @@ export class LanguageService {
     connection.onRequest("window/showMessageRequest", () => null);
     connection.onNotification("window/logMessage", () => undefined);
     connection.onNotification("window/showMessage", () => undefined);
+    connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
+      this.diagnosticSnapshots.capture(
+        params,
+        this.documents.get(params.uri),
+        this.positionEncoding,
+      );
+    });
   }
 
   private async syncDocument(sourcePath: string): Promise<OpenDocument> {

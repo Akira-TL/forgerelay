@@ -14,6 +14,8 @@ const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ??
 const documentSymbolsMode = process.env.FORGERELAY_FAKE_LSP_DOCUMENT_SYMBOLS_MODE ?? "hierarchical";
 const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_MODE ?? "normal";
 const workspaceSymbolCount = Number(process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOL_COUNT ?? "1");
+const diagnosticsMode = process.env.FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE ?? "none";
+const diagnosticCount = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT ?? "1");
 
 function log(event) {
   if (!logPath) return;
@@ -28,6 +30,34 @@ function send(message) {
 
 function respond(id, result) {
   send({ jsonrpc: "2.0", id, result });
+}
+
+function notify(method, params) {
+  send({ jsonrpc: "2.0", method, params });
+}
+
+function fakeDiagnostics(count, replacement = false) {
+  if (replacement) {
+    return [{
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+      severity: 2,
+      code: "W2",
+      source: "fake-lsp",
+      message: "replacement diagnostic",
+      tags: [1],
+    }];
+  }
+  return Array.from({ length: count }, (_unused, index) => ({
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+    severity: 1,
+    code: `E${index + 1}`,
+    source: "fake-lsp",
+    message: `diagnostic ${index + 1}`,
+  }));
+}
+
+function publishDiagnostics(uri, version, diagnostics) {
+  notify("textDocument/publishDiagnostics", { uri, version, diagnostics });
 }
 
 function handle(message) {
@@ -79,6 +109,28 @@ function handle(message) {
         },
       },
     });
+    return;
+  }
+
+  if (message.method === "textDocument/didOpen") {
+    const uri = message.params?.textDocument?.uri;
+    const version = message.params?.textDocument?.version;
+    if (typeof uri === "string" && diagnosticsMode.startsWith("push")) {
+      publishDiagnostics(uri, version, fakeDiagnostics(diagnosticCount));
+      if (diagnosticsMode === "push-replace") {
+        publishDiagnostics(uri, version, fakeDiagnostics(1, true));
+      }
+    }
+    return;
+  }
+
+  if (message.method === "textDocument/didChange") {
+    const uri = message.params?.textDocument?.uri;
+    const version = message.params?.textDocument?.version;
+    if (typeof uri === "string") {
+      if (diagnosticsMode === "push-clear") publishDiagnostics(uri, version, []);
+      else if (diagnosticsMode === "push") publishDiagnostics(uri, version, fakeDiagnostics(diagnosticCount));
+    }
     return;
   }
 

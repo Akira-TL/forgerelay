@@ -36,12 +36,19 @@ export interface CodeIntelligenceWorkspaceSymbolsInput {
   limit?: number;
 }
 
+export interface CodeIntelligenceDiagnosticsInput {
+  operation: "diagnostics";
+  path: string;
+  limit?: number;
+}
+
 export type CodeIntelligenceInput =
   | CodeIntelligenceDefinitionInput
   | CodeIntelligenceHoverInput
   | CodeIntelligenceReferencesInput
   | CodeIntelligenceDocumentSymbolsInput
-  | CodeIntelligenceWorkspaceSymbolsInput;
+  | CodeIntelligenceWorkspaceSymbolsInput
+  | CodeIntelligenceDiagnosticsInput;
 
 export interface CodeIntelligencePosition {
   line: number;
@@ -123,9 +130,39 @@ export interface CodeIntelligenceWorkspaceSymbolsResult {
   total?: number;
 }
 
+export interface CodeIntelligenceDiagnostic {
+  range: CodeIntelligenceRange;
+  severity?: string;
+  code?: string | number;
+  source?: string;
+  message: string;
+  tags?: string[];
+}
+
+export interface CodeIntelligenceDiagnosticFreshness {
+  state: "fresh" | "stale" | "missing" | "unknown";
+  documentVersion: number;
+  snapshotDocumentVersion?: number;
+  publishedVersion?: number;
+}
+
+export interface CodeIntelligenceDiagnosticsResult {
+  operation: "diagnostics";
+  selectedServer: string;
+  projectRoot: string;
+  path: string;
+  provider: "push" | "pull";
+  diagnostics: CodeIntelligenceDiagnostic[];
+  returned: number;
+  truncated: boolean;
+  total?: number;
+  freshness: CodeIntelligenceDiagnosticFreshness;
+}
+
 export type CodeIntelligenceResult =
   | CodeIntelligenceDefinitionResult
   | CodeIntelligenceHoverResult
   | CodeIntelligenceReferencesResult
   | CodeIntelligenceDocumentSymbolsResult
-  | CodeIntelligenceWorkspaceSymbolsResult;
+  | CodeIntelligenceWorkspaceSymbolsResult
+  | CodeIntelligenceDiagnosticsResult;

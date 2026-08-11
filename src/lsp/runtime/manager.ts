@@ -20,6 +20,8 @@ const MAX_LANGUAGE_SERVICES = 16;
 const LANGUAGE_SERVICE_START_TIMEOUT_MS = 15_000;
 const LANGUAGE_REQUEST_TIMEOUT_MS = 10_000;
 const LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS = 2_000;
+const MAX_DIAGNOSTIC_DOCUMENTS = 128;
+const MAX_DIAGNOSTICS_PER_DOCUMENT = 1000;
 
 export interface CodeIntelligenceManagerOptions {
   idleMs?: number;
@@ -28,6 +30,8 @@ export interface CodeIntelligenceManagerOptions {
   startTimeoutMs?: number;
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+  maxDiagnosticDocuments?: number;
+  maxDiagnosticsPerDocument?: number;
 }
 
 export class CodeIntelligenceManager {
@@ -48,6 +52,8 @@ export class CodeIntelligenceManager {
       startTimeoutMs: positiveInteger(options.startTimeoutMs, LANGUAGE_SERVICE_START_TIMEOUT_MS, "startTimeoutMs"),
       requestTimeoutMs: positiveInteger(options.requestTimeoutMs, LANGUAGE_REQUEST_TIMEOUT_MS, "requestTimeoutMs"),
       shutdownTimeoutMs: positiveInteger(options.shutdownTimeoutMs, LANGUAGE_SERVICE_SHUTDOWN_TIMEOUT_MS, "shutdownTimeoutMs"),
+      maxDiagnosticDocuments: positiveInteger(options.maxDiagnosticDocuments, MAX_DIAGNOSTIC_DOCUMENTS, "maxDiagnosticDocuments"),
+      maxDiagnosticsPerDocument: positiveInteger(options.maxDiagnosticsPerDocument, MAX_DIAGNOSTICS_PER_DOCUMENT, "maxDiagnosticsPerDocument"),
     };
     this.cleanupTimer = setInterval(() => {
       void this.closeIdle();
@@ -88,6 +94,8 @@ export class CodeIntelligenceManager {
           return await service.documentSymbols(input);
         case "workspaceSymbols":
           return await service.workspaceSymbols(input);
+        case "diagnostics":
+          return await service.diagnostics(input);
       }
     } finally {
       service.release();
