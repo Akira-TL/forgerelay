@@ -21,9 +21,11 @@ test("semantic request coordinator cancels the LSP token on deadline", async () 
 
   await assert.rejects(
     coordinator.run("slow request", undefined, async (token) => {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        const guard = setTimeout(() => reject(new Error("cancellation was not observed")), 500);
         const disposable = token.onCancellationRequested(() => {
           observedCancellation = true;
+          clearTimeout(guard);
           disposable.dispose();
           resolve();
         });
