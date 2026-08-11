@@ -71,6 +71,15 @@ async function waitForLog(logPath: string, pattern: RegExp, timeoutMs = 2_000): 
   throw new Error(`Timed out waiting for ${pattern} in ${logPath}`);
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await pause(20);
+  }
+  throw new Error("Timed out waiting for semantic request state.");
+}
+
 test("Host cancellation propagates to an aware LSP server and the shared service remains usable", async (t) => {
   const context = await createCodeIntelligenceServerFixture(t, {
     codeIntelligenceOptions: { requestTimeoutMs: 2_000 },
@@ -191,12 +200,12 @@ test("semantic deadlines return a stable timeout error and preserve a healthy se
 test("semantic request concurrency and queue length are both bounded", async (t) => {
   const context = await createCodeIntelligenceServerFixture(t, {
     codeIntelligenceOptions: {
-      requestTimeoutMs: 2_000,
+      requestTimeoutMs: 5_000,
       maxConcurrentSemanticRequests: 2,
       maxQueuedSemanticRequests: 1,
     },
   });
-  await configureProject(context.project, { referenceDelayMs: 350, cancellationMode: "ignore" });
+  await configureProject(context.project, { referenceDelayMs: 1_500, cancellationMode: "ignore" });
   const opened = await callOpen(context.client, context.project, "request-capacity");
   const workspaceId = structuredContent(opened).workspaceId as string;
   const refs = () => context.client.callTool(capabilityCall(workspaceId, {
@@ -208,9 +217,11 @@ test("semantic request concurrency and queue length are both bounded", async (t)
 
   const first = refs();
   const second = refs();
-  await pause(60);
   const queued = refs();
-  await pause(30);
+  await waitFor(() => {
+    const stats = context.codeIntelligence.stats();
+    return stats.semanticRequestsActive === 2 && stats.semanticRequestsQueued === 1;
+  });
   const rejected = await refs();
   assert.equal(rejected.isError, true);
   assert.equal((structuredContent(rejected).error as { code?: string }).code, "code.request_capacity");
