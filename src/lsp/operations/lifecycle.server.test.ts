@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -111,7 +112,8 @@ function initializePidForRoot(
   const event = events.find((candidate) => {
     if (candidate.method !== "initialize") return false;
     const params = candidate.params as { rootUri?: string } | undefined;
-    return typeof params?.rootUri === "string" && resolve(fileURLToPath(params.rootUri)) === resolve(root);
+    return typeof params?.rootUri === "string" &&
+      realpathSync.native(fileURLToPath(params.rootUri)) === realpathSync.native(root);
   });
   assert.ok(event);
   assert.equal(typeof event.pid, "number");
