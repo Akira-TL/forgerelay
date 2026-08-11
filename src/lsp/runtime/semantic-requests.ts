@@ -37,7 +37,11 @@ export class SemanticRequestCoordinator {
       const rejectOnce = (error: CodeIntelligenceError) => {
         if (settledForCaller) return;
         settledForCaller = true;
-        source.cancel();
+        try {
+          source.cancel();
+        } catch {
+          // The Language-server connection may already have closed or crashed.
+        }
         reject(error);
       };
       const remaining = Math.max(1, this.options.deadlineMs - (Date.now() - startedAt));

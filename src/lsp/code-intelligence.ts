@@ -517,6 +517,14 @@ export class LanguageService {
       ));
       child.once("exit", onExitDuringInitialization);
     });
+    child.on("exit", () => {
+      if (this.closed || this.child !== child) return;
+      try {
+        connection.dispose();
+      } catch {
+        // Pending semantic requests will surface the unexpected process exit.
+      }
+    });
 
     const rootUri = pathToFileURL(this.project.projectRoot).href;
     const initializeParams: InitializeParams = {

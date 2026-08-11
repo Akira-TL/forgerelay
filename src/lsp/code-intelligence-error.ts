@@ -13,7 +13,8 @@ export class CodeIntelligenceError extends Error {
       | "code.server_crashed"
       | "code.invalid_position"
       | "code.result_outside_policy"
-      | "code.language_service_capacity",
+      | "code.language_service_capacity"
+      | "code.language_service_cooldown",
     message: string,
   ) {
     super(message);

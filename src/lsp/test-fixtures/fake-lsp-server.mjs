@@ -1,4 +1,4 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 
@@ -10,9 +10,13 @@ const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
 const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
+const hoverText = process.env.FORGERELAY_FAKE_LSP_HOVER_TEXT ?? "**target**: `() => void`";
 const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
 const referenceDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_DELAY_MS ?? "0");
 const cancellationMode = process.env.FORGERELAY_FAKE_LSP_CANCELLATION_MODE ?? "aware";
+const crashMode = process.env.FORGERELAY_FAKE_LSP_CRASH_MODE ?? "none";
+const crashStatePath = process.env.FORGERELAY_FAKE_LSP_CRASH_STATE_PATH;
+const crashStderrBytes = Number(process.env.FORGERELAY_FAKE_LSP_CRASH_STDERR_BYTES ?? "0");
 const pendingRequests = new Map();
 const documentSymbolsMode = process.env.FORGERELAY_FAKE_LSP_DOCUMENT_SYMBOLS_MODE ?? "hierarchical";
 const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_MODE ?? "normal";
@@ -71,6 +75,25 @@ function fakePullDiagnostics(count) {
 
 function publishDiagnostics(uri, version, diagnostics) {
   notify("textDocument/publishDiagnostics", { uri, version, diagnostics });
+}
+
+function crashCount() {
+  if (!crashStatePath || !existsSync(crashStatePath)) return 0;
+  const value = Number(readFileSync(crashStatePath, "utf8"));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function maybeCrash() {
+  const count = crashCount();
+  const shouldCrash = crashMode === "always" ||
+    (crashMode === "once" && count < 1) ||
+    (crashMode === "twice" && count < 2);
+  if (!shouldCrash) return false;
+  if (crashStatePath) writeFileSync(crashStatePath, String(count + 1));
+  const exit = () => process.exit(91);
+  if (crashStderrBytes > 0) process.stderr.write("x".repeat(crashStderrBytes), exit);
+  else setImmediate(exit);
+  return true;
 }
 
 function handle(message) {
@@ -195,7 +218,7 @@ function handle(message) {
       });
       return;
     }
-    respond(message.id, { contents: { kind: "markdown", value: "**target**: `() => void`" }, range });
+    respond(message.id, { contents: { kind: "markdown", value: hoverText }, range });
     return;
   }
 
@@ -282,6 +305,7 @@ function handle(message) {
   }
 
   if (message.method === "textDocument/references") {
+    if (maybeCrash()) return;
     const target = targetPath ?? join(rootPath, "src", "target.ts");
     const locations = Array.from({ length: referenceCount }, () => ({
       uri: pathToFileURL(target).href,
