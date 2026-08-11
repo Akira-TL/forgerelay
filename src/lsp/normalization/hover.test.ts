@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeHoverContents } from "./hover-normalization.js";
+import { normalizeHoverContents } from "./hover.js";
 
 test("hover normalization keeps plaintext and markdown content stable", () => {
   assert.deepEqual(

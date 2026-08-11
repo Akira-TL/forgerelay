@@ -41,7 +41,7 @@ import type {
   CodeIntelligenceLocation,
   CodeIntelligenceResult,
 } from "./code-intelligence-types.js";
-import { normalizeHoverContents } from "./hover-normalization.js";
+import { normalizeHoverContents } from "./normalization/hover.js";
 import { lspPositionFromUser, rangeFromLsp, wholeDocumentRange } from "./position-encoding.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
