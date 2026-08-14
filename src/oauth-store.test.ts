@@ -49,6 +49,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 5, name: "workspace-worktree-branches" },
       { version: 6, name: "local-agent-hook-reports" },
       { version: 7, name: "workspace-context-deliveries" },
+      { version: 8, name: "activity-audit" },
     ]);
   } finally {
     database.close();
