@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-14
+
+### Added
+
+- Added the production local Activity audit foundation: append-only Audit Events persist in ForgeRelay's existing SQLite state, queryable Activity Records survive server restarts and Workspace cleanup, and success, failure, and Hook-blocked outcomes retain immutable Workspace/Host Turn execution context for later lifecycle and UI releases.
+
 ## [0.4.7] - 2026-08-11
 
 ### Added
