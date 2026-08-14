@@ -92,3 +92,19 @@ _Avoid_: Allowed root, mounted dependency, readable external file
 **Diagnostic snapshot**:
 The latest bounded set of language-server diagnostics ForgeRelay associates with one document at a known freshness point.
 _Avoid_: Build log, permanent diagnostic history, Workspace state
+
+**Host Turn**:
+One top-level Host execution cycle for a user input, beginning when the Host starts handling that input and ending when it produces its final response or the user interrupts the cycle.
+_Avoid_: Agent session, provider session, conversation
+
+**Workspace Open Card**:
+An immutable MCP App result view for one successful Workspace open or switch. It records the Workspace state visible at that open and does not monitor later tool execution.
+_Avoid_: Workspace dashboard, Activity Panel
+
+**Activity**:
+One semantic top-level ForgeRelay operation performed during a Host Turn. Follow-up control calls for the same operation, such as polling a running Bash process, update the existing Activity rather than creating additional Activities.
+_Avoid_: RPC call, log line, Hook execution
+
+**Activity Panel**:
+The MCP App view that presents the Activities for one Host Turn. The panel is a presentation over ForgeRelay-owned Activity state rather than the source of that state.
+_Avoid_: Activity, Workspace Open Card, conversation dashboard
