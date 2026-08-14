@@ -47,6 +47,11 @@ const migrations: Migration[] = [
     name: "activity-audit",
     up: migrateActivityAudit,
   },
+  {
+    version: 9,
+    name: "bash-output-audit",
+    up: migrateBashOutputAudit,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -275,6 +280,50 @@ function migrateActivityAudit(sqlite: Database.Database): void {
 
     create index if not exists activity_audit_events_created_idx
       on activity_audit_events(created_at);
+  `);
+}
+
+function migrateBashOutputAudit(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists bash_output_streams (
+      id text primary key,
+      activity_id text not null,
+      turn_id text not null,
+      conversation_scope_id text,
+      process_id integer not null,
+      workspace_id text not null,
+      workspace_root text not null,
+      command text not null,
+      tty integer not null default 0,
+      status text not null default 'running',
+      exit_code integer,
+      signal text,
+      timed_out integer not null default 0,
+      error text,
+      returned integer not null default 0,
+      completion_claimed_at text,
+      started_at text not null,
+      finished_at text
+    );
+
+    create index if not exists bash_output_streams_activity_idx
+      on bash_output_streams(activity_id);
+
+    create index if not exists bash_output_streams_workspace_idx
+      on bash_output_streams(workspace_id, started_at);
+
+    create table if not exists bash_output_chunks (
+      output_id text not null,
+      sequence integer not null,
+      channel text not null,
+      data blob not null,
+      created_at text not null,
+      primary key (output_id, sequence),
+      foreign key (output_id) references bash_output_streams(id) on delete cascade
+    );
+
+    create index if not exists bash_output_chunks_output_idx
+      on bash_output_chunks(output_id, sequence);
   `);
 }
 

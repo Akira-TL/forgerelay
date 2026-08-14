@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { ProcessAuditContext, ProcessOutputAuditSink, ProcessOutputChannel } from "./activity/process-output-audit.js";
 import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
@@ -24,6 +25,7 @@ export interface StartCommandInput {
   command: string;
   cwd: string;
   workspaceRoot?: string;
+  audit?: ProcessAuditContext;
   tty?: boolean;
   columns?: number;
   rows?: number;
@@ -51,6 +53,7 @@ export interface ProcessSnapshot {
   processId?: number;
   /** @deprecated Use processId. */
   sessionId?: number;
+  outputId?: string;
   output: string;
   outputTruncated: boolean;
   running: boolean;
@@ -83,6 +86,8 @@ interface ProcessEntry {
   id: number;
   workspaceId: string;
   command: string;
+  outputId?: string;
+  auditFinished: boolean;
   process?: ManagedProcess;
   startedAtMonotonic: number;
   finishedAtMonotonic?: number;
@@ -103,7 +108,7 @@ interface ProcessEntry {
   forceKillTimer?: NodeJS.Timeout;
 }
 
-interface ProcessManagerOptions {
+export interface ProcessManagerOptions {
   maxBufferCharacters?: number;
   maxActiveProcesses?: number;
   maxCompletedProcesses?: number;
@@ -112,6 +117,7 @@ interface ProcessManagerOptions {
   completedSessionTtlMs?: number;
   maxStartYieldMs?: number;
   monotonicNow?: () => number;
+  outputAudit?: ProcessOutputAuditSink;
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -338,6 +344,7 @@ export class ProcessManager {
   private readonly completedProcessTtlMs: number;
   private readonly maxStartYieldMs: number;
   private readonly monotonicNow: () => number;
+  private readonly outputAudit?: ProcessOutputAuditSink;
   private nextProcessId = 1;
 
   constructor(options: ProcessManagerOptions = {}) {
@@ -355,6 +362,7 @@ export class ProcessManager {
       ?? COMPLETED_PROCESS_TTL_MS;
     this.maxStartYieldMs = options.maxStartYieldMs ?? MAX_START_YIELD_MS;
     this.monotonicNow = options.monotonicNow ?? (() => performance.now());
+    this.outputAudit = options.outputAudit;
   }
 
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
@@ -372,6 +380,10 @@ export class ProcessManager {
       if (input.tty && process.platform !== "win32") await this.startPty(processEntry, input);
       else this.startPipe(processEntry, input);
     } catch (error) {
+      this.finishAudit(processEntry, {
+        timedOut: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.processes.delete(processEntry.id);
       throw error;
     }
@@ -488,7 +500,14 @@ export class ProcessManager {
   shutdown(): void {
     for (const processEntry of this.processes.values()) {
       this.clearProcessTimers(processEntry);
-      if (processEntry.running) processEntry.process?.kill("SIGTERM");
+      if (processEntry.running) {
+        this.finishAudit(processEntry, {
+          signal: "shutdown",
+          timedOut: false,
+          error: "ForgeRelay shut down while the process was still running.",
+        });
+        processEntry.process?.kill("SIGTERM");
+      }
     }
     this.processes.clear();
     this.completedByWorkspace.clear();
@@ -531,10 +550,26 @@ export class ProcessManager {
       resolveExit = resolve;
     });
 
+    const id = this.nextProcessId++;
+    const outputId = this.outputAudit && input.audit
+      ? this.outputAudit.begin({
+          activityId: input.audit.activityId,
+          turnId: input.audit.turnId,
+          ...(input.audit.conversationScopeId ? { conversationScopeId: input.audit.conversationScopeId } : {}),
+          processId: id,
+          workspaceId: input.workspaceId,
+          workspaceRoot: input.workspaceRoot ?? input.cwd,
+          command: input.command,
+          tty: input.tty === true,
+        })
+      : undefined;
+
     return {
-      id: this.nextProcessId++,
+      id,
       workspaceId: input.workspaceId,
       command: input.command,
+      ...(outputId ? { outputId } : {}),
+      auditFinished: false,
       startedAtMonotonic: this.monotonicNow(),
       columns: terminalSize(input.columns, DEFAULT_COLUMNS),
       rows: terminalSize(input.rows, DEFAULT_ROWS),
@@ -570,9 +605,9 @@ export class ProcessManager {
       kill: (signal = "SIGTERM") => terminateProcessTree(child, signal, detached),
       resize: input.tty ? () => undefined : undefined,
     };
-    child.stdout.on("data", (data: Buffer) => this.append(processEntry, data.toString("utf8")));
-    child.stderr.on("data", (data: Buffer) => this.append(processEntry, data.toString("utf8")));
-    child.on("error", (error) => this.append(processEntry, `${error.message}\n`));
+    child.stdout.on("data", (data: Buffer) => this.append(processEntry, "stdout", data));
+    child.stderr.on("data", (data: Buffer) => this.append(processEntry, "stderr", data));
+    child.on("error", (error) => this.append(processEntry, "process", `${error.message}\n`));
     child.on("close", (code, signal) => this.finish(processEntry, code ?? undefined, signal ?? undefined));
   }
 
@@ -607,7 +642,7 @@ export class ProcessManager {
       kill: (signal) => pty.kill(signal),
       resize: (columns, rows) => pty.resize(columns, rows),
     };
-    pty.onData((data) => this.append(processEntry, data));
+    pty.onData((data) => this.append(processEntry, "pty", data));
     pty.onExit(({ exitCode, signal }) => {
       this.finish(processEntry, exitCode, signal === 0 ? undefined : String(signal));
     });
@@ -620,6 +655,11 @@ export class ProcessManager {
     processEntry.signal = signal;
     processEntry.finishedAtMonotonic = this.monotonicNow();
     processEntry.process = undefined;
+    this.finishAudit(processEntry, {
+      ...(exitCode !== undefined ? { exitCode } : {}),
+      ...(signal ? { signal } : {}),
+      timedOut: processEntry.timedOut,
+    });
     if (processEntry.executionTimeoutTimer) clearTimeout(processEntry.executionTimeoutTimer);
     if (processEntry.forceKillTimer) clearTimeout(processEntry.forceKillTimer);
     processEntry.resolveExit();
@@ -658,8 +698,25 @@ export class ProcessManager {
     processEntry.cleanupTimer.unref();
   }
 
-  private append(processEntry: ProcessEntry, output: string): void {
-    processEntry.buffer.append(output);
+  private append(processEntry: ProcessEntry, channel: ProcessOutputChannel, output: Uint8Array | string): void {
+    if (processEntry.outputId && !processEntry.auditFinished) {
+      this.outputAudit?.append(processEntry.outputId, channel, output);
+    }
+    processEntry.buffer.append(typeof output === "string" ? output : Buffer.from(output).toString("utf8"));
+  }
+
+  private finishAudit(
+    processEntry: ProcessEntry,
+    input: {
+      exitCode?: number;
+      signal?: string;
+      timedOut: boolean;
+      error?: string;
+    },
+  ): void {
+    if (!processEntry.outputId || processEntry.auditFinished) return;
+    processEntry.auditFinished = true;
+    this.outputAudit?.finish(processEntry.outputId, input);
   }
 
   private consume(processEntry: ProcessEntry, maxOutputTokens?: number): ProcessSnapshot {
@@ -673,6 +730,7 @@ export class ProcessManager {
     return {
       processId,
       sessionId: processId,
+      ...(processEntry.outputId ? { outputId: processEntry.outputId } : {}),
       output: buffered.output,
       outputTruncated: processEntry.outputWasTruncated,
       running: processEntry.running,

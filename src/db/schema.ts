@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { blob, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const workspaceSessions = sqliteTable(
   "workspace_sessions",
@@ -135,6 +135,51 @@ export const activityAuditEvents = sqliteTable(
   ],
 );
 
+export const bashOutputStreams = sqliteTable(
+  "bash_output_streams",
+  {
+    id: text("id").primaryKey(),
+    activityId: text("activity_id").notNull(),
+    turnId: text("turn_id").notNull(),
+    conversationScopeId: text("conversation_scope_id"),
+    processId: integer("process_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    workspaceRoot: text("workspace_root").notNull(),
+    command: text("command").notNull(),
+    tty: integer("tty", { mode: "boolean" }).notNull().default(false),
+    status: text("status").notNull().default("running"),
+    exitCode: integer("exit_code"),
+    signal: text("signal"),
+    timedOut: integer("timed_out", { mode: "boolean" }).notNull().default(false),
+    error: text("error"),
+    returned: integer("returned", { mode: "boolean" }).notNull().default(false),
+    completionClaimedAt: text("completion_claimed_at"),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+  },
+  (table) => [
+    index("bash_output_streams_activity_idx").on(table.activityId),
+    index("bash_output_streams_workspace_idx").on(table.workspaceId, table.startedAt),
+  ],
+);
+
+export const bashOutputChunks = sqliteTable(
+  "bash_output_chunks",
+  {
+    outputId: text("output_id")
+      .notNull()
+      .references(() => bashOutputStreams.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    channel: text("channel").notNull(),
+    data: blob("data", { mode: "buffer" }).notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.outputId, table.sequence] }),
+    index("bash_output_chunks_output_idx").on(table.outputId, table.sequence),
+  ],
+);
+
 export const localAgentSessions = sqliteTable(
   "local_agent_sessions",
   {
@@ -170,5 +215,9 @@ export type WorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inf
 export type NewWorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferInsert;
 export type ActivityAuditEventRow = typeof activityAuditEvents.$inferSelect;
 export type NewActivityAuditEventRow = typeof activityAuditEvents.$inferInsert;
+export type BashOutputStreamRow = typeof bashOutputStreams.$inferSelect;
+export type NewBashOutputStreamRow = typeof bashOutputStreams.$inferInsert;
+export type BashOutputChunkRow = typeof bashOutputChunks.$inferSelect;
+export type NewBashOutputChunkRow = typeof bashOutputChunks.$inferInsert;
 export type LocalAgentSessionRow = typeof localAgentSessions.$inferSelect;
 export type NewLocalAgentSessionRow = typeof localAgentSessions.$inferInsert;

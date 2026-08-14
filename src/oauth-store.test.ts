@@ -50,6 +50,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 6, name: "local-agent-hook-reports" },
       { version: 7, name: "workspace-context-deliveries" },
       { version: 8, name: "activity-audit" },
+      { version: 9, name: "bash-output-audit" },
     ]);
   } finally {
     database.close();
