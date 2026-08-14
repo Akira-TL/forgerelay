@@ -20,6 +20,8 @@ import express from "express";
 import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
+import { ActivityAuditStore, type ActivityWorkspaceSnapshot } from "./activity/audit-store.js";
+import { ActivityLifecycle, type ActivityOutcome } from "./activity/lifecycle.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import {
   CapabilityError,
@@ -35,7 +37,7 @@ import { ArtifactError } from "./artifact-error.js";
 import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
 import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
-import { attachHookReports, HookRunner, runToolWithHooks } from "./hooks.js";
+import { attachHookReports, HookRunner, runToolWithHooks, type ToolHookOptions } from "./hooks.js";
 import { checkHookConfiguration } from "./hook-cli.js";
 import {
   buildServerInstructions,
@@ -833,12 +835,110 @@ function toolResultIsError(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
 }
 
+function workspaceActivitySnapshot(workspace: Workspace): ActivityWorkspaceSnapshot {
+  return {
+    id: workspace.id,
+    root: workspace.root,
+    mode: workspace.mode,
+    ...(workspace.sourceRoot ? { sourceRoot: workspace.sourceRoot } : {}),
+    ...(workspace.worktree?.branch ? { branch: workspace.worktree.branch } : {}),
+    ...(workspace.worktree?.targetBranch ? { targetBranch: workspace.worktree.targetBranch } : {}),
+  };
+}
+
+function activityFailureMessage(result: unknown): string {
+  if (typeof result !== "object" || result === null) return "Tool returned a failed result.";
+  const record = result as { content?: unknown; structuredContent?: unknown };
+  if (Array.isArray(record.content)) {
+    const text = record.content
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return "";
+        const value = (entry as { text?: unknown }).text;
+        return typeof value === "string" ? value : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (text) return text;
+  }
+  if (typeof record.structuredContent === "object" && record.structuredContent !== null) {
+    const value = (record.structuredContent as { result?: unknown }).result;
+    if (typeof value === "string" && value) return value;
+  }
+  return "Tool returned a failed result.";
+}
+
+function standardActivityOutcome(result: unknown): ActivityOutcome {
+  return toolResultIsError(result)
+    ? { type: "failed", error: activityFailureMessage(result) }
+    : { type: "succeeded" };
+}
+
+function processActivityOutcome(result: unknown): ActivityOutcome {
+  if (toolResultIsError(result)) return { type: "failed", error: activityFailureMessage(result) };
+  if (typeof result !== "object" || result === null) return { type: "succeeded" };
+  const structured = (result as { structuredContent?: unknown }).structuredContent;
+  if (typeof structured !== "object" || structured === null) return { type: "succeeded" };
+  const process = structured as {
+    running?: unknown;
+    exitCode?: unknown;
+    signal?: unknown;
+    timedOut?: unknown;
+  };
+  if (process.running === true) return { type: "returned" };
+  if (
+    process.timedOut === true ||
+    typeof process.signal === "string" ||
+    (typeof process.exitCode === "number" && process.exitCode !== 0)
+  ) {
+    return { type: "failed", error: activityFailureMessage(result) };
+  }
+  return { type: "succeeded" };
+}
+
+function runActivityTool<T>(
+  lifecycle: ActivityLifecycle,
+  workspace: Workspace,
+  requestMeta: unknown,
+  tool: string,
+  request: unknown,
+  operation: () => Promise<T>,
+  outcome: (result: T) => ActivityOutcome = standardActivityOutcome,
+): Promise<T> {
+  return lifecycle.run({
+    tool,
+    workspace: workspaceActivitySnapshot(workspace),
+    conversationScopeId: openAiConversationScopeId(requestMeta),
+    request,
+    operation,
+    outcome,
+  });
+}
+
+function runActivityToolWithHooks<T>(
+  lifecycle: ActivityLifecycle,
+  hooks: HookRunner,
+  workspace: Workspace,
+  requestMeta: unknown,
+  request: unknown,
+  hookOptions: ToolHookOptions<T>,
+): Promise<T> {
+  return runActivityTool(
+    lifecycle,
+    workspace,
+    requestMeta,
+    hookOptions.tool,
+    request,
+    () => runToolWithHooks(hooks, hookOptions),
+  );
+}
+
 function registerProcessTools(
   server: McpServer,
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
   processSessions: ProcessManager,
   hooks: HookRunner,
+  activityLifecycle: ActivityLifecycle,
 ): void {
   if (config.toolMode === "codex") {
     registerAppTool(
@@ -890,8 +990,15 @@ function registerProcessTools(
     async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       let undeliveredProcessId: number | undefined;
-      try {
-        const result = await runToolWithHooks(hooks, {
+      return runActivityTool(
+        activityLifecycle,
+        workspace,
+        extra._meta,
+        "exec_command",
+        { workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens },
+        async () => {
+          try {
+            const result = await runToolWithHooks(hooks, {
           signal: extra.signal,
           tool: "exec_command",
           invocation: workspaceHookInvocation(workspace),
@@ -942,14 +1049,17 @@ function registerProcessTools(
             });
           },
         });
-        extra.signal.throwIfAborted();
-        return result;
-      } catch (error) {
-        if (undeliveredProcessId !== undefined) {
-          processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
-        }
-        throw error;
-      }
+            extra.signal.throwIfAborted();
+            return result;
+          } catch (error) {
+            if (undeliveredProcessId !== undefined) {
+              processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
+            }
+            throw error;
+          }
+        },
+        processActivityOutcome,
+      );
     },
     );
   }
@@ -1046,6 +1156,7 @@ export function createMcpServer(
   localAgentProviders: LocalAgentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
   codeIntelligence: CodeIntelligenceManager,
+  activityLifecycle: ActivityLifecycle,
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
@@ -1670,8 +1781,14 @@ export function createMcpServer(
     async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       let changedPaths: string[] = [];
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, name, action, arguments: capabilityArguments, file },
+        {
+          signal: extra.signal,
         tool: toolNames.capability,
         invocation: workspaceHookInvocation(workspace),
         payload: { name, action },
@@ -1925,8 +2042,14 @@ export function createMcpServer(
     },
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, ...input },
+        {
+          signal: extra.signal,
         tool: toolNames.read,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path, offset: input.offset, limit: input.limit },
@@ -2027,8 +2150,14 @@ export function createMcpServer(
     },
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, ...input },
+        {
+          signal: extra.signal,
         tool: toolNames.write,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path },
@@ -2128,8 +2257,14 @@ export function createMcpServer(
     },
     async ({ workspaceId, ...input }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, ...input },
+        {
+          signal: extra.signal,
         tool: toolNames.edit,
         invocation: workspaceHookInvocation(workspace),
         payload: { path: input.path, editCount: input.edits.length },
@@ -2220,8 +2355,14 @@ export function createMcpServer(
     },
     async ({ workspaceId, path, newPath }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, path, newPath },
+        {
+          signal: extra.signal,
         tool: toolNames.rename,
         invocation: workspaceHookInvocation(workspace),
         payload: { path, newPath, paths: [path, newPath] },
@@ -2302,8 +2443,14 @@ export function createMcpServer(
     },
     async ({ workspaceId, path, recursive }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        extra._meta,
+        { workspaceId, path, recursive },
+        {
+          signal: extra.signal,
         tool: toolNames.delete,
         invocation: workspaceHookInvocation(workspace),
         payload: { path, recursive: recursive ?? false },
@@ -2394,8 +2541,14 @@ export function createMcpServer(
       },
       async ({ workspaceId, patch }, extra) => {
         const workspace = workspaces.getWorkspace(workspaceId);
-        return runToolWithHooks(hooks, {
-          signal: extra.signal,
+        return runActivityToolWithHooks(
+          activityLifecycle,
+          hooks,
+          workspace,
+          extra._meta,
+          { workspaceId, patch },
+          {
+            signal: extra.signal,
           tool: "apply_patch",
           invocation: workspaceHookInvocation(workspace),
           payload: { patchBytes: Buffer.byteLength(patch) },
@@ -2553,8 +2706,26 @@ export function createMcpServer(
             throw new Error("bash action=run does not accept processId, input, or interrupt.");
           }
           let undeliveredProcessId: number | undefined;
-          try {
-            const result = await runToolWithHooks(hooks, {
+          return runActivityTool(
+            activityLifecycle,
+            workspace,
+            extra._meta,
+            toolNames.shell,
+            {
+              workspaceId,
+              action,
+              command,
+              tty,
+              columns,
+              rows,
+              workingDirectory,
+              yieldTimeMs,
+              timeoutMs,
+              maxOutputTokens,
+            },
+            async () => {
+              try {
+                const result = await runToolWithHooks(hooks, {
               signal: extra.signal,
               tool: toolNames.shell,
               invocation: workspaceHookInvocation(workspace),
@@ -2613,14 +2784,17 @@ export function createMcpServer(
                   : response;
               },
             });
-            extra.signal.throwIfAborted();
-            return result;
-          } catch (error) {
-            if (undeliveredProcessId !== undefined) {
-              processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
-            }
-            throw error;
-          }
+                extra.signal.throwIfAborted();
+                return result;
+              } catch (error) {
+                if (undeliveredProcessId !== undefined) {
+                  processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
+                }
+                throw error;
+              }
+            },
+            processActivityOutcome,
+          );
         }
 
         if (command !== undefined || workingDirectory !== undefined || tty !== undefined || timeoutMs !== undefined) {
@@ -2679,7 +2853,7 @@ export function createMcpServer(
     );
   }
 
-  registerProcessTools(server, config, workspaces, processSessions, hooks);
+  registerProcessTools(server, config, workspaces, processSessions, hooks, activityLifecycle);
 
   return server;
 }
@@ -2714,6 +2888,8 @@ export function createServer(
   });
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
+  const activityAuditStore = new ActivityAuditStore(config.stateDir);
+  const activityLifecycle = new ActivityLifecycle(activityAuditStore);
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessManager();
   const codeIntelligence = new CodeIntelligenceManager(config);
@@ -2933,6 +3109,7 @@ export function createServer(
           localAgentProviders,
           incomingArtifactAdapters,
           codeIntelligence,
+          activityLifecycle,
         );
         await server.connect(transport);
       } else {
@@ -2965,6 +3142,7 @@ export function createServer(
         processSessions.shutdown();
         await codeIntelligence.shutdown();
         oauthProvider.close();
+        activityAuditStore.close();
         workspaceStore.close?.();
       })();
       return closePromise;

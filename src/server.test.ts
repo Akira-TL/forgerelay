@@ -8,6 +8,8 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ActivityAuditStore } from "./activity/audit-store.js";
+import { ActivityLifecycle } from "./activity/lifecycle.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import { loadConfig, type ServerConfig } from "./config.js";
@@ -893,6 +895,84 @@ test("worktree mode reuses by default and only creates another worktree explicit
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
+test("top-level work tools share the persistent Activity lifecycle while Bash process control does not create a duplicate Activity", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-activity-lifecycle");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const callWork = (name: string, args: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: args,
+    _meta: { "openai/session": "chat-activity-lifecycle" },
+  } as Parameters<Client["callTool"]>[0]);
+
+  const read = await callWork("read", { workspaceId, path: "AGENTS.md" });
+  assert.equal(read.isError, undefined);
+  const written = await callWork("write", { workspaceId, path: "activity.txt", content: "before\n" });
+  assert.equal(written.isError, undefined);
+  const edited = await callWork("edit", {
+    workspaceId,
+    path: "activity.txt",
+    edits: [{ oldText: "before", newText: "after" }],
+  });
+  assert.equal(edited.isError, undefined);
+  const renamed = await callWork("rename", { workspaceId, path: "activity.txt", newPath: "activity-renamed.txt" });
+  assert.equal(renamed.isError, undefined);
+  const deleted = await callWork("delete", { workspaceId, path: "activity-renamed.txt" });
+  assert.equal(deleted.isError, undefined);
+  const capability = await callWork("capability", {
+    workspaceId,
+    name: "hooks.check",
+    action: "describe",
+  });
+  assert.equal(capability.isError, undefined);
+
+  const started = await callWork("bash", {
+    workspaceId,
+    action: "run",
+    command: "node -e \"setTimeout(() => {}, 150)\"",
+    yieldTimeMs: 0,
+  });
+  assert.equal(started.isError, undefined);
+  const processId = structuredContent(started).processId;
+  assert.equal(typeof processId, "number");
+  assert.equal(structuredContent(started).running, true);
+
+  const polled = await callWork("bash", {
+    workspaceId,
+    action: "process",
+    processId,
+    yieldTimeMs: 1_000,
+  });
+  assert.equal(polled.isError, undefined);
+
+  const finalRead = await callWork("read", { workspaceId, path: "AGENTS.md" });
+  assert.equal(finalRead.isError, undefined);
+
+  const expected = [
+    ["act_test_1", "read", "done"],
+    ["act_test_2", "write", "done"],
+    ["act_test_3", "edit", "done"],
+    ["act_test_4", "rename", "done"],
+    ["act_test_5", "delete", "done"],
+    ["act_test_6", "capability", "done"],
+    ["act_test_7", "bash", "returned"],
+    ["act_test_8", "read", "done"],
+  ] as const;
+  for (const [activityId, tool, state] of expected) {
+    const activity = context.auditStore.getActivity(activityId);
+    assert.equal(activity?.tool, tool, activityId);
+    assert.equal(activity?.state, state, activityId);
+    assert.equal(activity?.workspace.id, workspaceId, activityId);
+    assert.equal(activity?.conversationScopeId, "chat-activity-lifecycle", activityId);
+  }
+  assert.deepEqual(context.auditStore.getActivity("act_test_2")?.request, {
+    workspaceId,
+    path: "activity.txt",
+    content: "before\n",
+  });
+  assert.equal(context.auditStore.getActivity("act_test_9"), undefined);
+});
+
 test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-temp-write");
@@ -1028,6 +1108,8 @@ test("delete refuses the workspace root itself", async (t) => {
   assert.equal(deleted.isError, true);
   assert.match(allResponseText(deleted), /allowed root itself/i);
   assert.equal(await readFile(join(context.project, "AGENTS.md"), "utf8") !== "", true);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.tool, "delete");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "failed");
 });
 
 test("codex apply_patch can create a file in the OS temp directory", async (t) => {
@@ -1050,6 +1132,46 @@ test("codex apply_patch can create a file in the OS temp directory", async (t) =
 
   assert.equal(patched.isError, undefined);
   assert.equal(await readFile(tempFile, "utf8"), "patched temp\n");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.tool, "apply_patch");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "done");
+});
+
+test("codex exec_command is a top-level Activity while write_stdin remains process control", async (t) => {
+  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const opened = await callOpen(context.client, context.project, "chat-codex-activity");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const started = await context.client.callTool({
+    name: "exec_command",
+    arguments: {
+      workspaceId,
+      cmd: "node -e \"setTimeout(() => {}, 150)\"",
+      yieldTimeMs: 0,
+    },
+    _meta: { "openai/session": "chat-codex-activity" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(started.isError, undefined);
+  assert.equal(structuredContent(started).running, true);
+  const processId = structuredContent(started).processId;
+  assert.equal(typeof processId, "number");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.tool, "exec_command");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
+
+  const polled = await context.client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId, processId, yieldTimeMs: 1_000 },
+    _meta: { "openai/session": "chat-codex-activity" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(polled.isError, undefined);
+
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+    _meta: { "openai/session": "chat-codex-activity" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(read.isError, undefined);
+  assert.equal(context.auditStore.getActivity("act_test_2")?.tool, "read");
+  assert.equal(context.auditStore.getActivity("act_test_3"), undefined);
 });
 
 test("temp file access rejects symlinks that escape the OS temp directory", async (t) => {
@@ -1361,6 +1483,10 @@ test("Host cancellation before processId delivery discards a process created bef
   await assert.rejects(pending, /abort|cancel/i);
   await new Promise((resolve) => setTimeout(resolve, 650));
   assert.deepEqual(context.processSessions.stats(), { total: 0, running: 0, completed: 0 });
+  const activity = context.auditStore.getActivity("act_test_1");
+  assert.equal(activity?.tool, "bash");
+  assert.equal(activity?.state, "failed");
+  assert.notEqual(activity?.state, "returned");
 });
 
 test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
@@ -1720,6 +1846,11 @@ test("BeforeTool hook failure prevents the tool operation", async (t) => {
     (await readFile(join(context.project, "blocked-hook.log"), "utf8")).replace(/\r\n/g, "\n"),
     "AfterToolFailure:write\n",
   );
+  const activity = context.auditStore.getActivity("act_test_1");
+  assert.equal(activity?.tool, "write");
+  assert.equal(activity?.state, "blocked");
+  assert.equal(activity?.workspace.id, workspaceId);
+  assert.match(activity?.error ?? "", /Silent blocking policy.*failed/);
 });
 
 test("close_workspace finalizes a managed-worktree-backed workspace and supports commit-message retry", async (t) => {
@@ -1843,6 +1974,8 @@ test("checkout reuse and context suppression survive a registry restart", async 
   await context.close();
 
   const restoredStore = new SqliteWorkspaceStore(context.stateDir);
+  const restoredAuditStore = new ActivityAuditStore(context.stateDir);
+  const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore);
   const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
   const restoredServer = createMcpServer(
     context.config,
@@ -1852,6 +1985,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     [],
     [],
     restoredCodeIntelligence,
+    restoredActivityLifecycle,
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
   const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
@@ -1862,6 +1996,7 @@ test("checkout reuse and context suppression survive a registry restart", async 
     await restoredClient.close();
     await restoredServer.close();
     await restoredCodeIntelligence.shutdown();
+    restoredAuditStore.close();
     restoredStore.close();
   };
   t.after(closeRestored);
@@ -1887,6 +2022,7 @@ interface ServerFixture {
   config: ServerConfig;
   stateDir: string;
   processSessions: ProcessManager;
+  auditStore: ActivityAuditStore;
   close: () => Promise<void>;
 }
 
@@ -1944,6 +2080,13 @@ async function fixture(
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const processSessions = options.processSessions ?? new ProcessManager();
+  const auditStore = new ActivityAuditStore(stateDir);
+  let activitySequence = 0;
+  let turnSequence = 0;
+  const activityLifecycle = new ActivityLifecycle(auditStore, {
+    activityId: () => `act_test_${++activitySequence}`,
+    turnId: () => `turn_test_${++turnSequence}`,
+  });
   const codeIntelligence = new CodeIntelligenceManager(config);
   const server = createMcpServer(
     config,
@@ -1953,6 +2096,7 @@ async function fixture(
     [],
     options.incomingArtifactAdapters ?? [],
     codeIntelligence,
+    activityLifecycle,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "devspace-test-client", version: "1.0.0" });
@@ -1969,6 +2113,7 @@ async function fixture(
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
+    auditStore.close();
     store.close();
   };
 
@@ -1977,7 +2122,7 @@ async function fixture(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, config, stateDir, processSessions, close };
+  return { client, project, config, stateDir, processSessions, auditStore, close };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {

@@ -40,6 +40,11 @@ export interface ActivitySucceededAuditEvent extends ActivityAuditEventBase {
   result?: ActivityAuditJsonValue;
 }
 
+export interface ActivityReturnedAuditEvent extends ActivityAuditEventBase {
+  type: "returned";
+  result?: ActivityAuditJsonValue;
+}
+
 export interface ActivityFailedAuditEvent extends ActivityAuditEventBase {
   type: "failed";
   result?: ActivityAuditJsonValue;
@@ -54,6 +59,7 @@ export interface ActivityBlockedAuditEvent extends ActivityAuditEventBase {
 export type ActivityAuditEvent =
   | ActivityStartedAuditEvent
   | ActivitySucceededAuditEvent
+  | ActivityReturnedAuditEvent
   | ActivityFailedAuditEvent
   | ActivityBlockedAuditEvent;
 
@@ -62,10 +68,11 @@ type ActivityAuditGeneratedFields = "id" | "sequence" | "createdAt";
 export type AppendActivityAuditEventInput =
   | Omit<ActivityStartedAuditEvent, ActivityAuditGeneratedFields>
   | Omit<ActivitySucceededAuditEvent, ActivityAuditGeneratedFields>
+  | Omit<ActivityReturnedAuditEvent, ActivityAuditGeneratedFields>
   | Omit<ActivityFailedAuditEvent, ActivityAuditGeneratedFields>
   | Omit<ActivityBlockedAuditEvent, ActivityAuditGeneratedFields>;
 
-export type ActivityRecordState = "executing" | "done" | "failed" | "blocked";
+export type ActivityRecordState = "executing" | "returned" | "done" | "failed" | "blocked";
 
 export interface ActivityRecord {
   activityId: string;
@@ -198,6 +205,11 @@ export class ActivityAuditStore {
           result = event.result;
           error = undefined;
           break;
+        case "returned":
+          state = "returned";
+          result = event.result;
+          error = undefined;
+          break;
         case "failed":
           state = "failed";
           result = event.result;
@@ -319,6 +331,12 @@ function rowToEvent(row: ActivityAuditEventRow): ActivityAuditEvent {
       return {
         ...base,
         type: "succeeded",
+        result: parseJson(row.result_json),
+      };
+    case "returned":
+      return {
+        ...base,
+        type: "returned",
         result: parseJson(row.result_json),
       };
     case "failed":
