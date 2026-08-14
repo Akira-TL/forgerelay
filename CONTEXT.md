@@ -108,3 +108,11 @@ _Avoid_: RPC call, log line, Hook execution
 **Activity Panel**:
 The MCP App view that presents the Activities for one Host Turn. The panel is a presentation over ForgeRelay-owned Activity state rather than the source of that state.
 _Avoid_: Activity, Workspace Open Card, conversation dashboard
+
+**Audit Event**:
+An immutable local record of one execution fact observed by ForgeRelay, such as an Activity starting, returning control, failing, or a background process later completing.
+_Avoid_: Activity, Activity Record, UI event
+
+**Activity Record**:
+The queryable representation of one Activity derived from its Audit Events, including the state and detail needed for inspection without making the Activity Panel authoritative.
+_Avoid_: Audit Event, Activity Panel, tool response
