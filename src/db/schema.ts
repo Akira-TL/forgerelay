@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const workspaceSessions = sqliteTable(
   "workspace_sessions",
@@ -106,6 +106,35 @@ export const oauthRefreshTokens = sqliteTable(
   },
 );
 
+export const activityAuditEvents = sqliteTable(
+  "activity_audit_events",
+  {
+    id: text("id").primaryKey(),
+    activityId: text("activity_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    eventType: text("event_type").notNull(),
+    turnId: text("turn_id"),
+    conversationScopeId: text("conversation_scope_id"),
+    tool: text("tool"),
+    workspaceId: text("workspace_id"),
+    workspaceRoot: text("workspace_root"),
+    workspaceMode: text("workspace_mode"),
+    workspaceSourceRoot: text("workspace_source_root"),
+    workspaceBranch: text("workspace_branch"),
+    workspaceTargetBranch: text("workspace_target_branch"),
+    requestJson: text("request_json"),
+    resultJson: text("result_json"),
+    error: text("error"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("activity_audit_events_activity_sequence_unique_idx").on(table.activityId, table.sequence),
+    index("activity_audit_events_activity_idx").on(table.activityId, table.sequence),
+    index("activity_audit_events_turn_idx").on(table.turnId, table.createdAt),
+    index("activity_audit_events_created_idx").on(table.createdAt),
+  ],
+);
+
 export const localAgentSessions = sqliteTable(
   "local_agent_sessions",
   {
@@ -139,5 +168,7 @@ export type WorkspaceConversationBindingRow = typeof workspaceConversationBindin
 export type NewWorkspaceConversationBindingRow = typeof workspaceConversationBindings.$inferInsert;
 export type WorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferSelect;
 export type NewWorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferInsert;
+export type ActivityAuditEventRow = typeof activityAuditEvents.$inferSelect;
+export type NewActivityAuditEventRow = typeof activityAuditEvents.$inferInsert;
 export type LocalAgentSessionRow = typeof localAgentSessions.$inferSelect;
 export type NewLocalAgentSessionRow = typeof localAgentSessions.$inferInsert;

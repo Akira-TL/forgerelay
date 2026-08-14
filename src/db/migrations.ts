@@ -42,6 +42,11 @@ const migrations: Migration[] = [
     name: "workspace-context-deliveries",
     up: migrateWorkspaceContextDeliveries,
   },
+  {
+    version: 8,
+    name: "activity-audit",
+    up: migrateActivityAudit,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -234,6 +239,42 @@ function migrateWorkspaceContextDeliveries(sqlite: Database.Database): void {
 
     create index if not exists workspace_context_deliveries_delivered_idx
       on workspace_context_deliveries(delivered_at desc);
+  `);
+}
+
+function migrateActivityAudit(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists activity_audit_events (
+      id text primary key,
+      activity_id text not null,
+      sequence integer not null,
+      event_type text not null,
+      turn_id text,
+      conversation_scope_id text,
+      tool text,
+      workspace_id text,
+      workspace_root text,
+      workspace_mode text,
+      workspace_source_root text,
+      workspace_branch text,
+      workspace_target_branch text,
+      request_json text,
+      result_json text,
+      error text,
+      created_at text not null
+    );
+
+    create unique index if not exists activity_audit_events_activity_sequence_unique_idx
+      on activity_audit_events(activity_id, sequence);
+
+    create index if not exists activity_audit_events_activity_idx
+      on activity_audit_events(activity_id, sequence);
+
+    create index if not exists activity_audit_events_turn_idx
+      on activity_audit_events(turn_id, created_at);
+
+    create index if not exists activity_audit_events_created_idx
+      on activity_audit_events(created_at);
   `);
 }
 
