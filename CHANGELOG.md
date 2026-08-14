@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-14
+
+### Added
+
+- Routed ForgeRelay's top-level work operations through one persistent Activity lifecycle: read, write, edit, rename, delete, capability, Bash, and Codex-compatible execution/patch operations now record durable started/succeeded/failed/blocked/returned facts without relying on UI inference. Bash/exec process-control follow-ups remain part of the existing semantic operation instead of creating duplicate top-level Activities.
+
+### Fixed
+
+- Activity auditing now treats a shell process as `returned` only after its `processId` can actually be delivered to the Host; Host cancellation during post-tool delivery protection records a failed Activity and discards the undelivered process instead of leaving a false returned history entry.
+
 ## [0.5.0] - 2026-08-14
 
 ### Added
