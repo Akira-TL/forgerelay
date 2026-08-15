@@ -72,6 +72,7 @@ import {
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
+import { BatchExecutor } from "./operations/batch/executor.js";
 import { executeBulkRead } from "./operations/bulk-read.js";
 import { NativeBulkMutationExecutor } from "./operations/native-bulk-mutations.js";
 import {
@@ -1361,8 +1362,26 @@ export function createMcpServer(
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
   const reviewChangesAvailable = config.widgets === "changes";
+  let batchExecutor: BatchExecutor | undefined;
+  const batchExecuteAvailable = config.toolMode !== "codex";
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+    batchExecute: {
+      available: batchExecuteAvailable,
+      unavailableReason: batchExecuteAvailable
+        ? undefined
+        : "batch.execute is unavailable in Codex tool mode because v0.5.5 core batch tasks use the regular Read/Write/Edit/Bash operation surface.",
+      run: async (input, context, options) => {
+        if (!batchExecutor) throw new Error("Batch executor is not initialized.");
+        return {
+          value: await batchExecutor.run(context.workspaceId, input, {
+            requestMeta: options.requestMeta,
+            signal: options.signal,
+            sessionId: options.sessionId,
+          }),
+        };
+      },
+    },
     codeIntelligence: {
       available: true,
       run: async (input, context, options) => {
@@ -1964,7 +1983,12 @@ export function createMcpServer(
                 name,
                 capabilityArguments ?? {},
                 capabilityContextFor(workspace),
-                { nativeFile: file, signal: context.signal },
+                {
+                  nativeFile: file,
+                  signal: context.signal,
+                  requestMeta: context.requestMeta,
+                  sessionId: context.sessionId,
+                },
               );
               changedPaths = execution.changedPaths ?? [];
               const result = {
@@ -2023,6 +2047,14 @@ export function createMcpServer(
         activityRelationFor(context),
       );
     },
+  });
+
+  batchExecutor = new BatchExecutor({
+    lifecycle: activityLifecycle,
+    workspaces,
+    coreOperations,
+    resultIsError: toolResultIsError,
+    shellSurface: "bash",
   });
 
   const nativeBulkMutations = new NativeBulkMutationExecutor({
@@ -2578,6 +2610,61 @@ export function createMcpServer(
       },
     },
     async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
+      if (action === "run" && name === "batch.execute") {
+        const workspace = workspaces.getWorkspace(workspaceId);
+        const startedAt = performance.now();
+        try {
+          const execution = await capabilityRegistry.run(
+            name,
+            capabilityArguments ?? {},
+            capabilityContextFor(workspace),
+            {
+              nativeFile: file,
+              signal: extra.signal,
+              requestMeta: extra._meta,
+              sessionId: extra.sessionId,
+            },
+          );
+          const result = {
+            content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+            structuredContent: { name, action, result: execution.value },
+          };
+          logToolCall(config, {
+            tool: toolNames.capability,
+            ...workspaceLogContext(workspace, extra.sessionId),
+            capability: name,
+            action,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return result;
+        } catch (error) {
+          if (extra.signal.aborted) throw error;
+          const capabilityError = error instanceof CapabilityError
+            ? error
+            : new CapabilityError(
+                "execution_failed",
+                error instanceof Error ? error.message : String(error),
+              );
+          const result = {
+            content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+            structuredContent: {
+              name,
+              action,
+              error: { code: capabilityError.code, message: capabilityError.message },
+            },
+            isError: true as const,
+          };
+          logFailedToolResponse(config, {
+            tool: toolNames.capability,
+            ...workspaceLogContext(workspace, extra.sessionId),
+            capability: name,
+            action,
+          }, result.content, startedAt);
+          return result;
+        }
+      }
+
       if (action === "run") {
         return coreOperations.capabilityRun(
           { workspaceId, name, arguments: capabilityArguments, file },

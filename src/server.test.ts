@@ -192,7 +192,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   const openedStructured = structuredContent(opened);
   const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
   assert.ok(Array.isArray(catalog));
-  assert.equal(catalog.length, 2);
+  assert.equal(catalog.length, 3);
   assert.deepEqual(catalog[0], {
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
@@ -210,6 +210,16 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     guide: {
       name: "code-intelligence",
       path: catalog[1]?.guide && (catalog[1].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  assert.deepEqual(catalog[2], {
+    name: "batch.execute",
+    description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
+    available: true,
+    guide: {
+      name: "batch-execution",
+      path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
@@ -246,6 +256,21 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   assert.equal(guideRead.isError, undefined);
   assert.match(responseText(guideRead), /BeforeTool/);
 
+  const batchDescription = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "batch.execute", action: "describe" },
+  });
+  assert.equal(batchDescription.isError, undefined);
+  const batchCapability = structuredContent(batchDescription).capability as Record<string, unknown>;
+  const batchGuide = batchCapability.guide as Record<string, unknown>;
+  assert.equal(batchGuide.name, "batch-execution");
+  const batchGuideRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: batchGuide.path },
+  });
+  assert.equal(batchGuideRead.isError, undefined);
+  assert.match(responseText(batchGuideRead), /1–100 tasks|1-100 tasks/);
+
   const invalid = await context.client.callTool({
     name: "capability",
     arguments: {
@@ -266,6 +291,31 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   assert.equal((structuredContent(unknown).error as Record<string, unknown>).code, "unknown_capability");
 });
 
+test("batch.execute does not bypass Codex tool-mode surface", async (t) => {
+  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const opened = await callOpen(context.client, context.project, "batch-codex-mode");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const openedStructured = structuredContent(opened);
+  const catalog = openedStructured.capabilityCatalog as Array<{ name: string }>;
+  assert.equal(catalog.some((entry) => entry.name === "batch.execute"), false);
+  const guides = openedStructured.capabilityGuides as Array<{ name: string }>;
+  assert.equal(guides.some((entry) => entry.name === "batch-execution"), false);
+  const rejected = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "batch.execute",
+      action: "run",
+      arguments: {
+        tasks: [{ id: "write", operation: "write", path: "hidden.txt", content: "no\n" }],
+      },
+    },
+  });
+  assert.equal(rejected.isError, true);
+  assert.equal((structuredContent(rejected).error as Record<string, unknown>).code, "capability_unavailable");
+  await assert.rejects(readFile(join(context.project, "hidden.txt"), "utf8"), /ENOENT/);
+});
+
 test("review.changes capability owns checkpoints, Hook reports, and review-card metadata", async (t) => {
   const context = await fixture(t, {
     git: true,
@@ -280,7 +330,7 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
   const opened = await callOpen(context.client, context.project, "review-capability-chat");
   const workspaceId = structuredContent(opened).workspaceId as string;
   const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
-  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes", "code.intelligence"]);
+  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes", "code.intelligence", "batch.execute"]);
 
   const written = await context.client.callTool({
     name: "write",
@@ -424,6 +474,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "hooks.lifecycle",
       "capability-guides.read",
       "code.intelligence",
+      "batch.execute",
       "ui.mcp-app",
     ],
   });
@@ -704,6 +755,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "hooks.lifecycle",
         "capability-guides.read",
         "code.intelligence",
+        "batch.execute",
         "subagent.profiles",
         "artifact.native-download",
         "ui.mcp-app",
@@ -731,6 +783,7 @@ test("capability fingerprint reports optional feature availability without copyi
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "batch-execution",
   ]);
 
   for (const [name, firstPattern, secondPattern] of [
@@ -762,6 +815,7 @@ test("open_workspace advertises capability guides that read can load on demand",
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "batch-execution",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
   assert.match(String(guides[0]?.whenToRead), /Hook/);
@@ -770,12 +824,14 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[2]?.path), /capabilities\/host-integration\/GUIDE\.md$/);
   assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
   assert.match(String(guides[4]?.path), /capabilities\/code-intelligence\/GUIDE\.md$/);
+  assert.match(String(guides[5]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
 
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
     [2, /oauth-protected-resource/, /Failed to fetch template/],
     [3, /action="process"/, /tty: true/],
     [4, /definition/, /Language server/],
+    [5, /1–100 tasks|1-100 tasks/, /bash\.run/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({
@@ -1080,6 +1136,231 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   assert.equal((structuredContent(secondSnapshot).activities as unknown[]).length, 1);
   assert.equal(context.auditStore.getActivity("act_test_5")?.turnId, secondTurnId);
   assert.equal((structuredContent(await call("activity_snapshot", { turnId })).activities as unknown[]).length, 4);
+});
+
+test("batch.execute runs heterogeneous core tasks with one parent Activity and ordered child results", async (t) => {
+  const context = await fixture(t, {
+    hooks: {
+      BeforeTool: [{
+        matcher: { tool: "read" },
+        handlers: [{
+          name: "Batch child read hook",
+          command: "node -e \"require('node:fs').appendFileSync('batch-hook-count.txt', '1\\n')\"",
+          report: true,
+        }],
+      }],
+    },
+  });
+  const conversation = "chat-batch-core";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  await writeFile(join(context.project, "batch-read.txt"), "BATCH-READ-SENTINEL\n");
+  await writeFile(join(context.project, "batch-edit.txt"), "before edit-target after\n");
+  await writeFile(join(context.project, "batch-rename-before.txt"), "rename me\n");
+  await writeFile(join(context.project, "batch-delete.txt"), "delete me\n");
+  const panel = await call("activity_panel", {});
+  const turnId = String(structuredContent(panel).turnId);
+
+  const batch = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      concurrency: 4,
+      tasks: [
+        { id: "read", operation: "read", path: "batch-read.txt" },
+        { id: "write", operation: "write", path: "batch-written.txt", content: "BATCH-WRITE-SENTINEL\n" },
+        {
+          id: "edit",
+          operation: "edit",
+          path: "batch-edit.txt",
+          edits: [{ oldText: "edit-target", newText: "edited" }],
+        },
+        { id: "rename", operation: "rename", path: "batch-rename-before.txt", newPath: "batch-rename-after.txt" },
+        { id: "delete", operation: "delete", path: "batch-delete.txt" },
+        { id: "missing", operation: "read", path: "batch-missing.txt" },
+        { id: "bash", operation: "bash.run", command: "node -e \"console.log('BATCH-BASH-SENTINEL')\"" },
+      ],
+    },
+  });
+  assert.equal(batch.isError, undefined);
+  const batchValue = structuredContent(batch).result as Record<string, unknown>;
+  assert.equal(batchValue.status, "partial");
+  assert.equal(batchValue.tasks, 7);
+  assert.equal(batchValue.completed, 6);
+  assert.equal(batchValue.failed, 1);
+  const results = batchValue.results as Array<Record<string, unknown>>;
+  assert.deepEqual(results.map((entry) => [entry.id, entry.operation, entry.status]), [
+    ["read", "read", "done"],
+    ["write", "write", "done"],
+    ["edit", "edit", "done"],
+    ["rename", "rename", "done"],
+    ["delete", "delete", "done"],
+    ["missing", "read", "error"],
+    ["bash", "bash.run", "done"],
+  ]);
+  assert.match(JSON.stringify(results[0]), /BATCH-READ-SENTINEL/);
+  assert.match(JSON.stringify(results[5]), /ENOENT|no such file/i);
+  assert.match(JSON.stringify(results[6]), /BATCH-BASH-SENTINEL/);
+  const bashChildResult = results[6]?.result as Record<string, unknown>;
+  const bashStructured = bashChildResult.structuredContent as Record<string, unknown>;
+  assert.equal(typeof bashStructured.outputId, "string");
+  assert.equal(bashStructured.running, false);
+  assert.equal(
+    (await readFile(join(context.project, "batch-hook-count.txt"), "utf8")).trim().split("\n").length,
+    2,
+  );
+
+  assert.equal(await readFile(join(context.project, "batch-written.txt"), "utf8"), "BATCH-WRITE-SENTINEL\n");
+  assert.equal(await readFile(join(context.project, "batch-edit.txt"), "utf8"), "before edited after\n");
+  assert.equal(await readFile(join(context.project, "batch-rename-after.txt"), "utf8"), "rename me\n");
+  await assert.rejects(readFile(join(context.project, "batch-rename-before.txt"), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(join(context.project, "batch-delete.txt"), "utf8"), /ENOENT/);
+
+  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  const activities = snapshot.activities as Array<Record<string, unknown>>;
+  assert.equal(activities.length, 8);
+  const parent = activities.find((activity) => activity.tool === "batch");
+  assert.equal(parent?.title, "Batch");
+  assert.equal(parent?.target, "7 tasks");
+  assert.equal(parent?.status, "error");
+  assert.equal(parent?.detailAvailable, false);
+  assert.deepEqual(parent?.children, { total: 7, working: 0, done: 6, error: 1 });
+  const children = activities.filter((activity) => activity.parentActivityId === parent?.activityId);
+  assert.equal(children.length, 7);
+  assert.deepEqual(children.map((activity) => activity.tool).sort(), [
+    "bash", "delete", "edit", "read", "read", "rename", "write",
+  ]);
+  const parentAudit = context.auditStore.getActivity(String(parent?.activityId));
+  assert.doesNotMatch(
+    JSON.stringify(parentAudit),
+    /BATCH-READ-SENTINEL|BATCH-WRITE-SENTINEL|BATCH-BASH-SENTINEL|edit-target/,
+  );
+  assert.deepEqual(parentAudit?.result, { childCount: 7, completed: 6, failed: 1 });
+});
+
+test("Host cancellation stops queued batch tasks and creates no fake child Activities", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-batch-cancel";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const turn = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(turn).turnId);
+  const hookDir = join(context.project, ".forgerelay", "hooks");
+  const hookScript = join(context.project, "batch-cancel-hook.mjs");
+  await mkdir(hookDir, { recursive: true });
+  await writeFile(hookScript, "setTimeout(() => {}, 250);\n");
+  await writeFile(
+    join(hookDir, "batch-cancel.json"),
+    JSON.stringify({
+      event: "BeforeTool",
+      matcher: { tool: "bash", commandRegex: "batch-cancel-first" },
+      command: `node "${hookScript}"`,
+      timeoutSeconds: 30,
+    }),
+  );
+
+  const controller = new AbortController();
+  const pending = context.client.callTool(
+    {
+      name: "capability",
+      arguments: {
+        workspaceId,
+        name: "batch.execute",
+        action: "run",
+        arguments: {
+          concurrency: 1,
+          tasks: [
+            { id: "first", operation: "bash.run", command: "echo batch-cancel-first" },
+            { id: "queued-a", operation: "write", path: "batch-cancel-a.txt", content: "should-not-run\n" },
+            { id: "queued-b", operation: "write", path: "batch-cancel-b.txt", content: "should-not-run\n" },
+          ],
+        },
+      },
+      _meta: { "openai/session": conversation },
+    } as Parameters<Client["callTool"]>[0],
+    undefined,
+    { signal: controller.signal, timeout: 5_000 },
+  );
+  setTimeout(() => controller.abort(), 30);
+  await assert.rejects(pending, /abort|cancel/i);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await assert.rejects(readFile(join(context.project, "batch-cancel-a.txt"), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(join(context.project, "batch-cancel-b.txt"), "utf8"), /ENOENT/);
+
+  const snapshot = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId },
+  });
+  const activities = structuredContent(snapshot).activities as Array<Record<string, unknown>>;
+  assert.equal(activities.length, 2);
+  const parent = activities.find((activity) => activity.tool === "batch");
+  const child = activities.find((activity) => activity.parentActivityId === parent?.activityId);
+  assert.equal(parent?.status, "error");
+  assert.equal(child?.tool, "bash");
+  assert.equal(child?.status, "error");
+});
+
+test("batch.execute rejects more than 100 tasks before creating a Batch Activity", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-batch-limit";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+  const rejected = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      tasks: Array.from({ length: 101 }, (_, index) => ({
+        id: `task-${index}`,
+        operation: "read",
+        path: `file-${index}.txt`,
+      })),
+    },
+  });
+  assert.equal(rejected.isError, true);
+  assert.match(allResponseText(rejected), /invalid_arguments|100|too big/i);
+
+  const nested = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      tasks: [{ id: "nested", operation: "batch.execute", tasks: [] }],
+    },
+  });
+  assert.equal(nested.isError, true);
+  assert.match(allResponseText(nested), /invalid_arguments|operation/i);
+
+  const processControl = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      tasks: [{ id: "process", operation: "bash.run", command: "echo no", processId: 1 }],
+    },
+  });
+  assert.equal(processControl.isError, true);
+  assert.match(allResponseText(processControl), /invalid_arguments|unrecognized/i);
+
+  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  assert.deepEqual(snapshot.activities, []);
 });
 
 test("bulk Read returns ordered per-file results and persists one parent Activity with child Reads", async (t) => {

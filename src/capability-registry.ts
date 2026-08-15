@@ -3,6 +3,10 @@ import {
   MAX_CODE_INTELLIGENCE_RESULT_LIMIT,
   type CodeIntelligenceInput,
 } from "./lsp/code-intelligence-types.js";
+import {
+  batchExecuteInputSchema,
+  type BatchExecuteInput,
+} from "./operations/batch/types.js";
 
 export type CapabilityErrorCode =
   | "unknown_capability"
@@ -72,6 +76,8 @@ export interface CapabilityExecution {
 export interface CapabilityRunOptions {
   nativeFile?: unknown;
   signal?: AbortSignal;
+  requestMeta?: unknown;
+  sessionId?: string;
 }
 
 interface CapabilityDefinition {
@@ -115,6 +121,15 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: CodeIntelligenceInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution>;
+  };
+  batchExecute?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: BatchExecuteInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -336,6 +351,21 @@ export function createCapabilityRegistry(
               context,
               options,
             ),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.batchExecute
+      ? [{
+          name: "batch.execute",
+          description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
+          guideName: "batch-execution",
+          readGuideBeforeFirstUse: true,
+          inputSchema: batchExecuteInputSchema,
+          availability: () => ({
+            available: dependencies.batchExecute?.available ?? false,
+            reason: dependencies.batchExecute?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.batchExecute!.run(input as BatchExecuteInput, context, options),
         } satisfies CapabilityDefinition]
       : []),
     ...(dependencies.downloadArtifact

@@ -30,7 +30,7 @@ export interface CapabilityFingerprintContext {
   artifactDownloadSupported?: boolean;
 }
 
-type CapabilityGuideConfig = Pick<ServerConfig, "subagents" | "artifactsEnabled" | "widgets">;
+type CapabilityGuideConfig = Pick<ServerConfig, "subagents" | "artifactsEnabled" | "widgets" | "toolMode">;
 
 type CapabilityGuideDefinition = {
   name: string;
@@ -76,6 +76,12 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     name: "code-intelligence",
     description: "Read-only semantic code navigation backed by external Language servers.",
     whenToRead: "Read before using code.intelligence or configuring Language servers.",
+  },
+  {
+    name: "batch-execution",
+    description: "One-call execution of multiple independent ForgeRelay core operations.",
+    whenToRead: "Read before using batch.execute for heterogeneous multi-operation work.",
+    enabled: (config) => config.toolMode !== "codex",
   },
 ];
 
@@ -136,6 +142,10 @@ export function buildCapabilityFingerprint(
     "capability-guides.read",
     "code.intelligence",
   ];
+
+  if (config.toolMode !== "codex") {
+    capabilities.push("batch.execute");
+  }
 
   if (config.subagents) {
     capabilities.push("subagent.profiles");

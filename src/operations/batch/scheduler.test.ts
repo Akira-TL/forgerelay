@@ -28,7 +28,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
   assert.equal(predicate(), true, "condition did not become true");
 }
 
-test("BatchScheduler respects caller concurrency, queues excess tasks, and preserves input result order", async () => {
+test("BatchScheduler defaults to up to 10 concurrent tasks, queues excess work, and preserves input result order", async () => {
   const scheduler = new BatchScheduler();
   const gates = Array.from({ length: 23 }, () => deferred<string>());
   let active = 0;
@@ -49,7 +49,7 @@ test("BatchScheduler respects caller concurrency, queues excess tasks, and prese
     },
   }));
 
-  const resultPromise = scheduler.run(tasks, { concurrency: 10 });
+  const resultPromise = scheduler.run(tasks, {});
   await waitUntil(() => started.length === 10);
   assert.equal(maxActive, 10);
   assert.deepEqual(started, Array.from({ length: 10 }, (_, index) => index));

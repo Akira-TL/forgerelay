@@ -193,7 +193,7 @@ function toSummary(record: ActivityRecord): ActivitySummary {
     state: record.state,
     title: activityTitle(record.tool),
     target: activityTarget(record, request, result, structured),
-    detailAvailable: !bulkGroup && record.tool !== "rename" && record.tool !== "delete",
+    detailAvailable: !bulkGroup && record.tool !== "rename" && record.tool !== "delete" && record.tool !== "batch",
     ...(record.workspace.id ? { workspaceId: record.workspace.id } : {}),
     ...(processId !== undefined ? { processId } : {}),
     ...(outputId !== undefined ? { outputId } : {}),
@@ -214,6 +214,7 @@ function activityKind(tool: string): string {
   if (tool === "bash_result") return "shell-result";
   if (tool === "bash" || tool === "exec_command") return "shell";
   if (tool === "capability") return "capability";
+  if (tool === "batch") return "batch";
   return "tool";
 }
 
@@ -229,6 +230,7 @@ function activityTitle(tool: string): string {
     exec_command: "Command",
     bash_result: "Bash result",
     capability: "Capability",
+    batch: "Batch",
   };
   return titles[tool] ?? tool;
 }
@@ -240,6 +242,10 @@ function activityTarget(
   structured: Record<string, ActivityAuditJsonValue> | undefined,
 ): string {
   if (record.tool === "bash" || record.tool === "exec_command") return "Shell command";
+  if (record.tool === "batch") {
+    const tasks = arrayField(request, "tasks");
+    return `${tasks?.length ?? 0} tasks`;
+  }
   const paths = arrayField(request, "paths");
   if (paths && paths.length > 0) {
     if (record.tool === "read" || record.tool === "edit") return `${paths.length} files`;
