@@ -334,6 +334,7 @@ const capabilityCatalogOutputSchema = z.object({
   description: z.string(),
   available: z.boolean(),
   unavailableReason: z.string().optional(),
+  batchPolicy: z.enum(["parallel", "serial", "unsupported"]),
   guide: capabilityCatalogGuideOutputSchema,
 });
 
@@ -1988,6 +1989,7 @@ export function createMcpServer(
                   signal: context.signal,
                   requestMeta: context.requestMeta,
                   sessionId: context.sessionId,
+                  batch: context.batch,
                 },
               );
               changedPaths = execution.changedPaths ?? [];
@@ -2054,6 +2056,7 @@ export function createMcpServer(
     workspaces,
     coreOperations,
     resultIsError: toolResultIsError,
+    capabilityBatchPolicy: (name) => capabilityRegistry.batchPolicy(name),
     shellSurface: "bash",
   });
 

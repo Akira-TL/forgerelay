@@ -32,6 +32,7 @@ test("capability registry catalogs, describes, validates, and runs explicit capa
       name: "hooks.check",
       description: "Validate the active ForgeRelay Hook configuration for this workspace.",
       available: true,
+      batchPolicy: "parallel",
       guide: {
         name: "lifecycle-hooks",
         path: "~/capabilities/lifecycle-hooks/GUIDE.md",
@@ -43,6 +44,7 @@ test("capability registry catalogs, describes, validates, and runs explicit capa
   const described = registry.describe("hooks.check", context);
   assert.equal(described.name, "hooks.check");
   assert.equal(described.available, true);
+  assert.equal(described.batchPolicy, "parallel");
   assert.equal(described.guide.name, "lifecycle-hooks");
   assert.equal(described.inputSchema.type, "object");
   assert.deepEqual(described.inputSchema.properties, {});
@@ -106,6 +108,11 @@ test("capability registry advertises only available optional capabilities and ro
     "artifact.download",
   ]);
   assert.equal(registry.describe("artifact.download", artifactContext).transport?.gatewayParameter, "file");
+  assert.equal(registry.describe("artifact.download", artifactContext).batchPolicy, "unsupported");
+  assert.equal(registry.batchPolicy("hooks.check"), "parallel");
+  assert.equal(registry.batchPolicy("review.changes"), "serial");
+  assert.equal(registry.batchPolicy("artifact.download"), "unsupported");
+  assert.equal(registry.batchPolicy("missing.capability"), undefined);
   await assert.rejects(
     () => registry.run("review.changes", {}, artifactContext),
     (error: unknown) => error instanceof CapabilityError && error.code === "capability_unavailable",
@@ -149,6 +156,16 @@ test("capability registry advertises only available optional capabilities and ro
   await assert.rejects(
     () => registry.run("hooks.check", {}, artifactContext, { nativeFile: {} }),
     (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
+  );
+  await assert.rejects(
+    () => registry.run(
+      "artifact.download",
+      { path: "downloads/no-batch.txt" },
+      artifactContext,
+      { batch: true },
+    ),
+    (error: unknown) =>
+      error instanceof CapabilityError && error.code === "capability_batch_unsupported",
   );
 });
 

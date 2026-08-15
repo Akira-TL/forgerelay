@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const taskId = z.string().min(1).max(128);
 const path = z.string().min(1);
+const capabilityName = z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/);
 const editEntry = z.object({
   oldText: z.string(),
   newText: z.string(),
@@ -38,6 +39,12 @@ export const batchCoreTaskSchema = z.discriminatedUnion("operation", [
     operation: z.literal("delete"),
     path,
     recursive: z.boolean().optional(),
+  }).strict(),
+  z.object({
+    id: taskId,
+    operation: z.literal("capability.run"),
+    name: capabilityName,
+    arguments: z.record(z.string(), z.unknown()).optional(),
   }).strict(),
   z.object({
     id: taskId,

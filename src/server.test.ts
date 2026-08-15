@@ -197,6 +197,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
     available: true,
+    batchPolicy: "parallel",
     guide: {
       name: "lifecycle-hooks",
       path: catalog[0]?.guide && (catalog[0].guide as Record<string, unknown>).path,
@@ -207,6 +208,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     name: "code.intelligence",
     description: "Read semantic code information through an available Language server without changing the Workspace.",
     available: true,
+    batchPolicy: "parallel",
     guide: {
       name: "code-intelligence",
       path: catalog[1]?.guide && (catalog[1].guide as Record<string, unknown>).path,
@@ -217,6 +219,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     name: "batch.execute",
     description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
     available: true,
+    batchPolicy: "unsupported",
     guide: {
       name: "batch-execution",
       path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
@@ -329,8 +332,13 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
   });
   const opened = await callOpen(context.client, context.project, "review-capability-chat");
   const workspaceId = structuredContent(opened).workspaceId as string;
-  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string }>;
-  assert.deepEqual(catalog.map((entry) => entry.name), ["hooks.check", "review.changes", "code.intelligence", "batch.execute"]);
+  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name: string; batchPolicy: string }>;
+  assert.deepEqual(catalog.map((entry) => [entry.name, entry.batchPolicy]), [
+    ["hooks.check", "parallel"],
+    ["review.changes", "serial"],
+    ["code.intelligence", "parallel"],
+    ["batch.execute", "unsupported"],
+  ]);
 
   const written = await context.client.callTool({
     name: "write",
@@ -398,19 +406,21 @@ test("artifact.download capability preserves native-file transport without a ded
   const artifactAvailable = process.platform === "linux";
   assert.equal(catalog.some((entry) => entry.name === "artifact.download"), artifactAvailable);
   assert.equal(tools.tools.some((tool) => tool.name === "download_artifact"), false);
-  if (!artifactAvailable) return;
 
   const described = await context.client.callTool({
     name: "capability",
     arguments: { workspaceId, name: "artifact.download", action: "describe" },
   });
   const capability = structuredContent(described).capability as {
+    batchPolicy?: string;
     transport?: { nativeFileArgument?: string; gatewayParameter?: string };
   };
+  assert.equal(capability.batchPolicy, "unsupported");
   assert.deepEqual(capability.transport, {
     nativeFileArgument: "file",
     gatewayParameter: "file",
   });
+  if (!artifactAvailable) return;
 
   const file = {
     download_url: "https://files.oaiusercontent.com/file_server_test/download",
@@ -1245,6 +1255,58 @@ test("batch.execute runs heterogeneous core tasks with one parent Activity and o
   assert.deepEqual(parentAudit?.result, { childCount: 7, completed: 6, failed: 1 });
 });
 
+test("batch.execute runs Capability children through declared batch policy and audits unsupported children", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-batch-capability";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  await writeFile(join(context.project, "batch-capability-read.txt"), "BATCH-CAPABILITY-READ\n");
+  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+
+  const batch = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      concurrency: 3,
+      tasks: [
+        { id: "hooks", operation: "capability.run", name: "hooks.check", arguments: {} },
+        { id: "unsupported", operation: "capability.run", name: "batch.execute", arguments: { tasks: [] } },
+        { id: "read", operation: "read", path: "batch-capability-read.txt" },
+      ],
+    },
+  });
+  assert.equal(batch.isError, undefined);
+  const value = structuredContent(batch).result as Record<string, unknown>;
+  assert.equal(value.status, "partial");
+  assert.equal(value.completed, 2);
+  assert.equal(value.failed, 1);
+  const results = value.results as Array<Record<string, unknown>>;
+  assert.deepEqual(results.map((entry) => [entry.id, entry.operation, entry.status]), [
+    ["hooks", "capability.run", "done"],
+    ["unsupported", "capability.run", "error"],
+    ["read", "read", "done"],
+  ]);
+  assert.match(JSON.stringify(results[0]), /globalHooks|projectHooks/);
+  assert.match(JSON.stringify(results[1]), /capability_batch_unsupported|not supported inside batch\.execute/);
+  assert.match(JSON.stringify(results[2]), /BATCH-CAPABILITY-READ/);
+
+  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const parent = activities.find((activity) => activity.tool === "batch");
+  assert.deepEqual(parent?.children, { total: 3, working: 0, done: 2, error: 1 });
+  const children = activities.filter((activity) => activity.parentActivityId === parent?.activityId);
+  assert.deepEqual(children.map((activity) => [activity.tool, activity.status]).sort(), [
+    ["capability", "done"],
+    ["capability", "error"],
+    ["read", "done"],
+  ]);
+});
+
 test("Host cancellation stops queued batch tasks and creates no fake child Activities", async (t) => {
   const context = await fixture(t);
   const conversation = "chat-batch-cancel";
@@ -1309,6 +1371,48 @@ test("Host cancellation stops queued batch tasks and creates no fake child Activ
   assert.equal(parent?.status, "error");
   assert.equal(child?.tool, "bash");
   assert.equal(child?.status, "error");
+});
+
+test("batch.execute accepts 100 tasks and persists 100 child Activities", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-batch-hundred";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+
+  const batch = await call("capability", {
+    workspaceId,
+    name: "batch.execute",
+    action: "run",
+    arguments: {
+      concurrency: 10,
+      tasks: Array.from({ length: 100 }, (_, index) => ({
+        id: `hooks-${index}`,
+        operation: "capability.run",
+        name: "hooks.check",
+        arguments: {},
+      })),
+    },
+  });
+  assert.equal(batch.isError, undefined);
+  const value = structuredContent(batch).result as Record<string, unknown>;
+  assert.equal(value.status, "done");
+  assert.equal(value.tasks, 100);
+  assert.equal(value.completed, 100);
+  assert.equal(value.failed, 0);
+  const results = value.results as Array<Record<string, unknown>>;
+  assert.equal(results.length, 100);
+  assert.deepEqual(results.map((entry) => entry.id), Array.from({ length: 100 }, (_, index) => `hooks-${index}`));
+
+  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const parent = activities.find((activity) => activity.tool === "batch");
+  assert.equal(activities.length, 101);
+  assert.deepEqual(parent?.children, { total: 100, working: 0, done: 100, error: 0 });
 });
 
 test("batch.execute rejects more than 100 tasks before creating a Batch Activity", async (t) => {
@@ -2823,6 +2927,29 @@ test("checkout context and durable Activity queries survive a registry restart",
     _meta: { "openai/session": "chat-1" },
   } as Parameters<Client["callTool"]>[0]);
   assert.equal(bulkRead.isError, undefined);
+  const durableBatch = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: firstWorkspaceId,
+      name: "batch.execute",
+      action: "run",
+      arguments: {
+        tasks: [
+          { id: "read", operation: "read", path: "restart-bulk-a.txt" },
+          { id: "bash", operation: "bash.run", command: "node -e \"console.log('restart-batch-output')\"" },
+          { id: "hooks", operation: "capability.run", name: "hooks.check", arguments: {} },
+        ],
+      },
+    },
+    _meta: { "openai/session": "chat-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(durableBatch.isError, undefined);
+  const durableBatchValue = structuredContent(durableBatch).result as Record<string, unknown>;
+  const durableBatchResults = durableBatchValue.results as Array<Record<string, unknown>>;
+  const durableBatchBashResult = durableBatchResults.find((result) => result.id === "bash")?.result as Record<string, unknown>;
+  const durableBatchBashStructured = durableBatchBashResult.structuredContent as Record<string, unknown>;
+  const batchOutputId = String(durableBatchBashStructured.outputId);
+  assert.match(batchOutputId, /^out_/);
 
   await context.close();
 
@@ -2886,7 +3013,7 @@ test("checkout context and durable Activity queries survive a registry restart",
     });
     assert.equal(restoredSnapshot.isError, undefined);
     const restoredActivities = structuredContent(restoredSnapshot).activities as Array<Record<string, unknown>>;
-    assert.equal(restoredActivities.length, 4);
+    assert.equal(restoredActivities.length, 8);
     const restoredBash = restoredActivities.find((activity) => activity.tool === "bash");
     assert.equal(restoredBash?.outputId, outputId);
     const restoredActivityId = String(restoredBash?.activityId);
@@ -2899,6 +3026,15 @@ test("checkout context and durable Activity queries survive a registry restart",
       activity.parentActivityId === restoredBulkParent?.activityId
     );
     assert.equal(restoredBulkChildren.length, 2);
+    const restoredBatchParent = restoredActivities.find((activity) => activity.tool === "batch");
+    assert.equal(restoredBatchParent?.target, "3 tasks");
+    assert.deepEqual(restoredBatchParent?.children, { total: 3, working: 0, done: 3, error: 0 });
+    const restoredBatchChildren = restoredActivities.filter((activity) =>
+      activity.parentActivityId === restoredBatchParent?.activityId
+    );
+    assert.equal(restoredBatchChildren.length, 3);
+    const restoredBatchBash = restoredBatchChildren.find((activity) => activity.tool === "bash");
+    assert.equal(restoredBatchBash?.outputId, batchOutputId);
 
     const restoredDetail = await restoredClient.callTool({
       name: "activity_detail",
@@ -2920,6 +3056,13 @@ test("checkout context and durable Activity queries survive a registry restart",
     assert.equal(restoredOutput.isError, undefined);
     assert.match(String(structuredContent(restoredOutput).output), /restart-durable-output/);
     assert.equal(structuredContent(restoredOutput).outputId, outputId);
+    const restoredBatchOutput = await restoredClient.callTool({
+      name: "activity_output",
+      arguments: { turnId, outputId: batchOutputId },
+    });
+    assert.equal(restoredBatchOutput.isError, undefined);
+    assert.match(String(structuredContent(restoredBatchOutput).output), /restart-batch-output/);
+    assert.equal(structuredContent(restoredBatchOutput).outputId, batchOutputId);
   } finally {
     await closeRestored();
   }

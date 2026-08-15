@@ -11,6 +11,7 @@ import {
 export type CapabilityErrorCode =
   | "unknown_capability"
   | "capability_unavailable"
+  | "capability_batch_unsupported"
   | "invalid_arguments"
   | "execution_failed"
   | `artifact.${string}`
@@ -39,10 +40,13 @@ export interface CapabilityContext {
   guides: CapabilityGuideContext[];
 }
 
+export type CapabilityBatchPolicy = "parallel" | "serial" | "unsupported";
+
 export interface CapabilityCatalogEntry {
   name: string;
   description: string;
   available: boolean;
+  batchPolicy: CapabilityBatchPolicy;
   unavailableReason?: string;
   guide: {
     name: string;
@@ -78,6 +82,7 @@ export interface CapabilityRunOptions {
   signal?: AbortSignal;
   requestMeta?: unknown;
   sessionId?: string;
+  batch?: boolean;
 }
 
 interface CapabilityDefinition {
@@ -85,6 +90,7 @@ interface CapabilityDefinition {
   description: string;
   guideName: string;
   readGuideBeforeFirstUse: boolean;
+  batchPolicy: CapabilityBatchPolicy;
   inputSchema: ZodType;
   nativeFileArgument?: string;
   availability: (context: CapabilityContext) => {
@@ -155,6 +161,7 @@ export class CapabilityRegistry {
         name: definition.name,
         description: definition.description,
         available,
+        batchPolicy: definition.batchPolicy,
         ...(!available && unavailableReason ? { unavailableReason } : {}),
         guide: {
           name: definition.guideName,
@@ -210,6 +217,13 @@ export class CapabilityRegistry {
       );
     }
 
+    if (options.batch && definition.batchPolicy === "unsupported") {
+      throw new CapabilityError(
+        "capability_batch_unsupported",
+        `Capability ${name} is not supported inside batch.execute.`,
+      );
+    }
+
     if (options.nativeFile !== undefined && !definition.nativeFileArgument) {
       throw new CapabilityError(
         "invalid_arguments",
@@ -238,6 +252,10 @@ export class CapabilityRegistry {
     }
   }
 
+  batchPolicy(name: string): CapabilityBatchPolicy | undefined {
+    return this.definitions.get(name)?.batchPolicy;
+  }
+
   private requireDefinition(name: string): CapabilityDefinition {
     const definition = this.definitions.get(name);
     if (!definition) {
@@ -260,6 +278,7 @@ export class CapabilityRegistry {
       name: definition.name,
       description: definition.description,
       available,
+      batchPolicy: definition.batchPolicy,
       ...(!available && unavailableReason ? { unavailableReason } : {}),
       guide: {
         name: definition.guideName,
@@ -311,6 +330,7 @@ export function createCapabilityRegistry(
       description: "Validate the active ForgeRelay Hook configuration for this workspace.",
       guideName: "lifecycle-hooks",
       readGuideBeforeFirstUse: true,
+      batchPolicy: "parallel",
       inputSchema: hooksCheckInput,
       availability: () => ({ available: true }),
       run: async (_input, context) => ({
@@ -326,6 +346,7 @@ export function createCapabilityRegistry(
           description: "Review accumulated workspace changes from the Git-backed review checkpoint.",
           guideName: "artifacts-review",
           readGuideBeforeFirstUse: true,
+          batchPolicy: "serial",
           inputSchema: z.object({}).strict(),
           availability: () => ({
             available: dependencies.reviewChanges?.available ?? false,
@@ -340,6 +361,7 @@ export function createCapabilityRegistry(
           description: "Read semantic code information through an available Language server without changing the Workspace.",
           guideName: "code-intelligence",
           readGuideBeforeFirstUse: true,
+          batchPolicy: "parallel",
           inputSchema: codeIntelligenceInput,
           availability: () => ({
             available: dependencies.codeIntelligence?.available ?? false,
@@ -359,6 +381,7 @@ export function createCapabilityRegistry(
           description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
           guideName: "batch-execution",
           readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
           inputSchema: batchExecuteInputSchema,
           availability: () => ({
             available: dependencies.batchExecute?.available ?? false,
@@ -374,6 +397,7 @@ export function createCapabilityRegistry(
           description: "Save one Host-native file into a workspace-relative destination without overwriting.",
           guideName: "artifacts-review",
           readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
           inputSchema: z.object({
             file: z.strictObject({
               download_url: z.string(),

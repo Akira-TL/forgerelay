@@ -40,6 +40,7 @@ export interface BatchExecutorDependencies {
   workspaces: WorkspaceRegistry;
   coreOperations: BatchCoreOperations;
   resultIsError: (result: unknown) => boolean;
+  capabilityBatchPolicy?: (name: string) => "parallel" | "serial" | "unsupported" | undefined;
   scheduler?: BatchScheduler;
   shellSurface?: "bash" | "exec_command";
 }
@@ -141,7 +142,7 @@ export class BatchExecutor {
     return {
       id: task.id,
       claims: taskClaims(workspace.root, task),
-      ...(task.operation === "bash.run" ? { exclusive: true } : {}),
+      ...(batchTaskIsExclusive(task, this.dependencies.capabilityBatchPolicy) ? { exclusive: true } : {}),
       run: async (signal) => {
         const response = await this.runCoreTask(
           workspace.id,
@@ -198,6 +199,12 @@ export class BatchExecutor {
           path: task.path,
           recursive: task.recursive,
         }, context);
+      case "capability.run":
+        return this.dependencies.coreOperations.capabilityRun({
+          workspaceId,
+          name: task.name,
+          arguments: task.arguments,
+        }, { ...context, batch: true });
       case "bash.run":
         return this.dependencies.coreOperations.shellRun({
           workspaceId,
@@ -213,6 +220,15 @@ export class BatchExecutor {
         }, context);
     }
   }
+}
+
+export function batchTaskIsExclusive(
+  task: BatchCoreTask,
+  capabilityBatchPolicy?: (name: string) => "parallel" | "serial" | "unsupported" | undefined,
+): boolean {
+  if (task.operation === "bash.run") return true;
+  if (task.operation !== "capability.run") return false;
+  return capabilityBatchPolicy?.(task.name) === "serial";
 }
 
 function batchParentOutcome(summary: ParentSummary): ActivityOutcome {
@@ -234,6 +250,7 @@ function taskClaims(root: string, task: BatchCoreTask): BatchResourceClaim[] {
         { key: batchPathKey(root, task.path), mode: "write" },
         { key: batchPathKey(root, task.newPath), mode: "write" },
       ];
+    case "capability.run":
     case "bash.run":
       return [];
   }
