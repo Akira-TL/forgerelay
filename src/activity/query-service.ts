@@ -182,6 +182,8 @@ function toSummary(record: ActivityRecord): ActivitySummary {
     ?? elapsedMs(record.startedAt, record.updatedAt, record.state);
   const bashLike = record.tool === "bash" || record.tool === "exec_command" || record.tool === "bash_result";
 
+  const bulkGroup = arrayField(request, "paths") !== undefined &&
+    (record.tool === "read" || record.tool === "edit" || record.tool === "delete");
   return {
     activityId: record.activityId,
     ...(record.parentActivityId ? { parentActivityId: record.parentActivityId } : {}),
@@ -191,7 +193,7 @@ function toSummary(record: ActivityRecord): ActivitySummary {
     state: record.state,
     title: activityTitle(record.tool),
     target: activityTarget(record, request, result, structured),
-    detailAvailable: record.tool !== "rename" && record.tool !== "delete",
+    detailAvailable: !bulkGroup && record.tool !== "rename" && record.tool !== "delete",
     ...(record.workspace.id ? { workspaceId: record.workspace.id } : {}),
     ...(processId !== undefined ? { processId } : {}),
     ...(outputId !== undefined ? { outputId } : {}),

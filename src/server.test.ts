@@ -1167,6 +1167,183 @@ test("bulk Read returns ordered per-file results and persists one parent Activit
   assert.match(allResponseText(parentDetail), /summary-complete/i);
 });
 
+test("bulk Edit preflights every target before mutation and records child edits only after preflight", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-bulk-edit";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const paths = ["edit-a.txt", "edit-b.txt", "edit-c.txt"];
+  await writeFile(join(context.project, paths[0]!), "before common after\n");
+  await writeFile(join(context.project, paths[1]!), "before common after\n");
+  await writeFile(join(context.project, paths[2]!), "common and common\n");
+
+  const failedTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const preflightFailure = await call("edit", {
+    workspaceId,
+    paths,
+    edits: [{ oldText: "common", newText: "changed" }],
+  });
+  assert.equal(preflightFailure.isError, true);
+  assert.match(allResponseText(preflightFailure), /unique|multiple|match/i);
+  assert.equal(await readFile(join(context.project, paths[0]!), "utf8"), "before common after\n");
+  assert.equal(await readFile(join(context.project, paths[1]!), "utf8"), "before common after\n");
+  assert.equal(await readFile(join(context.project, paths[2]!), "utf8"), "common and common\n");
+  const failedActivities = structuredContent(await call("activity_snapshot", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
+  assert.equal(failedActivities.length, 1);
+  assert.equal(failedActivities[0]?.target, "3 files");
+  assert.equal(failedActivities[0]?.status, "error");
+  assert.equal(failedActivities[0]?.detailAvailable, false);
+  assert.equal(failedActivities[0]?.children, undefined);
+
+  const duplicateTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const duplicateFailure = await call("edit", {
+    workspaceId,
+    paths: [paths[0], paths[0]],
+    edits: [{ oldText: "common", newText: "changed" }],
+  });
+  assert.equal(duplicateFailure.isError, true);
+  assert.match(allResponseText(duplicateFailure), /overlap|same file/i);
+  assert.equal(await readFile(join(context.project, paths[0]!), "utf8"), "before common after\n");
+  const duplicateActivities = structuredContent(await call("activity_snapshot", { turnId: duplicateTurn })).activities as Array<Record<string, unknown>>;
+  assert.equal(duplicateActivities.length, 1);
+
+  await writeFile(join(context.project, paths[2]!), "before common after\n");
+  const successTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const edited = await call("edit", {
+    workspaceId,
+    paths,
+    edits: [{ oldText: "common", newText: "changed" }],
+  });
+  assert.equal(edited.isError, undefined);
+  const editedResult = structuredContent(edited);
+  assert.equal(editedResult.status, "applied");
+  assert.equal(editedResult.files, 3);
+  assert.equal(editedResult.completed, 3);
+  assert.equal(editedResult.unexecuted, 0);
+  assert.deepEqual((editedResult.results as Array<Record<string, unknown>>).map((entry) => [entry.path, entry.status]), [
+    [paths[0], "done"], [paths[1], "done"], [paths[2], "done"],
+  ]);
+  for (const path of paths) {
+    assert.equal(await readFile(join(context.project, path), "utf8"), "before changed after\n");
+  }
+  const successActivities = structuredContent(await call("activity_snapshot", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
+  const parent = successActivities.find((activity) => activity.parentActivityId === undefined);
+  assert.equal(parent?.target, "3 files");
+  assert.deepEqual(parent?.children, { total: 3, working: 0, done: 3, error: 0 });
+  assert.equal(successActivities.filter((activity) => activity.parentActivityId === parent?.activityId).length, 3);
+});
+
+test("bulk Edit stops after a mutation-phase Hook failure and reports unexecuted targets", async (t) => {
+  const context = await fixture(t, {
+    hooks: {
+      BeforeTool: [{
+        matcher: { tool: "edit", pathRegex: "partial-b\\.txt$" },
+        handlers: [{ name: "Block second bulk edit", command: "node -e \"process.exit(13)\"" }],
+      }],
+    },
+  });
+  const conversation = "chat-bulk-edit-partial";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const paths = ["partial-a.txt", "partial-b.txt", "partial-c.txt"];
+  for (const path of paths) await writeFile(join(context.project, path), "common\n");
+  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+
+  const edited = await call("edit", {
+    workspaceId,
+    paths,
+    edits: [{ oldText: "common", newText: "changed" }],
+  });
+  assert.equal(edited.isError, true);
+  const result = structuredContent(edited);
+  assert.equal(result.status, "partial");
+  assert.equal(result.completed, 1);
+  assert.equal(result.failed, 1);
+  assert.equal(result.unexecuted, 1);
+  assert.deepEqual((result.results as Array<Record<string, unknown>>).map((entry) => [entry.path, entry.status]), [
+    [paths[0], "done"], [paths[1], "error"], [paths[2], "unexecuted"],
+  ]);
+  assert.equal(await readFile(join(context.project, paths[0]!), "utf8"), "changed\n");
+  assert.equal(await readFile(join(context.project, paths[1]!), "utf8"), "common\n");
+  assert.equal(await readFile(join(context.project, paths[2]!), "utf8"), "common\n");
+
+  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const parent = activities.find((activity) => activity.parentActivityId === undefined);
+  assert.equal(parent?.status, "error");
+  assert.deepEqual(parent?.children, { total: 2, working: 0, done: 1, error: 1 });
+  assert.equal(activities.filter((activity) => activity.parentActivityId === parent?.activityId).length, 2);
+});
+
+test("bulk Delete preflights all targets and rejects dangerous overlaps before deleting anything", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-bulk-delete";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  await writeFile(join(context.project, "delete-a.txt"), "a\n");
+  await writeFile(join(context.project, "delete-b.txt"), "b\n");
+  await mkdir(join(context.project, "delete-dir"));
+  await writeFile(join(context.project, "delete-dir", "child.txt"), "child\n");
+
+  const failedTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const nonEmptyFailure = await call("delete", {
+    workspaceId,
+    paths: ["delete-a.txt", "delete-dir"],
+    recursive: false,
+  });
+  assert.equal(nonEmptyFailure.isError, true);
+  assert.match(allResponseText(nonEmptyFailure), /not empty|non-empty/i);
+  assert.equal(await readFile(join(context.project, "delete-a.txt"), "utf8"), "a\n");
+  assert.equal(await readFile(join(context.project, "delete-dir", "child.txt"), "utf8"), "child\n");
+  const failedActivities = structuredContent(await call("activity_snapshot", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
+  assert.equal(failedActivities.length, 1);
+  assert.equal(failedActivities[0]?.target, "2 paths");
+  assert.equal(failedActivities[0]?.detailAvailable, false);
+
+  const overlapTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const overlapFailure = await call("delete", {
+    workspaceId,
+    paths: ["delete-dir", "delete-dir/child.txt"],
+    recursive: true,
+  });
+  assert.equal(overlapFailure.isError, true);
+  assert.match(allResponseText(overlapFailure), /overlap|ancestor|descendant/i);
+  assert.equal(await readFile(join(context.project, "delete-dir", "child.txt"), "utf8"), "child\n");
+  const overlapActivities = structuredContent(await call("activity_snapshot", { turnId: overlapTurn })).activities as Array<Record<string, unknown>>;
+  assert.equal(overlapActivities.length, 1);
+
+  const successTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const deleted = await call("delete", {
+    workspaceId,
+    paths: ["delete-a.txt", "delete-b.txt"],
+  });
+  assert.equal(deleted.isError, undefined);
+  const deletedResult = structuredContent(deleted);
+  assert.equal(deletedResult.status, "deleted");
+  assert.equal(deletedResult.completed, 2);
+  assert.equal(deletedResult.unexecuted, 0);
+  await assert.rejects(readFile(join(context.project, "delete-a.txt"), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(join(context.project, "delete-b.txt"), "utf8"), /ENOENT/);
+  const successActivities = structuredContent(await call("activity_snapshot", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
+  const parent = successActivities.find((activity) => activity.parentActivityId === undefined);
+  assert.equal(parent?.target, "2 paths");
+  assert.deepEqual(parent?.children, { total: 2, working: 0, done: 2, error: 0 });
+});
+
 test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-temp-write");

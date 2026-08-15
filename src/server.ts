@@ -73,6 +73,7 @@ import {
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import { executeBulkRead } from "./operations/bulk-read.js";
+import { NativeBulkMutationExecutor } from "./operations/native-bulk-mutations.js";
 import {
   createCoreOperationExecutor,
   type CoreOperationContext,
@@ -2024,6 +2025,17 @@ export function createMcpServer(
     },
   });
 
+  const nativeBulkMutations = new NativeBulkMutationExecutor({
+    lifecycle: activityLifecycle,
+    workspaces,
+    coreOperations,
+    preflightInstructions: (workspace, paths) =>
+      assertWorkspaceInstructionsLoadedBeforeSideEffect(workspaces, workspace, paths),
+    resultIsError: toolResultIsError,
+    resultText: toolResultText,
+    resultContent: toolResultContent,
+  });
+
   const server = new McpServer(
     {
       name: "forgerelay",
@@ -2948,7 +2960,14 @@ export function createMcpServer(
           .describe("Workspace identifier returned by open_workspace."),
         path: z
           .string()
-          .describe("File path to edit, relative to the workspace root or absolute inside the OS temp directory."),
+          .optional()
+          .describe("One file path to edit. Use exactly one of path or paths."),
+        paths: z
+          .array(z.string())
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("Multiple file paths to edit with the same edits. Use exactly one of path or paths."),
         edits: z
           .array(
             z.object({
@@ -2963,19 +2982,44 @@ export function createMcpServer(
           .min(1),
       },
       outputSchema: resultOutputSchema({
-        status: z.literal("applied"),
+        status: z.enum(["applied", "partial"]),
+        results: z.array(z.object({
+          path: z.string(),
+          status: z.enum(["done", "error", "unexecuted"]),
+          result: z.string().optional(),
+        })).optional(),
+        files: z.number().int().nonnegative().optional(),
+        completed: z.number().int().nonnegative().optional(),
+        failed: z.number().int().nonnegative().optional(),
+        unexecuted: z.number().int().nonnegative().optional(),
       }),
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }, extra) => coreOperations.edit(
-      { workspaceId, ...input },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
+    async ({ workspaceId, path, paths, edits }, extra) => {
+      if ((path === undefined) === (paths === undefined)) {
+        throw new Error("edit requires exactly one of path or paths.");
       }
-    ),
+      if (path !== undefined) {
+        return coreOperations.edit(
+          { workspaceId, path, edits },
+          {
+            requestMeta: extra._meta,
+            signal: extra.signal,
+            sessionId: extra.sessionId,
+          },
+        );
+      }
+
+      return nativeBulkMutations.edit(
+        { workspaceId, paths: paths!, edits },
+        {
+          requestMeta: extra._meta,
+          signal: extra.signal,
+          sessionId: extra.sessionId,
+        },
+      );
+    },
   );
   }
 
@@ -3016,25 +3060,56 @@ export function createMcpServer(
       description: toolDescriptions.delete,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
-        path: z.string().describe("File or directory path relative to the workspace root, or absolute inside the OS temp directory."),
-        recursive: z.boolean().optional().describe("Delete a non-empty directory tree. Defaults to false."),
+        path: z.string().optional().describe("One file or directory path to delete. Use exactly one of path or paths."),
+        paths: z
+          .array(z.string())
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("Multiple paths to delete in one call. Use exactly one of path or paths."),
+        recursive: z.boolean().optional().describe("Delete non-empty directory trees. Defaults to false and applies to every bulk target."),
       },
       outputSchema: resultOutputSchema({
-        status: z.literal("deleted"),
-        path: z.string(),
-        recursive: z.boolean(),
+        status: z.enum(["deleted", "partial"]),
+        path: z.string().optional(),
+        recursive: z.boolean().optional(),
+        results: z.array(z.object({
+          path: z.string(),
+          status: z.enum(["done", "error", "unexecuted"]),
+          result: z.string().optional(),
+        })).optional(),
+        paths: z.number().int().nonnegative().optional(),
+        completed: z.number().int().nonnegative().optional(),
+        failed: z.number().int().nonnegative().optional(),
+        unexecuted: z.number().int().nonnegative().optional(),
       }),
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, recursive }, extra) => coreOperations.delete(
-      { workspaceId, path, recursive },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
+    async ({ workspaceId, path, paths, recursive }, extra) => {
+      if ((path === undefined) === (paths === undefined)) {
+        throw new Error("delete requires exactly one of path or paths.");
       }
-    ),
+      if (path !== undefined) {
+        return coreOperations.delete(
+          { workspaceId, path, recursive },
+          {
+            requestMeta: extra._meta,
+            signal: extra.signal,
+            sessionId: extra.sessionId,
+          },
+        );
+      }
+
+      return nativeBulkMutations.delete(
+        { workspaceId, paths: paths!, recursive },
+        {
+          requestMeta: extra._meta,
+          signal: extra.signal,
+          sessionId: extra.sessionId,
+        },
+      );
+    },
   );
 
   if (config.toolMode === "codex") {
