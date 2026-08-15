@@ -131,6 +131,17 @@ export class ActivityAuditStore {
         if (existing.length > 0) {
           throw new Error(`Activity ${input.activityId} already has audit events.`);
         }
+        if (input.parentActivityId) {
+          const parent = this.getActivity(input.parentActivityId);
+          if (!parent) {
+            throw new Error(`Unknown parent Activity: ${input.parentActivityId}.`);
+          }
+          if (parent.turnId !== input.turnId) {
+            throw new Error(
+              `Parent Activity ${input.parentActivityId} belongs to Host Turn ${parent.turnId}, not ${input.turnId}.`,
+            );
+          }
+        }
       } else if (existing.length === 0 || existing[0]?.event_type !== "started") {
         throw new Error(`Activity ${input.activityId} must start before recording ${input.type}.`);
       }

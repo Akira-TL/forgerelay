@@ -154,6 +154,16 @@ test("Activity audit persists durable parent-child linkage across restart", asyn
     root: "/tmp/forgerelay-parent",
     mode: "checkout" as const,
   };
+  assert.throws(() => auditStore.append({
+    type: "started",
+    activityId: "act_orphan",
+    parentActivityId: "act_missing_parent",
+    turnId: "turn_parent",
+    tool: "read",
+    workspace,
+    request: { path: "orphan.ts" },
+  }), /unknown parent Activity/i);
+
   auditStore.append({
     type: "started",
     activityId: "act_parent",
@@ -162,6 +172,16 @@ test("Activity audit persists durable parent-child linkage across restart", asyn
     workspace,
     request: { paths: ["a.ts", "b.ts"] },
   });
+  assert.throws(() => auditStore.append({
+    type: "started",
+    activityId: "act_cross_turn",
+    parentActivityId: "act_parent",
+    turnId: "turn_other",
+    tool: "read",
+    workspace,
+    request: { path: "cross.ts" },
+  }), /belongs to Host Turn turn_parent, not turn_other/i);
+
   auditStore.append({
     type: "started",
     activityId: "act_child",
