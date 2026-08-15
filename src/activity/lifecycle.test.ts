@@ -26,6 +26,7 @@ test("Activity lifecycle records success, returned, failure, and BeforeTool bloc
     await rm(stateDir, { recursive: true, force: true });
   });
 
+  let receivedContext: unknown;
   const success = await lifecycle.run({
     activityId: "act_success",
     turnId: "turn_success",
@@ -33,7 +34,15 @@ test("Activity lifecycle records success, returned, failure, and BeforeTool bloc
     tool: "read",
     workspace,
     request: { workspaceId: workspace.id, path: "README.md", omitted: undefined },
-    operation: async () => ({ content: [{ type: "text", text: "hello" }], extra: undefined }),
+    operation: async (context) => {
+      receivedContext = context;
+      return { content: [{ type: "text", text: "hello" }], extra: undefined };
+    },
+  });
+  assert.deepEqual(receivedContext, {
+    activityId: "act_success",
+    turnId: "turn_success",
+    conversationScopeId: "conversation_1",
   });
   assert.deepEqual(success, { content: [{ type: "text", text: "hello" }], extra: undefined });
   assert.deepEqual(auditStore.getActivity("act_success"), {
@@ -102,4 +111,39 @@ test("Activity lifecycle records success, returned, failure, and BeforeTool bloc
   );
   assert.equal(auditStore.getActivity("act_thrown")?.state, "failed");
   assert.equal(auditStore.getActivity("act_thrown")?.error, "filesystem failed");
+
+  const recorded = lifecycle.record({
+    activityId: "act_bash_result",
+    turnId: "turn_bash_result",
+    conversationScopeId: "conversation_1",
+    tool: "bash_result",
+    workspace,
+    request: { processId: 41, outputId: "out_41" },
+    result: { exitCode: 0, outputId: "out_41" },
+    outcome: { type: "succeeded" },
+  });
+  assert.deepEqual(recorded, {
+    activityId: "act_bash_result",
+    turnId: "turn_bash_result",
+    conversationScopeId: "conversation_1",
+  });
+  assert.equal(auditStore.getActivity("act_bash_result")?.tool, "bash_result");
+  assert.equal(auditStore.getActivity("act_bash_result")?.state, "done");
+  assert.deepEqual(auditStore.getActivity("act_bash_result")?.result, {
+    exitCode: 0,
+    outputId: "out_41",
+  });
+
+  lifecycle.recordLinked({
+    activityId: "act_bash_result_linked",
+    sourceActivityId: "act_success",
+    tool: "bash_result",
+    request: { processId: 42, outputId: "out_42" },
+    result: { exitCode: 7, outputId: "out_42" },
+    outcome: { type: "failed", error: "Background process 42 exited with code 7." },
+  });
+  const linked = auditStore.getActivity("act_bash_result_linked");
+  assert.equal(linked?.conversationScopeId, "conversation_1");
+  assert.deepEqual(linked?.workspace, workspace);
+  assert.equal(linked?.state, "failed");
 });

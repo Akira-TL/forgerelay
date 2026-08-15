@@ -21,7 +21,12 @@ import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { ActivityAuditStore, type ActivityWorkspaceSnapshot } from "./activity/audit-store.js";
-import { ActivityLifecycle, type ActivityOutcome } from "./activity/lifecycle.js";
+import { BashOutputStore, type BashOutputRecord } from "./activity/bash-output-store.js";
+import {
+  ActivityLifecycle,
+  type ActivityExecutionContext,
+  type ActivityOutcome,
+} from "./activity/lifecycle.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import {
   CapabilityError,
@@ -681,6 +686,25 @@ async function readWorkspaceAppResource(
   }
 }
 
+const PROCESS_RESPONSE_OUTPUT_LINES = 10;
+
+function compactProcessOutput(output: string): { output: string; truncated: boolean } {
+  if (!output) return { output: "", truncated: false };
+  const trailingNewline = output.endsWith("\n");
+  const body = trailingNewline ? output.slice(0, -1) : output;
+  const lines = body.split("\n");
+  if (lines.length <= PROCESS_RESPONSE_OUTPUT_LINES) return { output, truncated: false };
+  const compact = lines.slice(-PROCESS_RESPONSE_OUTPUT_LINES).join("\n");
+  return {
+    output: trailingNewline ? `${compact}\n` : compact,
+    truncated: true,
+  };
+}
+
+function outputIdNotice(outputId: string | undefined): string {
+  return outputId ? `Full output ID: ${outputId}.` : "";
+}
+
 function processResult(snapshot: ProcessSnapshot): string {
   const status = snapshot.running
     ? `Process running with process ID ${snapshot.processId}.`
@@ -689,7 +713,8 @@ function processResult(snapshot: ProcessSnapshot): string {
       : snapshot.signal
         ? `Process exited after signal ${snapshot.signal}.`
         : `Process exited with code ${snapshot.exitCode ?? "unknown"}.`;
-  return snapshot.output ? `${snapshot.output.replace(/\n$/, "")}\n${status}` : status;
+  const compact = compactProcessOutput(snapshot.output).output.replace(/\n$/, "");
+  return [compact, status, outputIdNotice(snapshot.outputId)].filter(Boolean).join("\n");
 }
 
 function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
@@ -699,17 +724,19 @@ function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
       ? `Background process ${snapshot.processId} exited after signal ${snapshot.signal}.`
       : `Background process ${snapshot.processId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
   const command = `Command: ${snapshot.command}`;
-  const output = snapshot.output ? `\n${snapshot.output.replace(/\n$/, "")}` : "";
-  return `${status}\n${command}${output}`;
+  const output = compactProcessOutput(snapshot.output).output.replace(/\n$/, "");
+  return [status, command, output, outputIdNotice(snapshot.outputId)].filter(Boolean).join("\n");
 }
 
 function attachCompletedProcessNotices<T>(
   processSessions: ProcessManager,
   workspaceId: string,
   result: T,
+  onCompleted?: (snapshot: CompletedProcessSnapshot) => void,
 ): T {
   if (result instanceof Error) {
     const completed = processSessions.takeCompleted(workspaceId);
+    for (const snapshot of completed) onCompleted?.(snapshot);
     if (completed.length > 0) {
       result.message = [
         result.message,
@@ -731,6 +758,7 @@ function attachCompletedProcessNotices<T>(
         : undefined
     : undefined;
   const completed = processSessions.takeCompleted(workspaceId, undefined, currentProcessId);
+  for (const snapshot of completed) onCompleted?.(snapshot);
   if (completed.length === 0) return result;
 
   return {
@@ -746,6 +774,7 @@ function processOutputSchema(): z.ZodRawShape {
   return resultOutputSchema({
     processId: z.number().int().positive().optional().describe("Canonical process handle for bash(action=\"process\") or the active command adapter."),
     sessionId: z.number().int().positive().optional().describe("Deprecated alias of processId for compatibility."),
+    outputId: z.string().optional().describe("Stable local audit identifier for retrieving the complete original process output."),
     running: z.boolean(),
     exitCode: z.number().int().optional(),
     signal: z.string().optional(),
@@ -771,9 +800,10 @@ function processToolResponse(
   snapshot: ProcessSnapshot,
   summary: Record<string, unknown>,
 ) {
+  const compact = compactProcessOutput(snapshot.output);
   const result = processResult(snapshot);
   const content = [textBlock(result)];
-  const outputSummary = textSummary(snapshot.output ? [textBlock(snapshot.output)] : []);
+  const outputSummary = textSummary(compact.output ? [textBlock(compact.output)] : []);
   return {
     content,
     _meta: {
@@ -788,14 +818,120 @@ function processToolResponse(
       result,
       processId: snapshot.processId,
       sessionId: snapshot.sessionId,
+      outputId: snapshot.outputId,
       running: snapshot.running,
       exitCode: snapshot.exitCode,
       signal: snapshot.signal,
       timedOut: snapshot.timedOut,
       wallTimeMs: snapshot.wallTimeMs,
-      outputTruncated: snapshot.outputTruncated,
+      outputTruncated: snapshot.outputTruncated || compact.truncated,
     },
   };
+}
+
+function durableOutputResult(record: BashOutputRecord): string {
+  const status = record.status === "running"
+    ? `Process ${record.processId} is still running.`
+    : record.timedOut
+      ? `Process ${record.processId} timed out and was terminated.`
+      : record.signal
+        ? `Process ${record.processId} exited after signal ${record.signal}.`
+        : `Process ${record.processId} exited with code ${record.exitCode ?? "unknown"}.`;
+  return [record.output.replace(/\n$/, ""), status, `Full output ID: ${record.outputId}.`]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function durableOutputResponse(
+  tool: "bash" | "write_stdin",
+  workspaceId: string,
+  record: BashOutputRecord,
+) {
+  const result = durableOutputResult(record);
+  const content = [textBlock(result)];
+  const finishedAt = record.finishedAt ? Date.parse(record.finishedAt) : Date.now();
+  const startedAt = Date.parse(record.startedAt);
+  return {
+    content,
+    _meta: {
+      tool,
+      card: {
+        workspaceId,
+        summary: textSummary(record.output ? [textBlock(record.output)] : []),
+        payload: { content },
+      },
+    },
+    structuredContent: {
+      result,
+      processId: record.processId,
+      sessionId: record.processId,
+      outputId: record.outputId,
+      running: record.status === "running",
+      exitCode: record.exitCode,
+      signal: record.signal,
+      timedOut: record.timedOut,
+      wallTimeMs: Math.max(0, Number.isFinite(finishedAt - startedAt) ? finishedAt - startedAt : 0),
+      outputTruncated: false,
+    },
+  };
+}
+
+function markReturnedOutput(store: BashOutputStore, result: unknown): void {
+  if (typeof result !== "object" || result === null) return;
+  const structured = (result as { structuredContent?: unknown }).structuredContent;
+  if (typeof structured !== "object" || structured === null) return;
+  const record = structured as { running?: unknown; outputId?: unknown };
+  if (record.running === true && typeof record.outputId === "string") {
+    store.markReturned(record.outputId);
+  }
+}
+
+function readWorkspaceBashOutput(
+  store: BashOutputStore,
+  workspaceId: string,
+  outputId: string,
+): BashOutputRecord {
+  const record = store.read(outputId);
+  if (!record) throw new Error(`Unknown Bash output: ${outputId}`);
+  if (record.workspaceId !== workspaceId) {
+    throw new Error(`Bash output ${outputId} does not belong to workspace ${workspaceId}.`);
+  }
+  return record;
+}
+
+function bashCompletionError(record: BashOutputRecord): string {
+  if (record.error) return record.error;
+  if (record.timedOut) return `Background process ${record.processId} timed out.`;
+  if (record.signal) return `Background process ${record.processId} exited after signal ${record.signal}.`;
+  return `Background process ${record.processId} exited with code ${record.exitCode ?? "unknown"}.`;
+}
+
+function recordBashCompletion(
+  lifecycle: ActivityLifecycle,
+  store: BashOutputStore,
+  outputId: string | undefined,
+): void {
+  if (!outputId) return;
+  const completion = store.claimCompletion(outputId);
+  if (!completion) return;
+  lifecycle.recordLinked({
+    sourceActivityId: completion.activityId,
+    tool: "bash_result",
+    request: {
+      processId: completion.processId,
+      outputId: completion.outputId,
+    },
+    result: {
+      processId: completion.processId,
+      outputId: completion.outputId,
+      exitCode: completion.exitCode,
+      signal: completion.signal,
+      timedOut: completion.timedOut,
+    },
+    outcome: completion.status === "failed"
+      ? { type: "failed", error: bashCompletionError(completion) }
+      : { type: "succeeded" },
+  });
 }
 
 function workspaceHookInvocation(workspace: Workspace) {
@@ -901,7 +1037,7 @@ function runActivityTool<T>(
   requestMeta: unknown,
   tool: string,
   request: unknown,
-  operation: () => Promise<T>,
+  operation: (context: ActivityExecutionContext) => Promise<T>,
   outcome: (result: T) => ActivityOutcome = standardActivityOutcome,
 ): Promise<T> {
   return lifecycle.run({
@@ -939,6 +1075,7 @@ function registerProcessTools(
   processSessions: ProcessManager,
   hooks: HookRunner,
   activityLifecycle: ActivityLifecycle,
+  bashOutputStore: BashOutputStore,
 ): void {
   if (config.toolMode === "codex") {
     registerAppTool(
@@ -990,13 +1127,13 @@ function registerProcessTools(
     async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
       let undeliveredProcessId: number | undefined;
-      return runActivityTool(
+      const activityResult = await runActivityTool(
         activityLifecycle,
         workspace,
         extra._meta,
         "exec_command",
         { workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens },
-        async () => {
+        async (activityContext) => {
           try {
             const result = await runToolWithHooks(hooks, {
           signal: extra.signal,
@@ -1024,6 +1161,7 @@ function registerProcessTools(
               maxOutputTokens,
               codexCi: true,
               signal: extra.signal,
+              audit: activityContext,
             });
             undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
 
@@ -1060,6 +1198,8 @@ function registerProcessTools(
         },
         processActivityOutcome,
       );
+      markReturnedOutput(bashOutputStore, activityResult);
+      return activityResult;
     },
     );
   }
@@ -1072,11 +1212,12 @@ function registerProcessTools(
     {
       title: "Write to process",
       description:
-        "Poll or write characters to a running process returned by bash or exec_command. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
+        "Poll or write characters to a running process returned by exec_command, or retrieve complete durable process output by outputId. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
         processId: z.number().int().positive().optional().describe("Canonical process identifier returned by bash or exec_command."),
         sessionId: z.number().int().positive().optional().describe("Deprecated alias for processId. Retained for compatibility."),
+        outputId: z.string().optional().describe("Stable output identifier returned by exec_command. When supplied, retrieve the complete durable output instead of controlling a process."),
         chars: z.string().optional().describe("Characters to write. Omit or pass an empty string to poll."),
         columns: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this width."),
         rows: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this height."),
@@ -1099,8 +1240,27 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, processId, sessionId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
+    async ({ workspaceId, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
+      if (outputId !== undefined) {
+        if (
+          processId !== undefined || sessionId !== undefined || chars !== undefined || columns !== undefined ||
+          rows !== undefined || yieldTimeMs !== undefined || maxOutputTokens !== undefined
+        ) {
+          throw new Error("write_stdin outputId lookup cannot be combined with process control fields.");
+        }
+        return runToolWithHooks(hooks, {
+          signal: extra.signal,
+          tool: "write_stdin",
+          invocation: workspaceHookInvocation(workspace),
+          payload: { outputId },
+          operation: async () => durableOutputResponse(
+            "write_stdin",
+            workspaceId,
+            readWorkspaceBashOutput(bashOutputStore, workspaceId, outputId),
+          ),
+        });
+      }
       const resolvedProcessId = resolveProcessId(processId, sessionId);
       return runToolWithHooks(hooks, {
         signal: extra.signal,
@@ -1135,13 +1295,17 @@ function registerProcessTools(
             durationMs: Math.round(performance.now() - startedAt),
           });
 
-          return processToolResponse("write_stdin", workspaceId, snapshot, {
+          const response = processToolResponse("write_stdin", workspaceId, snapshot, {
             processId: resolvedProcessId,
             charactersWritten: chars?.length ?? 0,
             running: snapshot.running,
             exitCode: snapshot.exitCode,
             wallTimeMs: snapshot.wallTimeMs,
           });
+          if (!snapshot.running) {
+            recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId);
+          }
+          return response;
         },
       });
     },
@@ -1157,13 +1321,19 @@ export function createMcpServer(
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
   codeIntelligence: CodeIntelligenceManager,
   activityLifecycle: ActivityLifecycle,
+  bashOutputStore: BashOutputStore,
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
     config.hooks,
     config.logging,
     process.env,
-    (workspaceId, result) => attachCompletedProcessNotices(processSessions, workspaceId, result),
+    (workspaceId, result) => attachCompletedProcessNotices(
+      processSessions,
+      workspaceId,
+      result,
+      (snapshot) => recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId),
+    ),
   );
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
@@ -2615,9 +2785,9 @@ export function createMcpServer(
             .string()
             .describe("Workspace identifier returned by open_workspace."),
           action: z
-            .enum(["run", "process"])
+            .enum(["run", "process", "output"])
             .optional()
-            .describe("Defaults to run. Use process with a returned processId to poll, interact, resize, or interrupt a running command."),
+            .describe("Defaults to run. Use process with a returned processId to poll/interact, or output with outputId to retrieve complete durable output."),
           command: z
             .string()
             .optional()
@@ -2628,6 +2798,10 @@ export function createMcpServer(
             .positive()
             .optional()
             .describe("Process identifier returned by a previous bash action=run call. Required for action=process."),
+          outputId: z
+            .string()
+            .optional()
+            .describe("Stable output identifier returned by a Bash run. Required for action=output."),
           input: z
             .string()
             .optional()
@@ -2689,6 +2863,7 @@ export function createMcpServer(
         action = "run",
         command,
         processId,
+        outputId,
         input,
         interrupt,
         tty,
@@ -2702,11 +2877,11 @@ export function createMcpServer(
         const workspace = workspaces.getWorkspace(workspaceId);
         if (action === "run") {
           if (!command) throw new Error("bash action=run requires command.");
-          if (processId !== undefined || input !== undefined || interrupt !== undefined) {
-            throw new Error("bash action=run does not accept processId, input, or interrupt.");
+          if (processId !== undefined || outputId !== undefined || input !== undefined || interrupt !== undefined) {
+            throw new Error("bash action=run does not accept processId, outputId, input, or interrupt.");
           }
           let undeliveredProcessId: number | undefined;
-          return runActivityTool(
+          const activityResult = await runActivityTool(
             activityLifecycle,
             workspace,
             extra._meta,
@@ -2723,7 +2898,7 @@ export function createMcpServer(
               timeoutMs,
               maxOutputTokens,
             },
-            async () => {
+            async (activityContext) => {
               try {
                 const result = await runToolWithHooks(hooks, {
               signal: extra.signal,
@@ -2755,6 +2930,7 @@ export function createMcpServer(
                   timeoutMs,
                   maxOutputTokens,
                   signal: extra.signal,
+                  audit: activityContext,
                 });
                 undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
 
@@ -2795,8 +2971,33 @@ export function createMcpServer(
             },
             processActivityOutcome,
           );
+          markReturnedOutput(bashOutputStore, activityResult);
+          return activityResult;
         }
 
+        if (action === "output") {
+          if (!outputId) throw new Error("bash action=output requires outputId.");
+          if (
+            command !== undefined || processId !== undefined || input !== undefined || interrupt !== undefined ||
+            tty !== undefined || columns !== undefined || rows !== undefined || workingDirectory !== undefined ||
+            yieldTimeMs !== undefined || timeoutMs !== undefined || maxOutputTokens !== undefined
+          ) {
+            throw new Error("bash action=output accepts only workspaceId and outputId.");
+          }
+          return runToolWithHooks(hooks, {
+            signal: extra.signal,
+            tool: toolNames.shell,
+            invocation: workspaceHookInvocation(workspace),
+            payload: { action, outputId },
+            operation: async () => durableOutputResponse(
+              toolNames.shell,
+              workspaceId,
+              readWorkspaceBashOutput(bashOutputStore, workspaceId, outputId),
+            ),
+          });
+        }
+
+        if (outputId !== undefined) throw new Error("bash action=process does not accept outputId.");
         if (command !== undefined || workingDirectory !== undefined || tty !== undefined || timeoutMs !== undefined) {
           throw new Error("bash action=process does not accept command, workingDirectory, tty, or timeoutMs.");
         }
@@ -2838,7 +3039,7 @@ export function createMcpServer(
               success: snapshot.running || snapshot.exitCode === 0,
               durationMs: Math.round(performance.now() - startedAt),
             });
-            return processToolResponse(toolNames.shell, workspaceId, snapshot, {
+            const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
               action,
               processId,
               inputLength: input?.length ?? 0,
@@ -2847,13 +3048,25 @@ export function createMcpServer(
               exitCode: snapshot.exitCode,
               wallTimeMs: snapshot.wallTimeMs,
             });
+            if (!snapshot.running) {
+              recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId);
+            }
+            return response;
           },
         });
       },
     );
   }
 
-  registerProcessTools(server, config, workspaces, processSessions, hooks, activityLifecycle);
+  registerProcessTools(
+    server,
+    config,
+    workspaces,
+    processSessions,
+    hooks,
+    activityLifecycle,
+    bashOutputStore,
+  );
 
   return server;
 }
@@ -2890,8 +3103,9 @@ export function createServer(
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const activityAuditStore = new ActivityAuditStore(config.stateDir);
   const activityLifecycle = new ActivityLifecycle(activityAuditStore);
+  const bashOutputStore = new BashOutputStore(config.stateDir);
   const reviewCheckpoints = createReviewCheckpointManager();
-  const processSessions = new ProcessManager();
+  const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
   const codeIntelligence = new CodeIntelligenceManager(config);
   const localAgentProviders = config.subagents
     ? getLocalAgentProviderAvailabilitySnapshot()
@@ -3110,6 +3324,7 @@ export function createServer(
           incomingArtifactAdapters,
           codeIntelligence,
           activityLifecycle,
+          bashOutputStore,
         );
         await server.connect(transport);
       } else {
@@ -3142,6 +3357,7 @@ export function createServer(
         processSessions.shutdown();
         await codeIntelligence.shutdown();
         oauthProvider.close();
+        bashOutputStore.close();
         activityAuditStore.close();
         workspaceStore.close?.();
       })();

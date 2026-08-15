@@ -6,6 +6,7 @@ import type { TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ActivityAuditStore } from "../../activity/audit-store.js";
+import { BashOutputStore } from "../../activity/bash-output-store.js";
 import { ActivityLifecycle } from "../../activity/lifecycle.js";
 import { loadConfig, type ServerConfig } from "../../config.js";
 import { createReviewCheckpointManager } from "../../review-checkpoints.js";
@@ -47,8 +48,9 @@ export async function createCodeIntelligenceServerFixture(
   });
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
-  const processSessions = new ProcessManager();
   const auditStore = new ActivityAuditStore(stateDir);
+  const bashOutputStore = new BashOutputStore(stateDir);
+  const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
   const activityLifecycle = new ActivityLifecycle(auditStore);
   const codeIntelligence = new CodeIntelligenceManager(config, options.codeIntelligenceOptions);
   const server = createMcpServer(
@@ -60,6 +62,7 @@ export async function createCodeIntelligenceServerFixture(
     [],
     codeIntelligence,
     activityLifecycle,
+    bashOutputStore,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "forgerelay-code-intelligence-test-client", version: "1.0.0" });
@@ -73,6 +76,7 @@ export async function createCodeIntelligenceServerFixture(
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
+    bashOutputStore.close();
     auditStore.close();
     store.close();
   };

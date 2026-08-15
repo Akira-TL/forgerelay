@@ -11,6 +11,12 @@ export type ActivityOutcome =
   | { type: "returned" }
   | { type: "failed"; error: string };
 
+export interface ActivityExecutionContext {
+  activityId: string;
+  turnId: string;
+  conversationScopeId?: string;
+}
+
 export interface ActivityRunOptions<T> {
   activityId?: string;
   turnId?: string;
@@ -18,8 +24,23 @@ export interface ActivityRunOptions<T> {
   tool: string;
   workspace: ActivityWorkspaceSnapshot;
   request?: unknown;
-  operation: () => Promise<T>;
+  operation: (context: ActivityExecutionContext) => Promise<T>;
   outcome?: (result: T) => ActivityOutcome;
+}
+
+export interface ActivityRecordOptions {
+  activityId?: string;
+  turnId?: string;
+  conversationScopeId?: string;
+  tool: string;
+  workspace: ActivityWorkspaceSnapshot;
+  request?: unknown;
+  result?: unknown;
+  outcome: ActivityOutcome;
+}
+
+export interface LinkedActivityRecordOptions extends Omit<ActivityRecordOptions, "workspace" | "conversationScopeId"> {
+  sourceActivityId: string;
 }
 
 export interface ActivityLifecycleOptions {
@@ -39,43 +60,34 @@ export class ActivityLifecycle {
     this.turnId = options.turnId ?? newTurnId;
   }
 
-  async run<T>(options: ActivityRunOptions<T>): Promise<T> {
-    const activityId = options.activityId ?? this.activityId();
-    const turnId = options.turnId ?? this.turnId();
-    const request = normalizeAuditValue(options.request);
+  record(options: ActivityRecordOptions): ActivityExecutionContext {
+    const context = this.start(options);
+    this.finish(context.activityId, options.result, options.outcome);
+    return context;
+  }
 
-    this.auditStore.append({
-      type: "started",
-      activityId,
-      turnId,
-      ...(options.conversationScopeId ? { conversationScopeId: options.conversationScopeId } : {}),
-      tool: options.tool,
-      workspace: options.workspace,
-      ...(request !== undefined ? { request } : {}),
+  recordLinked(options: LinkedActivityRecordOptions): ActivityExecutionContext {
+    const source = this.auditStore.getActivity(options.sourceActivityId);
+    if (!source) throw new Error(`Unknown source Activity: ${options.sourceActivityId}`);
+    const { sourceActivityId: _sourceActivityId, ...record } = options;
+    return this.record({
+      ...record,
+      ...(source.conversationScopeId ? { conversationScopeId: source.conversationScopeId } : {}),
+      workspace: source.workspace,
     });
+  }
+
+  async run<T>(options: ActivityRunOptions<T>): Promise<T> {
+    const executionContext = this.start(options);
+    const activityId = executionContext.activityId;
 
     try {
-      const result = await options.operation();
-      const normalizedResult = normalizeAuditValue(result);
-      const outcome = options.outcome?.(result) ?? { type: "succeeded" as const };
-      switch (outcome.type) {
-        case "succeeded":
-        case "returned":
-          this.auditStore.append({
-            type: outcome.type,
-            activityId,
-            ...(normalizedResult !== undefined ? { result: normalizedResult } : {}),
-          });
-          break;
-        case "failed":
-          this.auditStore.append({
-            type: "failed",
-            activityId,
-            ...(normalizedResult !== undefined ? { result: normalizedResult } : {}),
-            error: outcome.error,
-          });
-          break;
-      }
+      const result = await options.operation(executionContext);
+      this.finish(
+        activityId,
+        result,
+        options.outcome?.(result) ?? { type: "succeeded" as const },
+      );
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -85,6 +97,55 @@ export class ActivityLifecycle {
           : { type: "failed", activityId, error: message },
       );
       throw error;
+    }
+  }
+
+  private start(options: {
+    activityId?: string;
+    turnId?: string;
+    conversationScopeId?: string;
+    tool: string;
+    workspace: ActivityWorkspaceSnapshot;
+    request?: unknown;
+  }): ActivityExecutionContext {
+    const activityId = options.activityId ?? this.activityId();
+    const turnId = options.turnId ?? this.turnId();
+    const request = normalizeAuditValue(options.request);
+    this.auditStore.append({
+      type: "started",
+      activityId,
+      turnId,
+      ...(options.conversationScopeId ? { conversationScopeId: options.conversationScopeId } : {}),
+      tool: options.tool,
+      workspace: options.workspace,
+      ...(request !== undefined ? { request } : {}),
+    });
+    return {
+      activityId,
+      turnId,
+      ...(options.conversationScopeId ? { conversationScopeId: options.conversationScopeId } : {}),
+    };
+  }
+
+  private finish(activityId: string, result: unknown, outcome: ActivityOutcome): void {
+    const normalizedResult = normalizeAuditValue(result);
+    switch (outcome.type) {
+      case "succeeded":
+      case "returned":
+        this.auditStore.append({
+          type: outcome.type,
+          activityId,
+          ...(normalizedResult !== undefined ? { result: normalizedResult } : {}),
+        });
+        break;
+      case "failed":
+        this.auditStore.append({
+          type: "failed",
+          activityId,
+          ...(normalizedResult !== undefined ? { result: normalizedResult } : {}),
+          error: outcome.error,
+        });
+        break;
     }
   }
 }

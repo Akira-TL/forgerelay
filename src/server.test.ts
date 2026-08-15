@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ActivityAuditStore } from "./activity/audit-store.js";
+import { BashOutputStore } from "./activity/bash-output-store.js";
 import { ActivityLifecycle } from "./activity/lifecycle.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
@@ -956,7 +957,8 @@ test("top-level work tools share the persistent Activity lifecycle while Bash pr
     ["act_test_5", "delete", "done"],
     ["act_test_6", "capability", "done"],
     ["act_test_7", "bash", "returned"],
-    ["act_test_8", "read", "done"],
+    ["act_test_8", "bash_result", "done"],
+    ["act_test_9", "read", "done"],
   ] as const;
   for (const [activityId, tool, state] of expected) {
     const activity = context.auditStore.getActivity(activityId);
@@ -970,7 +972,7 @@ test("top-level work tools share the persistent Activity lifecycle while Bash pr
     path: "activity.txt",
     content: "before\n",
   });
-  assert.equal(context.auditStore.getActivity("act_test_9"), undefined);
+  assert.equal(context.auditStore.getActivity("act_test_10"), undefined);
 });
 
 test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
@@ -1145,7 +1147,7 @@ test("codex exec_command is a top-level Activity while write_stdin remains proce
     name: "exec_command",
     arguments: {
       workspaceId,
-      cmd: "node -e \"setTimeout(() => {}, 150)\"",
+      cmd: "node -e \"console.log('codex-durable-output'); setTimeout(() => {}, 150)\"",
       yieldTimeMs: 0,
     },
     _meta: { "openai/session": "chat-codex-activity" },
@@ -1153,7 +1155,9 @@ test("codex exec_command is a top-level Activity while write_stdin remains proce
   assert.equal(started.isError, undefined);
   assert.equal(structuredContent(started).running, true);
   const processId = structuredContent(started).processId;
+  const outputId = structuredContent(started).outputId;
   assert.equal(typeof processId, "number");
+  assert.equal(typeof outputId, "string");
   assert.equal(context.auditStore.getActivity("act_test_1")?.tool, "exec_command");
   assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
 
@@ -1164,14 +1168,24 @@ test("codex exec_command is a top-level Activity while write_stdin remains proce
   } as Parameters<Client["callTool"]>[0]);
   assert.equal(polled.isError, undefined);
 
+  const fullOutput = await context.client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId, outputId },
+    _meta: { "openai/session": "chat-codex-activity" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(fullOutput.isError, undefined);
+  assert.match(allResponseText(fullOutput), /codex-durable-output/);
+  assert.equal(structuredContent(fullOutput).outputId, outputId);
+
   const read = await context.client.callTool({
     name: "read",
     arguments: { workspaceId, path: "AGENTS.md" },
     _meta: { "openai/session": "chat-codex-activity" },
   } as Parameters<Client["callTool"]>[0]);
   assert.equal(read.isError, undefined);
-  assert.equal(context.auditStore.getActivity("act_test_2")?.tool, "read");
-  assert.equal(context.auditStore.getActivity("act_test_3"), undefined);
+  assert.equal(context.auditStore.getActivity("act_test_2")?.tool, "bash_result");
+  assert.equal(context.auditStore.getActivity("act_test_3")?.tool, "read");
+  assert.equal(context.auditStore.getActivity("act_test_4"), undefined);
 });
 
 test("temp file access rejects symlinks that escape the OS temp directory", async (t) => {
@@ -1373,6 +1387,48 @@ test("side-effect tools stop before mutation when lazy instructions are discover
   assert.equal(await readFile(target, "utf8"), "created after instructions\n");
 });
 
+test("bash returns only the last 10 output lines and retrieves complete durable output by outputId", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-bash-output");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const expectedLines = Array.from({ length: 15 }, (_, index) => `audit-line-${String(index + 1).padStart(2, "0")}`);
+  const expected = `${expectedLines.join("\n")}\n`;
+  const encoded = Buffer.from(expected, "utf8").toString("base64");
+
+  const run = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      action: "run",
+      command: `node -e "process.stdout.write(Buffer.from('${encoded}', 'base64'))"`,
+      yieldTimeMs: 10_000,
+    },
+    _meta: { "openai/session": "chat-bash-output" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(run.isError, undefined);
+  const runText = allResponseText(run);
+  assert.doesNotMatch(runText, /audit-line-01/);
+  assert.doesNotMatch(runText, /audit-line-05/);
+  assert.match(runText, /audit-line-06/);
+  assert.match(runText, /audit-line-15/);
+  assert.match(runText, /Full output ID: out_/);
+  const outputId = structuredContent(run).outputId;
+  assert.equal(typeof outputId, "string");
+  assert.equal(structuredContent(run).outputTruncated, true);
+
+  const full = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "output", outputId },
+    _meta: { "openai/session": "chat-bash-output" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(full.isError, undefined);
+  const fullText = allResponseText(full);
+  assert.match(fullText, /audit-line-01/);
+  assert.match(fullText, /audit-line-15/);
+  assert.equal(structuredContent(full).outputId, outputId);
+  assert.equal(structuredContent(full).outputTruncated, false);
+});
+
 test("bash separates feedback yield from the total execution timeout", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-shell-yield-timeout");
@@ -1487,6 +1543,94 @@ test("Host cancellation before processId delivery discards a process created bef
   assert.equal(activity?.tool, "bash");
   assert.equal(activity?.state, "failed");
   assert.notEqual(activity?.state, "returned");
+});
+
+test("final Bash process poll creates one Bash result Activity without mutating the returned run", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-bash-result-poll");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('polled-result'), 120)"`,
+      yieldTimeMs: 0,
+    },
+    _meta: { "openai/session": "chat-bash-result-poll" },
+  });
+  assert.equal(structuredContent(shell).running, true);
+  const processId = Number(structuredContent(shell).processId);
+  const outputId = String(structuredContent(shell).outputId);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
+
+  const stillRunning = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 0 },
+    _meta: { "openai/session": "chat-bash-result-poll" },
+  });
+  assert.equal(structuredContent(stillRunning).running, true);
+  assert.equal(context.auditStore.getActivity("act_test_2"), undefined);
+
+  const completed = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 1_000 },
+    _meta: { "openai/session": "chat-bash-result-poll" },
+  });
+  assert.equal(structuredContent(completed).running, false);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
+  const resultActivity = context.auditStore.getActivity("act_test_2");
+  assert.equal(resultActivity?.tool, "bash_result");
+  assert.equal(resultActivity?.state, "done");
+  assert.equal(resultActivity?.conversationScopeId, "chat-bash-result-poll");
+  assert.deepEqual(resultActivity?.result, {
+    processId,
+    outputId,
+    exitCode: 0,
+    timedOut: false,
+  });
+  assert.equal(context.bashOutputStore.claimCompletion(outputId), undefined);
+});
+
+test("attached background completion creates one Bash result Activity on a later workspace tool", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-bash-result-attached");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const node = JSON.stringify(process.execPath);
+
+  const shell = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `${node} -e "setTimeout(() => console.log('attached-result'), 50)"`,
+      yieldTimeMs: 0,
+    },
+    _meta: { "openai/session": "chat-bash-result-attached" },
+  });
+  assert.equal(structuredContent(shell).running, true);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
+  await new Promise((resolve) => setTimeout(resolve, 130));
+
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+    _meta: { "openai/session": "chat-bash-result-attached" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.match(allResponseText(read), /Background process \d+ exited with code 0/);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
+  assert.equal(context.auditStore.getActivity("act_test_2")?.tool, "read");
+  assert.equal(context.auditStore.getActivity("act_test_3")?.tool, "bash_result");
+  assert.equal(context.auditStore.getActivity("act_test_3")?.state, "done");
+
+  const again = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+    _meta: { "openai/session": "chat-bash-result-attached" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.doesNotMatch(allResponseText(again), /Background process/);
+  assert.equal(context.auditStore.getActivity("act_test_4")?.tool, "read");
+  assert.equal(context.auditStore.getActivity("act_test_5"), undefined);
 });
 
 test("bash returns a processId instead of killing a command after the foreground wait", async (t) => {
@@ -1966,26 +2110,41 @@ test("a host without conversation metadata reuses the directory workspace and st
   assert.doesNotMatch(responseText(second), /conversation metadata/i);
 });
 
-test("checkout reuse and context suppression survive a registry restart", async (t) => {
+test("checkout context and durable Bash output survive a registry restart", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
   const firstWorkspaceId = structuredContent(first).workspaceId;
+  const bash = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId: firstWorkspaceId,
+      action: "run",
+      command: "node -e \"console.log('restart-durable-output')\"",
+      yieldTimeMs: 10_000,
+    },
+    _meta: { "openai/session": "chat-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  const outputId = structuredContent(bash).outputId;
+  assert.equal(typeof outputId, "string");
 
   await context.close();
 
   const restoredStore = new SqliteWorkspaceStore(context.stateDir);
   const restoredAuditStore = new ActivityAuditStore(context.stateDir);
+  const restoredBashOutputStore = new BashOutputStore(context.stateDir);
   const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore);
   const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
+  const restoredProcessSessions = new ProcessManager({ outputAudit: restoredBashOutputStore });
   const restoredServer = createMcpServer(
     context.config,
     new WorkspaceRegistry(context.config, restoredStore),
     createReviewCheckpointManager(),
-    new ProcessManager(),
+    restoredProcessSessions,
     [],
     [],
     restoredCodeIntelligence,
     restoredActivityLifecycle,
+    restoredBashOutputStore,
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
   const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
@@ -1996,6 +2155,8 @@ test("checkout reuse and context suppression survive a registry restart", async 
     await restoredClient.close();
     await restoredServer.close();
     await restoredCodeIntelligence.shutdown();
+    restoredProcessSessions.shutdown();
+    restoredBashOutputStore.close();
     restoredAuditStore.close();
     restoredStore.close();
   };
@@ -2011,6 +2172,15 @@ test("checkout reuse and context suppression survive a registry restart", async 
     assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
     assert.equal(structuredContent(restored).agentsFiles, undefined);
     assert.match(responseText(restored), /same directory previously opened/);
+
+    const restoredOutput = await restoredClient.callTool({
+      name: "bash",
+      arguments: { workspaceId: firstWorkspaceId, action: "output", outputId },
+      _meta: { "openai/session": "chat-1" },
+    } as Parameters<Client["callTool"]>[0]);
+    assert.equal(restoredOutput.isError, undefined);
+    assert.match(allResponseText(restoredOutput), /restart-durable-output/);
+    assert.equal(structuredContent(restoredOutput).outputId, outputId);
   } finally {
     await closeRestored();
   }
@@ -2023,6 +2193,7 @@ interface ServerFixture {
   stateDir: string;
   processSessions: ProcessManager;
   auditStore: ActivityAuditStore;
+  bashOutputStore: BashOutputStore;
   close: () => Promise<void>;
 }
 
@@ -2079,8 +2250,9 @@ async function fixture(
     : loadedConfig;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
-  const processSessions = options.processSessions ?? new ProcessManager();
   const auditStore = new ActivityAuditStore(stateDir);
+  const bashOutputStore = new BashOutputStore(stateDir);
+  const processSessions = options.processSessions ?? new ProcessManager({ outputAudit: bashOutputStore });
   let activitySequence = 0;
   let turnSequence = 0;
   const activityLifecycle = new ActivityLifecycle(auditStore, {
@@ -2097,6 +2269,7 @@ async function fixture(
     options.incomingArtifactAdapters ?? [],
     codeIntelligence,
     activityLifecycle,
+    bashOutputStore,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "devspace-test-client", version: "1.0.0" });
@@ -2113,6 +2286,7 @@ async function fixture(
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
+    bashOutputStore.close();
     auditStore.close();
     store.close();
   };
@@ -2122,7 +2296,7 @@ async function fixture(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, config, stateDir, processSessions, auditStore, close };
+  return { client, project, config, stateDir, processSessions, auditStore, bashOutputStore, close };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
