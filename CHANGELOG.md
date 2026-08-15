@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-15
+
+### Added
+
+- Added durable Bash output audit streams in ForgeRelay's local SQLite state: complete commands and original stdout/stderr/PTY output are retained under a stable `outputId`, can be retrieved after restart through regular Bash or Codex-compatible process tooling, and remain independent of the bounded in-memory process buffer.
+- Background commands that were previously returned to the Host now produce a separate durable `bash_result` Activity exactly once when their completion is delivered, while the original Bash Activity remains historical `returned` state.
+
+### Changed
+
+- Normal Bash, `exec_command`, and process-control responses now keep Agent context compact by returning only the final 10 output lines plus the stable full-output identifier; explicit output lookup returns the complete persisted process output.
+
 ## [0.5.1] - 2026-08-14
 
 ### Added
