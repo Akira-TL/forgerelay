@@ -14,12 +14,14 @@ export type ActivityOutcome =
 export interface ActivityExecutionContext {
   activityId: string;
   turnId: string;
+  parentActivityId?: string;
   conversationScopeId?: string;
 }
 
 export interface ActivityRunOptions<T> {
   activityId?: string;
   turnId?: string;
+  parentActivityId?: string;
   conversationScopeId?: string;
   tool: string;
   workspace: ActivityWorkspaceSnapshot;
@@ -31,6 +33,7 @@ export interface ActivityRunOptions<T> {
 export interface ActivityRecordOptions {
   activityId?: string;
   turnId?: string;
+  parentActivityId?: string;
   conversationScopeId?: string;
   tool: string;
   workspace: ActivityWorkspaceSnapshot;
@@ -106,6 +109,7 @@ export class ActivityLifecycle {
   private start(options: {
     activityId?: string;
     turnId?: string;
+    parentActivityId?: string;
     conversationScopeId?: string;
     tool: string;
     workspace: ActivityWorkspaceSnapshot;
@@ -120,6 +124,7 @@ export class ActivityLifecycle {
       type: "started",
       activityId,
       turnId,
+      ...(options.parentActivityId ? { parentActivityId: options.parentActivityId } : {}),
       ...(options.conversationScopeId ? { conversationScopeId: options.conversationScopeId } : {}),
       tool: options.tool,
       workspace: options.workspace,
@@ -128,6 +133,7 @@ export class ActivityLifecycle {
     return {
       activityId,
       turnId,
+      ...(options.parentActivityId ? { parentActivityId: options.parentActivityId } : {}),
       ...(options.conversationScopeId ? { conversationScopeId: options.conversationScopeId } : {}),
     };
   }

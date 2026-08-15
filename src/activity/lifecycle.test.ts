@@ -58,6 +58,28 @@ test("Activity lifecycle records success, returned, failure, and BeforeTool bloc
     updatedAt: "2026-08-14T14:30:00.000Z",
   });
 
+  let receivedChildContext: unknown;
+  await lifecycle.run({
+    activityId: "act_child",
+    turnId: "turn_success",
+    parentActivityId: "act_success",
+    conversationScopeId: "conversation_1",
+    tool: "read",
+    workspace,
+    request: { workspaceId: workspace.id, path: "child.ts" },
+    operation: async (context) => {
+      receivedChildContext = context;
+      return { ok: true };
+    },
+  });
+  assert.deepEqual(receivedChildContext, {
+    activityId: "act_child",
+    turnId: "turn_success",
+    parentActivityId: "act_success",
+    conversationScopeId: "conversation_1",
+  });
+  assert.equal(auditStore.getActivity("act_child")?.parentActivityId, "act_success");
+
   await lifecycle.run({
     activityId: "act_returned",
     turnId: "turn_returned",

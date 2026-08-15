@@ -218,3 +218,90 @@ test("Bash output lookup is scoped to an Activity visible in the requested Host 
   assert.equal(query.bashOutput(first.turnId, outputId).outputId, outputId);
   assert.throws(() => query.bashOutput(second.turnId, outputId), /not part of Host Turn/i);
 });
+
+test("Activity query exposes parent-child aggregates without duplicating child detail", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-query-parent-test-"));
+  const turns = new HostTurnStore(stateDir, { turnId: () => "turn_parent_query" });
+  let audit = new ActivityAuditStore(stateDir);
+  const outputs = new BashOutputStore(stateDir);
+  const query = new ActivityQueryService(turns, audit, outputs);
+  let auditClosed = false;
+  t.after(async () => {
+    if (!auditClosed) audit.close();
+    outputs.close();
+    turns.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const turn = turns.begin("conversation_parent_query");
+  audit.append({
+    type: "started",
+    activityId: "act_bulk_read",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_parent_query",
+    tool: "read",
+    workspace,
+    request: { workspaceId: workspace.id, paths: ["a.ts", "b.ts"] },
+  });
+  audit.append({
+    type: "started",
+    activityId: "act_bulk_read_a",
+    parentActivityId: "act_bulk_read",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_parent_query",
+    tool: "read",
+    workspace,
+    request: { workspaceId: workspace.id, path: "a.ts" },
+  });
+  audit.append({
+    type: "succeeded",
+    activityId: "act_bulk_read_a",
+    result: { content: [{ type: "text", text: "PARENT-CHILD-DETAIL-SENTINEL" }] },
+  });
+  audit.append({
+    type: "started",
+    activityId: "act_bulk_read_b",
+    parentActivityId: "act_bulk_read",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_parent_query",
+    tool: "read",
+    workspace,
+    request: { workspaceId: workspace.id, path: "b.ts" },
+  });
+  audit.append({
+    type: "failed",
+    activityId: "act_bulk_read_b",
+    error: "missing b.ts",
+  });
+  audit.append({
+    type: "failed",
+    activityId: "act_bulk_read",
+    result: { childCount: 2, succeeded: 1, failed: 1 },
+    error: "1 of 2 child Activities failed.",
+  });
+
+  const snapshot = query.snapshot(turn.turnId);
+  const parent = snapshot.activities.find((activity) => activity.activityId === "act_bulk_read");
+  const firstChild = snapshot.activities.find((activity) => activity.activityId === "act_bulk_read_a");
+  const secondChild = snapshot.activities.find((activity) => activity.activityId === "act_bulk_read_b");
+  assert.equal(parent?.target, "2 files");
+  assert.equal(parent?.detailAvailable, false);
+  assert.deepEqual(parent?.children, { total: 2, working: 0, done: 1, error: 1 });
+  assert.equal(firstChild?.parentActivityId, "act_bulk_read");
+  assert.equal(secondChild?.parentActivityId, "act_bulk_read");
+  assert.doesNotMatch(JSON.stringify(snapshot), /PARENT-CHILD-DETAIL-SENTINEL/);
+  assert.match(JSON.stringify(query.detail(turn.turnId, "act_bulk_read_a")), /PARENT-CHILD-DETAIL-SENTINEL/);
+  assert.throws(() => query.detail(turn.turnId, "act_bulk_read"), /summary-complete/i);
+
+  audit.close();
+  auditClosed = true;
+  audit = new ActivityAuditStore(stateDir);
+  const restored = new ActivityQueryService(turns, audit, outputs).snapshot(turn.turnId);
+  auditClosed = false;
+  const restoredParent = restored.activities.find((activity) => activity.activityId === "act_bulk_read");
+  assert.deepEqual(restoredParent?.children, { total: 2, working: 0, done: 1, error: 1 });
+  assert.equal(
+    restored.activities.find((activity) => activity.activityId === "act_bulk_read_a")?.parentActivityId,
+    "act_bulk_read",
+  );
+});

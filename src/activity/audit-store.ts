@@ -29,6 +29,7 @@ interface ActivityAuditEventBase {
 export interface ActivityStartedAuditEvent extends ActivityAuditEventBase {
   type: "started";
   turnId: string;
+  parentActivityId?: string;
   conversationScopeId?: string;
   tool: string;
   workspace: ActivityWorkspaceSnapshot;
@@ -77,6 +78,7 @@ export type ActivityRecordState = "executing" | "returned" | "done" | "failed" |
 export interface ActivityRecord {
   activityId: string;
   turnId: string;
+  parentActivityId?: string;
   conversationScopeId?: string;
   tool: string;
   workspace: ActivityWorkspaceSnapshot;
@@ -98,6 +100,7 @@ interface ActivityAuditEventRow {
   sequence: number;
   event_type: string;
   turn_id: string | null;
+  parent_activity_id: string | null;
   conversation_scope_id: string | null;
   tool: string | null;
   workspace_id: string | null;
@@ -144,6 +147,7 @@ export class ActivityAuditStore {
           sequence,
           event_type,
           turn_id,
+          parent_activity_id,
           conversation_scope_id,
           tool,
           workspace_id,
@@ -156,13 +160,14 @@ export class ActivityAuditStore {
           result_json,
           error,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         row.id,
         row.activity_id,
         row.sequence,
         row.event_type,
         row.turn_id,
+        row.parent_activity_id,
         row.conversation_scope_id,
         row.tool,
         row.workspace_id,
@@ -250,6 +255,7 @@ export class ActivityAuditStore {
     return {
       activityId: started.activityId,
       turnId: started.turnId,
+      ...(started.parentActivityId ? { parentActivityId: started.parentActivityId } : {}),
       ...(started.conversationScopeId ? { conversationScopeId: started.conversationScopeId } : {}),
       tool: started.tool,
       workspace: started.workspace,
@@ -286,6 +292,7 @@ function eventInputToRow(
       sequence: identity.sequence,
       event_type: input.type,
       turn_id: input.turnId,
+      parent_activity_id: input.parentActivityId ?? null,
       conversation_scope_id: input.conversationScopeId ?? null,
       tool: input.tool,
       workspace_id: input.workspace.id ?? null,
@@ -307,6 +314,7 @@ function eventInputToRow(
     sequence: identity.sequence,
     event_type: input.type,
     turn_id: null,
+    parent_activity_id: null,
     conversation_scope_id: null,
     tool: null,
     workspace_id: null,
@@ -339,6 +347,7 @@ function rowToEvent(row: ActivityAuditEventRow): ActivityAuditEvent {
         ...base,
         type: "started",
         turnId: row.turn_id,
+        ...(row.parent_activity_id ? { parentActivityId: row.parent_activity_id } : {}),
         ...(row.conversation_scope_id ? { conversationScopeId: row.conversation_scope_id } : {}),
         tool: row.tool,
         workspace: {

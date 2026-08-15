@@ -139,3 +139,52 @@ test("Activity audit represents failed and hook-blocked outcomes without rewriti
     "blocked",
   ]);
 });
+
+test("Activity audit persists durable parent-child linkage across restart", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-parent-test-"));
+  let auditStore = new ActivityAuditStore(stateDir);
+  let closed = false;
+  t.after(async () => {
+    if (!closed) auditStore.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const workspace = {
+    id: "ws_parent",
+    root: "/tmp/forgerelay-parent",
+    mode: "checkout" as const,
+  };
+  auditStore.append({
+    type: "started",
+    activityId: "act_parent",
+    turnId: "turn_parent",
+    tool: "read",
+    workspace,
+    request: { paths: ["a.ts", "b.ts"] },
+  });
+  auditStore.append({
+    type: "started",
+    activityId: "act_child",
+    parentActivityId: "act_parent",
+    turnId: "turn_parent",
+    tool: "read",
+    workspace,
+    request: { path: "a.ts" },
+  });
+  auditStore.append({ type: "succeeded", activityId: "act_child", result: { lines: 1 } });
+  auditStore.append({ type: "succeeded", activityId: "act_parent", result: { childCount: 1 } });
+
+  assert.equal(auditStore.getActivity("act_child")?.parentActivityId, "act_parent");
+  assert.equal(auditStore.getActivity("act_parent")?.parentActivityId, undefined);
+
+  auditStore.close();
+  closed = true;
+  auditStore = new ActivityAuditStore(stateDir);
+  closed = false;
+
+  assert.equal(auditStore.getActivity("act_child")?.parentActivityId, "act_parent");
+  assert.deepEqual(
+    auditStore.listActivitiesByTurn("turn_parent").map((activity) => [activity.activityId, activity.parentActivityId]),
+    [["act_parent", undefined], ["act_child", "act_parent"]],
+  );
+});

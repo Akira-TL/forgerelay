@@ -9,6 +9,7 @@ export type ActivityBashPhase = "executing" | "returned" | "done" | "error";
 
 export interface ActivitySummary {
   activityId: string;
+  parentActivityId?: string;
   tool: string;
   kind: string;
   status: ActivitySummaryStatus;
@@ -24,6 +25,12 @@ export interface ActivitySummary {
   startedAt: string;
   finishedAt?: string;
   durationMs?: number;
+  children?: {
+    total: number;
+    working: number;
+    done: number;
+    error: number;
+  };
 }
 
 export interface HostTurnSnapshot {
@@ -74,7 +81,7 @@ export class ActivityQueryService {
   snapshot(turnId: string, knownRevision?: number): HostTurnSnapshot {
     this.requireTurn(turnId);
     const revision = this.audit.turnRevision(turnId);
-    const activities = this.audit.listActivitiesByTurn(turnId).map(toSummary);
+    const activities = this.summaries(turnId);
     const state = aggregateState(activities);
     const changed = knownRevision === undefined || knownRevision !== revision;
     return {
@@ -92,7 +99,8 @@ export class ActivityQueryService {
     if (!record || record.turnId !== turnId) {
       throw new Error(`Unknown Activity ${activityId} in Host Turn ${turnId}.`);
     }
-    const activity = toSummary(record);
+    const activity = this.summaries(turnId)
+      .find((summary) => summary.activityId === activityId) ?? toSummary(record);
     if (!activity.detailAvailable) {
       throw new Error(`Activity ${activityId} is summary-complete and has no lazy detail.`);
     }
@@ -130,6 +138,30 @@ export class ActivityQueryService {
     };
   }
 
+  private summaries(turnId: string): ActivitySummary[] {
+    const records = this.audit.listActivitiesByTurn(turnId);
+    const summaries = records.map(toSummary);
+    const children = new Map<string, ActivitySummary["children"]>();
+    for (const summary of summaries) {
+      if (!summary.parentActivityId) continue;
+      const aggregate = children.get(summary.parentActivityId) ?? {
+        total: 0,
+        working: 0,
+        done: 0,
+        error: 0,
+      };
+      aggregate.total += 1;
+      aggregate[summary.status] += 1;
+      children.set(summary.parentActivityId, aggregate);
+    }
+    return summaries.map((summary) => {
+      const aggregate = children.get(summary.activityId);
+      return aggregate
+        ? { ...summary, detailAvailable: false, children: aggregate }
+        : summary;
+    });
+  }
+
   private requireTurn(turnId: string): void {
     if (!this.turns.get(turnId)) throw new Error(`Unknown Host Turn: ${turnId}.`);
   }
@@ -152,6 +184,7 @@ function toSummary(record: ActivityRecord): ActivitySummary {
 
   return {
     activityId: record.activityId,
+    ...(record.parentActivityId ? { parentActivityId: record.parentActivityId } : {}),
     tool: record.tool,
     kind: activityKind(record.tool),
     status: activityStatus(record.state),
@@ -205,6 +238,11 @@ function activityTarget(
   structured: Record<string, ActivityAuditJsonValue> | undefined,
 ): string {
   if (record.tool === "bash" || record.tool === "exec_command") return "Shell command";
+  const paths = arrayField(request, "paths");
+  if (paths && paths.length > 0) {
+    if (record.tool === "read" || record.tool === "edit") return `${paths.length} files`;
+    if (record.tool === "delete") return `${paths.length} paths`;
+  }
   if (record.tool === "bash_result") {
     const processId = numberField(result, "processId") ?? numberField(request, "processId");
     const exitCode = numberField(result, "exitCode");

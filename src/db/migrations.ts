@@ -57,6 +57,11 @@ const migrations: Migration[] = [
     name: "activity-host-turns",
     up: migrateActivityHostTurns,
   },
+  {
+    version: 11,
+    name: "activity-parent-child",
+    up: migrateActivityParentChild,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -345,6 +350,15 @@ function migrateActivityHostTurns(sqlite: Database.Database): void {
 
     create index if not exists activity_host_turns_created_idx
       on activity_host_turns(created_at desc);
+  `);
+}
+
+function migrateActivityParentChild(sqlite: Database.Database): void {
+  sqlite.exec(`
+    alter table activity_audit_events add column parent_activity_id text;
+
+    create index if not exists activity_audit_events_parent_idx
+      on activity_audit_events(parent_activity_id, created_at);
   `);
 }
 
