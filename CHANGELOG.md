@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-08-15
+
+### Added
+
+- Added durable Host Turn records and a stable Activity query projection backed by ForgeRelay's local SQLite audit history, with revision-based lightweight snapshots that remain queryable after ForgeRelay restarts.
+- Added the production backend query contract for future MCP App UI: model-visible `activity_panel` establishes a Host Turn, while app-only `activity_snapshot`, `activity_detail`, and `activity_output` data sources expose summaries, selected lazy detail, and complete Bash output separately.
+
+### Changed
+
+- Activity snapshots now use an explicit summary whitelist: read bodies, write/edit patches, full Bash commands/output, and capability-heavy payloads stay out of normal snapshots; rename/delete include complete path targets and are summary-complete without detail requests.
+- Late Bash completion records use the current Host Turn for delivery while preserving the original Bash Activity's immutable returned history and Workspace audit snapshot.
+
 ## [0.5.2] - 2026-08-15
 
 ### Added
