@@ -10,7 +10,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ActivityAuditStore } from "./activity/audit-store.js";
 import { BashOutputStore } from "./activity/bash-output-store.js";
+import { HostTurnStore } from "./activity/host-turn-store.js";
 import { ActivityLifecycle } from "./activity/lifecycle.js";
+import { ActivityQueryService } from "./activity/query-service.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import { loadConfig, type ServerConfig } from "./config.js";
@@ -29,6 +31,10 @@ const packageJson = JSON.parse(await readFile(new URL("../package.json", import.
 };
 const canonicalToolNames = [
   "open_workspace",
+  "activity_panel",
+  "activity_snapshot",
+  "activity_detail",
+  "activity_output",
   "capability",
   "close_workspace",
   "read",
@@ -46,6 +52,10 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(defaultContext.client.getServerVersion()?.version, packageJson.version);
   assert.deepEqual(defaultTools.tools.map((tool) => tool.name), canonicalToolNames);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
+  const activityPanelTool = defaultTools.tools.find((tool) => tool.name === "activity_panel");
+  const activityDataTools = ["activity_snapshot", "activity_detail", "activity_output"].map((name) =>
+    defaultTools.tools.find((tool) => tool.name === name)
+  );
   const readTool = defaultTools.tools.find((tool) => tool.name === "read");
   const renameTool = defaultTools.tools.find((tool) => tool.name === "rename");
   const deleteTool = defaultTools.tools.find((tool) => tool.name === "delete");
@@ -92,6 +102,11 @@ test("MCP instructions separate capability contract from configurable workflow p
   );
   assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
   assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
+  assert.deepEqual((activityPanelTool?._meta as { ui?: { visibility?: string[] } })?.ui?.visibility, ["model", "app"]);
+  for (const tool of activityDataTools) {
+    assert.ok(tool);
+    assert.deepEqual((tool?._meta as { ui?: { visibility?: string[] } })?.ui?.visibility, ["app"]);
+  }
   assert.ok(renameTool);
   assert.ok(deleteTool);
   assert.equal(defaultTools.tools.some((tool) => tool.name === "write_stdin"), false);
@@ -975,6 +990,98 @@ test("top-level work tools share the persistent Activity lifecycle while Bash pr
   assert.equal(context.auditStore.getActivity("act_test_10"), undefined);
 });
 
+test("Activity Panel establishes one durable Host Turn with app-only summary, detail, and Bash output queries", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-activity-query-contract";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  const panel = await call("activity_panel", {});
+  const turnId = String(structuredContent(panel).turnId);
+  assert.equal(turnId, "turn_host_test_1");
+  assert.equal(structuredContent(panel).state, "working");
+  assert.equal(structuredContent(panel).revision, 0);
+
+  await writeFile(join(context.project, "query-secret.txt"), "READ-QUERY-SECRET\n");
+  const read = await call("read", { workspaceId, path: "query-secret.txt" });
+  assert.equal(read.isError, undefined);
+  const written = await call("write", {
+    workspaceId,
+    path: "query-write.txt",
+    content: "WRITE-QUERY-SECRET\n",
+  });
+  assert.equal(written.isError, undefined);
+  const renamed = await call("rename", {
+    workspaceId,
+    path: "query-write.txt",
+    newPath: "query-renamed.txt",
+  });
+  assert.equal(renamed.isError, undefined);
+  const bash = await call("bash", {
+    workspaceId,
+    action: "run",
+    command: "node -e \"console.log('BASH-QUERY-OUTPUT-SECRET')\"",
+    yieldTimeMs: 10_000,
+  });
+  assert.equal(bash.isError, undefined);
+  const outputId = String(structuredContent(bash).outputId);
+
+  const snapshot = await call("activity_snapshot", { turnId });
+  assert.equal(snapshot.isError, undefined);
+  const snapshotStructured = structuredContent(snapshot);
+  assert.equal(snapshotStructured.changed, true);
+  assert.equal(snapshotStructured.state, "done");
+  const activities = snapshotStructured.activities as Array<Record<string, unknown>>;
+  assert.equal(activities.length, 4);
+  assert.deepEqual(activities.map((activity) => activity.activityId), [
+    "act_test_1",
+    "act_test_2",
+    "act_test_3",
+    "act_test_4",
+  ]);
+  assert.ok(activities.every((activity) => context.auditStore.getActivity(String(activity.activityId))?.turnId === turnId));
+  assert.equal(activities.find((activity) => activity.activityId === "act_test_3")?.target, "query-write.txt → query-renamed.txt");
+  assert.equal(activities.find((activity) => activity.activityId === "act_test_3")?.detailAvailable, false);
+  assert.equal(activities.find((activity) => activity.activityId === "act_test_4")?.outputId, outputId);
+  const serializedSnapshot = JSON.stringify(snapshotStructured);
+  assert.doesNotMatch(serializedSnapshot, /READ-QUERY-SECRET/);
+  assert.doesNotMatch(serializedSnapshot, /WRITE-QUERY-SECRET/);
+  assert.doesNotMatch(serializedSnapshot, /BASH-QUERY-OUTPUT-SECRET/);
+  assert.doesNotMatch(serializedSnapshot, /console\.log/);
+
+  const readDetail = await call("activity_detail", { turnId, activityId: "act_test_1" });
+  assert.equal(readDetail.isError, undefined);
+  assert.match(JSON.stringify(structuredContent(readDetail)), /READ-QUERY-SECRET/);
+
+  const renameDetail = await call("activity_detail", { turnId, activityId: "act_test_3" });
+  assert.equal(renameDetail.isError, true);
+  assert.match(allResponseText(renameDetail), /summary-complete/i);
+
+  const fullOutput = await call("activity_output", { turnId, outputId });
+  assert.equal(fullOutput.isError, undefined);
+  assert.match(String(structuredContent(fullOutput).command), /console\.log/);
+  assert.match(String(structuredContent(fullOutput).output), /BASH-QUERY-OUTPUT-SECRET/);
+
+  const revision = Number(snapshotStructured.revision);
+  const unchanged = await call("activity_snapshot", { turnId, knownRevision: revision });
+  assert.equal(structuredContent(unchanged).changed, false);
+  assert.deepEqual(structuredContent(unchanged).activities, []);
+
+  const secondPanel = await call("activity_panel", {});
+  const secondTurnId = String(structuredContent(secondPanel).turnId);
+  assert.equal(secondTurnId, "turn_host_test_2");
+  await call("read", { workspaceId, path: "AGENTS.md" });
+  const secondSnapshot = await call("activity_snapshot", { turnId: secondTurnId });
+  assert.equal((structuredContent(secondSnapshot).activities as unknown[]).length, 1);
+  assert.equal(context.auditStore.getActivity("act_test_5")?.turnId, secondTurnId);
+  assert.equal((structuredContent(await call("activity_snapshot", { turnId })).activities as unknown[]).length, 4);
+});
+
 test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-temp-write");
@@ -1550,6 +1657,12 @@ test("final Bash process poll creates one Bash result Activity without mutating 
   const opened = await callOpen(context.client, context.project, "chat-bash-result-poll");
   const workspaceId = String(structuredContent(opened).workspaceId);
   const node = JSON.stringify(process.execPath);
+  const firstPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": "chat-bash-result-poll" },
+  } as Parameters<Client["callTool"]>[0]);
+  const firstTurnId = String(structuredContent(firstPanel).turnId);
 
   const shell = await context.client.callTool({
     name: "bash",
@@ -1573,6 +1686,13 @@ test("final Bash process poll creates one Bash result Activity without mutating 
   assert.equal(structuredContent(stillRunning).running, true);
   assert.equal(context.auditStore.getActivity("act_test_2"), undefined);
 
+  const secondPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": "chat-bash-result-poll" },
+  } as Parameters<Client["callTool"]>[0]);
+  const secondTurnId = String(structuredContent(secondPanel).turnId);
+
   const completed = await context.client.callTool({
     name: "bash",
     arguments: { workspaceId, action: "process", processId, yieldTimeMs: 1_000 },
@@ -1584,6 +1704,8 @@ test("final Bash process poll creates one Bash result Activity without mutating 
   assert.equal(resultActivity?.tool, "bash_result");
   assert.equal(resultActivity?.state, "done");
   assert.equal(resultActivity?.conversationScopeId, "chat-bash-result-poll");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.turnId, firstTurnId);
+  assert.equal(resultActivity?.turnId, secondTurnId);
   assert.deepEqual(resultActivity?.result, {
     processId,
     outputId,
@@ -1598,6 +1720,12 @@ test("attached background completion creates one Bash result Activity on a later
   const opened = await callOpen(context.client, context.project, "chat-bash-result-attached");
   const workspaceId = String(structuredContent(opened).workspaceId);
   const node = JSON.stringify(process.execPath);
+  const firstPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": "chat-bash-result-attached" },
+  } as Parameters<Client["callTool"]>[0]);
+  const firstTurnId = String(structuredContent(firstPanel).turnId);
 
   const shell = await context.client.callTool({
     name: "bash",
@@ -1611,6 +1739,12 @@ test("attached background completion creates one Bash result Activity on a later
   assert.equal(structuredContent(shell).running, true);
   assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
   await new Promise((resolve) => setTimeout(resolve, 130));
+  const secondPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": "chat-bash-result-attached" },
+  } as Parameters<Client["callTool"]>[0]);
+  const secondTurnId = String(structuredContent(secondPanel).turnId);
 
   const read = await context.client.callTool({
     name: "read",
@@ -1622,6 +1756,9 @@ test("attached background completion creates one Bash result Activity on a later
   assert.equal(context.auditStore.getActivity("act_test_2")?.tool, "read");
   assert.equal(context.auditStore.getActivity("act_test_3")?.tool, "bash_result");
   assert.equal(context.auditStore.getActivity("act_test_3")?.state, "done");
+  assert.equal(context.auditStore.getActivity("act_test_1")?.turnId, firstTurnId);
+  assert.equal(context.auditStore.getActivity("act_test_2")?.turnId, secondTurnId);
+  assert.equal(context.auditStore.getActivity("act_test_3")?.turnId, secondTurnId);
 
   const again = await context.client.callTool({
     name: "read",
@@ -2110,10 +2247,16 @@ test("a host without conversation metadata reuses the directory workspace and st
   assert.doesNotMatch(responseText(second), /conversation metadata/i);
 });
 
-test("checkout context and durable Bash output survive a registry restart", async (t) => {
+test("checkout context and durable Activity queries survive a registry restart", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
   const firstWorkspaceId = structuredContent(first).workspaceId;
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: {},
+    _meta: { "openai/session": "chat-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(panel).turnId);
   const bash = await context.client.callTool({
     name: "bash",
     arguments: {
@@ -2132,7 +2275,15 @@ test("checkout context and durable Bash output survive a registry restart", asyn
   const restoredStore = new SqliteWorkspaceStore(context.stateDir);
   const restoredAuditStore = new ActivityAuditStore(context.stateDir);
   const restoredBashOutputStore = new BashOutputStore(context.stateDir);
-  const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore);
+  const restoredHostTurnStore = new HostTurnStore(context.stateDir);
+  const restoredActivityQueries = new ActivityQueryService(
+    restoredHostTurnStore,
+    restoredAuditStore,
+    restoredBashOutputStore,
+  );
+  const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore, {
+    turnIdForConversation: (conversationScopeId) => restoredActivityQueries.currentTurnId(conversationScopeId),
+  });
   const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
   const restoredProcessSessions = new ProcessManager({ outputAudit: restoredBashOutputStore });
   const restoredServer = createMcpServer(
@@ -2145,6 +2296,7 @@ test("checkout context and durable Bash output survive a registry restart", asyn
     restoredCodeIntelligence,
     restoredActivityLifecycle,
     restoredBashOutputStore,
+    restoredActivityQueries,
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
   const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
@@ -2156,6 +2308,7 @@ test("checkout context and durable Bash output survive a registry restart", asyn
     await restoredServer.close();
     await restoredCodeIntelligence.shutdown();
     restoredProcessSessions.shutdown();
+    restoredHostTurnStore.close();
     restoredBashOutputStore.close();
     restoredAuditStore.close();
     restoredStore.close();
@@ -2173,13 +2326,30 @@ test("checkout context and durable Bash output survive a registry restart", asyn
     assert.equal(structuredContent(restored).agentsFiles, undefined);
     assert.match(responseText(restored), /same directory previously opened/);
 
+    const restoredSnapshot = await restoredClient.callTool({
+      name: "activity_snapshot",
+      arguments: { turnId },
+    });
+    assert.equal(restoredSnapshot.isError, undefined);
+    const restoredActivities = structuredContent(restoredSnapshot).activities as Array<Record<string, unknown>>;
+    assert.equal(restoredActivities.length, 1);
+    assert.equal(restoredActivities[0]?.tool, "bash");
+    assert.equal(restoredActivities[0]?.outputId, outputId);
+    const restoredActivityId = String(restoredActivities[0]?.activityId);
+
+    const restoredDetail = await restoredClient.callTool({
+      name: "activity_detail",
+      arguments: { turnId, activityId: restoredActivityId },
+    });
+    assert.equal(restoredDetail.isError, undefined);
+    assert.match(JSON.stringify(structuredContent(restoredDetail)), /restart-durable-output/);
+
     const restoredOutput = await restoredClient.callTool({
-      name: "bash",
-      arguments: { workspaceId: firstWorkspaceId, action: "output", outputId },
-      _meta: { "openai/session": "chat-1" },
-    } as Parameters<Client["callTool"]>[0]);
+      name: "activity_output",
+      arguments: { turnId, outputId },
+    });
     assert.equal(restoredOutput.isError, undefined);
-    assert.match(allResponseText(restoredOutput), /restart-durable-output/);
+    assert.match(String(structuredContent(restoredOutput).output), /restart-durable-output/);
     assert.equal(structuredContent(restoredOutput).outputId, outputId);
   } finally {
     await closeRestored();
@@ -2194,6 +2364,8 @@ interface ServerFixture {
   processSessions: ProcessManager;
   auditStore: ActivityAuditStore;
   bashOutputStore: BashOutputStore;
+  hostTurnStore: HostTurnStore;
+  activityQueries: ActivityQueryService;
   close: () => Promise<void>;
 }
 
@@ -2252,12 +2424,18 @@ async function fixture(
   const workspaces = new WorkspaceRegistry(config, store);
   const auditStore = new ActivityAuditStore(stateDir);
   const bashOutputStore = new BashOutputStore(stateDir);
+  let hostTurnSequence = 0;
+  const hostTurnStore = new HostTurnStore(stateDir, {
+    turnId: () => `turn_host_test_${++hostTurnSequence}`,
+  });
+  const activityQueries = new ActivityQueryService(hostTurnStore, auditStore, bashOutputStore);
   const processSessions = options.processSessions ?? new ProcessManager({ outputAudit: bashOutputStore });
   let activitySequence = 0;
   let turnSequence = 0;
   const activityLifecycle = new ActivityLifecycle(auditStore, {
     activityId: () => `act_test_${++activitySequence}`,
     turnId: () => `turn_test_${++turnSequence}`,
+    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
   });
   const codeIntelligence = new CodeIntelligenceManager(config);
   const server = createMcpServer(
@@ -2270,6 +2448,7 @@ async function fixture(
     codeIntelligence,
     activityLifecycle,
     bashOutputStore,
+    activityQueries,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "devspace-test-client", version: "1.0.0" });
@@ -2286,6 +2465,7 @@ async function fixture(
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
+    hostTurnStore.close();
     bashOutputStore.close();
     auditStore.close();
     store.close();
@@ -2296,7 +2476,18 @@ async function fixture(
     await rm(root, { recursive: true, force: true });
   });
 
-  return { client, project, config, stateDir, processSessions, auditStore, bashOutputStore, close };
+  return {
+    client,
+    project,
+    config,
+    stateDir,
+    processSessions,
+    auditStore,
+    bashOutputStore,
+    hostTurnStore,
+    activityQueries,
+    close,
+  };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {

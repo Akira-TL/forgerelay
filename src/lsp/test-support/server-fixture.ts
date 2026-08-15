@@ -7,7 +7,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ActivityAuditStore } from "../../activity/audit-store.js";
 import { BashOutputStore } from "../../activity/bash-output-store.js";
+import { HostTurnStore } from "../../activity/host-turn-store.js";
 import { ActivityLifecycle } from "../../activity/lifecycle.js";
+import { ActivityQueryService } from "../../activity/query-service.js";
 import { loadConfig, type ServerConfig } from "../../config.js";
 import { createReviewCheckpointManager } from "../../review-checkpoints.js";
 import { ProcessManager } from "../../process-sessions.js";
@@ -50,8 +52,12 @@ export async function createCodeIntelligenceServerFixture(
   const workspaces = new WorkspaceRegistry(config, store);
   const auditStore = new ActivityAuditStore(stateDir);
   const bashOutputStore = new BashOutputStore(stateDir);
+  const hostTurnStore = new HostTurnStore(stateDir);
+  const activityQueries = new ActivityQueryService(hostTurnStore, auditStore, bashOutputStore);
   const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
-  const activityLifecycle = new ActivityLifecycle(auditStore);
+  const activityLifecycle = new ActivityLifecycle(auditStore, {
+    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
+  });
   const codeIntelligence = new CodeIntelligenceManager(config, options.codeIntelligenceOptions);
   const server = createMcpServer(
     config,
@@ -63,6 +69,7 @@ export async function createCodeIntelligenceServerFixture(
     codeIntelligence,
     activityLifecycle,
     bashOutputStore,
+    activityQueries,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "forgerelay-code-intelligence-test-client", version: "1.0.0" });
@@ -76,6 +83,7 @@ export async function createCodeIntelligenceServerFixture(
     await server.close();
     await codeIntelligence.shutdown();
     processSessions.shutdown();
+    hostTurnStore.close();
     bashOutputStore.close();
     auditStore.close();
     store.close();

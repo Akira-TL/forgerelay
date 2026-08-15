@@ -22,11 +22,14 @@ import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { ActivityAuditStore, type ActivityWorkspaceSnapshot } from "./activity/audit-store.js";
 import { BashOutputStore, type BashOutputRecord } from "./activity/bash-output-store.js";
+import { HostTurnStore } from "./activity/host-turn-store.js";
+import { registerActivityQueryTools } from "./activity/mcp-query-tools.js";
 import {
   ActivityLifecycle,
   type ActivityExecutionContext,
   type ActivityOutcome,
 } from "./activity/lifecycle.js";
+import { ActivityQueryService } from "./activity/query-service.js";
 import { buildCapabilityFingerprint } from "./capabilities.js";
 import {
   CapabilityError,
@@ -1322,6 +1325,7 @@ export function createMcpServer(
   codeIntelligence: CodeIntelligenceManager,
   activityLifecycle: ActivityLifecycle,
   bashOutputStore: BashOutputStore,
+  activityQueries: ActivityQueryService,
 ): McpServer {
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
@@ -1906,6 +1910,8 @@ export function createMcpServer(
       }, hookReports));
     },
   );
+
+  registerActivityQueryTools(server, activityQueries);
 
   registerAppTool(
     server,
@@ -3102,8 +3108,12 @@ export function createServer(
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const activityAuditStore = new ActivityAuditStore(config.stateDir);
-  const activityLifecycle = new ActivityLifecycle(activityAuditStore);
   const bashOutputStore = new BashOutputStore(config.stateDir);
+  const hostTurnStore = new HostTurnStore(config.stateDir);
+  const activityQueries = new ActivityQueryService(hostTurnStore, activityAuditStore, bashOutputStore);
+  const activityLifecycle = new ActivityLifecycle(activityAuditStore, {
+    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
+  });
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
   const codeIntelligence = new CodeIntelligenceManager(config);
@@ -3325,6 +3335,7 @@ export function createServer(
           codeIntelligence,
           activityLifecycle,
           bashOutputStore,
+          activityQueries,
         );
         await server.connect(transport);
       } else {
@@ -3357,6 +3368,7 @@ export function createServer(
         processSessions.shutdown();
         await codeIntelligence.shutdown();
         oauthProvider.close();
+        hostTurnStore.close();
         bashOutputStore.close();
         activityAuditStore.close();
         workspaceStore.close?.();
