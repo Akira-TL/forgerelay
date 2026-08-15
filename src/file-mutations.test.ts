@@ -3,7 +3,7 @@ import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { deletePath, renamePath } from "./file-mutations.js";
+import { deletePath, preflightDeletePaths, renamePath } from "./file-mutations.js";
 
 async function rootFixture(t: TestContext) {
   const parent = await mkdtemp(join(tmpdir(), "forgerelay-file-mutations-test-"));
@@ -72,6 +72,30 @@ test("delete removes files and empty directories, with recursive deletion explic
   );
   await deletePath({ path: "nested", recursive: true }, { cwd: root, allowedRoots: [root] });
   await assert.rejects(lstat(join(root, "nested")), /ENOENT/);
+});
+
+test("bulk delete preflight rejects non-empty and overlapping targets without deleting anything", async (t) => {
+  const { root } = await rootFixture(t);
+  await writeFile(join(root, "keep.txt"), "keep\n");
+  await mkdir(join(root, "nested"));
+  await writeFile(join(root, "nested", "child.txt"), "child\n");
+  const context = { cwd: root, allowedRoots: [root] };
+
+  await assert.rejects(
+    preflightDeletePaths([{ path: "keep.txt" }, { path: "nested" }], context),
+    /non-empty/i,
+  );
+  assert.equal(await readFile(join(root, "keep.txt"), "utf8"), "keep\n");
+  assert.equal(await readFile(join(root, "nested", "child.txt"), "utf8"), "child\n");
+
+  await assert.rejects(
+    preflightDeletePaths([
+      { path: "nested", recursive: true },
+      { path: "nested/child.txt", recursive: true },
+    ], context),
+    /overlap|ancestor|descendant/i,
+  );
+  assert.equal(await readFile(join(root, "nested", "child.txt"), "utf8"), "child\n");
 });
 
 test("rename and delete cannot mutate an allowed root itself", async (t) => {

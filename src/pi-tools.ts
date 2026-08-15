@@ -1,3 +1,5 @@
+import { constants } from "node:fs";
+import { access as fsAccess, readFile as fsReadFile, realpath as fsRealpath } from "node:fs/promises";
 import {
   createEditTool,
   createFindTool,
@@ -106,6 +108,63 @@ export async function editFileTool(input: EditToolInput, context: ToolContext): 
     path,
     edits: input.edits,
   }, context);
+}
+
+export async function preflightEditFiles(
+  paths: readonly string[],
+  edits: EditToolInput["edits"],
+  context: ToolContext,
+  signal?: AbortSignal,
+): Promise<void> {
+  const seen = new Map<string, string>();
+  for (const path of paths) {
+    const response = await preflightEditFileTool({ path, edits }, context, signal);
+    if (response.isError) {
+      const message = response.content
+        .filter((entry): entry is { type: "text"; text: string } => entry.type === "text")
+        .map((entry) => entry.text)
+        .join("\n");
+      throw new Error(`Bulk Edit preflight failed for ${path}: ${message}`);
+    }
+    const absolute = await resolveCanonicalAllowedPath(
+      path,
+      context.cwd,
+      context.fileRoots ?? [context.root],
+    );
+    const canonical = await fsRealpath(absolute);
+    const previous = seen.get(canonical);
+    if (previous) {
+      throw new Error(`Bulk Edit targets overlap: ${previous} and ${path} resolve to the same file.`);
+    }
+    seen.set(canonical, path);
+  }
+}
+
+export async function preflightEditFileTool(
+  input: EditToolInput,
+  context: ToolContext,
+  signal?: AbortSignal,
+): Promise<ToolResponse<EditToolDetails>> {
+  signal?.throwIfAborted();
+  const path = await resolveCanonicalAllowedPath(
+    input.path,
+    context.cwd,
+    context.fileRoots ?? [context.root],
+  );
+  const tool = createEditTool(context.cwd, {
+    operations: {
+      readFile: fsReadFile,
+      writeFile: async () => {},
+      access: (absolutePath) => fsAccess(absolutePath, constants.R_OK | constants.W_OK),
+    },
+  });
+  const response = await runTool(
+    (params) => tool.execute("edit_file", params, signal),
+    { path, edits: input.edits },
+    context,
+  );
+  signal?.throwIfAborted();
+  return response;
 }
 
 export async function grepFilesTool(input: GrepToolInput, context: ToolContext): Promise<ToolResponse> {
