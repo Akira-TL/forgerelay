@@ -135,6 +135,19 @@ export const activityAuditEvents = sqliteTable(
   ],
 );
 
+export const activityHostTurns = sqliteTable(
+  "activity_host_turns",
+  {
+    turnId: text("turn_id").primaryKey(),
+    conversationScopeId: text("conversation_scope_id"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("activity_host_turns_conversation_idx").on(table.conversationScopeId, table.createdAt),
+    index("activity_host_turns_created_idx").on(table.createdAt),
+  ],
+);
+
 export const bashOutputStreams = sqliteTable(
   "bash_output_streams",
   {
@@ -215,6 +228,8 @@ export type WorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inf
 export type NewWorkspaceContextDeliveryRow = typeof workspaceContextDeliveries.$inferInsert;
 export type ActivityAuditEventRow = typeof activityAuditEvents.$inferSelect;
 export type NewActivityAuditEventRow = typeof activityAuditEvents.$inferInsert;
+export type ActivityHostTurnRow = typeof activityHostTurns.$inferSelect;
+export type NewActivityHostTurnRow = typeof activityHostTurns.$inferInsert;
 export type BashOutputStreamRow = typeof bashOutputStreams.$inferSelect;
 export type NewBashOutputStreamRow = typeof bashOutputStreams.$inferInsert;
 export type BashOutputChunkRow = typeof bashOutputChunks.$inferSelect;

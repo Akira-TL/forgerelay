@@ -52,6 +52,11 @@ const migrations: Migration[] = [
     name: "bash-output-audit",
     up: migrateBashOutputAudit,
   },
+  {
+    version: 10,
+    name: "activity-host-turns",
+    up: migrateActivityHostTurns,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -324,6 +329,22 @@ function migrateBashOutputAudit(sqlite: Database.Database): void {
 
     create index if not exists bash_output_chunks_output_idx
       on bash_output_chunks(output_id, sequence);
+  `);
+}
+
+function migrateActivityHostTurns(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists activity_host_turns (
+      turn_id text primary key,
+      conversation_scope_id text,
+      created_at text not null
+    );
+
+    create index if not exists activity_host_turns_conversation_idx
+      on activity_host_turns(conversation_scope_id, created_at desc);
+
+    create index if not exists activity_host_turns_created_idx
+      on activity_host_turns(created_at desc);
   `);
 }
 

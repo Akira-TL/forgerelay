@@ -185,6 +185,30 @@ export class ActivityAuditStore {
     return this.readRows(activityId).map(rowToEvent);
   }
 
+  listActivitiesByTurn(turnId: string): ActivityRecord[] {
+    const rows = this.database.sqlite.prepare(
+      `select activity_id from activity_audit_events
+       where event_type = 'started' and turn_id = ?
+       order by rowid asc`,
+    ).all(turnId) as Array<{ activity_id: string }>;
+    return rows.flatMap(({ activity_id }) => {
+      const activity = this.getActivity(activity_id);
+      return activity ? [activity] : [];
+    });
+  }
+
+  turnRevision(turnId: string): number {
+    const row = this.database.sqlite.prepare(
+      `select count(*) as revision
+       from activity_audit_events
+       where activity_id in (
+         select activity_id from activity_audit_events
+         where event_type = 'started' and turn_id = ?
+       )`,
+    ).get(turnId) as { revision: number };
+    return row.revision;
+  }
+
   getActivity(activityId: string): ActivityRecord | undefined {
     const events = this.listEvents(activityId);
     const started = events[0];
