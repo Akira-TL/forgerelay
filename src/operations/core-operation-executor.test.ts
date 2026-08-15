@@ -44,6 +44,8 @@ test("CoreOperationExecutor delegates each explicit operation without changing i
     requestMeta: { host: "test" },
     signal: controller.signal,
     sessionId: "session-test",
+    parentActivityId: "act_parent",
+    turnId: "turn_parent",
   };
 
   assert.deepEqual(await executor.read({ workspaceId: "ws", path: "a.ts" }, context), result("read"));

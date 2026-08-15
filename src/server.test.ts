@@ -1082,6 +1082,91 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   assert.equal((structuredContent(await call("activity_snapshot", { turnId })).activities as unknown[]).length, 4);
 });
 
+test("bulk Read returns ordered per-file results and persists one parent Activity with child Reads", async (t) => {
+  const context = await fixture(t, {
+    hooks: {
+      BeforeTool: [{
+        matcher: { tool: "read" },
+        handlers: [{
+          name: "Bulk read preflight",
+          command: "node -e \"process.exit(0)\"",
+        }],
+      }],
+    },
+  });
+  const conversation = "chat-bulk-read";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  await writeFile(join(context.project, "bulk-a.txt"), "BULK-READ-A-SENTINEL\n");
+  await writeFile(join(context.project, "bulk-b.txt"), "BULK-READ-B-SENTINEL\n");
+  const panel = await call("activity_panel", {});
+  const turnId = String(structuredContent(panel).turnId);
+
+  const read = await call("read", {
+    workspaceId,
+    paths: ["bulk-a.txt", "bulk-b.txt", "bulk-missing.txt"],
+  });
+  assert.equal(read.isError, undefined);
+  const readStructured = structuredContent(read);
+  const results = readStructured.results as Array<Record<string, unknown>>;
+  assert.deepEqual(results.map((result) => [result.path, result.status]), [
+    ["bulk-a.txt", "done"],
+    ["bulk-b.txt", "done"],
+    ["bulk-missing.txt", "error"],
+  ]);
+  assert.match(String(results[0]?.result), /BULK-READ-A-SENTINEL/);
+  assert.match(String(results[1]?.result), /BULK-READ-B-SENTINEL/);
+  assert.match(String(results[2]?.result), /ENOENT|no such file/i);
+  assert.equal(readStructured.files, 3);
+  assert.equal(readStructured.failed, 1);
+  assert.equal((allResponseText(read).match(/Bulk read preflight \(BeforeTool, global\) passed/g) ?? []).length, 3);
+
+  const ambiguous = await call("read", {
+    workspaceId,
+    path: "bulk-a.txt",
+    paths: ["bulk-b.txt"],
+  });
+  assert.equal(ambiguous.isError, true);
+  assert.match(allResponseText(ambiguous), /exactly one of path or paths/i);
+  const empty = await call("read", { workspaceId, paths: [] });
+  assert.equal(empty.isError, true);
+
+  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  const activities = snapshot.activities as Array<Record<string, unknown>>;
+  assert.deepEqual(activities.map((activity) => activity.activityId), [
+    "act_test_1",
+    "act_test_2",
+    "act_test_3",
+    "act_test_4",
+  ]);
+  const parent = activities[0];
+  assert.equal(parent?.target, "3 files");
+  assert.equal(parent?.status, "error");
+  assert.equal(parent?.detailAvailable, false);
+  assert.deepEqual(parent?.children, { total: 3, working: 0, done: 2, error: 1 });
+  assert.ok(activities.slice(1).every((activity) => activity.parentActivityId === "act_test_1"));
+  assert.ok(activities.every((activity) => context.auditStore.getActivity(String(activity.activityId))?.turnId === turnId));
+  assert.deepEqual(context.auditStore.getActivity("act_test_1")?.result, {
+    childCount: 3,
+    succeeded: 2,
+    failed: 1,
+  });
+  assert.doesNotMatch(JSON.stringify(context.auditStore.getActivity("act_test_1")), /BULK-READ-A-SENTINEL|BULK-READ-B-SENTINEL/);
+  assert.doesNotMatch(JSON.stringify(snapshot), /BULK-READ-A-SENTINEL|BULK-READ-B-SENTINEL/);
+
+  const firstDetail = await call("activity_detail", { turnId, activityId: "act_test_2" });
+  assert.match(JSON.stringify(structuredContent(firstDetail)), /BULK-READ-A-SENTINEL/);
+  const parentDetail = await call("activity_detail", { turnId, activityId: "act_test_1" });
+  assert.equal(parentDetail.isError, true);
+  assert.match(allResponseText(parentDetail), /summary-complete/i);
+});
+
 test("write can create a file in the OS temp directory without opening it as a workspace", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-temp-write");
@@ -2269,6 +2354,17 @@ test("checkout context and durable Activity queries survive a registry restart",
   } as Parameters<Client["callTool"]>[0]);
   const outputId = structuredContent(bash).outputId;
   assert.equal(typeof outputId, "string");
+  await writeFile(join(context.project, "restart-bulk-a.txt"), "RESTART-BULK-A\n");
+  await writeFile(join(context.project, "restart-bulk-b.txt"), "RESTART-BULK-B\n");
+  const bulkRead = await context.client.callTool({
+    name: "read",
+    arguments: {
+      workspaceId: firstWorkspaceId,
+      paths: ["restart-bulk-a.txt", "restart-bulk-b.txt"],
+    },
+    _meta: { "openai/session": "chat-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(bulkRead.isError, undefined);
 
   await context.close();
 
@@ -2332,10 +2428,19 @@ test("checkout context and durable Activity queries survive a registry restart",
     });
     assert.equal(restoredSnapshot.isError, undefined);
     const restoredActivities = structuredContent(restoredSnapshot).activities as Array<Record<string, unknown>>;
-    assert.equal(restoredActivities.length, 1);
-    assert.equal(restoredActivities[0]?.tool, "bash");
-    assert.equal(restoredActivities[0]?.outputId, outputId);
-    const restoredActivityId = String(restoredActivities[0]?.activityId);
+    assert.equal(restoredActivities.length, 4);
+    const restoredBash = restoredActivities.find((activity) => activity.tool === "bash");
+    assert.equal(restoredBash?.outputId, outputId);
+    const restoredActivityId = String(restoredBash?.activityId);
+    const restoredBulkParent = restoredActivities.find((activity) =>
+      activity.tool === "read" && activity.parentActivityId === undefined && activity.children !== undefined
+    );
+    assert.equal(restoredBulkParent?.target, "2 files");
+    assert.deepEqual(restoredBulkParent?.children, { total: 2, working: 0, done: 2, error: 0 });
+    const restoredBulkChildren = restoredActivities.filter((activity) =>
+      activity.parentActivityId === restoredBulkParent?.activityId
+    );
+    assert.equal(restoredBulkChildren.length, 2);
 
     const restoredDetail = await restoredClient.callTool({
       name: "activity_detail",
@@ -2343,6 +2448,12 @@ test("checkout context and durable Activity queries survive a registry restart",
     });
     assert.equal(restoredDetail.isError, undefined);
     assert.match(JSON.stringify(structuredContent(restoredDetail)), /restart-durable-output/);
+    const restoredBulkDetail = await restoredClient.callTool({
+      name: "activity_detail",
+      arguments: { turnId, activityId: String(restoredBulkChildren[0]?.activityId) },
+    });
+    assert.equal(restoredBulkDetail.isError, undefined);
+    assert.match(JSON.stringify(structuredContent(restoredBulkDetail)), /RESTART-BULK-A/);
 
     const restoredOutput = await restoredClient.callTool({
       name: "activity_output",

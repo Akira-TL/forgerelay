@@ -2,6 +2,8 @@ export interface CoreOperationContext {
   requestMeta?: unknown;
   signal?: AbortSignal;
   sessionId?: string;
+  parentActivityId?: string;
+  turnId?: string;
 }
 
 export interface ReadOperationInput {

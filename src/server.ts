@@ -72,6 +72,7 @@ import {
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
+import { executeBulkRead } from "./operations/bulk-read.js";
 import {
   createCoreOperationExecutor,
   type CoreOperationContext,
@@ -985,6 +986,47 @@ function toolResultIsError(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { isError?: boolean }).isError === true;
 }
 
+function toolResultText(result: unknown): string {
+  if (typeof result !== "object" || result === null) return String(result ?? "");
+  const record = result as { content?: unknown; structuredContent?: unknown };
+  if (Array.isArray(record.content)) {
+    const text = record.content
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return "";
+        const value = (entry as { text?: unknown }).text;
+        return typeof value === "string" ? value : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (text) return text;
+  }
+  if (typeof record.structuredContent === "object" && record.structuredContent !== null) {
+    const value = (record.structuredContent as { result?: unknown }).result;
+    if (typeof value === "string") return value;
+  }
+  return "";
+}
+
+function toolResultContent(result: unknown): ToolContent[] {
+  if (typeof result !== "object" || result === null) return [];
+  const content = (result as { content?: unknown }).content;
+  return Array.isArray(content) ? content as ToolContent[] : [];
+}
+
+function toolResultAgentsFiles(result: unknown): Array<{ path: string; content: string }> {
+  if (typeof result !== "object" || result === null) return [];
+  const structured = (result as { structuredContent?: unknown }).structuredContent;
+  if (typeof structured !== "object" || structured === null) return [];
+  const agentsFiles = (structured as { agentsFiles?: unknown }).agentsFiles;
+  if (!Array.isArray(agentsFiles)) return [];
+  return agentsFiles.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const path = (entry as { path?: unknown }).path;
+    const content = (entry as { content?: unknown }).content;
+    return typeof path === "string" && typeof content === "string" ? [{ path, content }] : [];
+  });
+}
+
 function workspaceActivitySnapshot(workspace: Workspace): ActivityWorkspaceSnapshot {
   return {
     id: workspace.id,
@@ -1045,6 +1087,18 @@ function processActivityOutcome(result: unknown): ActivityOutcome {
   return { type: "succeeded" };
 }
 
+interface ActivityRelationContext {
+  parentActivityId?: string;
+  turnId?: string;
+}
+
+function activityRelationFor(context: CoreOperationContext): ActivityRelationContext {
+  return {
+    ...(context.parentActivityId ? { parentActivityId: context.parentActivityId } : {}),
+    ...(context.turnId ? { turnId: context.turnId } : {}),
+  };
+}
+
 function runActivityTool<T>(
   lifecycle: ActivityLifecycle,
   workspace: Workspace,
@@ -1053,6 +1107,7 @@ function runActivityTool<T>(
   request: unknown,
   operation: (context: ActivityExecutionContext) => Promise<T>,
   outcome: (result: T) => ActivityOutcome = standardActivityOutcome,
+  relation: ActivityRelationContext = {},
 ): Promise<T> {
   return lifecycle.run({
     tool,
@@ -1061,6 +1116,7 @@ function runActivityTool<T>(
     request,
     operation,
     outcome,
+    ...relation,
   });
 }
 
@@ -1071,6 +1127,7 @@ function runActivityToolWithHooks<T>(
   requestMeta: unknown,
   request: unknown,
   hookOptions: ToolHookOptions<T>,
+  relation: ActivityRelationContext = {},
 ): Promise<T> {
   return runActivityTool(
     lifecycle,
@@ -1079,6 +1136,8 @@ function runActivityToolWithHooks<T>(
     hookOptions.tool,
     request,
     () => runToolWithHooks(hooks, hookOptions),
+    standardActivityOutcome,
+    relation,
   );
 }
 
@@ -1459,6 +1518,7 @@ export function createMcpServer(
             };
           },
         },
+        activityRelationFor(context),
       );
     },
     write: async (input: WriteOperationInput, context: CoreOperationContext) => {
@@ -1534,6 +1594,7 @@ export function createMcpServer(
             };
           },
         },
+        activityRelationFor(context),
       );
     },
     edit: async (input: EditOperationInput, context: CoreOperationContext) => {
@@ -1612,6 +1673,7 @@ export function createMcpServer(
             };
           },
         },
+        activityRelationFor(context),
       );
     },
     rename: async (input: RenameOperationInput, context: CoreOperationContext) => {
@@ -1681,6 +1743,7 @@ export function createMcpServer(
             }
           },
         },
+        activityRelationFor(context),
       );
     },
     delete: async (input: DeleteOperationInput, context: CoreOperationContext) => {
@@ -1750,6 +1813,7 @@ export function createMcpServer(
             }
           },
         },
+        activityRelationFor(context),
       );
     },
     shellRun: async (input: ShellRunOperationInput, context: CoreOperationContext) => {
@@ -1870,6 +1934,7 @@ export function createMcpServer(
           }
         },
         processActivityOutcome,
+        activityRelationFor(context),
       );
       markReturnedOutput(bashOutputStore, activityResult);
       return activityResult;
@@ -1954,6 +2019,7 @@ export function createMcpServer(
             }
           },
         },
+        activityRelationFor(context),
       );
     },
   });
@@ -2710,11 +2776,18 @@ export function createMcpServer(
           .describe("Workspace identifier returned by open_workspace."),
         path: z
           .string()
+          .optional()
           .describe(
             config.skillsEnabled
-              ? "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill or capability-guide path from open_workspace, including a ~/... home-relative path."
-              : "File path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised capability-guide path from open_workspace.",
+              ? "One file path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill or capability-guide path from open_workspace, including a ~/... home-relative path. Use exactly one of path or paths."
+              : "One file path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised capability-guide path from open_workspace. Use exactly one of path or paths.",
           ),
+        paths: z
+          .array(z.string())
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("Multiple file paths to read in one call. Uses the same offset/limit for every file. Use exactly one of path or paths."),
         offset: z
           .number()
           .int()
@@ -2730,18 +2803,107 @@ export function createMcpServer(
       },
       outputSchema: resultOutputSchema({
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
+        results: z.array(z.object({
+          path: z.string(),
+          status: z.enum(["done", "error"]),
+          result: z.string(),
+        })).optional(),
+        files: z.number().int().nonnegative().optional(),
+        failed: z.number().int().nonnegative().optional(),
       }),
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: { readOnlyHint: true },
     },
-    async ({ workspaceId, ...input }, extra) => coreOperations.read(
-      { workspaceId, ...input },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
+    async ({ workspaceId, path, paths, offset, limit }, extra) => {
+      if ((path === undefined) === (paths === undefined)) {
+        throw new Error("read requires exactly one of path or paths.");
       }
-    ),
+      if (path !== undefined) {
+        return coreOperations.read(
+          { workspaceId, path, offset, limit },
+          {
+            requestMeta: extra._meta,
+            signal: extra.signal,
+            sessionId: extra.sessionId,
+          },
+        );
+      }
+
+      const workspace = workspaces.getWorkspace(workspaceId);
+      let response: {
+        content: ToolContent[];
+        structuredContent: {
+          result: string;
+          results: Array<{ path: string; status: "done" | "error"; result: string }>;
+          files: number;
+          failed: number;
+          agentsFiles?: Array<{ path: string; content: string }>;
+        };
+      } | undefined;
+      await runActivityTool(
+        activityLifecycle,
+        workspace,
+        extra._meta,
+        toolNames.read,
+        { workspaceId, paths, offset, limit },
+        async (parentContext) => {
+          const execution = await executeBulkRead({
+            paths: paths!,
+            signal: extra.signal,
+            run: (childPath) => coreOperations.read(
+              { workspaceId, path: childPath, offset, limit },
+              {
+                requestMeta: extra._meta,
+                signal: extra.signal,
+                sessionId: extra.sessionId,
+                parentActivityId: parentContext.activityId,
+                turnId: parentContext.turnId,
+              },
+            ),
+            isError: toolResultIsError,
+            resultText: toolResultText,
+          });
+          const content = execution.children.flatMap((child): ToolContent[] => [
+            textBlock(`--- ${child.path} · ${child.status} ---`),
+            ...(child.response
+              ? toolResultContent(child.response)
+              : [textBlock(child.result)]),
+          ]);
+          const seenAgentPaths = new Set<string>();
+          const agentsFiles = execution.children.flatMap((child) =>
+            child.response ? toolResultAgentsFiles(child.response) : []
+          ).filter((file) => {
+            if (seenAgentPaths.has(file.path)) return false;
+            seenAgentPaths.add(file.path);
+            return true;
+          });
+          response = {
+            content,
+            structuredContent: {
+              result: contentText(content),
+              results: execution.children.map(({ path: childPath, status, result }) => ({
+                path: childPath,
+                status,
+                result,
+              })),
+              files: execution.children.length,
+              failed: execution.failed,
+              ...(agentsFiles.length > 0 ? { agentsFiles } : {}),
+            },
+          };
+          return {
+            childCount: execution.children.length,
+            succeeded: execution.succeeded,
+            failed: execution.failed,
+          };
+        },
+        (summary) => summary.failed > 0
+          ? { type: "failed", error: `${summary.failed} of ${summary.childCount} child Reads failed.` }
+          : { type: "succeeded" },
+      );
+      if (!response) throw new Error("Bulk Read completed without a response.");
+      return response;
+    },
   );
 
   if (config.toolMode !== "codex") {
