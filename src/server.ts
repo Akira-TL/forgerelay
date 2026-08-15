@@ -73,6 +73,17 @@ import {
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import {
+  createCoreOperationExecutor,
+  type CoreOperationContext,
+  type CapabilityRunOperationInput,
+  type DeleteOperationInput,
+  type EditOperationInput,
+  type ReadOperationInput,
+  type RenameOperationInput,
+  type ShellRunOperationInput,
+  type WriteOperationInput,
+} from "./operations/core-operation-executor.js";
+import {
   McpTransportRegistry,
   type McpTransportCloseResult,
 } from "./mcp-sessions.js";
@@ -1071,6 +1082,11 @@ function runActivityToolWithHooks<T>(
   );
 }
 
+type SharedShellRun = (
+  input: ShellRunOperationInput,
+  context: CoreOperationContext,
+) => Promise<ReturnType<typeof processToolResponse> & { isError?: true }>;
+
 function registerProcessTools(
   server: McpServer,
   config: ServerConfig,
@@ -1079,6 +1095,7 @@ function registerProcessTools(
   hooks: HookRunner,
   activityLifecycle: ActivityLifecycle,
   bashOutputStore: BashOutputStore,
+  shellRun: SharedShellRun,
 ): void {
   if (config.toolMode === "codex") {
     registerAppTool(
@@ -1127,83 +1144,25 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      let undeliveredProcessId: number | undefined;
-      const activityResult = await runActivityTool(
-        activityLifecycle,
-        workspace,
-        extra._meta,
-        "exec_command",
-        { workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens },
-        async (activityContext) => {
-          try {
-            const result = await runToolWithHooks(hooks, {
-          signal: extra.signal,
-          tool: "exec_command",
-          invocation: workspaceHookInvocation(workspace),
-          payload: { command: cmd, workingDirectory: workingDirectory ?? "." },
-          operation: async () => {
-          const startedAt = performance.now();
-          const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-            workspaces,
-            workspace,
-            [cwd],
-          );
-            const snapshot = await processSessions.start({
-              workspaceId,
-              command: cmd,
-              cwd,
-              workspaceRoot: workspace.root,
-              tty,
-              columns,
-              rows,
-              yieldTimeMs,
-              timeoutMs,
-              maxOutputTokens,
-              codexCi: true,
-              signal: extra.signal,
-              audit: activityContext,
-            });
-            undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
-
-            logToolCall(config, {
-            tool: "exec_command",
-            ...workspaceLogContext(workspace, extra.sessionId),
-            workingDirectory: workingDirectory ?? ".",
-            command: cmd,
-            commandLength: cmd.length,
-            exitCode: snapshot.exitCode,
-            running: snapshot.running,
-            processId: snapshot.processId,
-            success: snapshot.running || snapshot.exitCode === 0,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-            return processToolResponse("exec_command", workspaceId, snapshot, {
-              command: cmd,
-              workingDirectory: workingDirectory ?? ".",
-              running: snapshot.running,
-              exitCode: snapshot.exitCode,
-              wallTimeMs: snapshot.wallTimeMs,
-            });
-          },
-        });
-            extra.signal.throwIfAborted();
-            return result;
-          } catch (error) {
-            if (undeliveredProcessId !== undefined) {
-              processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
-            }
-            throw error;
-          }
-        },
-        processActivityOutcome,
-      );
-      markReturnedOutput(bashOutputStore, activityResult);
-      return activityResult;
-    },
+    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => shellRun(
+      {
+        workspaceId,
+        command: cmd,
+        surface: "exec_command",
+        tty,
+        columns,
+        rows,
+        workingDirectory,
+        yieldTimeMs,
+        timeoutMs,
+        maxOutputTokens,
+      },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      },
+    ),
     );
   }
 
@@ -1413,6 +1372,592 @@ export function createMcpServer(
       },
     },
   });
+  const coreOperations = createCoreOperationExecutor({
+    read: async (input: ReadOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, ...readInput } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        input,
+        {
+          signal: context.signal,
+          tool: toolNames.read,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path: readInput.path, offset: readInput.offset, limit: readInput.limit },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            const readPath = workspaces.resolveReadPath(workspace, readInput.path);
+            const discoveredInstructions = (await workspaces.discoverPathInstructions(
+              workspace,
+              readPath.absolutePath,
+            )).filter((file) => file.path !== readPath.absolutePath);
+            const response = await readFileTool(
+              { ...readInput, path: readPath.absolutePath },
+              {
+                cwd: workspace.root,
+                root: workspace.root,
+                readRoots: readPath.readRoots,
+              },
+            );
+
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.read,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path: readInput.path,
+              }, response.content, startedAt);
+              return response;
+            }
+            workspaces.markReadPathLoaded(workspace, readPath);
+
+            const discoveredInstructionContent = discoveredInstructions.length > 0
+              ? textBlock(formatDiscoveredWorkspaceInstructions(discoveredInstructions, workspace.root))
+              : undefined;
+            const content = discoveredInstructionContent
+              ? [discoveredInstructionContent, ...response.content]
+              : response.content;
+            const summary = {
+              ...textSummary(response.content),
+              offset: readInput.offset ?? 1,
+              limited: readInput.limit !== undefined,
+            };
+            logToolCall(config, {
+              tool: toolNames.read,
+              ...workspaceLogContext(workspace, context.sessionId),
+              path: readInput.path,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              ...response,
+              content,
+              _meta: {
+                tool: toolNames.read,
+                card: {
+                  workspaceId,
+                  path: readInput.path,
+                  summary,
+                  payload: { content: response.content },
+                },
+              },
+              structuredContent: {
+                result: contentText(content),
+                ...(discoveredInstructions.length > 0
+                  ? {
+                      agentsFiles: discoveredInstructions.map((file) => ({
+                        path: formatAgentsPath(file.path, workspace.root),
+                        content: file.content,
+                      })),
+                    }
+                  : {}),
+              },
+            };
+          },
+        },
+      );
+    },
+    write: async (input: WriteOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, ...writeInput } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        input,
+        {
+          signal: context.signal,
+          tool: toolNames.write,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path: writeInput.path },
+          isFailure: toolResultIsError,
+          changedPaths: (result) => toolResultIsError(result) ? [] : [writeInput.path],
+          operation: async () => {
+            const startedAt = performance.now();
+            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+              workspaces,
+              workspace,
+              [writeInput.path],
+            );
+            const response = await writeFileTool(writeInput, {
+              cwd: workspace.root,
+              root: workspace.root,
+              fileRoots: workspaces.fileToolRoots(workspace),
+            });
+
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.write,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path: writeInput.path,
+              }, response.content, startedAt);
+              return response;
+            }
+
+            const patch = newFilePatch(writeInput.path, writeInput.content);
+            const stats = countDiffStats(patch);
+            const summary = {
+              ...stats,
+              lines: contentLineCount(writeInput.content),
+              characters: writeInput.content.length,
+            };
+            logToolCall(config, {
+              tool: toolNames.write,
+              ...workspaceLogContext(workspace, context.sessionId),
+              path: writeInput.path,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              ...response,
+              _meta: {
+                tool: toolNames.write,
+                card: {
+                  workspaceId,
+                  path: writeInput.path,
+                  summary,
+                  payload: {
+                    content: response.content,
+                    patch,
+                  },
+                },
+              },
+              structuredContent: {
+                result: contentText(response.content),
+              },
+            };
+          },
+        },
+      );
+    },
+    edit: async (input: EditOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, ...editInput } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        input,
+        {
+          signal: context.signal,
+          tool: toolNames.edit,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path: editInput.path, editCount: editInput.edits.length },
+          isFailure: toolResultIsError,
+          changedPaths: (result) => toolResultIsError(result) ? [] : [editInput.path],
+          operation: async () => {
+            const startedAt = performance.now();
+            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+              workspaces,
+              workspace,
+              [editInput.path],
+            );
+            const response = await editFileTool(editInput, {
+              cwd: workspace.root,
+              root: workspace.root,
+              fileRoots: workspaces.fileToolRoots(workspace),
+            });
+
+            if (response.isError) {
+              logFailedToolResponse(config, {
+                tool: toolNames.edit,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path: editInput.path,
+              }, response.content, startedAt);
+              return response;
+            }
+
+            const stats = countDiffStats(
+              response.details?.patch ?? response.details?.diff,
+            );
+            const summary = {
+              ...stats,
+              editCount: editInput.edits.length,
+            };
+            const editResultText = `Edited ${editInput.path} (+${stats.additions} -${stats.removals}).`;
+            const editContent = [textBlock(editResultText)];
+            logToolCall(config, {
+              tool: toolNames.edit,
+              ...workspaceLogContext(workspace, context.sessionId),
+              path: editInput.path,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+
+            return {
+              content: editContent,
+              _meta: {
+                tool: toolNames.edit,
+                card: {
+                  workspaceId,
+                  path: editInput.path,
+                  summary,
+                  payload: {
+                    diff: response.details?.diff,
+                    patch: response.details?.patch,
+                  },
+                },
+              },
+              structuredContent: {
+                status: "applied" as const,
+                result: contentText(editContent),
+              },
+            };
+          },
+        },
+      );
+    },
+    rename: async (input: RenameOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, path, newPath } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        input,
+        {
+          signal: context.signal,
+          tool: toolNames.rename,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path, newPath, paths: [path, newPath] },
+          changedPaths: () => [path, newPath],
+          operation: async () => {
+            const startedAt = performance.now();
+            try {
+              await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+                workspaces,
+                workspace,
+                [path, newPath],
+              );
+              await renamePath({ path, newPath }, {
+                cwd: workspace.root,
+                allowedRoots: workspaces.fileToolRoots(workspace),
+              });
+              const result = `Renamed ${path} to ${newPath}.`;
+              const content = [textBlock(result)];
+              logToolCall(config, {
+                tool: toolNames.rename,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path: `${path} -> ${newPath}`,
+                success: true,
+                durationMs: Math.round(performance.now() - startedAt),
+              });
+              return {
+                content,
+                _meta: {
+                  tool: toolNames.rename,
+                  card: {
+                    workspaceId,
+                    path: newPath,
+                    summary: { previousPath: path },
+                    payload: { content },
+                  },
+                },
+                structuredContent: {
+                  result,
+                  status: "renamed" as const,
+                  path,
+                  newPath,
+                },
+              };
+            } catch (error) {
+              logToolCall(config, {
+                tool: toolNames.rename,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path: `${path} -> ${newPath}`,
+                success: false,
+                durationMs: Math.round(performance.now() - startedAt),
+                error: error instanceof Error ? error.message : String(error),
+              });
+              throw error;
+            }
+          },
+        },
+      );
+    },
+    delete: async (input: DeleteOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, path, recursive } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        input,
+        {
+          signal: context.signal,
+          tool: toolNames.delete,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { path, recursive: recursive ?? false },
+          changedPaths: () => [path],
+          operation: async () => {
+            const startedAt = performance.now();
+            try {
+              await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+                workspaces,
+                workspace,
+                [path],
+              );
+              const deleted = await deletePath({ path, recursive }, {
+                cwd: workspace.root,
+                allowedRoots: workspaces.fileToolRoots(workspace),
+              });
+              const result = `Deleted ${path}${deleted.recursive ? " recursively" : ""}.`;
+              const content = [textBlock(result)];
+              logToolCall(config, {
+                tool: toolNames.delete,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path,
+                success: true,
+                durationMs: Math.round(performance.now() - startedAt),
+              });
+              return {
+                content,
+                _meta: {
+                  tool: toolNames.delete,
+                  card: {
+                    workspaceId,
+                    path,
+                    summary: { recursive: deleted.recursive },
+                    payload: { content },
+                  },
+                },
+                structuredContent: {
+                  result,
+                  status: "deleted" as const,
+                  path,
+                  recursive: deleted.recursive,
+                },
+              };
+            } catch (error) {
+              logToolCall(config, {
+                tool: toolNames.delete,
+                ...workspaceLogContext(workspace, context.sessionId),
+                path,
+                success: false,
+                durationMs: Math.round(performance.now() - startedAt),
+                error: error instanceof Error ? error.message : String(error),
+              });
+              throw error;
+            }
+          },
+        },
+      );
+    },
+    shellRun: async (input: ShellRunOperationInput, context: CoreOperationContext) => {
+      const {
+        workspaceId,
+        command,
+        surface,
+        tty,
+        columns,
+        rows,
+        workingDirectory,
+        yieldTimeMs,
+        timeoutMs,
+        maxOutputTokens,
+      } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const activityRequest = surface === "exec_command"
+        ? {
+            workspaceId,
+            cmd: command,
+            tty,
+            columns,
+            rows,
+            workingDirectory,
+            yieldTimeMs,
+            timeoutMs,
+            maxOutputTokens,
+          }
+        : {
+            workspaceId,
+            action: "run" as const,
+            command,
+            tty,
+            columns,
+            rows,
+            workingDirectory,
+            yieldTimeMs,
+            timeoutMs,
+            maxOutputTokens,
+          };
+      let undeliveredProcessId: number | undefined;
+      const activityResult = await runActivityTool(
+        activityLifecycle,
+        workspace,
+        context.requestMeta,
+        surface,
+        activityRequest,
+        async (activityContext) => {
+          try {
+            const result = await runToolWithHooks(hooks, {
+              signal: context.signal,
+              tool: surface,
+              invocation: workspaceHookInvocation(workspace),
+              payload: surface === "exec_command"
+                ? { command, workingDirectory: workingDirectory ?? "." }
+                : { action: "run", command, workingDirectory: workingDirectory ?? "." },
+              ...(surface === "bash" ? { isFailure: toolResultIsError } : {}),
+              operation: async () => {
+                const startedAt = performance.now();
+                const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
+                await assertWorkspaceInstructionsLoadedBeforeSideEffect(
+                  workspaces,
+                  workspace,
+                  [cwd],
+                );
+                const snapshot = await processSessions.start({
+                  workspaceId,
+                  command,
+                  cwd,
+                  workspaceRoot: workspace.root,
+                  tty,
+                  columns,
+                  rows,
+                  yieldTimeMs,
+                  timeoutMs,
+                  maxOutputTokens,
+                  ...(surface === "exec_command" ? { codexCi: true } : {}),
+                  signal: context.signal,
+                  audit: activityContext,
+                });
+                undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
+
+                logToolCall(config, {
+                  tool: surface,
+                  ...workspaceLogContext(workspace, context.sessionId),
+                  workingDirectory: workingDirectory ?? ".",
+                  command,
+                  commandLength: command.length,
+                  exitCode: snapshot.exitCode,
+                  running: snapshot.running,
+                  processId: snapshot.processId,
+                  success: surface === "exec_command"
+                    ? snapshot.running || snapshot.exitCode === 0
+                    : snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
+                  durationMs: Math.round(performance.now() - startedAt),
+                });
+
+                const response = processToolResponse(surface, workspaceId, snapshot, {
+                  ...(surface === "bash" ? { action: "run" } : {}),
+                  command,
+                  workingDirectory: workingDirectory ?? ".",
+                  running: snapshot.running,
+                  exitCode: snapshot.exitCode,
+                  wallTimeMs: snapshot.wallTimeMs,
+                });
+                return surface === "bash" && !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
+                  ? { ...response, isError: true as const }
+                  : response;
+              },
+            });
+            context.signal?.throwIfAborted();
+            return result;
+          } catch (error) {
+            if (undeliveredProcessId !== undefined) {
+              processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
+            }
+            throw error;
+          }
+        },
+        processActivityOutcome,
+      );
+      markReturnedOutput(bashOutputStore, activityResult);
+      return activityResult;
+    },
+    capabilityRun: async (input: CapabilityRunOperationInput, context: CoreOperationContext) => {
+      const { workspaceId, name, arguments: capabilityArguments, file } = input;
+      const workspace = workspaces.getWorkspace(workspaceId);
+      let changedPaths: string[] = [];
+      return runActivityToolWithHooks(
+        activityLifecycle,
+        hooks,
+        workspace,
+        context.requestMeta,
+        { workspaceId, name, action: "run", arguments: capabilityArguments, file },
+        {
+          signal: context.signal,
+          tool: toolNames.capability,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { name, action: "run" },
+          isFailure: toolResultIsError,
+          changedPaths: () => changedPaths,
+          operation: async () => {
+            const startedAt = performance.now();
+            try {
+              const execution = await capabilityRegistry.run(
+                name,
+                capabilityArguments ?? {},
+                capabilityContextFor(workspace),
+                { nativeFile: file, signal: context.signal },
+              );
+              changedPaths = execution.changedPaths ?? [];
+              const result = {
+                content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+                ...(execution.card
+                  ? {
+                      _meta: {
+                        tool: toolNames.capability,
+                        card: {
+                          workspaceId,
+                          capabilityName: name,
+                          summary: execution.card.summary ?? {},
+                          files: execution.card.files,
+                          payload: execution.card.payload ?? {},
+                        },
+                      },
+                    }
+                  : {}),
+                structuredContent: { name, action: "run" as const, result: execution.value },
+              };
+              logToolCall(config, {
+                tool: toolNames.capability,
+                ...workspaceLogContext(workspace, context.sessionId),
+                capability: name,
+                action: "run",
+                success: true,
+                durationMs: Math.round(performance.now() - startedAt),
+              });
+              return result;
+            } catch (error) {
+              const capabilityError = error instanceof CapabilityError
+                ? error
+                : new CapabilityError(
+                    "execution_failed",
+                    error instanceof Error ? error.message : String(error),
+                  );
+              const result = {
+                content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+                structuredContent: {
+                  name,
+                  action: "run" as const,
+                  error: { code: capabilityError.code, message: capabilityError.message },
+                },
+                isError: true as const,
+              };
+              logFailedToolResponse(config, {
+                tool: toolNames.capability,
+                ...workspaceLogContext(workspace, context.sessionId),
+                capability: name,
+                action: "run",
+              }, result.content, startedAt);
+              return result;
+            }
+          },
+        },
+      );
+    },
+  });
+
   const server = new McpServer(
     {
       name: "forgerelay",
@@ -1955,8 +2500,18 @@ export function createMcpServer(
       },
     },
     async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
+      if (action === "run") {
+        return coreOperations.capabilityRun(
+          { workspaceId, name, arguments: capabilityArguments, file },
+          {
+            requestMeta: extra._meta,
+            signal: extra.signal,
+            sessionId: extra.sessionId,
+          },
+        );
+      }
+
       const workspace = workspaces.getWorkspace(workspaceId);
-      let changedPaths: string[] = [];
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -1965,15 +2520,13 @@ export function createMcpServer(
         { workspaceId, name, action, arguments: capabilityArguments, file },
         {
           signal: extra.signal,
-        tool: toolNames.capability,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { name, action },
-        isFailure: toolResultIsError,
-        changedPaths: () => changedPaths,
-        operation: async () => {
-          const startedAt = performance.now();
-          try {
-            if (action === "describe") {
+          tool: toolNames.capability,
+          invocation: workspaceHookInvocation(workspace),
+          payload: { name, action },
+          isFailure: toolResultIsError,
+          operation: async () => {
+            const startedAt = performance.now();
+            try {
               const capability = capabilityRegistry.describe(name, capabilityContextFor(workspace));
               const result = {
                 content: [textBlock([
@@ -1995,68 +2548,33 @@ export function createMcpServer(
                 durationMs: Math.round(performance.now() - startedAt),
               });
               return result;
-            }
-
-            const execution = await capabilityRegistry.run(
-              name,
-              capabilityArguments ?? {},
-              capabilityContextFor(workspace),
-              { nativeFile: file, signal: extra.signal },
-            );
-            changedPaths = execution.changedPaths ?? [];
-            const result = {
-              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
-              ...(execution.card
-                ? {
-                    _meta: {
-                      tool: toolNames.capability,
-                      card: {
-                        workspaceId,
-                        capabilityName: name,
-                        summary: execution.card.summary ?? {},
-                        files: execution.card.files,
-                        payload: execution.card.payload ?? {},
-                      },
-                    },
-                  }
-                : {}),
-              structuredContent: { name, action, result: execution.value },
-            };
-            logToolCall(config, {
-              tool: toolNames.capability,
-              ...workspaceLogContext(workspace),
-              capability: name,
-              action,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-            return result;
-          } catch (error) {
-            const capabilityError = error instanceof CapabilityError
-              ? error
-              : new CapabilityError(
-                  "execution_failed",
-                  error instanceof Error ? error.message : String(error),
-                );
-            const result = {
-              content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
-              structuredContent: {
-                name,
+            } catch (error) {
+              const capabilityError = error instanceof CapabilityError
+                ? error
+                : new CapabilityError(
+                    "execution_failed",
+                    error instanceof Error ? error.message : String(error),
+                  );
+              const result = {
+                content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+                structuredContent: {
+                  name,
+                  action,
+                  error: { code: capabilityError.code, message: capabilityError.message },
+                },
+                isError: true as const,
+              };
+              logFailedToolResponse(config, {
+                tool: toolNames.capability,
+                ...workspaceLogContext(workspace),
+                capability: name,
                 action,
-                error: { code: capabilityError.code, message: capabilityError.message },
-              },
-              isError: true as const,
-            };
-            logFailedToolResponse(config, {
-              tool: toolNames.capability,
-              ...workspaceLogContext(workspace),
-              capability: name,
-              action,
-            }, result.content, startedAt);
-            return result;
-          }
+              }, result.content, startedAt);
+              return result;
+            }
+          },
         },
-      });
+      );
     },
   );
 
@@ -2216,92 +2734,14 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: { readOnlyHint: true },
     },
-    async ({ workspaceId, ...input }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runActivityToolWithHooks(
-        activityLifecycle,
-        hooks,
-        workspace,
-        extra._meta,
-        { workspaceId, ...input },
-        {
-          signal: extra.signal,
-        tool: toolNames.read,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { path: input.path, offset: input.offset, limit: input.limit },
-        isFailure: toolResultIsError,
-        operation: async () => {
-          const startedAt = performance.now();
-          const readPath = workspaces.resolveReadPath(workspace, input.path);
-          const discoveredInstructions = (await workspaces.discoverPathInstructions(
-            workspace,
-            readPath.absolutePath,
-          )).filter((file) => file.path !== readPath.absolutePath);
-          const response = await readFileTool(
-            { ...input, path: readPath.absolutePath },
-            {
-              cwd: workspace.root,
-              root: workspace.root,
-              readRoots: readPath.readRoots,
-            },
-          );
-
-          if (response.isError) {
-            logFailedToolResponse(config, {
-              tool: toolNames.read,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-            }, response.content, startedAt);
-            return response;
-          }
-          workspaces.markReadPathLoaded(workspace, readPath);
-
-          const discoveredInstructionContent = discoveredInstructions.length > 0
-            ? textBlock(formatDiscoveredWorkspaceInstructions(discoveredInstructions, workspace.root))
-            : undefined;
-          const content = discoveredInstructionContent
-            ? [discoveredInstructionContent, ...response.content]
-            : response.content;
-          const summary = {
-            ...textSummary(response.content),
-            offset: input.offset ?? 1,
-            limited: input.limit !== undefined,
-          };
-          logToolCall(config, {
-            tool: toolNames.read,
-            ...workspaceLogContext(workspace, extra.sessionId),
-            path: input.path,
-            success: true,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          return {
-            ...response,
-            content,
-            _meta: {
-              tool: toolNames.read,
-              card: {
-                workspaceId,
-                path: input.path,
-                summary,
-                payload: { content: response.content },
-              },
-            },
-            structuredContent: {
-              result: contentText(content),
-              ...(discoveredInstructions.length > 0
-                ? {
-                    agentsFiles: discoveredInstructions.map((file) => ({
-                      path: formatAgentsPath(file.path, workspace.root),
-                      content: file.content,
-                    })),
-                  }
-                : {}),
-            },
-          };
-        },
-      });
-    },
+    async ({ workspaceId, ...input }, extra) => coreOperations.read(
+      { workspaceId, ...input },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      }
+    ),
   );
 
   if (config.toolMode !== "codex") {
@@ -2324,79 +2764,14 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "write"),
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runActivityToolWithHooks(
-        activityLifecycle,
-        hooks,
-        workspace,
-        extra._meta,
-        { workspaceId, ...input },
-        {
-          signal: extra.signal,
-        tool: toolNames.write,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { path: input.path },
-        isFailure: toolResultIsError,
-        changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
-        operation: async () => {
-          const startedAt = performance.now();
-          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-            workspaces,
-            workspace,
-            [input.path],
-          );
-          const response = await writeFileTool(input, {
-            cwd: workspace.root,
-            root: workspace.root,
-            fileRoots: workspaces.fileToolRoots(workspace),
-          });
-
-          if (response.isError) {
-            logFailedToolResponse(config, {
-              tool: toolNames.write,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-            }, response.content, startedAt);
-            return response;
-          }
-
-          const patch = newFilePatch(input.path, input.content);
-          const stats = countDiffStats(patch);
-          const summary = {
-            ...stats,
-            lines: contentLineCount(input.content),
-            characters: input.content.length,
-          };
-          logToolCall(config, {
-            tool: toolNames.write,
-            ...workspaceLogContext(workspace, extra.sessionId),
-            path: input.path,
-            success: true,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          return {
-            ...response,
-            _meta: {
-              tool: toolNames.write,
-              card: {
-                workspaceId,
-                path: input.path,
-                summary,
-                payload: {
-                  content: response.content,
-                  patch,
-                },
-              },
-            },
-            structuredContent: {
-              result: contentText(response.content),
-            },
-          };
-        },
-      });
-    },
+    async ({ workspaceId, ...input }, extra) => coreOperations.write(
+      { workspaceId, ...input },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      }
+    ),
   );
 
   registerAppTool(
@@ -2431,82 +2806,14 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runActivityToolWithHooks(
-        activityLifecycle,
-        hooks,
-        workspace,
-        extra._meta,
-        { workspaceId, ...input },
-        {
-          signal: extra.signal,
-        tool: toolNames.edit,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { path: input.path, editCount: input.edits.length },
-        isFailure: toolResultIsError,
-        changedPaths: (result) => toolResultIsError(result) ? [] : [input.path],
-        operation: async () => {
-          const startedAt = performance.now();
-          await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-            workspaces,
-            workspace,
-            [input.path],
-          );
-          const response = await editFileTool(input, {
-            cwd: workspace.root,
-            root: workspace.root,
-            fileRoots: workspaces.fileToolRoots(workspace),
-          });
-
-          if (response.isError) {
-            logFailedToolResponse(config, {
-              tool: toolNames.edit,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: input.path,
-            }, response.content, startedAt);
-            return response;
-          }
-
-          const stats = countDiffStats(
-            response.details?.patch ?? response.details?.diff,
-          );
-          const summary = {
-            ...stats,
-            editCount: input.edits.length,
-          };
-          const editResultText = `Edited ${input.path} (+${stats.additions} -${stats.removals}).`;
-          const editContent = [textBlock(editResultText)];
-          logToolCall(config, {
-            tool: toolNames.edit,
-            ...workspaceLogContext(workspace, extra.sessionId),
-            path: input.path,
-            success: true,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          return {
-            content: editContent,
-            _meta: {
-              tool: toolNames.edit,
-              card: {
-                workspaceId,
-                path: input.path,
-                summary,
-                payload: {
-                  diff: response.details?.diff,
-                  patch: response.details?.patch,
-                },
-              },
-            },
-            structuredContent: {
-              status: "applied" as const,
-              result: contentText(editContent),
-            },
-          };
-        },
-      });
-    },
+    async ({ workspaceId, ...input }, extra) => coreOperations.edit(
+      { workspaceId, ...input },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      }
+    ),
   );
   }
 
@@ -2529,73 +2836,14 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, newPath }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runActivityToolWithHooks(
-        activityLifecycle,
-        hooks,
-        workspace,
-        extra._meta,
-        { workspaceId, path, newPath },
-        {
-          signal: extra.signal,
-        tool: toolNames.rename,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { path, newPath, paths: [path, newPath] },
-        changedPaths: () => [path, newPath],
-        operation: async () => {
-          const startedAt = performance.now();
-          try {
-            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-              workspaces,
-              workspace,
-              [path, newPath],
-            );
-            await renamePath({ path, newPath }, {
-              cwd: workspace.root,
-              allowedRoots: workspaces.fileToolRoots(workspace),
-            });
-            const result = `Renamed ${path} to ${newPath}.`;
-            const content = [textBlock(result)];
-            logToolCall(config, {
-              tool: toolNames.rename,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: `${path} -> ${newPath}`,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-            return {
-              content,
-              _meta: {
-                tool: toolNames.rename,
-                card: {
-                  workspaceId,
-                  path: newPath,
-                  summary: { previousPath: path },
-                  payload: { content },
-                },
-              },
-              structuredContent: {
-                result,
-                status: "renamed" as const,
-                path,
-                newPath,
-              },
-            };
-          } catch (error) {
-            logToolCall(config, {
-              tool: toolNames.rename,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path: `${path} -> ${newPath}`,
-              success: false,
-              durationMs: Math.round(performance.now() - startedAt),
-              error: error instanceof Error ? error.message : String(error),
-            });
-            throw error;
-          }
-        },
-      });
-    },
+    async ({ workspaceId, path, newPath }, extra) => coreOperations.rename(
+      { workspaceId, path, newPath },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      }
+    ),
   );
 
   registerAppTool(
@@ -2617,73 +2865,14 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, recursive }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      return runActivityToolWithHooks(
-        activityLifecycle,
-        hooks,
-        workspace,
-        extra._meta,
-        { workspaceId, path, recursive },
-        {
-          signal: extra.signal,
-        tool: toolNames.delete,
-        invocation: workspaceHookInvocation(workspace),
-        payload: { path, recursive: recursive ?? false },
-        changedPaths: () => [path],
-        operation: async () => {
-          const startedAt = performance.now();
-          try {
-            await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-              workspaces,
-              workspace,
-              [path],
-            );
-            const deleted = await deletePath({ path, recursive }, {
-              cwd: workspace.root,
-              allowedRoots: workspaces.fileToolRoots(workspace),
-            });
-            const result = `Deleted ${path}${deleted.recursive ? " recursively" : ""}.`;
-            const content = [textBlock(result)];
-            logToolCall(config, {
-              tool: toolNames.delete,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path,
-              success: true,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-            return {
-              content,
-              _meta: {
-                tool: toolNames.delete,
-                card: {
-                  workspaceId,
-                  path,
-                  summary: { recursive: deleted.recursive },
-                  payload: { content },
-                },
-              },
-              structuredContent: {
-                result,
-                status: "deleted" as const,
-                path,
-                recursive: deleted.recursive,
-              },
-            };
-          } catch (error) {
-            logToolCall(config, {
-              tool: toolNames.delete,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              path,
-              success: false,
-              durationMs: Math.round(performance.now() - startedAt),
-              error: error instanceof Error ? error.message : String(error),
-            });
-            throw error;
-          }
-        },
-      });
-    },
+    async ({ workspaceId, path, recursive }, extra) => coreOperations.delete(
+      { workspaceId, path, recursive },
+      {
+        requestMeta: extra._meta,
+        signal: extra.signal,
+        sessionId: extra.sessionId,
+      }
+    ),
   );
 
   if (config.toolMode === "codex") {
@@ -2886,16 +3075,11 @@ export function createMcpServer(
           if (processId !== undefined || outputId !== undefined || input !== undefined || interrupt !== undefined) {
             throw new Error("bash action=run does not accept processId, outputId, input, or interrupt.");
           }
-          let undeliveredProcessId: number | undefined;
-          const activityResult = await runActivityTool(
-            activityLifecycle,
-            workspace,
-            extra._meta,
-            toolNames.shell,
+          return coreOperations.shellRun(
             {
               workspaceId,
-              action,
               command,
+              surface: "bash",
               tty,
               columns,
               rows,
@@ -2904,81 +3088,12 @@ export function createMcpServer(
               timeoutMs,
               maxOutputTokens,
             },
-            async (activityContext) => {
-              try {
-                const result = await runToolWithHooks(hooks, {
+            {
+              requestMeta: extra._meta,
               signal: extra.signal,
-              tool: toolNames.shell,
-              invocation: workspaceHookInvocation(workspace),
-              payload: {
-                action,
-                command,
-                workingDirectory: workingDirectory ?? ".",
-              },
-              isFailure: toolResultIsError,
-              operation: async () => {
-              const startedAt = performance.now();
-              const cwd = workspaces.resolveWorkingDirectory(workspace, workingDirectory);
-              await assertWorkspaceInstructionsLoadedBeforeSideEffect(
-                workspaces,
-                workspace,
-                [cwd],
-              );
-                const snapshot = await processSessions.start({
-                  workspaceId,
-                  command,
-                  cwd,
-                  workspaceRoot: workspace.root,
-                  tty,
-                  columns,
-                  rows,
-                  yieldTimeMs,
-                  timeoutMs,
-                  maxOutputTokens,
-                  signal: extra.signal,
-                  audit: activityContext,
-                });
-                undeliveredProcessId = snapshot.running ? snapshot.processId : undefined;
-
-                logToolCall(config, {
-                tool: toolNames.shell,
-                ...workspaceLogContext(workspace, extra.sessionId),
-                workingDirectory: workingDirectory ?? ".",
-                command,
-                commandLength: command.length,
-                exitCode: snapshot.exitCode,
-                running: snapshot.running,
-                processId: snapshot.processId,
-                success: snapshot.running || (snapshot.exitCode === 0 && !snapshot.signal),
-                durationMs: Math.round(performance.now() - startedAt),
-              });
-
-                const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
-                  action,
-                  command,
-                  workingDirectory: workingDirectory ?? ".",
-                  running: snapshot.running,
-                  exitCode: snapshot.exitCode,
-                  wallTimeMs: snapshot.wallTimeMs,
-                });
-                return !snapshot.running && (snapshot.signal || snapshot.exitCode !== 0)
-                  ? { ...response, isError: true }
-                  : response;
-              },
-            });
-                extra.signal.throwIfAborted();
-                return result;
-              } catch (error) {
-                if (undeliveredProcessId !== undefined) {
-                  processSessions.discardUndelivered(workspaceId, undeliveredProcessId);
-                }
-                throw error;
-              }
+              sessionId: extra.sessionId,
             },
-            processActivityOutcome,
           );
-          markReturnedOutput(bashOutputStore, activityResult);
-          return activityResult;
         }
 
         if (action === "output") {
@@ -3072,6 +3187,7 @@ export function createMcpServer(
     hooks,
     activityLifecycle,
     bashOutputStore,
+    (input, context) => coreOperations.shellRun(input, context),
   );
 
   return server;
