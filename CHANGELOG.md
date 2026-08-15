@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-08-15
+
+### Fixed
+
+- Closed all Activity query SQLite handles before temporary-state cleanup so the backend acceptance suite also passes on Windows, where open database files cannot be unlinked.
+
 ## [0.5.3] - 2026-08-15
 
 ### Added
