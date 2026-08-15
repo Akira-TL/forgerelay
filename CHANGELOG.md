@@ -4,6 +4,19 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-08-15
+
+### Added
+
+- Added native multi-target `read`, `edit`, and `delete` operations so Agents can read several files or apply one validated edit/delete intent across multiple paths in a single interaction; bulk mutations preflight every target before the first filesystem change and report mutation-phase partial failures without claiming transactional rollback.
+- Added the `batch.execute` capability for 1–100 heterogeneous Read/Write/Edit/Rename/Delete/Bash/Capability tasks with caller-controlled concurrency from 1–10, stable input-order results, continue-on-error execution, conflict-aware scheduling, conservative Bash/serial-Capability exclusivity, and Host cancellation that never invents Activities for queued work that did not start.
+- Added durable parent/child Activity relationships and aggregate summaries for native bulk and Batch execution, while preserving lazy child detail, compact Bash responses plus stable `outputId`, and restart-safe local audit/query behavior.
+
+### Changed
+
+- Capability definitions now declare and advertise an explicit Batch policy (`parallel`, `serial`, or `unsupported`); `hooks.check` and `code.intelligence` are parallel, `review.changes` is serial, while Host-native artifact download and recursive `batch.execute` use are unsupported inside a Batch.
+- Core work operations now share one internal execution seam so single MCP calls and Batch children use the same path validation, Hooks, Activity lifecycle, logging, cancellation, and result semantics instead of duplicating tool handlers.
+
 ## [0.5.4] - 2026-08-15
 
 ### Fixed
