@@ -25,7 +25,6 @@ const HEAVY = {
 
 test("Host Turn query contract persists summaries, lazy detail, and Bash output across restart", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-query-test-"));
-  t.after(async () => rm(stateDir, { recursive: true, force: true }));
 
   let clock = 0;
   const now = () => new Date(Date.UTC(2026, 7, 15, 3, 0, clock++));
@@ -39,6 +38,21 @@ test("Host Turn query contract persists summaries, lazy detail, and Bash output 
     outputId: () => "out_query_1",
   });
   const query = new ActivityQueryService(turns, audit, outputs);
+  let initialStoresClosed = false;
+  let restoredTurns: HostTurnStore | undefined;
+  let restoredAudit: ActivityAuditStore | undefined;
+  let restoredOutputs: BashOutputStore | undefined;
+  t.after(async () => {
+    restoredOutputs?.close();
+    restoredAudit?.close();
+    restoredTurns?.close();
+    if (!initialStoresClosed) {
+      outputs.close();
+      audit.close();
+      turns.close();
+    }
+    await rm(stateDir, { recursive: true, force: true });
+  });
 
   const turn = turns.begin("conversation_query");
   assert.equal(turn.turnId, "turn_query_1");
@@ -148,16 +162,12 @@ test("Host Turn query contract persists summaries, lazy detail, and Bash output 
   outputs.close();
   audit.close();
   turns.close();
+  initialStoresClosed = true;
 
-  const restoredTurns = new HostTurnStore(stateDir);
-  const restoredAudit = new ActivityAuditStore(stateDir);
-  const restoredOutputs = new BashOutputStore(stateDir);
+  restoredTurns = new HostTurnStore(stateDir);
+  restoredAudit = new ActivityAuditStore(stateDir);
+  restoredOutputs = new BashOutputStore(stateDir);
   const restoredQuery = new ActivityQueryService(restoredTurns, restoredAudit, restoredOutputs);
-  t.after(() => {
-    restoredOutputs.close();
-    restoredAudit.close();
-    restoredTurns.close();
-  });
 
   assert.equal(restoredTurns.get(turn.turnId)?.conversationScopeId, "conversation_query");
   assert.equal(restoredQuery.snapshot(turn.turnId).activities.length, 7);
