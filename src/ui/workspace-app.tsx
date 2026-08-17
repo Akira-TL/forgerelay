@@ -26,6 +26,7 @@ import {
   getToolHeaderSummary,
   type ToolDisplay,
 } from "./tool-display.js";
+import { ActivityPanelController } from "./activity/panel.js";
 import "./workspace-app.css";
 
 interface MountedPayload {
@@ -50,7 +51,6 @@ let currentPayload: MountedPayload | null = null;
 let currentPayloadContainer: HTMLElement | null = null;
 let openWorkspaceInstructionKey: string | null = null;
 let showAvailableWorkspaceInstructions = false;
-
 const maybeAppRoot = document.querySelector<HTMLElement>("#app");
 
 if (!maybeAppRoot) {
@@ -58,6 +58,7 @@ if (!maybeAppRoot) {
 }
 
 const appRoot = maybeAppRoot;
+const activityPanel = new ActivityPanelController(appRoot);
 
 void boot();
 
@@ -70,6 +71,18 @@ async function boot(): Promise<void> {
   );
 
   app.ontoolresult = (result) => {
+    if (activityPanel.accept(result)) {
+      card = null;
+      expanded = false;
+      reviewFilesExpanded = false;
+      openWorkspaceInstructionKey = null;
+      showAvailableWorkspaceInstructions = false;
+      errorMessage = null;
+      render();
+      return;
+    }
+
+    activityPanel.clear();
     const structuredContent = getStructuredContent<Partial<ToolResultCard>>(result);
     const metaCard = cardFromMeta(result);
     const structured = metaCard
@@ -106,10 +119,13 @@ async function boot(): Promise<void> {
     applyHostContext();
     // Workspace details inherit host variables directly. Rebuilding their DOM on
     // iframe resize would reset an in-progress instruction preview interaction.
-    if (card?.tool !== "open_workspace") renderPayloadIfNeeded();
+    if (activityPanel.active) activityPanel.render();
+    else if (card?.tool !== "open_workspace") renderPayloadIfNeeded();
   };
 
   app.onteardown = async () => {
+    connected = false;
+    activityPanel.detach();
     unmountPayload();
     return {};
   };
@@ -120,6 +136,7 @@ async function boot(): Promise<void> {
     if (initialContext) hostContext = initialContext;
     applyHostContext();
     connected = true;
+    activityPanel.attach(app);
   } catch (connectError) {
     connectionError = connectError instanceof Error
       ? connectError.message
@@ -156,6 +173,8 @@ function render(): void {
     renderEmpty("Connecting to host...");
     return;
   }
+
+  if (activityPanel.render()) return;
 
   if (!card) {
     renderEmpty(errorMessage ?? "Waiting for a tool result.", errorMessage ? "error" : "muted");
