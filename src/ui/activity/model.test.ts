@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applyActivitySnapshot,
   groupActivitySummaries,
+  isActivityBashOutput,
   isActivityDetail,
   isHostTurnSnapshot,
   shouldFollowActivityTail,
@@ -49,6 +50,29 @@ test("Activity Panel model recognizes Host Turn snapshots without mistaking tool
   assert.equal(isHostTurnSnapshot(snapshot(0, [])), true);
   assert.equal(isHostTurnSnapshot({ result: "read result", path: "file.txt" }), false);
   assert.equal(isHostTurnSnapshot({ turnId: "turn_ui", revision: 0, changed: true, state: "done" }), false);
+});
+
+test("Activity Panel model validates durable Bash output independently from Activity lifecycle state", () => {
+  assert.equal(isActivityBashOutput({
+    outputId: "out_1",
+    activityId: "act_bash",
+    processId: 7,
+    command: "npm test",
+    output: "ok\n",
+    status: "running",
+    timedOut: false,
+    startedAt: "2026-08-17T00:00:00.000Z",
+  }), true);
+  assert.equal(isActivityBashOutput({
+    outputId: "out_1",
+    activityId: "act_bash",
+    processId: 7,
+    command: "npm test",
+    output: "ok\n",
+    status: "returned",
+    timedOut: false,
+    startedAt: "2026-08-17T00:00:00.000Z",
+  }), false);
 });
 
 test("Activity Panel model accepts lazy detail only when it carries a valid Activity summary", () => {

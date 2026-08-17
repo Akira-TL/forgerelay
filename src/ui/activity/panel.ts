@@ -3,9 +3,11 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   applyActivitySnapshot,
   groupActivitySummaries,
+  isActivityBashOutput,
   isActivityDetail,
   isHostTurnSnapshot,
   shouldFollowActivityTail,
+  type ActivityBashOutput,
   type ActivityDetail,
   type ActivitySummary,
   type HostTurnSnapshot,
@@ -28,6 +30,10 @@ export class ActivityPanelController {
   private readonly details = new Map<string, ActivityDetail>();
   private readonly detailLoading = new Set<string>();
   private readonly detailErrors = new Map<string, string>();
+  private readonly outputs = new Map<string, ActivityBashOutput>();
+  private readonly outputLoading = new Set<string>();
+  private readonly outputErrors = new Map<string, string>();
+  private outputRefreshTimer: number | null = null;
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -137,15 +143,20 @@ export class ActivityPanelController {
   }
 
   private resetDetails(): void {
+    this.stopOutputRefresh();
     this.selectedActivityId = null;
     this.details.clear();
     this.detailLoading.clear();
     this.detailErrors.clear();
+    this.outputs.clear();
+    this.outputLoading.clear();
+    this.outputErrors.clear();
   }
 
   private toggleDetail(activity: ActivitySummary): void {
     if (!activity.detailAvailable) return;
     this.followTail = false;
+    this.stopOutputRefresh();
     if (this.selectedActivityId === activity.activityId) {
       this.selectedActivityId = null;
       this.render();
@@ -154,6 +165,15 @@ export class ActivityPanelController {
 
     this.selectedActivityId = activity.activityId;
     this.render();
+    if (isBashOutputActivity(activity)) {
+      const output = this.outputs.get(activity.outputId);
+      if (output?.status === "running") this.scheduleOutputRefresh(activity);
+      if (!output && !this.outputLoading.has(activity.outputId) && !this.outputErrors.has(activity.outputId)) {
+        void this.loadOutput(activity, true);
+      }
+      return;
+    }
+
     if (
       !this.details.has(activity.activityId) &&
       !this.detailLoading.has(activity.activityId) &&
@@ -195,6 +215,59 @@ export class ActivityPanelController {
     }
   }
 
+  private stopOutputRefresh(): void {
+    if (this.outputRefreshTimer !== null) {
+      window.clearTimeout(this.outputRefreshTimer);
+      this.outputRefreshTimer = null;
+    }
+  }
+
+  private scheduleOutputRefresh(activity: ActivitySummary): void {
+    if (!isBashOutputActivity(activity) || this.outputRefreshTimer !== null) return;
+    if (this.selectedActivityId !== activity.activityId) return;
+    this.outputRefreshTimer = window.setTimeout(() => {
+      this.outputRefreshTimer = null;
+      if (this.selectedActivityId === activity.activityId) void this.loadOutput(activity, false);
+    }, ACTIVITY_REFRESH_INTERVAL_MS);
+  }
+
+  private async loadOutput(activity: ActivitySummary, showLoading: boolean): Promise<void> {
+    if (!this.app || !this.snapshot || !isBashOutputActivity(activity)) return;
+    const turnId = this.snapshot.turnId;
+    const outputId = activity.outputId;
+    if (showLoading) this.outputLoading.add(outputId);
+    this.outputErrors.delete(outputId);
+    if (showLoading) this.render();
+
+    let shouldRefresh = false;
+    try {
+      const result = await this.app.callServerTool({
+        name: "activity_output",
+        arguments: { turnId, outputId },
+      });
+      if (result.isError) throw new Error("Bash output request failed.");
+      const output = result.structuredContent as unknown;
+      if (!isActivityBashOutput(output) || output.outputId !== outputId) {
+        throw new Error("Bash output returned an invalid durable output record.");
+      }
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.outputs.set(outputId, output);
+      shouldRefresh = output.status === "running";
+    } catch (outputError) {
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.outputErrors.set(
+        outputId,
+        outputError instanceof Error ? outputError.message : "Bash output request failed.",
+      );
+    } finally {
+      this.outputLoading.delete(outputId);
+      if (this.snapshot?.turnId === turnId) this.render();
+      if (shouldRefresh && this.selectedActivityId === activity.activityId) {
+        this.scheduleOutputRefresh(activity);
+      }
+    }
+  }
+
   private renderActivityEntry(activity: ActivitySummary, child: boolean): HTMLElement {
     const selected = this.selectedActivityId === activity.activityId;
     const entry = element("div", {
@@ -211,6 +284,8 @@ export class ActivityPanelController {
   }
 
   private renderActivityDetail(activity: ActivitySummary): HTMLElement {
+    if (isBashOutputActivity(activity)) return this.renderBashOutput(activity);
+
     const container = element("div", { className: "activity-detail" });
     const activityId = activity.activityId;
     if (this.detailLoading.has(activityId)) {
@@ -239,6 +314,46 @@ export class ActivityPanelController {
     if (container.childElementCount === 0) {
       container.append(element("div", { className: "activity-detail-status", text: "No additional details." }));
     }
+    return container;
+  }
+
+  private renderBashOutput(activity: ActivitySummary & { outputId: string }): HTMLElement {
+    const container = element("div", { className: "activity-detail activity-terminal" });
+    const outputId = activity.outputId;
+    if (this.outputLoading.has(outputId)) {
+      container.append(element("div", { className: "activity-detail-status", text: "Loading terminal output..." }));
+      return container;
+    }
+
+    const outputError = this.outputErrors.get(outputId);
+    if (outputError) {
+      container.append(element("div", {
+        className: "activity-detail-status error",
+        text: outputError,
+      }));
+      return container;
+    }
+
+    const output = this.outputs.get(outputId);
+    if (!output) {
+      container.append(element("div", { className: "activity-detail-status", text: "Terminal output unavailable." }));
+      return container;
+    }
+
+    container.append(
+      element("pre", {
+        className: "activity-terminal-command",
+        text: output.command,
+      }),
+      element("pre", {
+        className: "activity-terminal-output pretty-scrollbar",
+        text: output.output || "(no output)",
+      }),
+      element("div", {
+        className: `activity-terminal-meta status-${output.status}`,
+        text: bashOutputMeta(output),
+      }),
+    );
     return container;
   }
 
@@ -348,6 +463,24 @@ export class ActivityPanelController {
     main.append(section);
     this.root.replaceChildren(main);
   }
+}
+
+function isBashOutputActivity(
+  activity: ActivitySummary,
+): activity is ActivitySummary & { outputId: string } {
+  return (
+    (activity.kind === "shell" || activity.kind === "shell-result") &&
+    typeof activity.outputId === "string" &&
+    activity.outputId.length > 0
+  );
+}
+
+function bashOutputMeta(output: ActivityBashOutput): string {
+  const parts = [`Process ${output.processId}`, output.status];
+  if (output.timedOut) parts.push("timed out");
+  else if (output.signal) parts.push(`signal ${output.signal}`);
+  else if (output.exitCode !== undefined) parts.push(`exit ${output.exitCode}`);
+  return parts.join(" · ");
 }
 
 function renderActivityRow(

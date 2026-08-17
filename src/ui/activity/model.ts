@@ -45,6 +45,20 @@ export interface ActivityDetail {
   error?: string;
 }
 
+export interface ActivityBashOutput {
+  outputId: string;
+  activityId: string;
+  processId: number;
+  command: string;
+  output: string;
+  status: "running" | "done" | "failed";
+  exitCode?: number;
+  signal?: string;
+  timedOut: boolean;
+  startedAt: string;
+  finishedAt?: string;
+}
+
 export interface ActivityGroup {
   activity: ActivitySummary;
   children: ActivitySummary[];
@@ -69,6 +83,23 @@ export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {
 export function isActivityDetail(value: unknown): value is ActivityDetail {
   if (!isRecord(value) || !isActivitySummary(value.activity)) return false;
   return value.error === undefined || typeof value.error === "string";
+}
+
+export function isActivityBashOutput(value: unknown): value is ActivityBashOutput {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.outputId !== "string" ||
+    typeof value.activityId !== "string" ||
+    !isPositiveInteger(value.processId) ||
+    typeof value.command !== "string" ||
+    typeof value.output !== "string" ||
+    (value.status !== "running" && value.status !== "done" && value.status !== "failed") ||
+    typeof value.timedOut !== "boolean" ||
+    typeof value.startedAt !== "string"
+  ) return false;
+  if (value.exitCode !== undefined && !Number.isInteger(value.exitCode)) return false;
+  if (value.signal !== undefined && typeof value.signal !== "string") return false;
+  return value.finishedAt === undefined || typeof value.finishedAt === "string";
 }
 
 export function applyActivitySnapshot(
@@ -146,6 +177,10 @@ function isActivityRecordState(value: unknown): value is ActivityRecordState {
 
 function isNonnegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
