@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -72,6 +72,8 @@ import {
   writeFileTool,
 } from "./pi-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
+import { createForgeRelayAuthRouter } from "./oauth/router.js";
+import { publicEndpointUrl } from "./oauth/public-url.js";
 import { BatchExecutor } from "./operations/batch/executor.js";
 import { executeBulkRead } from "./operations/bulk-read.js";
 import { NativeBulkMutationExecutor } from "./operations/native-bulk-mutations.js";
@@ -3546,7 +3548,7 @@ export function createServer(
   const transports = new McpTransportRegistry<Transport>({
     maxTransports: MAX_MCP_TRANSPORT_SESSIONS,
   });
-  const mcpUrl = new URL("/mcp", config.publicBaseUrl);
+  const mcpUrl = publicEndpointUrl(config.publicBaseUrl, "mcp");
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
   const bearerAuth = requireBearerAuth({
@@ -3675,10 +3677,9 @@ export function createServer(
   });
 
   app.use(
-    mcpAuthRouter({
+    createForgeRelayAuthRouter({
       provider: oauthProvider,
       issuerUrl: new URL(config.publicBaseUrl),
-      baseUrl: new URL(config.publicBaseUrl),
       resourceServerUrl,
       scopesSupported: config.oauth.scopes,
       resourceName: "ForgeRelay",

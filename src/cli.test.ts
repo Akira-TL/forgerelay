@@ -54,7 +54,7 @@ try {
   });
 
   assert.match(output, /Public base URL: https:\/\/forge\.example\.com\/base\/path/);
-  assert.match(output, /Public MCP URL: https:\/\/forge\.example\.com\/mcp/);
+  assert.match(output, /Public MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
   assert.match(output, /Trust proxy: one hop/);

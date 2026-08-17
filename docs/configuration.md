@@ -55,7 +55,7 @@ When both are present, `FORGERELAY_*` wins.
 | `HOST` | Local bind host. Defaults to `127.0.0.1`. |
 | `PORT` | Local port. Defaults to `7676`. |
 | `FORGERELAY_ALLOWED_ROOTS` | Comma-separated roots that workspaces may open. |
-| `FORGERELAY_PUBLIC_BASE_URL` | Public origin, without `/mcp`. |
+| `FORGERELAY_PUBLIC_BASE_URL` | Public deployment base URL, without the final `/mcp`. A path prefix is preserved, e.g. `https://example.com/forgerelay/main` → `https://example.com/forgerelay/main/mcp`. |
 | `FORGERELAY_ALLOWED_HOSTS` | Optional Host-header allowlist override. |
 | `FORGERELAY_OAUTH_OWNER_TOKEN` | Owner password. Must be at least 16 characters. |
 | `FORGERELAY_STATE_DIR` | SQLite state directory. New default: `~/.local/share/forgerelay`. |

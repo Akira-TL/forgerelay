@@ -40,6 +40,7 @@ import {
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
+import { publicEndpointUrl } from "./oauth/public-url.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "help" | "version";
 const require = createRequire(import.meta.url);
@@ -266,7 +267,7 @@ async function runDoctor(): Promise<void> {
     const config = loadConfig();
     console.log(`Local MCP URL: http://${config.host}:${config.port}/mcp`);
     console.log(`Public base URL: ${config.publicBaseUrl}`);
-    console.log(`Public MCP URL: ${new URL("/mcp", config.publicBaseUrl).toString()}`);
+    console.log(`Public MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
     console.log(`Tool mode: ${config.toolMode}`);
     console.log(`Widgets: ${config.widgets}`);
     console.log(`Trust proxy: ${config.logging.trustProxy ? "one hop" : "off"}`);
