@@ -9,6 +9,11 @@ All notable ForgeRelay changes are documented here.
 ### Fixed
 
 - Repaired historical `bash_output_streams` SQLite schemas that had already recorded the Bash audit migration before later audit columns were added, preventing Bash completion from crashing ForgeRelay with `no such column: error` and avoiding ambiguous Host timeouts after commands had already executed.
+- Made the background-completion retention regression wait for the process to actually finish before crossing its retention window, removing a Windows-only timing race from the release suite.
+
+### Changed
+
+- The `release-tag-local-ci` Hook now runs the full cloud-equivalent verification surface on an isolated Node 22.19 / npm 10.9.3 checkout before allowing a stable tag push, instead of only checking a previously recorded proof whose parity suite could omit server-level tests.
 
 ## [0.5.5] - 2026-08-15
 
