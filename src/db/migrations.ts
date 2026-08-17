@@ -62,6 +62,11 @@ const migrations: Migration[] = [
     name: "activity-parent-child",
     up: migrateActivityParentChild,
   },
+  {
+    version: 12,
+    name: "bash-output-audit-columns",
+    up: migrateBashOutputAuditColumns,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -362,9 +367,15 @@ function migrateActivityParentChild(sqlite: Database.Database): void {
   `);
 }
 
+function migrateBashOutputAuditColumns(sqlite: Database.Database): void {
+  addColumnIfMissing(sqlite, "bash_output_streams", "error", "text");
+  addColumnIfMissing(sqlite, "bash_output_streams", "returned", "integer not null default 0");
+  addColumnIfMissing(sqlite, "bash_output_streams", "completion_claimed_at", "text");
+}
+
 function addColumnIfMissing(
   sqlite: Database.Database,
-  table: "workspace_sessions" | "local_agent_sessions",
+  table: "workspace_sessions" | "local_agent_sessions" | "bash_output_streams",
   column: string,
   definition: string,
 ): void {
