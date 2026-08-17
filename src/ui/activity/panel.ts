@@ -3,8 +3,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   applyActivitySnapshot,
   groupActivitySummaries,
+  isActivityDetail,
   isHostTurnSnapshot,
   shouldFollowActivityTail,
+  type ActivityDetail,
   type ActivitySummary,
   type HostTurnSnapshot,
 } from "./model.js";
@@ -22,6 +24,10 @@ export class ActivityPanelController {
   private refreshError: string | null = null;
   private followTail = true;
   private scrollTop = 0;
+  private selectedActivityId: string | null = null;
+  private readonly details = new Map<string, ActivityDetail>();
+  private readonly detailLoading = new Set<string>();
+  private readonly detailErrors = new Map<string, string>();
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -40,6 +46,7 @@ export class ActivityPanelController {
       this.expanded = false;
       this.followTail = true;
       this.scrollTop = 0;
+      this.resetDetails();
     }
     this.scheduleRefresh();
     return true;
@@ -57,6 +64,7 @@ export class ActivityPanelController {
     this.expanded = false;
     this.followTail = true;
     this.scrollTop = 0;
+    this.resetDetails();
   }
 
   detach(): void {
@@ -128,6 +136,112 @@ export class ActivityPanelController {
     }
   }
 
+  private resetDetails(): void {
+    this.selectedActivityId = null;
+    this.details.clear();
+    this.detailLoading.clear();
+    this.detailErrors.clear();
+  }
+
+  private toggleDetail(activity: ActivitySummary): void {
+    if (!activity.detailAvailable) return;
+    this.followTail = false;
+    if (this.selectedActivityId === activity.activityId) {
+      this.selectedActivityId = null;
+      this.render();
+      return;
+    }
+
+    this.selectedActivityId = activity.activityId;
+    this.render();
+    if (
+      !this.details.has(activity.activityId) &&
+      !this.detailLoading.has(activity.activityId) &&
+      !this.detailErrors.has(activity.activityId)
+    ) {
+      void this.loadDetail(activity);
+    }
+  }
+
+  private async loadDetail(activity: ActivitySummary): Promise<void> {
+    if (!this.app || !this.snapshot || !activity.detailAvailable) return;
+    const turnId = this.snapshot.turnId;
+    const activityId = activity.activityId;
+    this.detailLoading.add(activityId);
+    this.detailErrors.delete(activityId);
+    this.render();
+
+    try {
+      const result = await this.app.callServerTool({
+        name: "activity_detail",
+        arguments: { turnId, activityId },
+      });
+      if (result.isError) throw new Error("Activity detail request failed.");
+      const detail = result.structuredContent as unknown;
+      if (!isActivityDetail(detail) || detail.activity.activityId !== activityId) {
+        throw new Error("Activity detail returned an invalid Activity record.");
+      }
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.details.set(activityId, detail);
+    } catch (detailError) {
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.detailErrors.set(
+        activityId,
+        detailError instanceof Error ? detailError.message : "Activity detail request failed.",
+      );
+    } finally {
+      this.detailLoading.delete(activityId);
+      if (this.snapshot?.turnId === turnId) this.render();
+    }
+  }
+
+  private renderActivityEntry(activity: ActivitySummary, child: boolean): HTMLElement {
+    const selected = this.selectedActivityId === activity.activityId;
+    const entry = element("div", {
+      className: `activity-entry${selected ? " expanded" : ""}`,
+    });
+    entry.append(renderActivityRow(
+      activity,
+      child,
+      selected,
+      activity.detailAvailable ? () => this.toggleDetail(activity) : undefined,
+    ));
+    if (selected) entry.append(this.renderActivityDetail(activity));
+    return entry;
+  }
+
+  private renderActivityDetail(activity: ActivitySummary): HTMLElement {
+    const container = element("div", { className: "activity-detail" });
+    const activityId = activity.activityId;
+    if (this.detailLoading.has(activityId)) {
+      container.append(element("div", { className: "activity-detail-status", text: "Loading details..." }));
+      return container;
+    }
+
+    const detailError = this.detailErrors.get(activityId);
+    if (detailError) {
+      container.append(element("div", {
+        className: "activity-detail-status error",
+        text: detailError,
+      }));
+      return container;
+    }
+
+    const detail = this.details.get(activityId);
+    if (!detail) {
+      container.append(element("div", { className: "activity-detail-status", text: "Details unavailable." }));
+      return container;
+    }
+
+    if (detail.error) appendDetailSection(container, "Error", detail.error, true);
+    if (detail.request !== undefined) appendDetailSection(container, "Request", detail.request);
+    if (detail.result !== undefined) appendDetailSection(container, "Result", detail.result);
+    if (container.childElementCount === 0) {
+      container.append(element("div", { className: "activity-detail-status", text: "No additional details." }));
+    }
+    return container;
+  }
+
   private renderPanel(snapshot: HostTurnSnapshot): void {
     const previousViewport = this.root.querySelector<HTMLElement>(".activity-viewport");
     if (previousViewport) this.scrollTop = previousViewport.scrollTop;
@@ -195,11 +309,11 @@ export class ActivityPanelController {
           const groupElement = element("div", {
             className: `activity-group${group.children.length > 0 ? " grouped" : ""}`,
           });
-          groupElement.append(renderActivityRow(group.activity, false));
+          groupElement.append(this.renderActivityEntry(group.activity, false));
           if (group.children.length > 0) {
             const children = element("div", { className: "activity-children" });
             for (const child of group.children) {
-              children.append(renderActivityRow(child, true));
+              children.append(this.renderActivityEntry(child, true));
             }
             groupElement.append(children);
           }
@@ -236,16 +350,35 @@ export class ActivityPanelController {
   }
 }
 
-function renderActivityRow(activity: ActivitySummary, child: boolean): HTMLElement {
-  const row = element("div", {
-    className: [
-      "activity-row",
-      child ? "child" : "parent",
-      `kind-${activityTone(activity)}`,
-      `phase-${activityPhase(activity)}`,
-      activity.kind === "shell-result" ? "shell-result" : undefined,
-    ].filter(Boolean).join(" "),
-  });
+function renderActivityRow(
+  activity: ActivitySummary,
+  child: boolean,
+  expanded: boolean,
+  onToggle?: () => void,
+): HTMLElement {
+  const row = onToggle
+    ? element("button", {
+        className: [
+          "activity-row",
+          "interactive",
+          child ? "child" : "parent",
+          `kind-${activityTone(activity)}`,
+          `phase-${activityPhase(activity)}`,
+          activity.kind === "shell-result" ? "shell-result" : undefined,
+        ].filter(Boolean).join(" "),
+        type: "button",
+        ariaExpanded: String(expanded),
+      })
+    : element("div", {
+        className: [
+          "activity-row",
+          child ? "child" : "parent",
+          `kind-${activityTone(activity)}`,
+          `phase-${activityPhase(activity)}`,
+          activity.kind === "shell-result" ? "shell-result" : undefined,
+        ].filter(Boolean).join(" "),
+      });
+  if (onToggle) row.addEventListener("click", onToggle);
   row.dataset.activityId = activity.activityId;
 
   const icon = element("span", { className: "activity-icon", ariaHidden: "true" });
@@ -276,8 +409,41 @@ function renderActivityRow(activity: ActivitySummary, child: boolean): HTMLEleme
   meta.append(phase);
   if (duration) meta.append(element("span", { className: "activity-duration", text: duration }));
 
-  row.append(icon, main, meta);
+  const detailChevron = activity.detailAvailable
+    ? renderChevron(expanded)
+    : element("span", { className: "activity-detail-spacer", ariaHidden: "true" });
+  detailChevron.classList.add("activity-detail-chevron");
+
+  row.append(icon, main, meta, detailChevron);
   return row;
+}
+
+function appendDetailSection(
+  container: HTMLElement,
+  label: string,
+  value: unknown,
+  error = false,
+): void {
+  const section = element("section", {
+    className: `activity-detail-section${error ? " error" : ""}`,
+  });
+  section.append(
+    element("div", { className: "activity-detail-label", text: label }),
+    element("pre", {
+      className: "activity-detail-value pretty-scrollbar",
+      text: detailValueText(value),
+    }),
+  );
+  container.append(section);
+}
+
+function detailValueText(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function renderActivityProgress(children: NonNullable<ActivitySummary["children"]>): HTMLElement {

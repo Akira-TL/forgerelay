@@ -38,6 +38,13 @@ export interface HostTurnSnapshot {
   activities: ActivitySummary[];
 }
 
+export interface ActivityDetail {
+  activity: ActivitySummary;
+  request?: unknown;
+  result?: unknown;
+  error?: string;
+}
+
 export interface ActivityGroup {
   activity: ActivitySummary;
   children: ActivitySummary[];
@@ -57,6 +64,11 @@ export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {
   if (!isActivityStatus(value.state)) return false;
   if (!Array.isArray(value.activities)) return false;
   return value.activities.every(isActivitySummary);
+}
+
+export function isActivityDetail(value: unknown): value is ActivityDetail {
+  if (!isRecord(value) || !isActivitySummary(value.activity)) return false;
+  return value.error === undefined || typeof value.error === "string";
 }
 
 export function applyActivitySnapshot(

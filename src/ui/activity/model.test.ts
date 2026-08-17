@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applyActivitySnapshot,
   groupActivitySummaries,
+  isActivityDetail,
   isHostTurnSnapshot,
   shouldFollowActivityTail,
   type ActivitySummary,
@@ -48,6 +49,14 @@ test("Activity Panel model recognizes Host Turn snapshots without mistaking tool
   assert.equal(isHostTurnSnapshot(snapshot(0, [])), true);
   assert.equal(isHostTurnSnapshot({ result: "read result", path: "file.txt" }), false);
   assert.equal(isHostTurnSnapshot({ turnId: "turn_ui", revision: 0, changed: true, state: "done" }), false);
+});
+
+test("Activity Panel model accepts lazy detail only when it carries a valid Activity summary", () => {
+  const summary = activity("act_detail");
+  assert.equal(isActivityDetail({ activity: summary, request: { path: "detail.txt" } }), true);
+  assert.equal(isActivityDetail({ activity: summary, result: "done", error: "failed" }), true);
+  assert.equal(isActivityDetail({ request: { path: "detail.txt" } }), false);
+  assert.equal(isActivityDetail({ activity: { activityId: "act_detail" } }), false);
 });
 
 test("Activity Panel model preserves summaries when an unchanged revision omits activities", () => {
