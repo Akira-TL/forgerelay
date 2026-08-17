@@ -2477,7 +2477,13 @@ test("completed background results remain deliverable after the full-output rete
   });
   assert.equal(structuredContent(shell).running, true);
 
-  await new Promise((resolve) => setTimeout(resolve, 140));
+  const completionDeadline = performance.now() + 5_000;
+  while (processSessions.stats().completed === 0 && performance.now() < completionDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(processSessions.stats().completed, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
   const read = await context.client.callTool({
     name: "read",
     arguments: { workspaceId, path: "AGENTS.md" },
