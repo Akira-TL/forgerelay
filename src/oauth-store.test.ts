@@ -53,6 +53,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 9, name: "bash-output-audit" },
       { version: 10, name: "activity-host-turns" },
       { version: 11, name: "activity-parent-child" },
+      { version: 12, name: "bash-output-audit-columns" },
     ]);
   } finally {
     database.close();
