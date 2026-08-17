@@ -161,6 +161,7 @@ interface DiffStats {
 
 type ToolWidgetKind =
   | "workspace"
+  | "activity"
   | "read"
   | "write"
   | "edit"
@@ -2569,7 +2570,11 @@ export function createMcpServer(
     },
   );
 
-  registerActivityQueryTools(server, activityQueries);
+  registerActivityQueryTools(
+    server,
+    activityQueries,
+    toolWidgetDescriptorMeta(config, "activity")._meta,
+  );
 
   registerAppTool(
     server,

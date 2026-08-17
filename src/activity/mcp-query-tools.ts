@@ -13,6 +13,7 @@ const READ_ONLY_ANNOTATIONS = {
 
 const activitySummarySchema = z.object({
   activityId: z.string(),
+  parentActivityId: z.string().optional(),
   tool: z.string(),
   kind: z.string(),
   status: z.enum(["working", "done", "error"]),
@@ -28,6 +29,12 @@ const activitySummarySchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string().optional(),
   durationMs: z.number().nonnegative().optional(),
+  children: z.object({
+    total: z.number().int().nonnegative(),
+    working: z.number().int().nonnegative(),
+    done: z.number().int().nonnegative(),
+    error: z.number().int().nonnegative(),
+  }).optional(),
 });
 
 const snapshotOutputSchema = {
@@ -41,7 +48,11 @@ const snapshotOutputSchema = {
 export function registerActivityQueryTools(
   server: McpServer,
   queries: ActivityQueryService,
+  panelMeta: Record<string, unknown> = {},
 ): void {
+  const panelUi = typeof panelMeta.ui === "object" && panelMeta.ui !== null
+    ? panelMeta.ui as Record<string, unknown>
+    : {};
   registerAppTool(
     server,
     "activity_panel",
@@ -51,7 +62,13 @@ export function registerActivityQueryTools(
         "Begin one ForgeRelay Host Turn lifecycle for subsequent project work. This orchestration call does not read or modify project files. Call it once before the first ForgeRelay work operation in a Host Turn that performs project work.",
       inputSchema: {},
       outputSchema: snapshotOutputSchema,
-      _meta: { ui: { visibility: ["model", "app"] } },
+      _meta: {
+        ...panelMeta,
+        ui: {
+          ...panelUi,
+          visibility: ["model", "app"],
+        },
+      },
       annotations: {
         ...READ_ONLY_ANNOTATIONS,
         idempotentHint: false,

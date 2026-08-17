@@ -65,6 +65,19 @@ test("MCP instructions separate capability contract from configurable workflow p
     ui?: { resourceUri?: string; visibility?: string[] };
     "openai/outputTemplate"?: string;
   } | undefined;
+  const activityPanelMeta = activityPanelTool?._meta as {
+    ui?: { resourceUri?: string; visibility?: string[] };
+    "openai/outputTemplate"?: string;
+  } | undefined;
+  const activitySnapshotOutput = activityDataTools[0]?.outputSchema as {
+    properties?: {
+      activities?: {
+        items?: {
+          properties?: Record<string, unknown>;
+        };
+      };
+    };
+  } | undefined;
   const shellInputProperties = (shellTool?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   } | undefined)?.properties;
@@ -102,7 +115,14 @@ test("MCP instructions separate capability contract from configurable workflow p
   );
   assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
   assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
-  assert.deepEqual((activityPanelTool?._meta as { ui?: { visibility?: string[] } })?.ui?.visibility, ["model", "app"]);
+  assert.match(
+    activityPanelMeta?.ui?.resourceUri ?? "",
+    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
+  );
+  assert.deepEqual(activityPanelMeta?.ui?.visibility, ["model", "app"]);
+  assert.equal(activityPanelMeta?.["openai/outputTemplate"], activityPanelMeta?.ui?.resourceUri);
+  assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.parentActivityId);
+  assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.children);
   for (const tool of activityDataTools) {
     assert.ok(tool);
     assert.deepEqual((tool?._meta as { ui?: { visibility?: string[] } })?.ui?.visibility, ["app"]);
@@ -372,6 +392,10 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
   assert.match(reviewMeta?.card?.payload?.patch ?? "", /reviewed\.txt/);
   const tools = await context.client.listTools();
   assert.equal(tools.tools.some((tool) => tool.name === "show_changes"), false);
+  const activityPanelMeta = tools.tools.find((tool) => tool.name === "activity_panel")?._meta as {
+    ui?: { resourceUri?: string };
+  } | undefined;
+  assert.equal(activityPanelMeta?.ui?.resourceUri, undefined);
 });
 
 test("artifact.download capability preserves native-file transport without a dedicated tool alias", async (t) => {
