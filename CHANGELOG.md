@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-08-17
+
+### Fixed
+
+- Repaired historical `bash_output_streams` SQLite schemas that had already recorded the Bash audit migration before later audit columns were added, preventing Bash completion from crashing ForgeRelay with `no such column: error` and avoiding ambiguous Host timeouts after commands had already executed.
+
 ## [0.5.5] - 2026-08-15
 
 ### Added
