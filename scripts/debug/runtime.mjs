@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,59 +16,56 @@ export function createDebugOwnerToken() {
   return randomBytes(32).toString("base64url");
 }
 
-export function productConfigDir({ env = process.env, home = homedir() } = {}) {
-  const explicit = env.FORGERELAY_CONFIG_DIR ?? env.DEVSPACE_CONFIG_DIR;
+export function interactiveDebugConfigDir({ env = process.env, home = homedir() } = {}) {
+  const explicit = env.FORGERELAY_DEBUG_CONFIG_DIR;
   if (explicit) return resolve(explicit.startsWith("~/") ? join(home, explicit.slice(2)) : explicit);
-
-  const current = join(home, ".forgerelay");
-  const legacy = join(home, ".devspace");
-  return resolve(existsSync(current) || !existsSync(legacy) ? current : legacy);
+  return resolve(join(home, ".forgerelay", "debug"));
 }
 
-export function productOwnerToken({ env = process.env, configDir = productConfigDir({ env }) } = {}) {
-  const environmentToken = env.FORGERELAY_OAUTH_OWNER_TOKEN ?? env.DEVSPACE_OAUTH_OWNER_TOKEN;
-  if (environmentToken?.trim()) return environmentToken.trim();
-
+function interactiveDebugOwnerToken(configDir) {
   const authPath = join(configDir, "auth.json");
   let auth;
   try {
     auth = JSON.parse(readFileSync(authPath, "utf8"));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`Unable to load product Owner password from ${authPath}: ${reason}`);
+    throw new Error(`Unable to load interactive debug Owner password from ${authPath}: ${reason}`);
   }
 
   const token = typeof auth.ownerToken === "string" ? auth.ownerToken.trim() : "";
   if (!token) {
-    throw new Error(`Product Owner password is missing from ${authPath}. Run: forgerelay init`);
+    throw new Error(`Interactive debug Owner password is missing from ${authPath}.`);
   }
   return token;
 }
 
-export function createProductDebugEnvironment({
+export function createInteractiveDebugEnvironment({
   env = process.env,
   home = homedir(),
-  stateDir = resolve(debugRoot, "state"),
-  worktreeRoot = resolve(debugRoot, "worktrees"),
 } = {}) {
-  const configDir = productConfigDir({ env, home });
-  const ownerToken = env.FORGERELAY_DEBUG_OWNER_TOKEN?.trim() || productOwnerToken({ env, configDir });
+  const configDir = interactiveDebugConfigDir({ env, home });
+  const ownerToken = interactiveDebugOwnerToken(configDir);
   mkdirSync(debugRoot, { recursive: true });
 
-  const debugEnv = {
-    ...env,
-    HOST: "127.0.0.1",
-    PORT: "7677",
-    FORGERELAY_CONFIG_DIR: configDir,
-    FORGERELAY_STATE_DIR: stateDir,
-    FORGERELAY_WORKTREE_ROOT: worktreeRoot,
-  };
-  if (env.FORGERELAY_DEBUG_OWNER_TOKEN?.trim()) {
-    debugEnv.FORGERELAY_OAUTH_OWNER_TOKEN = ownerToken;
+  const debugEnv = { ...env };
+  for (const key of Object.keys(debugEnv)) {
+    if (key === "HOST" || key === "PORT") {
+      delete debugEnv[key];
+      continue;
+    }
+    if (key.startsWith("DEVSPACE_")) {
+      delete debugEnv[key];
+      continue;
+    }
+    if (
+      key.startsWith("FORGERELAY_")
+      && !key.startsWith("FORGERELAY_LOG_")
+      && !key.startsWith("FORGERELAY_DEBUG_")
+    ) {
+      delete debugEnv[key];
+    }
   }
-  if (env.FORGERELAY_DEBUG_WIDGETS !== undefined) {
-    debugEnv.FORGERELAY_WIDGETS = env.FORGERELAY_DEBUG_WIDGETS;
-  }
+  debugEnv.FORGERELAY_CONFIG_DIR = configDir;
 
   return { ownerToken, configDir, env: debugEnv };
 }

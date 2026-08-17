@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { createProductDebugEnvironment, debugBaseUrl, debugMcpUrl, repoRoot } from "./runtime.mjs";
+import { createInteractiveDebugEnvironment, debugBaseUrl, debugMcpUrl, repoRoot } from "./runtime.mjs";
 
-const { ownerToken, configDir, env } = createProductDebugEnvironment();
+const { ownerToken, configDir, env } = createInteractiveDebugEnvironment();
 
 console.error("[forgerelay:debug] local debug server");
-console.error(`[forgerelay:debug] product config: ${configDir}/config.json`);
+console.error(`[forgerelay:debug] debug config: ${configDir}/config.json`);
 console.error(`[forgerelay:debug] health: ${debugBaseUrl}/healthz`);
 console.error(`[forgerelay:debug] MCP: ${debugMcpUrl}`);
 console.error(`[forgerelay:debug] Owner password: ${ownerToken}`);

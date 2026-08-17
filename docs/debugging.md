@@ -13,11 +13,17 @@ npm run dev
 
 `npm run debug:serve` is an explicit alias for the same command.
 
-The interactive debug launcher mirrors the normal product configuration from
-`~/.forgerelay` (or the configured/legacy product config directory), including
-the same Owner password. It overrides only the local debug runtime boundaries
-needed to avoid colliding with the installed server: bind host/port plus isolated
-state and managed-worktree directories. It binds locally to:
+The interactive debug launcher uses one dedicated persisted configuration at:
+
+```text
+~/.forgerelay/debug/config.json
+~/.forgerelay/debug/auth.json
+```
+
+That configuration is independent from the normal `~/.forgerelay` production
+configuration. Keep the debug public URL, allowed Hosts, roots, runtime state,
+and Owner password there instead of relying on launcher-generated overrides. The
+launcher binds according to that config; the standard local debug setup uses:
 
 ```text
 http://127.0.0.1:7677
@@ -32,17 +38,17 @@ http://127.0.0.1:7677/.well-known/oauth-authorization-server
 http://127.0.0.1:7677/mcp
 ```
 
-The debug server watches `src/` and restarts after source changes. By default the
-Owner password is the same one used by the normal product configuration, so
-stopping and starting the 7677 launcher does not change Host credentials.
+The debug server watches `src/` and restarts after source changes. Its Owner
+password comes from `~/.forgerelay/debug/auth.json`, so stopping and restarting
+7677 does not change Host credentials. If the debug endpoint should share the
+production Owner password, copy that value once into the debug `auth.json`; the
+launcher does not synchronize or rotate credentials implicitly.
 
-To deliberately override the Owner password for one interactive debug launch:
+To relocate the entire interactive debug config explicitly, use:
 
 ```bash
-FORGERELAY_DEBUG_OWNER_TOKEN="local-debug-password-at-least-16-chars" npm run dev
+FORGERELAY_DEBUG_CONFIG_DIR=/path/to/debug-config npm run dev
 ```
-
-Do not use that debug-only variable for a publicly reachable ForgeRelay deployment.
 
 ## Run the end-to-end acceptance
 
@@ -113,7 +119,7 @@ scripts/debug/config.json
 
 It deliberately contains no Owner password. `debug:accept` generates an isolated
 credential and passes it through the environment. Interactive `debug:serve` does
-not use this fixture config; it mirrors the normal product config instead.
+not use this fixture config; it uses `~/.forgerelay/debug` instead.
 
 The acceptance fixture enables all Hooks v1 events with the local recorder at:
 
@@ -151,8 +157,8 @@ The debug workflow is intentionally explicit rather than hidden in ad-hoc shell
 commands:
 
 - `scripts/debug/config.json` — isolated acceptance-fixture configuration and hook setup;
-- `scripts/debug/runtime.mjs` — shared paths plus product-mirroring and isolated acceptance environments;
-- `scripts/debug/serve.mjs` — watched 7677 launcher that mirrors the normal product config;
+- `scripts/debug/runtime.mjs` — shared paths plus persisted interactive-debug and isolated acceptance environments;
+- `scripts/debug/serve.mjs` — watched 7677 launcher that uses `~/.forgerelay/debug`;
 - `scripts/debug/accept.mjs` — real HTTP/OAuth/MCP acceptance runner;
 - `scripts/debug/hook-recorder.mjs` — sanitized JSONL lifecycle recorder.
 
