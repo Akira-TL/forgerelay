@@ -156,7 +156,6 @@ export class ActivityPanelController {
 
   private toggleDetail(activity: ActivitySummary): void {
     if (!activity.detailAvailable) return;
-    this.followTail = false;
     this.stopOutputRefresh();
     if (this.selectedActivityId === activity.activityId) {
       this.selectedActivityId = null;

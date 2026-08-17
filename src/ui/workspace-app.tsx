@@ -26,6 +26,7 @@ import {
   getToolHeaderSummary,
   type ToolDisplay,
 } from "./tool-display.js";
+import { routeActivityToolResult } from "./activity/model.js";
 import { ActivityPanelController } from "./activity/panel.js";
 import "./workspace-app.css";
 
@@ -71,7 +72,8 @@ async function boot(): Promise<void> {
   );
 
   app.ontoolresult = (result) => {
-    if (activityPanel.accept(result)) {
+    const activityRoute = routeActivityToolResult(activityPanel.active, result.structuredContent);
+    if (activityRoute === "activity" && activityPanel.accept(result)) {
       card = null;
       expanded = false;
       reviewFilesExpanded = false;
@@ -82,7 +84,8 @@ async function boot(): Promise<void> {
       return;
     }
 
-    activityPanel.clear();
+    if (activityRoute === "preserve-panel") return;
+
     const structuredContent = getStructuredContent<Partial<ToolResultCard>>(result);
     const metaCard = cardFromMeta(result);
     const structured = metaCard

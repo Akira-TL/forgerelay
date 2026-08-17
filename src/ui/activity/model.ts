@@ -77,6 +77,16 @@ export function readActivityPanelDefaultExpanded(meta: unknown): boolean {
   return meta[ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY] === true;
 }
 
+export type ActivityToolResultRoute = "activity" | "preserve-panel" | "tool-card";
+
+export function routeActivityToolResult(
+  panelActive: boolean,
+  structuredContent: unknown,
+): ActivityToolResultRoute {
+  if (isHostTurnSnapshot(structuredContent)) return "activity";
+  return panelActive ? "preserve-panel" : "tool-card";
+}
+
 export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {
   if (!isRecord(value)) return false;
   if (typeof value.turnId !== "string") return false;

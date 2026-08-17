@@ -7,6 +7,7 @@ import {
   isActivityDetail,
   isHostTurnSnapshot,
   readActivityPanelDefaultExpanded,
+  routeActivityToolResult,
   shouldFollowActivityTail,
   type ActivitySummary,
   type HostTurnSnapshot,
@@ -52,6 +53,13 @@ test("Activity Panel model reads default-expanded only from the dedicated result
   assert.equal(readActivityPanelDefaultExpanded({ "forgerelay/activityPanelDefaultExpanded": true }), true);
   assert.equal(readActivityPanelDefaultExpanded({ "forgerelay/activityPanelDefaultExpanded": false }), false);
   assert.equal(readActivityPanelDefaultExpanded({ activityPanelDefaultExpanded: true }), false);
+});
+
+test("Activity Panel routing preserves an active Host Turn when ordinary tool results arrive", () => {
+  const hostTurn = snapshot(0, []);
+  assert.equal(routeActivityToolResult(false, hostTurn), "activity");
+  assert.equal(routeActivityToolResult(true, { result: "read result", path: "file.txt" }), "preserve-panel");
+  assert.equal(routeActivityToolResult(false, { result: "read result", path: "file.txt" }), "tool-card");
 });
 
 test("Activity Panel model recognizes Host Turn snapshots without mistaking tool cards for them", () => {
