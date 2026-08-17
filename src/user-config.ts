@@ -27,6 +27,7 @@ export interface ForgeRelayUserConfig {
   worktreeRoot?: string;
   artifactsEnabled?: boolean;
   artifactMaxFileBytes?: number;
+  activityPanelExpanded?: boolean;
   workflowInstructions?: string | false;
   appendInstructions?: string;
   agentDir?: string;

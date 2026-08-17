@@ -1,0 +1,1 @@
+export const ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY = "forgerelay/activityPanelDefaultExpanded";

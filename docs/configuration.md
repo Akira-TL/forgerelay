@@ -338,6 +338,13 @@ regular Agent workflows should use the single `bash` process lifecycle.
 | `changes` | Attach UI to `open_workspace` and Capability Gateway review results from `review.changes`. |
 | `off` | Disable widget UI. |
 
+The Activity Panel starts collapsed by default. Set
+`FORGERELAY_ACTIVITY_PANEL_EXPANDED=1` to start each new Host Turn expanded. The
+same preference may be persisted as `activityPanelExpanded: true` in
+`~/.forgerelay/config.json`; an explicit environment variable overrides the
+persisted value. The preference is delivered only to the MCP App and does not
+change the Activity snapshot/query contract.
+
 ## Lifecycle hooks
 
 Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；命中后 ForgeRelay 直接执行，不再增加批准步骤。

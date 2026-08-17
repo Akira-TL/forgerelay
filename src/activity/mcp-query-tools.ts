@@ -3,6 +3,7 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { openAiConversationScopeId } from "../request-meta.js";
 import { ActivityQueryService } from "./query-service.js";
+import { ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY } from "./ui/contract.js";
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -49,6 +50,7 @@ export function registerActivityQueryTools(
   server: McpServer,
   queries: ActivityQueryService,
   panelMeta: Record<string, unknown> = {},
+  panelDefaultExpanded = false,
 ): void {
   const panelUi = typeof panelMeta.ui === "object" && panelMeta.ui !== null
     ? panelMeta.ui as Record<string, unknown>
@@ -77,6 +79,9 @@ export function registerActivityQueryTools(
     async (_input, extra) => {
       const snapshot = queries.beginTurn(openAiConversationScopeId(extra._meta));
       return {
+        _meta: {
+          [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
+        },
         content: [{
           type: "text" as const,
           text: `Started ForgeRelay Activity Panel Host Turn ${snapshot.turnId}.`,

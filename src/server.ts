@@ -2574,6 +2574,7 @@ export function createMcpServer(
     server,
     activityQueries,
     toolWidgetDescriptorMeta(config, "activity")._meta,
+    config.activityPanelExpanded,
   );
 
   registerAppTool(

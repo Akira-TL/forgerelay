@@ -6,6 +6,7 @@ import {
   isActivityBashOutput,
   isActivityDetail,
   isHostTurnSnapshot,
+  readActivityPanelDefaultExpanded,
   shouldFollowActivityTail,
   type ActivitySummary,
   type HostTurnSnapshot,
@@ -45,6 +46,13 @@ function snapshot(
     ...overrides,
   };
 }
+
+test("Activity Panel model reads default-expanded only from the dedicated result metadata key", () => {
+  assert.equal(readActivityPanelDefaultExpanded(undefined), false);
+  assert.equal(readActivityPanelDefaultExpanded({ "forgerelay/activityPanelDefaultExpanded": true }), true);
+  assert.equal(readActivityPanelDefaultExpanded({ "forgerelay/activityPanelDefaultExpanded": false }), false);
+  assert.equal(readActivityPanelDefaultExpanded({ activityPanelDefaultExpanded: true }), false);
+});
 
 test("Activity Panel model recognizes Host Turn snapshots without mistaking tool cards for them", () => {
   assert.equal(isHostTurnSnapshot(snapshot(0, [])), true);

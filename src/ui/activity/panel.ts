@@ -6,6 +6,7 @@ import {
   isActivityBashOutput,
   isActivityDetail,
   isHostTurnSnapshot,
+  readActivityPanelDefaultExpanded,
   shouldFollowActivityTail,
   type ActivityBashOutput,
   type ActivityDetail,
@@ -49,7 +50,7 @@ export class ActivityPanelController {
     this.snapshot = applyActivitySnapshot(this.snapshot, incoming);
     this.refreshError = null;
     if (changedTurn) {
-      this.expanded = false;
+      this.expanded = readActivityPanelDefaultExpanded(result._meta);
       this.followTail = true;
       this.scrollTop = 0;
       this.resetDetails();

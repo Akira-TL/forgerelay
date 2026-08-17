@@ -13,6 +13,8 @@ const baseEnv = {
 };
 
 assert.equal(loadConfig(baseEnv).widgets, "full");
+assert.equal(loadConfig(baseEnv).activityPanelExpanded, false);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ACTIVITY_PANEL_EXPANDED: "1" }).activityPanelExpanded, true);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "changes" }).widgets, "changes");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "full" }).widgets, "full");
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off" }).widgets, "off");
@@ -63,6 +65,7 @@ writeFileSync(
 writeFileSync(
   join(forgeRelayConfigDir, "config.json"),
   JSON.stringify({
+    activityPanelExpanded: true,
     hooks: {
       BeforeTool: [{ name: "Legacy inline hook", command: "echo inline" }],
     },
@@ -79,6 +82,12 @@ const forgeRelayConfig = loadConfig({
   DEVSPACE_SUBAGENTS: "0",
 });
 assert.equal(forgeRelayConfig.widgets, "changes");
+assert.equal(forgeRelayConfig.activityPanelExpanded, true);
+assert.equal(loadConfig({
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: forgeRelayConfigDir,
+  FORGERELAY_ACTIVITY_PANEL_EXPANDED: "0",
+}).activityPanelExpanded, false);
 assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
 assert.deepEqual(

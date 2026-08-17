@@ -25,6 +25,7 @@ export interface ServerConfig {
   workflowInstructions: string | false | undefined;
   appendInstructions: string | undefined;
   widgets: WidgetMode;
+  activityPanelExpanded: boolean;
   stateDir: string;
   worktreeRoot: string;
   artifactsEnabled: boolean;
@@ -302,6 +303,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       files.config.appendInstructions,
     ),
     widgets: parseWidgetMode(productEnv(env, "WIDGETS")),
+    activityPanelExpanded:
+      productEnv(env, "ACTIVITY_PANEL_EXPANDED") === undefined
+        ? files.config.activityPanelExpanded === true
+        : parseBoolean(productEnv(env, "ACTIVITY_PANEL_EXPANDED")),
     stateDir: resolve(expandHomePath(productEnv(env, "STATE_DIR") ?? files.config.stateDir ?? defaultStateDir())),
     worktreeRoot: resolve(expandHomePath(productEnv(env, "WORKTREE_ROOT") ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),
     artifactsEnabled:

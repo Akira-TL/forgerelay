@@ -1,3 +1,5 @@
+import { ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY } from "../../activity/ui/contract.js";
+
 export type ActivitySummaryStatus = "working" | "done" | "error";
 export type ActivityRecordState = "executing" | "returned" | "done" | "failed" | "blocked";
 export type ActivityBashPhase = "executing" | "returned" | "done" | "error";
@@ -68,6 +70,11 @@ export interface ActivityScrollState {
   scrollTop: number;
   clientHeight: number;
   scrollHeight: number;
+}
+
+export function readActivityPanelDefaultExpanded(meta: unknown): boolean {
+  if (!isRecord(meta)) return false;
+  return meta[ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY] === true;
 }
 
 export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {

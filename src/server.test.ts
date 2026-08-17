@@ -1080,6 +1080,26 @@ test("top-level work tools share the persistent Activity lifecycle while Bash pr
   assert.equal(context.auditStore.getActivity("act_test_10"), undefined);
 });
 
+test("Activity Panel exposes the default-expanded preference only through app result metadata", async (t) => {
+  const collapsed = await fixture(t);
+  const collapsedPanel = await collapsed.client.callTool({ name: "activity_panel", arguments: {} });
+  assert.equal(
+    (collapsedPanel._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelDefaultExpanded"],
+    false,
+  );
+
+  const expanded = await fixture(t, {
+    env: { DEVSPACE_ACTIVITY_PANEL_EXPANDED: "1" },
+  });
+  const expandedPanel = await expanded.client.callTool({ name: "activity_panel", arguments: {} });
+  assert.equal(
+    (expandedPanel._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelDefaultExpanded"],
+    true,
+  );
+  assert.equal(structuredContent(expandedPanel).turnId, "turn_host_test_1");
+  assert.equal(structuredContent(expandedPanel).activityPanelDefaultExpanded, undefined);
+});
+
 test("Activity Panel establishes one durable Host Turn with app-only summary, detail, and Bash output queries", async (t) => {
   const context = await fixture(t);
   const conversation = "chat-activity-query-contract";
