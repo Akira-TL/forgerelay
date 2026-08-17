@@ -1,13 +1,12 @@
 import { spawn } from "node:child_process";
-import { createDebugEnvironment, debugBaseUrl, debugConfigDir, debugHookLog, debugMcpUrl, repoRoot } from "./runtime.mjs";
+import { createProductDebugEnvironment, debugBaseUrl, debugMcpUrl, repoRoot } from "./runtime.mjs";
 
-const { ownerToken, env } = createDebugEnvironment();
+const { ownerToken, configDir, env } = createProductDebugEnvironment();
 
 console.error("[forgerelay:debug] local debug server");
-console.error(`[forgerelay:debug] config: ${debugConfigDir}/config.json`);
+console.error(`[forgerelay:debug] product config: ${configDir}/config.json`);
 console.error(`[forgerelay:debug] health: ${debugBaseUrl}/healthz`);
 console.error(`[forgerelay:debug] MCP: ${debugMcpUrl}`);
-console.error(`[forgerelay:debug] hook log: ${debugHookLog}`);
 console.error(`[forgerelay:debug] Owner password: ${ownerToken}`);
 console.error("[forgerelay:debug] all runtime state is under .forgerelay-debug/");
 
