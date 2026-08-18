@@ -101,10 +101,18 @@ import {
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { openAiConversationScopeId } from "./request-meta.js";
 import {
+  ACTIVITY_PANEL_APP_LEGACY_URI,
+  ACTIVITY_PANEL_APP_URI_TEMPLATE,
+  readActivityPanelAppManifestEntry,
   readWorkspaceAppManifestEntry,
+  readWorkspaceLifecycleAppManifestEntry,
+  resolveActivityPanelAppIdentity,
   resolveWorkspaceAppIdentity,
+  resolveWorkspaceLifecycleAppIdentity,
   WORKSPACE_APP_LEGACY_URI,
   WORKSPACE_APP_URI_TEMPLATE,
+  WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
+  WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE,
   type WorkspaceAppManifestEntry,
 } from "./mcp-app-template.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
@@ -175,7 +183,6 @@ interface ToolDefinitionMeta extends Record<string, unknown> {
     resourceUri: string;
     visibility: ["model", "app"];
   };
-  "openai/outputTemplate": string;
 }
 
 type EmptyToolDefinitionMeta = Record<string, unknown> & {
@@ -187,14 +194,10 @@ interface ToolWidgetDescriptorMeta {
 }
 
 function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
-  switch (mode) {
-    case "off":
-      return false;
-    case "changes":
-      return kind === "workspace" || kind === "capability";
-    case "full":
-      return true;
-  }
+  if (mode === "off") return false;
+  if (kind === "workspace") return true;
+  if (kind === "activity") return mode === "full";
+  return false;
 }
 
 function toolWidgetDescriptorMeta(
@@ -203,14 +206,15 @@ function toolWidgetDescriptorMeta(
 ): ToolWidgetDescriptorMeta {
   if (!shouldAttachWidget(config.widgets, kind)) return { _meta: {} };
 
-  const resourceUri = currentWorkspaceAppIdentity().uri;
+  const resourceUri = kind === "activity"
+    ? currentActivityPanelAppIdentity().uri
+    : currentWorkspaceLifecycleAppIdentity().uri;
   return {
     _meta: {
       ui: {
         resourceUri,
         visibility: ["model", "app"],
       },
-      "openai/outputTemplate": resourceUri,
     },
   };
 }
@@ -572,27 +576,59 @@ function uiBuildDirectoryUrl(): URL {
 }
 
 let cachedWorkspaceAppIdentity: ReturnType<typeof resolveWorkspaceAppIdentity> | undefined;
+let cachedWorkspaceLifecycleAppIdentity:
+  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> | undefined;
+let cachedActivityPanelAppIdentity:
+  ReturnType<typeof resolveActivityPanelAppIdentity> | undefined;
 
-function currentWorkspaceAppIdentity(): ReturnType<typeof resolveWorkspaceAppIdentity> {
-  cachedWorkspaceAppIdentity ??= resolveWorkspaceAppIdentity({
+function appIdentityOptions() {
+  return {
     manifestUrl: uiManifestUrl(),
     buildDirectoryUrl: uiBuildDirectoryUrl(),
     fallbackRevision: FORGERELAY_VERSION,
-  });
+  };
+}
+
+function currentWorkspaceAppIdentity(): ReturnType<typeof resolveWorkspaceAppIdentity> {
+  cachedWorkspaceAppIdentity ??= resolveWorkspaceAppIdentity(appIdentityOptions());
   return cachedWorkspaceAppIdentity;
+}
+
+function currentWorkspaceLifecycleAppIdentity():
+  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> {
+  cachedWorkspaceLifecycleAppIdentity ??=
+    resolveWorkspaceLifecycleAppIdentity(appIdentityOptions());
+  return cachedWorkspaceLifecycleAppIdentity;
+}
+
+function currentActivityPanelAppIdentity(): ReturnType<typeof resolveActivityPanelAppIdentity> {
+  cachedActivityPanelAppIdentity ??= resolveActivityPanelAppIdentity(appIdentityOptions());
+  return cachedActivityPanelAppIdentity;
 }
 
 function getWorkspaceAppManifestEntry(): WorkspaceAppManifestEntry {
   return readWorkspaceAppManifestEntry(uiManifestUrl());
 }
 
+function getWorkspaceLifecycleAppManifestEntry(): WorkspaceAppManifestEntry {
+  return readWorkspaceLifecycleAppManifestEntry(uiManifestUrl());
+}
+
+function getActivityPanelAppManifestEntry(): WorkspaceAppManifestEntry {
+  return readActivityPanelAppManifestEntry(uiManifestUrl());
+}
+
 function assetUrl(baseUrl: string, assetPath: string): string {
   return `${baseUrl}/${assetPath.replace(/^\/+/, "")}`;
 }
 
-function workspaceAppHtml(config: ServerConfig): string {
+function mcpAppHtml(
+  config: ServerConfig,
+  entry: WorkspaceAppManifestEntry,
+  title: string,
+  waitingMessage: string,
+): string {
   const baseUrl = assetBaseUrl(config);
-  const entry = getWorkspaceAppManifestEntry();
   const stylesheets = (entry.css ?? [])
     .map(
       (stylesheet) =>
@@ -605,16 +641,43 @@ function workspaceAppHtml(config: ServerConfig): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ForgeRelay Workspace</title>
+    <title>${title}</title>
     <script type="module" crossorigin src="${assetUrl(baseUrl, entry.file)}"></script>
 ${stylesheets}
   </head>
   <body>
     <main id="app" class="shell">
-      <section class="empty">Waiting for a tool result.</section>
+      <section class="empty">${waitingMessage}</section>
     </main>
   </body>
 </html>`;
+}
+
+function workspaceAppHtml(config: ServerConfig): string {
+  return mcpAppHtml(
+    config,
+    getWorkspaceAppManifestEntry(),
+    "ForgeRelay Workspace",
+    "Waiting for a workspace result.",
+  );
+}
+
+function workspaceLifecycleAppHtml(config: ServerConfig): string {
+  return mcpAppHtml(
+    config,
+    getWorkspaceLifecycleAppManifestEntry(),
+    "ForgeRelay Workspace Lifecycle",
+    "Waiting for a workspace result.",
+  );
+}
+
+function activityPanelAppHtml(config: ServerConfig): string {
+  return mcpAppHtml(
+    config,
+    getActivityPanelAppManifestEntry(),
+    "ForgeRelay Activity Panel",
+    "Waiting for Activity Panel state.",
+  );
 }
 
 function appDomain(config: ServerConfig): string {
@@ -625,10 +688,10 @@ function appCsp(config: ServerConfig): {
   resourceDomains: string[];
   connectDomains: string[];
 } {
-  const publicBaseUrl = config.publicBaseUrl.replace(/\/+$/, "");
+  const origin = new URL(config.publicBaseUrl).origin;
   return {
-    resourceDomains: [publicBaseUrl],
-    connectDomains: [publicBaseUrl],
+    resourceDomains: [origin],
+    connectDomains: [origin],
   };
 }
 
@@ -643,68 +706,122 @@ function setAssetHeaders(res: Response): void {
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 }
 
-async function assertWorkspaceAppAssets(): Promise<void> {
-  const entry = getWorkspaceAppManifestEntry();
+async function assertMcpAppAssets(entry: WorkspaceAppManifestEntry): Promise<void> {
   const candidates = [entry.file, ...(entry.css ?? [])].map(
     (assetPath) => new URL(`../dist/ui/${assetPath}`, import.meta.url),
   );
 
-  for (const candidate of candidates) {
-    await access(candidate);
-  }
+  for (const candidate of candidates) await access(candidate);
 }
 
-function workspaceAppCompatibilityKind(
+type AppResourceVariant = "current" | "legacy" | "historical";
+
+function appResourceVariant(
   requestedUri: string,
   currentUri: string,
-): "current" | "legacy" | "historical" {
+  legacyUri: string,
+): AppResourceVariant {
   if (requestedUri === currentUri) return "current";
-  if (requestedUri === WORKSPACE_APP_LEGACY_URI) return "legacy";
+  if (requestedUri === legacyUri) return "legacy";
   return "historical";
 }
 
-async function readWorkspaceAppResource(
+async function readMcpAppResource(
   config: ServerConfig,
-  requestedUri: string,
-  transportSessionId?: string,
+  options: {
+    requestedUri: string;
+    currentUri: string;
+    legacyUri: string;
+    entry: WorkspaceAppManifestEntry;
+    html: string;
+    transportSessionId?: string;
+  },
 ) {
-  const currentUri = currentWorkspaceAppIdentity().uri;
-  const compatibility = workspaceAppCompatibilityKind(requestedUri, currentUri);
+  const compatibility = appResourceVariant(
+    options.requestedUri,
+    options.currentUri,
+    options.legacyUri,
+  );
 
   try {
-    await assertWorkspaceAppAssets();
+    await assertMcpAppAssets(options.entry);
     const result = {
-      contents: [
-        {
-          uri: requestedUri,
-          mimeType: RESOURCE_MIME_TYPE,
-          text: workspaceAppHtml(config),
-          _meta: {
-            ui: {
-              domain: appDomain(config),
-              csp: appCsp(config),
-            },
+      contents: [{
+        uri: options.requestedUri,
+        mimeType: RESOURCE_MIME_TYPE,
+        text: options.html,
+        _meta: {
+          ui: {
+            domain: appDomain(config),
+            csp: appCsp(config),
           },
         },
-      ],
+      }],
     };
     logEvent(config.logging, "debug", "mcp_app_template_read", {
-      requestedUri,
-      currentUri,
+      requestedUri: options.requestedUri,
+      currentUri: options.currentUri,
       compatibility,
-      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
+      transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
     });
     return result;
   } catch (error) {
     logEvent(config.logging, "warn", "mcp_app_template_read_failed", {
-      requestedUri,
-      currentUri,
+      requestedUri: options.requestedUri,
+      currentUri: options.currentUri,
       compatibility,
       error: error instanceof Error ? error.message : String(error),
-      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
+      transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
     });
     throw error;
   }
+}
+
+function readWorkspaceAppResource(
+  config: ServerConfig,
+  requestedUri: string,
+  transportSessionId?: string,
+  currentUri = currentWorkspaceAppIdentity().uri,
+  legacyUri = WORKSPACE_APP_LEGACY_URI,
+) {
+  return readMcpAppResource(config, {
+    requestedUri,
+    currentUri,
+    legacyUri,
+    entry: getWorkspaceAppManifestEntry(),
+    html: workspaceAppHtml(config),
+    transportSessionId,
+  });
+}
+
+function readWorkspaceLifecycleAppResource(
+  config: ServerConfig,
+  requestedUri: string,
+  transportSessionId?: string,
+) {
+  return readMcpAppResource(config, {
+    requestedUri,
+    currentUri: currentWorkspaceLifecycleAppIdentity().uri,
+    legacyUri: WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
+    entry: getWorkspaceLifecycleAppManifestEntry(),
+    html: workspaceLifecycleAppHtml(config),
+    transportSessionId,
+  });
+}
+
+function readActivityPanelAppResource(
+  config: ServerConfig,
+  requestedUri: string,
+  transportSessionId?: string,
+) {
+  return readMcpAppResource(config, {
+    requestedUri,
+    currentUri: currentActivityPanelAppIdentity().uri,
+    legacyUri: ACTIVITY_PANEL_APP_LEGACY_URI,
+    entry: getActivityPanelAppManifestEntry(),
+    html: activityPanelAppHtml(config),
+    transportSessionId,
+  });
 }
 
 const PROCESS_RESPONSE_OUTPUT_LINES = 10;
@@ -2087,9 +2204,8 @@ export function createMcpServer(
     },
   );
 
-  const currentWorkspaceAppUri = currentWorkspaceAppIdentity().uri;
   const workspaceAppResourceMetadata = {
-    description: "Interactive card for viewing ForgeRelay file diffs.",
+    description: "Historical ForgeRelay tool card UI.",
     _meta: {
       ui: {
         domain: appDomain(config),
@@ -2097,10 +2213,19 @@ export function createMcpServer(
       },
     },
   };
+  const workspaceLifecycleResourceMetadata = {
+    description: "ForgeRelay Workspace lifecycle UI for open and close results.",
+    _meta: workspaceAppResourceMetadata._meta,
+  };
+  const activityPanelResourceMetadata = {
+    description: "ForgeRelay Activity Panel UI for one Host Turn.",
+    _meta: workspaceAppResourceMetadata._meta,
+  };
 
+  const currentWorkspaceAppUri = currentWorkspaceAppIdentity().uri;
   registerAppResource(
     server,
-    "ForgeRelay Diff Card",
+    "ForgeRelay historical tool card",
     currentWorkspaceAppUri,
     workspaceAppResourceMetadata,
     async (uri, extra) => readWorkspaceAppResource(
@@ -2109,10 +2234,9 @@ export function createMcpServer(
       extra.sessionId,
     ),
   );
-
   registerAppResource(
     server,
-    "ForgeRelay Diff Card legacy",
+    "ForgeRelay historical tool card legacy",
     WORKSPACE_APP_LEGACY_URI,
     workspaceAppResourceMetadata,
     async (uri, extra) => readWorkspaceAppResource(
@@ -2121,15 +2245,79 @@ export function createMcpServer(
       extra.sessionId,
     ),
   );
-
   server.registerResource(
-    "ForgeRelay Diff Card compatibility",
+    "ForgeRelay historical tool card compatibility",
     new ResourceTemplate(WORKSPACE_APP_URI_TEMPLATE, { list: undefined }),
-    {
-      ...workspaceAppResourceMetadata,
-      mimeType: RESOURCE_MIME_TYPE,
-    },
+    { ...workspaceAppResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
     async (uri, _variables, extra) => readWorkspaceAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+
+  const currentWorkspaceLifecycleAppUri = currentWorkspaceLifecycleAppIdentity().uri;
+  registerAppResource(
+    server,
+    "ForgeRelay Workspace Lifecycle",
+    currentWorkspaceLifecycleAppUri,
+    workspaceLifecycleResourceMetadata,
+    async (uri, extra) => readWorkspaceLifecycleAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+  registerAppResource(
+    server,
+    "ForgeRelay Workspace Lifecycle legacy",
+    WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
+    workspaceLifecycleResourceMetadata,
+    async (uri, extra) => readWorkspaceLifecycleAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+  server.registerResource(
+    "ForgeRelay Workspace Lifecycle compatibility",
+    new ResourceTemplate(WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE, { list: undefined }),
+    { ...workspaceLifecycleResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
+    async (uri, _variables, extra) => readWorkspaceLifecycleAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+
+  const currentActivityPanelAppUri = currentActivityPanelAppIdentity().uri;
+  registerAppResource(
+    server,
+    "ForgeRelay Activity Panel",
+    currentActivityPanelAppUri,
+    activityPanelResourceMetadata,
+    async (uri, extra) => readActivityPanelAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+  registerAppResource(
+    server,
+    "ForgeRelay Activity Panel legacy",
+    ACTIVITY_PANEL_APP_LEGACY_URI,
+    activityPanelResourceMetadata,
+    async (uri, extra) => readActivityPanelAppResource(
+      config,
+      uri.toString(),
+      extra.sessionId,
+    ),
+  );
+  server.registerResource(
+    "ForgeRelay Activity Panel compatibility",
+    new ResourceTemplate(ACTIVITY_PANEL_APP_URI_TEMPLATE, { list: undefined }),
+    { ...activityPanelResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
+    async (uri, _variables, extra) => readActivityPanelAppResource(
       config,
       uri.toString(),
       extra.sessionId,
@@ -2780,7 +2968,7 @@ export function createMcpServer(
         committed: z.boolean().optional(),
         cleanupWarning: z.string().optional(),
       }),
-      _meta: {},
+      ...toolWidgetDescriptorMeta(config, "workspace"),
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, commitMessage }, extra) => {
@@ -2839,6 +3027,21 @@ export function createMcpServer(
             });
             return attachHookReports({
               content: [textBlock(result)],
+              _meta: {
+                tool: toolNames.closeWorkspace,
+                card: {
+                  workspaceId,
+                  mode: "worktree",
+                  sourceRoot: closed.sourceRoot,
+                  branch: closed.branch,
+                  targetBranch: closed.targetBranch,
+                  commitSha: closed.commitSha,
+                  mergedSha: closed.mergedSha,
+                  committed: closed.committed,
+                  cleanupWarning: closed.cleanupWarning,
+                  payload: { content: [textBlock(result)] },
+                },
+              },
               structuredContent: {
                 result,
                 workspaceId,
@@ -2867,6 +3070,14 @@ export function createMcpServer(
           const result = `Closed checkout-backed workspace ${workspaceId}. Physical project files were not removed.`;
           return {
             content: [textBlock(result)],
+            _meta: {
+              tool: toolNames.closeWorkspace,
+              card: {
+                workspaceId,
+                mode: "checkout",
+                payload: { content: [textBlock(result)] },
+              },
+            },
             structuredContent: { result, workspaceId, mode: "checkout" as const },
           };
         },

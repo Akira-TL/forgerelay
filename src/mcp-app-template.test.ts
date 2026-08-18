@@ -5,11 +5,19 @@ import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
+  ACTIVITY_PANEL_APP_LEGACY_URI,
+  ACTIVITY_PANEL_APP_URI_TEMPLATE,
+  activityPanelAppUriForRevision,
   readWorkspaceAppManifestEntry,
+  resolveActivityPanelAppIdentity,
   resolveWorkspaceAppIdentity,
+  resolveWorkspaceLifecycleAppIdentity,
   WORKSPACE_APP_LEGACY_URI,
   WORKSPACE_APP_MANIFEST_ENTRY,
   WORKSPACE_APP_URI_TEMPLATE,
+  WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
+  WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE,
+  workspaceLifecycleAppUriForRevision,
   workspaceAppBundleRevision,
   workspaceAppUriForRevision,
 } from "./mcp-app-template.js";
@@ -78,10 +86,34 @@ test("workspace app identity falls back when build artifacts are unavailable", (
   });
 });
 
-test("workspace app compatibility URIs remain stable", () => {
+test("split MCP App identities fall back to separate stable URIs", () => {
+  const options = {
+    manifestUrl: new URL("file:///missing/manifest.json"),
+    buildDirectoryUrl: new URL("file:///missing/ui/"),
+    fallbackRevision: "0.5.6",
+  };
+  const lifecycle = resolveWorkspaceLifecycleAppIdentity(options);
+  const activity = resolveActivityPanelAppIdentity(options);
+
+  assert.equal(lifecycle.uri, workspaceLifecycleAppUriForRevision("0.5.6"));
+  assert.equal(activity.uri, activityPanelAppUriForRevision("0.5.6"));
+  assert.notEqual(lifecycle.uri, activity.uri);
+});
+
+test("MCP App compatibility URIs remain stable", () => {
   assert.equal(WORKSPACE_APP_LEGACY_URI, "ui://forgerelay/workspace-app.html");
+  assert.equal(WORKSPACE_APP_URI_TEMPLATE, "ui://forgerelay/workspace-app-{revision}.html");
   assert.equal(
-    WORKSPACE_APP_URI_TEMPLATE,
-    "ui://forgerelay/workspace-app-{revision}.html",
+    WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
+    "ui://forgerelay/workspace-lifecycle-app.html",
+  );
+  assert.equal(
+    WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE,
+    "ui://forgerelay/workspace-lifecycle-app-{revision}.html",
+  );
+  assert.equal(ACTIVITY_PANEL_APP_LEGACY_URI, "ui://forgerelay/activity-panel-app.html");
+  assert.equal(
+    ACTIVITY_PANEL_APP_URI_TEMPLATE,
+    "ui://forgerelay/activity-panel-app-{revision}.html",
   );
 });

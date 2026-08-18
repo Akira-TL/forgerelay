@@ -63,11 +63,15 @@ test("MCP instructions separate capability contract from configurable workflow p
   const closeWorkspaceTool = defaultTools.tools.find((tool) => tool.name === "close_workspace");
   const shellToolMeta = shellTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
-    "openai/outputTemplate"?: string;
+  } | undefined;
+  const openWorkspaceMeta = openWorkspaceTool?._meta as {
+    ui?: { resourceUri?: string; visibility?: string[] };
+  } | undefined;
+  const closeWorkspaceMeta = closeWorkspaceTool?._meta as {
+    ui?: { resourceUri?: string; visibility?: string[] };
   } | undefined;
   const activityPanelMeta = activityPanelTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
-    "openai/outputTemplate"?: string;
   } | undefined;
   const activitySnapshotOutput = activityDataTools[0]?.outputSchema as {
     properties?: {
@@ -109,18 +113,20 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(shellInputProperties?.timeout, undefined);
   assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /feedback window/i);
   assert.match(shellInputProperties?.timeoutMs?.description ?? "", /total execution timeout/i);
+  assert.equal(shellToolMeta?.ui?.resourceUri, undefined);
   assert.match(
-    shellToolMeta?.ui?.resourceUri ?? "",
-    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
+    openWorkspaceMeta?.ui?.resourceUri ?? "",
+    /^ui:\/\/forgerelay\/workspace-lifecycle-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
   );
-  assert.deepEqual(shellToolMeta?.ui?.visibility, ["model", "app"]);
-  assert.equal(shellToolMeta?.["openai/outputTemplate"], shellToolMeta?.ui?.resourceUri);
+  assert.deepEqual(openWorkspaceMeta?.ui?.visibility, ["model", "app"]);
+  assert.equal(closeWorkspaceMeta?.ui?.resourceUri, openWorkspaceMeta?.ui?.resourceUri);
+  assert.deepEqual(closeWorkspaceMeta?.ui?.visibility, ["model", "app"]);
   assert.match(
     activityPanelMeta?.ui?.resourceUri ?? "",
-    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
+    /^ui:\/\/forgerelay\/activity-panel-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
   );
   assert.deepEqual(activityPanelMeta?.ui?.visibility, ["model", "app"]);
-  assert.equal(activityPanelMeta?.["openai/outputTemplate"], activityPanelMeta?.ui?.resourceUri);
+  assert.notEqual(activityPanelMeta?.ui?.resourceUri, openWorkspaceMeta?.ui?.resourceUri);
   assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.parentActivityId);
   assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.children);
   for (const tool of activityDataTools) {
@@ -169,26 +175,41 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(execCommandTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
 });
 
-test("workspace app resources expose a deployment domain alongside CSP metadata", async (t) => {
+test("workspace lifecycle and Activity Panel are separate MCP App resources", async (t) => {
   const context = await fixture(t, {
     env: { DEVSPACE_PUBLIC_BASE_URL: "https://forge.example.com/base/path" },
   });
 
   const resources = await context.client.listResources();
-  const current = resources.resources.find((resource) =>
-    /^ui:\/\/forgerelay\/workspace-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
+  const lifecycle = resources.resources.find((resource) =>
+    /^ui:\/\/forgerelay\/workspace-lifecycle-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
   );
-  assert.ok(current);
-  const resourceMeta = current._meta as {
+  const activity = resources.resources.find((resource) =>
+    /^ui:\/\/forgerelay\/activity-panel-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
+  );
+  assert.ok(lifecycle);
+  assert.ok(activity);
+  assert.notEqual(lifecycle.uri, activity.uri);
+  const resourceMeta = lifecycle._meta as {
     ui?: {
       domain?: string;
       csp?: { resourceDomains?: string[]; connectDomains?: string[] };
     };
   } | undefined;
   assert.equal(resourceMeta?.ui?.domain, "https://forge.example.com");
-  assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, ["https://forge.example.com/base/path"]);
-  assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, ["https://forge.example.com/base/path"]);
+  assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, ["https://forge.example.com"]);
+  assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, ["https://forge.example.com"]);
 
+  const lifecycleRead = await context.client.readResource({ uri: lifecycle.uri });
+  const activityRead = await context.client.readResource({ uri: activity.uri });
+  const lifecycleText = lifecycleRead.contents
+    .find((content): content is typeof content & { text: string } => "text" in content)?.text ?? "";
+  const activityText = activityRead.contents
+    .find((content): content is typeof content & { text: string } => "text" in content)?.text ?? "";
+  assert.match(lifecycleText, /mcp-app-assets\/assets\/workspace-lifecycle-app-[^"']+\.js/);
+  assert.match(activityText, /mcp-app-assets\/assets\/activity-panel-app-[^"']+\.js/);
+  assert.doesNotMatch(lifecycleText, /activity-panel-app-/);
+  assert.doesNotMatch(activityText, /workspace-lifecycle-app-/);
 });
 
 test("capability gateway supports catalog, describe, guide read, direct run, and stable errors", async (t) => {
@@ -2591,6 +2612,14 @@ test("close_workspace delivers a completed background result instead of blocking
   assert.equal(closed.isError, undefined, allResponseText(closed));
   assert.match(allResponseText(closed), /Background process \d+ exited with code 0/);
   assert.match(allResponseText(closed), /close-completed/);
+  const closedMeta = closed._meta as {
+    tool?: string;
+    card?: { workspaceId?: string; mode?: string; payload?: unknown };
+  } | undefined;
+  assert.equal(closedMeta?.tool, "close_workspace");
+  assert.equal(closedMeta?.card?.workspaceId, workspaceId);
+  assert.equal(closedMeta?.card?.mode, "checkout");
+  assert.ok(closedMeta?.card?.payload);
 });
 
 test("close_workspace refuses a logical workspace with a running process", async (t) => {

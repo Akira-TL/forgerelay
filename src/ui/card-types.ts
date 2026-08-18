@@ -2,6 +2,7 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 
 export type ToolName =
   | "open_workspace"
+  | "close_workspace"
   | "capability"
   | "apply_patch"
   | "exec_command"
@@ -36,6 +37,12 @@ export interface ToolResultCard {
   includeBootstrapContext?: boolean;
   mode?: "checkout" | "worktree";
   sourceRoot?: string;
+  branch?: string;
+  targetBranch?: string;
+  commitSha?: string;
+  mergedSha?: string;
+  committed?: boolean;
+  cleanupWarning?: string;
   worktree?: {
     path?: string;
     baseRef?: string;
@@ -102,6 +109,7 @@ export interface ToolPayload {
 export function isToolName(value: unknown): value is ToolName {
   return (
     value === "open_workspace" ||
+    value === "close_workspace" ||
     value === "capability" ||
     value === "apply_patch" ||
     value === "exec_command" ||

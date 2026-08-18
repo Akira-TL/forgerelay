@@ -35,6 +35,13 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
         label: card.root ?? card.path,
         tone: "workspace",
       };
+    case "close_workspace":
+      return {
+        icon: card.mode === "worktree" ? toolIcons.gitBranch : toolIcons.folderOpen,
+        title: "Closed workspace",
+        label: card.sourceRoot ?? card.root ?? card.path ?? card.workspaceId,
+        tone: "workspace",
+      };
     case "read":
       return {
         icon: toolIcons.readFile,

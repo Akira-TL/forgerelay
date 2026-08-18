@@ -6,8 +6,8 @@ host and the user's real development environment.
 ## Language
 
 **Host**:
-The MCP client that owns the conversation, reasoning, and top-level orchestration.
-_Avoid_: Agent runtime, ForgeRelay agent
+The MCP client that owns the conversation, reasoning, and top-level orchestration. ForgeRelay's product UI target is the ChatGPT Web plugin / Apps SDK Host; local MCP clients are protocol-development aids and do not replace ChatGPT Web UI acceptance.
+_Avoid_: Agent runtime, ForgeRelay agent, local plugin runtime
 
 **Workspace**:
 An opened local checkout or managed worktree together with the execution context
@@ -97,17 +97,17 @@ _Avoid_: Build log, permanent diagnostic history, Workspace state
 One top-level Host execution cycle for a user input, beginning when the Host starts handling that input and ending when it produces its final response or the user interrupts the cycle.
 _Avoid_: Agent session, provider session, conversation
 
-**Workspace Open Card**:
-An immutable MCP App result view for one successful Workspace open or switch. It records the Workspace state visible at that open and does not monitor later tool execution.
-_Avoid_: Workspace dashboard, Activity Panel
+**Workspace Lifecycle App**:
+The MCP App resource shared by `open_workspace` and `close_workspace`. It presents Workspace lifecycle results only; it does not monitor ordinary project operations or Activity state. Open and close deliberately share one App/resource identity, separate from the Activity Panel.
+_Avoid_: Workspace dashboard, Activity Panel, generic tool card
 
 **Activity**:
 One semantic top-level ForgeRelay operation performed during a Host Turn. Follow-up control calls for the same operation, such as polling a running Bash process, update the existing Activity rather than creating additional Activities.
 _Avoid_: RPC call, log line, Hook execution
 
 **Activity Panel**:
-The MCP App view that presents the Activities for one Host Turn. The panel is a presentation over ForgeRelay-owned Activity state rather than the source of that state.
-_Avoid_: Activity, Workspace Open Card, conversation dashboard
+The MCP App view that presents the Activities for one Host Turn. It is a separate App/resource identity from the Workspace Lifecycle App and is the UI owner for ordinary project operations. Core data tools do not each mount their own iframe; the panel reads App-only Activity data sources as needed. The panel is a presentation over ForgeRelay-owned Activity state rather than the source of that state.
+_Avoid_: Activity, Workspace Lifecycle App, conversation dashboard, generic tool card
 
 **Audit Event**:
 An immutable local record of one execution fact observed by ForgeRelay, such as an Activity starting, returning control, failing, or a background process later completing.
