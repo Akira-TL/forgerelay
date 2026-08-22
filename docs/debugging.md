@@ -50,6 +50,52 @@ To relocate the entire interactive debug config explicitly, use:
 FORGERELAY_DEBUG_CONFIG_DIR=/path/to/debug-config npm run dev
 ```
 
+## Run a local MCP Apps Host
+
+Use MCP Inspector as the fast local Host for MCP App/resource iteration:
+
+```bash
+./scripts/debug/host/run.sh
+```
+
+This launcher starts two owned processes and stops both when it exits:
+
+1. ForgeRelay on `127.0.0.1:7677`, using the persisted interactive debug Owner password while forcing the advertised public base URL back to loopback and enabling `widgets=full`;
+2. MCP Inspector Web plus its MCP Apps sandbox, pinned by default to `@modelcontextprotocol/inspector@2.3.0`.
+
+The launcher prints and, when supported, opens an Inspector deep link gated by the
+per-run Inspector token. That deep link targets the local ForgeRelay `/mcp`
+endpoint directly, so the browser can complete ForgeRelay OAuth and then inspect
+App tools/resources without a public tunnel or ChatGPT refresh cycle. Inspector
+tokens are redacted from `logs/debug-host-inspector.log`; the ForgeRelay side is
+written to `logs/debug-host-server.log`.
+
+The canonical ports are:
+
+```text
+ForgeRelay MCP        7677
+Inspector Web         6274
+Inspector App sandbox 6275
+```
+
+The launcher never kills or silently reuses an existing listener on those ports.
+A temporary ForgeRelay collision can be avoided for an isolated local check with
+`FORGERELAY_DEBUG_HOST_PORT=<port>`; the repository's canonical debug port remains
+`7677`. Inspector ports can similarly be overridden with
+`MCP_INSPECTOR_CLIENT_PORT` and `MCP_INSPECTOR_SANDBOX_PORT`.
+
+MCP Inspector v2 requires Node `>=22.19`. On this development setup its Web client
+can crash in the current Node 26 runtime through a native dependency, while Node
+24 is stable. When the current Node major is 25 or newer, the launcher therefore
+uses the newest installed NVM Node 24 runtime for Inspector when one is available;
+ForgeRelay itself remains on the project's current Node runtime. Override this
+selection explicitly with `MCP_INSPECTOR_NODE_DIR=/path/to/node/bin` when needed.
+
+This local Host is the normal fast feedback path for MCP schema, OAuth, resources,
+App rendering, and App-to-server tool calls. It does not replace final ChatGPT Web
+acceptance for ChatGPT-specific iframe lifetime, caching, or Host notification
+behavior.
+
 ## Run the end-to-end acceptance
 
 ```bash
