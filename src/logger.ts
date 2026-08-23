@@ -97,10 +97,7 @@ export function transportSessionIdPrefix(
 export const sessionIdPrefix = transportSessionIdPrefix;
 
 export function workspaceLogLabel(root: string, workspaceId: string): string {
-  const shortWorkspaceId = workspaceId.startsWith("ws_")
-    ? `ws_${workspaceId.slice(3, 11)}`
-    : workspaceId.slice(0, 8);
-  return `${basename(root)}/${shortWorkspaceId}`;
+  return `${basename(root)}/${workspaceId}`;
 }
 
 export function commandPreview(command: string): string {

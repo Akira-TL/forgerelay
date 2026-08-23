@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatPrettyLogEntry } from "./logger.js";
+import { formatPrettyLogEntry, workspaceLogLabel } from "./logger.js";
 
 const timestamp = new Date(2026, 7, 9, 20, 41, 3).toISOString();
+
+test("workspace log labels preserve the complete workspaceId", () => {
+  assert.equal(
+    workspaceLogLabel("/home/Akira/Projects/forgerelay", "ws_ec05370e20"),
+    "forgerelay/ws_ec05370e20",
+  );
+  assert.equal(
+    workspaceLogLabel("/tmp/example", "custom-workspace-id"),
+    "example/custom-workspace-id",
+  );
+});
 
 test("pretty tool logs emphasize workspace, operation, target, and result", () => {
   const line = formatPrettyLogEntry({
