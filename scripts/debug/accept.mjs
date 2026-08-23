@@ -407,6 +407,38 @@ try {
   assert.match(hooksGuide.structuredContent.result, /BeforeWorktreeClose/);
   pass("open_workspace", `${workspaceId} -> ${capabilityCatalog.length} capabilities + ${capabilityGuides.length} capability guides`);
 
+  const inspectorActivityPath = join(checkoutWorkspace, "inspector-activity.txt");
+  writeFileSync(inspectorActivityPath, "inspector transport-scoped activity\n");
+  try {
+    const inspectorPanel = callTool(oauth.accessToken, sessionId, 90, "activity_panel", {
+      workspaceId,
+    });
+    const inspectorTurnId = inspectorPanel.structuredContent.turnId;
+    const inspectorRead = callTool(oauth.accessToken, sessionId, 91, "read", {
+      workspaceId,
+      path: "inspector-activity.txt",
+      offset: 1,
+      limit: 2,
+    });
+    assert.equal(inspectorRead.isError, undefined);
+    const inspectorSnapshot = callTool(oauth.accessToken, sessionId, 92, "activity_snapshot", {
+      turnId: inspectorTurnId,
+    });
+    assert.equal(inspectorSnapshot.isError, undefined);
+    assert.ok(inspectorSnapshot.structuredContent.revision > 0);
+    assert.deepEqual(
+      inspectorSnapshot.structuredContent.activities.map(({ tool, workspaceId: activityWorkspaceId, target }) => ({
+        tool,
+        workspaceId: activityWorkspaceId,
+        target,
+      })),
+      [{ tool: "read", workspaceId, target: "inspector-activity.txt" }],
+    );
+    pass("Inspector-style Activity scope", `${sessionId} -> ${inspectorTurnId} -> read captured`);
+  } finally {
+    rmSync(inspectorActivityPath, { force: true });
+  }
+
   const written = callTool(oauth.accessToken, sessionId, 4, "write", {
     workspaceId,
     path: "acceptance.txt",
