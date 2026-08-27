@@ -120,3 +120,19 @@ _Avoid_: Activity, Activity Record, UI event
 **Activity Record**:
 The queryable representation of one Activity derived from its Audit Events, including the state and detail needed for inspection without making the Activity Panel authoritative.
 _Avoid_: Audit Event, Activity Panel, tool response
+
+**工作区接力（Workspace Relay）**：
+一个锻造中继（ForgeRelay）实例把某个工作区的实际执行委托给另一个已建立实例信任的锻造中继实例，同时保留原宿主连接和对外工作区句柄。工作区接力描述执行位置，不描述认证方式。
+避免混用：实例信任（Forge Trust）、文件同步、故障转移
+
+**发起实例（Gateway ForgeRelay）**：
+直接连接宿主（Host）、接收模型工具调用，并向模型暴露工作区句柄的锻造中继实例。对于接力工作区，它只负责路由与宿主侧呈现，不拥有远端工作区的执行事实。
+避免混用：执行实例（Execution ForgeRelay）、反向代理
+
+**执行实例（Execution ForgeRelay）**：
+实际拥有接力工作区的文件系统、版本控制状态、进程、钩子、技能、语言服务以及活动审计状态的受信锻造中继实例。
+避免混用：发起实例（Gateway ForgeRelay）、文件副本
+
+**实例信任（Forge Trust）**：
+两个锻造中继实例之间预先建立的、有方向的机器认证关系。实例信任由用户通过命令行（CLI）和安全外壳（SSH）建立或撤销；模型只能选择已经存在的受信目标，不能提供网络地址或认证秘密。一次实例信任只授权一个调用方向，反向调用需要单独建立另一条信任关系。
+避免混用：开放授权（OAuth）、工作区接力（Workspace Relay）、宿主会话
