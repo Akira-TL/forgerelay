@@ -91,9 +91,9 @@ function hookTag() {
     throw new Error("FORGERELAY_HOOK_PAYLOAD is not valid JSON");
   }
   const command = typeof payload.command === "string" ? payload.command : "";
-  const match = /git\s+push\s+origin\s+(v\d+\.\d+\.\d+)/.exec(command);
+  const match = /git\s+push\s+origin\s+(v\d+\.\d+\.\d+(?:-rc\.\d+)?)/.exec(command);
   if (!match?.[1]) {
-    throw new Error("release Hook payload does not contain a stable tag push");
+    throw new Error("release Hook payload does not contain a release tag push");
   }
   return match[1];
 }

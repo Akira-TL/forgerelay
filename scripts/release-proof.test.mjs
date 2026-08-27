@@ -77,6 +77,24 @@ test("release proof binds a successful local verification to the exact tag HEAD"
   );
 });
 
+test("release proof accepts an rc tag for the verified package version", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.6.0-rc.1" }) + "\n");
+  await git(root, ["init"]);
+  await git(root, ["config", "user.email", "proof@example.com"]);
+  await git(root, ["config", "user.name", "Release Proof Test"]);
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "release 0.6.0-rc.1"]);
+  await runProof(root, "write");
+  await git(root, ["tag", "v0.6.0-rc.1"]);
+
+  const checked = await runProof(root, "check-hook", {
+    FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v0.6.0-rc.1" }),
+  });
+  assert.match(checked.stdout, /Release proof OK: v0\.6\.0-rc\.1/);
+});
+
 test("release proof rejects a mismatched tag without invoking a remote", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));

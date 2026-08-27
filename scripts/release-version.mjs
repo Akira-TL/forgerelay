@@ -9,6 +9,7 @@ const changelogPath = resolve(repoRoot, "CHANGELOG.md");
 const noticePath = resolve(repoRoot, "NOTICE.md");
 const licensePath = resolve(repoRoot, "LICENSE");
 const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const releaseVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/;
 const expectedPackageName = "@akira-tl/forgerelay";
 const expectedRepositoryUrl = "git+https://github.com/Akira-TL/forgerelay.git";
 const expectedHomepage = "https://github.com/Akira-TL/forgerelay#readme";
@@ -26,7 +27,7 @@ switch (command) {
     break;
   case "tag": {
     checkState(state);
-    if (!value) fail("usage: node scripts/release-version.mjs tag vX.Y.Z");
+    if (!value) fail("usage: node scripts/release-version.mjs tag vX.Y.Z[-rc.N]");
     if (getUnreleasedBody(state.changelog)) {
       fail("CHANGELOG.md still has Unreleased changes; prepare the next version before creating a release tag");
     }
@@ -35,6 +36,14 @@ switch (command) {
       fail(`tag ${JSON.stringify(value)} does not match package version; expected ${expectedTag}`);
     }
     console.log(`release tag ${value} matches package version and changelog`);
+    break;
+  }
+  case "prepare": {
+    checkState(state);
+    if (!value || !releaseVersionPattern.test(value)) {
+      fail("usage: node scripts/release-version.mjs prepare X.Y.Z[-rc.N] [--dry-run]");
+    }
+    await prepareRelease(state, value, dryRun);
     break;
   }
   case "next": {
@@ -48,10 +57,10 @@ switch (command) {
   }
   case "notes": {
     checkState(state);
-    if (!value) fail("usage: node scripts/release-version.mjs notes vX.Y.Z");
+    if (!value) fail("usage: node scripts/release-version.mjs notes vX.Y.Z[-rc.N]");
     const version = value.startsWith("v") ? value.slice(1) : value;
-    if (!stableVersionPattern.test(version)) {
-      fail(`release notes version ${JSON.stringify(value)} must be vX.Y.Z or X.Y.Z`);
+    if (!releaseVersionPattern.test(version)) {
+      fail(`release notes version ${JSON.stringify(value)} must be vX.Y.Z[-rc.N] or X.Y.Z[-rc.N]`);
     }
     const body = getReleaseBody(state.changelog, version);
     if (!body) fail(`CHANGELOG.md has no release notes for ${version}`);
@@ -59,7 +68,7 @@ switch (command) {
     break;
   }
   default:
-    fail(`unknown release command ${JSON.stringify(command)}; expected check, tag, next, or notes`);
+    fail(`unknown release command ${JSON.stringify(command)}; expected check, tag, prepare, next, or notes`);
 }
 
 async function readState() {
@@ -87,8 +96,8 @@ function checkState(state) {
   if (state.pkg.name !== expectedPackageName) {
     fail(`unexpected package name ${JSON.stringify(state.pkg.name)}; expected ${expectedPackageName}`);
   }
-  if (typeof version !== "string" || !stableVersionPattern.test(version)) {
-    fail(`package version ${JSON.stringify(version)} must be a stable X.Y.Z version`);
+  if (typeof version !== "string" || !releaseVersionPattern.test(version)) {
+    fail(`package version ${JSON.stringify(version)} must be X.Y.Z or X.Y.Z-rc.N`);
   }
   if (state.pkg.repository?.url !== expectedRepositoryUrl) {
     fail(`package repository.url must be ${expectedRepositoryUrl} for GitHub/npm trusted publishing`);
@@ -162,7 +171,7 @@ async function prepareRelease(state, nextVersion, dryRun) {
 
   console.log(`${state.pkg.version} -> ${nextVersion}`);
   console.log("updated package.json, package-lock.json, and CHANGELOG.md");
-  console.log("next: review the diff, commit the release-ready tree, run npm run release:verify on that clean HEAD, then push the matching vX.Y.Z tag");
+  console.log("next: review the diff, commit the release-ready tree, run npm run release:verify on that clean HEAD, then push the matching release tag");
 }
 
 function promoteUnreleased(changelog, nextVersion) {

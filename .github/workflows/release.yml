@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
 
 permissions:
   contents: write
@@ -48,6 +49,19 @@ jobs:
       - name: Validate release tag
         run: npm run release:tag-check -- "$GITHUB_REF_NAME"
 
+      - name: Resolve release channel
+        id: release-channel
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "$package_version" == *-rc.* ]]; then
+            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
+            echo "github_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "github_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Require tagged commit on main
         run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
@@ -73,23 +87,34 @@ jobs:
         if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag latest
+        run: npm publish --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
 
       - name: Publish to npm with Trusted Publishing
         if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN != 'true'
-        run: npm publish --access public --tag latest
+        run: npm publish --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
 
       - name: Prepare GitHub Release notes
         shell: bash
-        run: node scripts/release-version.mjs notes "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+        run: |
+          manual_notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [[ -f "$manual_notes" ]]; then
+            cp "$manual_notes" "$RUNNER_TEMP/release-notes.md"
+          else
+            node scripts/release-version.mjs notes "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+          fi
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_PRERELEASE: ${{ steps.release-channel.outputs.github_prerelease }}
         shell: bash
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "GitHub Release $GITHUB_REF_NAME already exists; leaving it unchanged."
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+            prerelease_args=()
+            if [[ "$GH_PRERELEASE" == "true" ]]; then
+              prerelease_args+=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease_args[@]}"
           fi

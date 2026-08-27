@@ -2,7 +2,7 @@
   "event": "BeforeTool",
   "matcher": {
     "tool": "bash",
-    "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+"
+    "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+(?:-rc\\.\\d+)?"
   },
   "command": "node scripts/release/tag-local-ci.mjs",
   "timeoutSeconds": 300,
