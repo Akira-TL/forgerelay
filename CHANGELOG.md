@@ -4,6 +4,31 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added the unified ForgeRelay Panel for ChatGPT MCP App hosts: one Host Turn now keeps the Workspace Summary above a collapsible Activity Panel, groups live Activities, lazily loads detailed operation data, and streams durable Bash output without turning follow-up process control into duplicate top-level Activities.
+- Added a local MCP Inspector debug host on the dedicated `127.0.0.1:7677` path so the real HTTP/OAuth/MCP App lifecycle can be inspected without touching the normal product port.
+- Added release-candidate publication support: `vX.Y.Z-rc.N` tags run the normal release gate, publish npm packages on the `next` dist-tag, and create GitHub prereleases while stable releases continue to use `latest`.
+
+### Changed
+
+- Skills are now advertised by name and loaded through the virtual `skills://<name>` namespace; real local Skill paths stay out of normal Agent-facing metadata, and files inside an activated Skill use `skills://<name>/<relative-path>`.
+- `publicBaseUrl` may now be either one routed URL or an ordered list of routed public URLs. The first remains canonical, every configured hostname joins the Host allowlist, and the complete ordered list participates in MCP App resource identity and CSP metadata.
+- Host Turn scoping now prefers Host conversation metadata, then the MCP transport session, then the current connection, preserving one Workspace-specific panel even on Hosts such as Inspector that do not provide OpenAI conversation metadata.
+- When an Agent only needs to wait for an already running Bash process, `bash(action="process", processId=..., yieldTimeMs=...)` now acts as one bounded wait and reuses the same process ID if the window expires, reducing repeated short polling.
+
+### Fixed
+
+- Preserved routed public base paths through OAuth endpoints and local debug configuration instead of collapsing deployment URLs back to the origin.
+- Preserved complete Workspace IDs in diagnostic logging and kept Activity Panel state attached across successive tool results.
+- Explicit Bash process waits now honor `yieldTimeMs` even when the process has already produced buffered output, so continuously logging commands can still be efficiently awaited to completion.
+
+## [0.6.0] - 2026-08-27
+
+### Changed
+
+- Promoted the validated `0.6.0-rc.1` build to the stable 0.6 line without additional runtime changes. Stable npm installs now receive the unified ForgeRelay Panel, `skills://` namespace, routed public deployment support, and explicit long-running Bash waits that were exercised during the RC period.
+
 ## [0.6.0-rc.1] - 2026-08-27
 
 ### Added
