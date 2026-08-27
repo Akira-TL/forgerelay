@@ -3974,6 +3974,7 @@ export function createServer(
   app.use(
     createForgeRelayAuthRouter({
       provider: oauthProvider,
+      cliAuthenticationProvider: oauthProvider,
       issuerUrl: new URL(config.publicBaseUrl),
       resourceServerUrl,
       scopesSupported: config.oauth.scopes,

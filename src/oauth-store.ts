@@ -53,6 +53,16 @@ export class SqliteOAuthStore {
     return row ? (JSON.parse(row.client_json) as OAuthClientInformationFull) : undefined;
   }
 
+  ensureClient(client: OAuthClientInformationFull): OAuthClientInformationFull {
+    const existing = this.getClient(client.client_id);
+    if (existing) return existing;
+
+    this.database.sqlite
+      .prepare("insert into oauth_clients (client_id, client_json, issued_at) values (?, ?, ?)")
+      .run(client.client_id, JSON.stringify(client), client.client_id_issued_at);
+    return client;
+  }
+
   registerClient(
     client: Omit<OAuthClientInformationFull, "client_id" | "client_id_issued_at">,
     allowedRedirectHosts: string[],

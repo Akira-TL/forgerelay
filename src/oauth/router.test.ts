@@ -94,3 +94,99 @@ test("OAuth metadata preserves an instance path prefix", async (t) => {
   assert.equal(resourceMetadata.resource, "https://babelbeast.com/forgerelay/debug/mcp");
   assert.deepEqual(resourceMetadata.authorization_servers, ["https://babelbeast.com/forgerelay/debug"]);
 });
+
+
+test("CLI authentication route issues and refreshes tokens without OAuth browser flow", async (t) => {
+  const provider = {
+    clientsStore: {
+      getClient: async () => undefined,
+    },
+  } as unknown as OAuthServerProvider;
+  let ownerCalls = 0;
+  let refreshCalls = 0;
+  const cliAuthenticationProvider = {
+    issueCliTokens(ownerToken: string) {
+      ownerCalls += 1;
+      if (ownerToken !== "owner-secret") return undefined;
+      return {
+        access_token: "access-one",
+        token_type: "bearer" as const,
+        expires_in: 3600,
+        refresh_token: "refresh-one",
+        scope: "devspace",
+      };
+    },
+    exchangeCliRefreshToken(refreshToken: string) {
+      refreshCalls += 1;
+      if (refreshToken !== "refresh-one") return undefined;
+      return {
+        access_token: "access-two",
+        token_type: "bearer" as const,
+        expires_in: 3600,
+        refresh_token: "refresh-two",
+        scope: "devspace",
+      };
+    },
+  };
+  const issuerUrl = new URL("https://forge.example.com");
+  const app = express();
+  app.use(createForgeRelayAuthRouter({
+    provider,
+    cliAuthenticationProvider,
+    issuerUrl,
+    resourceServerUrl: publicEndpointUrl(issuerUrl, "mcp"),
+    scopesSupported: ["devspace"],
+  }));
+
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const invalidRequest = await fetch(`${baseUrl}/auth/cli`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ owner_token: "owner-secret", refresh_token: "refresh-one" }),
+  });
+  assert.equal(invalidRequest.status, 400);
+
+  const denied = await fetch(`${baseUrl}/auth/cli`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ owner_token: "wrong" }),
+  });
+  assert.equal(denied.status, 401);
+  assert.equal(ownerCalls, 1);
+
+  const issued = await fetch(`${baseUrl}/auth/cli`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ owner_token: "owner-secret" }),
+  });
+  assert.equal(issued.status, 200);
+  assert.equal(issued.headers.get("cache-control"), "no-store");
+  assert.equal(issued.headers.get("pragma"), "no-cache");
+  assert.deepEqual(await issued.json(), {
+    access_token: "access-one",
+    token_type: "bearer",
+    expires_in: 3600,
+    refresh_token: "refresh-one",
+    scope: "devspace",
+  });
+
+  const refreshed = await fetch(`${baseUrl}/auth/cli`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ refresh_token: "refresh-one" }),
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal(refreshCalls, 1);
+  assert.deepEqual(await refreshed.json(), {
+    access_token: "access-two",
+    token_type: "bearer",
+    expires_in: 3600,
+    refresh_token: "refresh-two",
+    scope: "devspace",
+  });
+});

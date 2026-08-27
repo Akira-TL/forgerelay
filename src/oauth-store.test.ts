@@ -26,6 +26,7 @@ try {
   testTransactionalTokenRotation(join(root, "rotation"));
   await testProviderPrunesExpiredAuthorizationCodes(join(root, "authorization-code-pruning"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
+  await testCliTokenIssueAndRefresh(join(root, "cli-provider"));
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -307,6 +308,35 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
     );
   } finally {
     secondProvider.close();
+  }
+}
+
+
+async function testCliTokenIssueAndRefresh(stateDir: string): Promise<void> {
+  const provider = new SingleUserOAuthProvider(oauthConfig, mcpUrl, stateDir);
+  try {
+    assert.equal(provider.issueCliTokens("wrong-owner-token"), undefined);
+
+    const issued = provider.issueCliTokens(oauthConfig.ownerToken);
+    assert.ok(issued);
+    assert.ok(issued.refresh_token);
+
+    const verified = await provider.verifyAccessToken(issued.access_token);
+    assert.equal(verified.clientId, "forgerelay-cli");
+    assert.deepEqual(verified.scopes, ["devspace"]);
+    assert.equal(verified.resource?.href, mcpUrl.href);
+
+    const refreshed = provider.exchangeCliRefreshToken(issued.refresh_token);
+    assert.ok(refreshed);
+    assert.ok(refreshed.refresh_token);
+    assert.notEqual(refreshed.access_token, issued.access_token);
+    assert.equal(provider.exchangeCliRefreshToken(issued.refresh_token), undefined);
+
+    const refreshedVerified = await provider.verifyAccessToken(refreshed.access_token);
+    assert.equal(refreshedVerified.clientId, "forgerelay-cli");
+    assert.equal(refreshedVerified.resource?.href, mcpUrl.href);
+  } finally {
+    provider.close();
   }
 }
 

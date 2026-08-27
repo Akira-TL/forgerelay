@@ -9,14 +9,20 @@ import { clientRegistrationHandler } from "@modelcontextprotocol/sdk/server/auth
 import { revocationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/revoke.js";
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js";
 import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthProtectedResourceMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   oauthAuthorizationServerMetadataPath,
   publicEndpointUrl,
 } from "./public-url.js";
 
+export interface CliAuthenticationProvider {
+  issueCliTokens(ownerToken: string): OAuthTokens | undefined;
+  exchangeCliRefreshToken(refreshToken: string): OAuthTokens | undefined;
+}
+
 export interface ForgeRelayAuthRouterOptions {
   provider: OAuthServerProvider;
+  cliAuthenticationProvider?: CliAuthenticationProvider;
   issuerUrl: URL;
   resourceServerUrl: URL;
   scopesSupported?: string[];
@@ -24,7 +30,14 @@ export interface ForgeRelayAuthRouterOptions {
 }
 
 export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions): RequestHandler {
-  const { provider, issuerUrl, resourceServerUrl, scopesSupported, resourceName } = options;
+  const {
+    provider,
+    cliAuthenticationProvider,
+    issuerUrl,
+    resourceServerUrl,
+    scopesSupported,
+    resourceName,
+  } = options;
   const authorizationEndpoint = publicEndpointUrl(issuerUrl, "authorize");
   const tokenEndpoint = publicEndpointUrl(issuerUrl, "token");
   const registrationEndpoint = provider.clientsStore.registerClient
@@ -55,6 +68,28 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
   };
 
   const router = express.Router();
+  if (cliAuthenticationProvider) {
+    router.post("/auth/cli", express.json({ limit: "4kb" }), (req, res) => {
+      const ownerToken = typeof req.body?.owner_token === "string" ? req.body.owner_token : undefined;
+      const refreshToken = typeof req.body?.refresh_token === "string" ? req.body.refresh_token : undefined;
+      if ((ownerToken ? 1 : 0) + (refreshToken ? 1 : 0) !== 1) {
+        res.status(400).json({ error: "invalid_request" });
+        return;
+      }
+
+      const tokens = ownerToken
+        ? cliAuthenticationProvider.issueCliTokens(ownerToken)
+        : cliAuthenticationProvider.exchangeCliRefreshToken(refreshToken!);
+      if (!tokens) {
+        res.status(401).json({ error: "invalid_grant" });
+        return;
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Pragma", "no-cache");
+      res.status(200).json(tokens);
+    });
+  }
   router.use("/authorize", authorizationHandler({ provider }));
   router.use("/token", tokenHandler({ provider }));
 

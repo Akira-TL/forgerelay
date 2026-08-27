@@ -27,6 +27,7 @@ interface AuthorizationCodeRecord {
 }
 
 const CODE_TTL_MS = 5 * 60 * 1000;
+const CLI_CLIENT_ID = "forgerelay-cli";
 
 function randomToken(): string {
   return randomBytes(32).toString("base64url");
@@ -124,6 +125,15 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   ) {
     this.resourceServerUrl = resourceUrlFromServerUrl(resourceServerUrl);
     this.oauthStore = new SqliteOAuthStore(stateDir);
+    this.oauthStore.ensureClient({
+      client_id: CLI_CLIENT_ID,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      client_name: "ForgeRelay CLI",
+      redirect_uris: [],
+      token_endpoint_auth_method: "none",
+      grant_types: ["refresh_token"],
+      response_types: [],
+    });
     this.clientsStore = new SqliteOAuthClientsStore(this.oauthStore, config.allowedRedirectHosts);
   }
 
@@ -232,6 +242,30 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       client.client_id,
       requestedScopes,
       resource ?? (record.resource ? new URL(record.resource) : undefined),
+      refreshTokenHash,
+    );
+  }
+
+  issueCliTokens(ownerToken: string): OAuthTokens | undefined {
+    if (!safeEquals(ownerToken, this.config.ownerToken)) return undefined;
+    return this.issueTokens(CLI_CLIENT_ID, this.config.scopes, this.resourceServerUrl);
+  }
+
+  exchangeCliRefreshToken(refreshToken: string): OAuthTokens | undefined {
+    const refreshTokenHash = hashToken(refreshToken);
+    const record = this.oauthStore.getRefreshToken(refreshTokenHash);
+    if (
+      !record ||
+      record.clientId !== CLI_CLIENT_ID ||
+      record.expiresAt < Math.floor(Date.now() / 1000)
+    ) {
+      return undefined;
+    }
+
+    return this.issueTokens(
+      CLI_CLIENT_ID,
+      record.scopes,
+      record.resource ? new URL(record.resource) : this.resourceServerUrl,
       refreshTokenHash,
     );
   }
