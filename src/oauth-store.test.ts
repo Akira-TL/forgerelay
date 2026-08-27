@@ -54,6 +54,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 10, name: "activity-host-turns" },
       { version: 11, name: "activity-parent-child" },
       { version: 12, name: "bash-output-audit-columns" },
+      { version: 13, name: "activity-host-turn-workspace" },
     ]);
   } finally {
     database.close();
