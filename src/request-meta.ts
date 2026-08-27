@@ -12,3 +12,12 @@ export function openAiConversationScopeId(
 ): string | undefined {
   return metadataString(meta, "openai/session");
 }
+
+export function hostConversationScopeId(
+  meta: unknown,
+  transportSessionId: string | undefined,
+  connectionScopeId: string,
+): string {
+  return openAiConversationScopeId(meta)
+    ?? (transportSessionId ? `mcp-session:${transportSessionId}` : connectionScopeId);
+}

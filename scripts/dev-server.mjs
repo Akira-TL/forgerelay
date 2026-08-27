@@ -1,10 +1,11 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, statSync, watch } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const watchRoots = ["src"].map((entry) => join(repoRoot, entry));
+const uiRoot = join(repoRoot, "src", "ui");
 const restartDelayMs = 750;
 const crashDelayMs = 1500;
 
@@ -12,9 +13,30 @@ let child;
 let restartTimer;
 let stoppingForRestart = false;
 let shuttingDown = false;
+let uiBuildDirty = false;
 
 function log(message) {
   console.error(`[forgerelay:dev] ${message}`);
+}
+
+function buildUi() {
+  log("building MCP App UI");
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const result = spawnSync(npm, ["run", "build:app"], {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.status === 0) {
+    uiBuildDirty = false;
+    return true;
+  }
+  log(`MCP App UI build failed (${result.signal ?? result.status ?? "unknown"})`);
+  return false;
+}
+
+function isUiSourcePath(path) {
+  return path === uiRoot || path.startsWith(`${uiRoot}${sep}`);
 }
 
 function start() {
@@ -43,6 +65,11 @@ function scheduleRestart(delayMs = restartDelayMs) {
 function restart() {
   if (shuttingDown) return;
   clearTimeout(restartTimer);
+
+  if (uiBuildDirty && !buildUi()) {
+    scheduleRestart(crashDelayMs);
+    return;
+  }
 
   if (!child) {
     start();
@@ -76,6 +103,7 @@ function watchDirectory(root) {
 
       const path = join(dir, filename.toString());
       if (event === "rename") maybeAddDirectory(path);
+      if (isUiSourcePath(path)) uiBuildDirty = true;
       scheduleRestart();
     });
     watchers.push(watcher);
@@ -116,5 +144,6 @@ for (const root of watchRoots) {
   watchDirectory(root);
 }
 
-log("watching src; server restarts on changes and after crashes");
+log("watching src; UI changes rebuild MCP App assets before server restart");
+if (!buildUi()) process.exit(1);
 start();

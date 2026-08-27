@@ -228,7 +228,11 @@ function formatHttpMessage(entry: LogFields, options: PrettyFormatOptions): stri
 function formatMcpRequestMessage(entry: LogFields): string {
   const method = stringField(entry.rpcMethod) ?? stringField(entry.httpMethod) ?? "request";
   const target = stringField(entry.rpcTarget);
-  return target ? `mcp ${method} ${target}` : `mcp ${method}`;
+  const metaKeys = Array.isArray(entry.rpcMetaKeys)
+    ? entry.rpcMetaKeys.filter((value): value is string => typeof value === "string" && value.length > 0)
+    : [];
+  const operation = target ? `mcp ${method} ${target}` : `mcp ${method}`;
+  return metaKeys.length > 0 ? `${operation} meta=[${metaKeys.join(",")}]` : operation;
 }
 
 function formatAppTemplateMessage(

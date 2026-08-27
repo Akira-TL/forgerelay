@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-08-19
+
+### Fixed
+
+- Extended `publicBaseUrl` so persisted config may use either one routed URL string or an ordered URL list; each entry keeps its own route prefix, the first remains canonical, and every configured hostname joins the derived Host allowlist.
+- Included the full ordered public base URL list in MCP App resource identities and CSP metadata so changing any deployment domain or route cannot reuse a stale `ui://` cache identity.
+
 ## [0.5.6] - 2026-08-17
 
 ### Fixed

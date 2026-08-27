@@ -839,8 +839,8 @@ function appendWorkspaceSkills(
   skills: NonNullable<ToolResultCard["skills"]>,
 ): void {
   const skillChips = skills.map((skill) => ({
-    label: skill.name ?? skill.path ?? "Unnamed skill",
-    title: [skill.path, skill.description].filter(Boolean).join("\n\n") || undefined,
+    label: skill.name ?? "Unnamed skill",
+    title: skill.description || undefined,
   }));
 
   const chipList = renderWorkspaceChips(skillChips);

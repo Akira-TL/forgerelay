@@ -54,9 +54,10 @@ test("Host Turn query contract persists summaries, lazy detail, and Bash output 
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  const turn = turns.begin("conversation_query");
+  const turn = turns.begin("conversation_query", workspace.id);
   assert.equal(turn.turnId, "turn_query_1");
-  assert.equal(turns.current("conversation_query")?.turnId, turn.turnId);
+  assert.equal(turn.workspaceId, workspace.id);
+  assert.equal(turns.current("conversation_query", workspace.id)?.turnId, turn.turnId);
 
   const start = (activityId: string, tool: string, request: unknown) => audit.append({
     type: "started",
@@ -170,9 +171,35 @@ test("Host Turn query contract persists summaries, lazy detail, and Bash output 
   const restoredQuery = new ActivityQueryService(restoredTurns, restoredAudit, restoredOutputs);
 
   assert.equal(restoredTurns.get(turn.turnId)?.conversationScopeId, "conversation_query");
+  assert.equal(restoredTurns.get(turn.turnId)?.workspaceId, workspace.id);
   assert.equal(restoredQuery.snapshot(turn.turnId).activities.length, 7);
   assert.match(JSON.stringify(restoredQuery.detail(turn.turnId, "act_edit")), /EDIT-PATCH-SENTINEL/);
   assert.equal(restoredQuery.bashOutput(turn.turnId, outputId).output, HEAVY.bashOutput);
+});
+
+test("current Host Turn is scoped by conversation and workspace", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-query-workspace-turn-test-"));
+  const turns = new HostTurnStore(stateDir, { turnId: (() => {
+    let index = 0;
+    return () => `turn_workspace_${++index}`;
+  })() });
+  const audit = new ActivityAuditStore(stateDir);
+  const outputs = new BashOutputStore(stateDir);
+  const query = new ActivityQueryService(turns, audit, outputs);
+  t.after(async () => {
+    outputs.close();
+    audit.close();
+    turns.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const first = query.beginTurn("conversation_workspace_scope", "ws_first");
+  const second = query.beginTurn("conversation_workspace_scope", "ws_second");
+
+  assert.notEqual(first.turnId, second.turnId);
+  assert.equal(query.currentTurnId("conversation_workspace_scope", "ws_first"), first.turnId);
+  assert.equal(query.currentTurnId("conversation_workspace_scope", "ws_second"), second.turnId);
+  assert.equal(query.currentTurnId("conversation_workspace_scope", "ws_missing"), undefined);
 });
 
 test("Bash output lookup is scoped to an Activity visible in the requested Host Turn", async (t) => {
@@ -191,8 +218,8 @@ test("Bash output lookup is scoped to an Activity visible in the requested Host 
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  const first = turns.begin("conversation_scope");
-  const second = turns.begin("conversation_scope");
+  const first = turns.begin("conversation_scope", workspace.id);
+  const second = turns.begin("conversation_scope", workspace.id);
   audit.append({
     type: "started",
     activityId: "act_scope_bash",
@@ -233,7 +260,7 @@ test("Activity query exposes parent-child aggregates without duplicating child d
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  const turn = turns.begin("conversation_parent_query");
+  const turn = turns.begin("conversation_parent_query", workspace.id);
   audit.append({
     type: "started",
     activityId: "act_bulk_read",

@@ -144,28 +144,33 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     prompts.note(
       [
-        "ForgeRelay needs a public base URL so ChatGPT or Claude can reach this MCP server.",
+        "ForgeRelay needs one or more public base URLs so ChatGPT or Claude can reach this MCP server.",
         "Create a tunnel or reverse proxy with Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own HTTPS proxy.",
-        "Paste the public origin here, without /mcp.",
+        "Each URL may include its own route prefix. Separate multiple URLs with commas; the first is canonical.",
         "",
-        "Example: https://your-tunnel-host.example.com",
+        "Example: https://forge.example.com/forgerelay/main, https://alias.example.com/relay",
       ].join("\n"),
       "Public URL required",
     );
-    const publicBaseUrl = normalizePublicBaseUrl(await textPrompt({
-      message: files.config.publicBaseUrl
-        ? `What is the public base URL? Press Enter to keep ${files.config.publicBaseUrl}`
-        : "What is the public base URL?",
-      placeholder: files.config.publicBaseUrl ?? "https://your-tunnel-host.example.com",
-      defaultValue: files.config.publicBaseUrl ?? "",
-      validate: validateRequiredPublicBaseUrl,
+    const defaultPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
+      ? files.config.publicBaseUrl.join(", ")
+      : files.config.publicBaseUrl ?? "";
+    const publicBaseUrls = normalizePublicBaseUrlsInput(await textPrompt({
+      message: defaultPublicBaseUrls
+        ? `What are the public base URLs? Press Enter to keep ${defaultPublicBaseUrls}`
+        : "What are the public base URLs?",
+      placeholder: defaultPublicBaseUrls || "https://your-tunnel-host.example.com",
+      defaultValue: defaultPublicBaseUrls,
+      validate: validateRequiredPublicBaseUrls,
     }));
+    const publicBaseUrl = compactPublicBaseUrlConfig(publicBaseUrls);
 
     const config: DevspaceUserConfig = {
       host: files.config.host ?? "127.0.0.1",
       port,
       allowedRoots,
       publicBaseUrl,
+      allowedHosts: files.config.allowedHosts,
       workflowInstructions: files.config.workflowInstructions,
       appendInstructions: files.config.appendInstructions,
       subagents: resolveSubagentsFlag(files.config),
@@ -181,7 +186,9 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       `Config: ${configPath}`,
       `Auth: ${authPath}`,
       `Local MCP URL: http://${config.host}:${config.port}/mcp`,
-      ...(publicBaseUrl ? [`Public MCP URL: ${publicBaseUrl}/mcp`] : []),
+      ...publicBaseUrls.map((baseUrl, index) =>
+        `${index === 0 ? "Public MCP URL" : "Public MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
+      ),
     ];
     prompts.note(lines.join("\n"), "ForgeRelay configured");
     prompts.note(
@@ -266,6 +273,7 @@ async function runDoctor(): Promise<void> {
   try {
     const config = loadConfig();
     console.log(`Local MCP URL: http://${config.host}:${config.port}/mcp`);
+    console.log(`Public base URLs: ${config.publicBaseUrls.join(", ")}`);
     console.log(`Public base URL: ${config.publicBaseUrl}`);
     console.log(`Public MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
     console.log(`Tool mode: ${config.toolMode}`);
@@ -294,13 +302,11 @@ function runConfigCommand(args: string[]): void {
     throw new Error(`Unknown config command: ${subcommand}`);
   }
   if (key !== "publicBaseUrl") {
-    throw new Error("Only `forgerelay config set publicBaseUrl <url|null>` is supported right now.");
+    throw new Error("Only `forgerelay config set publicBaseUrl <url[,url...]|null>` is supported right now.");
   }
 
   const value = rest.join(" ").trim();
-  if (!value) {
-    throw new Error("Missing publicBaseUrl value.");
-  }
+  if (!value) throw new Error("Missing publicBaseUrl value.");
 
   writeDevspaceConfig({
     ...files.config,
@@ -320,7 +326,7 @@ function printHelp(): void {
       "  forgerelay init            Create or update ~/.forgerelay/config.json and auth.json",
       "  forgerelay doctor          Show config, runtime, and native dependency status",
       "  forgerelay config get      Print persisted config",
-      "  forgerelay config set publicBaseUrl <url|null>",
+      "  forgerelay config set publicBaseUrl <url[,url...]|null>",
       "  forgerelay hooks list [--project <path>]",
       "  forgerelay hooks check [--project <path>]",
       "  forgerelay agents ls       List subagent sessions",
@@ -329,7 +335,7 @@ function printHelp(): void {
       "  forgerelay -v, --version   Print the installed version",
       "",
       "For temporary tunnels:",
-      "  FORGERELAY_PUBLIC_BASE_URL=https://example.trycloudflare.com forgerelay serve",
+      "  FORGERELAY_PUBLIC_BASE_URL=https://example.trycloudflare.com/forgerelay/debug forgerelay serve",
     ].join("\n"),
   );
 }
@@ -632,11 +638,28 @@ function printVersion(): void {
   console.log(packageJson.version);
 }
 
-function normalizeOptionalPublicBaseUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "null" || trimmed === "none") return null;
+function isNullConfigValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return !normalized || normalized === "null" || normalized === "none";
+}
 
-  return normalizePublicBaseUrl(trimmed);
+function normalizeOptionalPublicBaseUrl(value: string): string | string[] | null {
+  const trimmed = value.trim();
+  if (isNullConfigValue(trimmed)) return null;
+  return compactPublicBaseUrlConfig(normalizePublicBaseUrlsInput(trimmed));
+}
+
+function normalizePublicBaseUrlsInput(value: string): string[] {
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.length === 0) throw new Error("Enter at least one public base URL.");
+  return Array.from(new Set(entries.map((entry) => normalizePublicBaseUrl(entry))));
+}
+
+function compactPublicBaseUrlConfig(baseUrls: string[]): string | string[] {
+  return baseUrls.length === 1 ? baseUrls[0] : baseUrls;
 }
 
 function normalizePublicBaseUrl(value: string): string {
@@ -670,21 +693,14 @@ function validatePort(value: string | undefined): string | undefined {
     : "Enter a port between 1 and 65535.";
 }
 
-function validateRequiredPublicBaseUrl(value: string | undefined): string | undefined {
+function validateRequiredPublicBaseUrls(value: string | undefined): string | undefined {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed) return "Enter the public URL from your tunnel or reverse proxy.";
-  if (trimmed.endsWith("/mcp")) return "Enter the base URL only, without /mcp.";
-  return validatePublicBaseUrl(trimmed);
-}
-
-function validatePublicBaseUrl(value: string): string | undefined {
+  if (!trimmed) return "Enter at least one public base URL from your tunnel or reverse proxy.";
   try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? undefined
-      : "Use an http or https URL.";
-  } catch {
-    return "Enter a valid URL, for example https://your-tunnel-host.example.com.";
+    normalizePublicBaseUrlsInput(trimmed);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 

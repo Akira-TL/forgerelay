@@ -30,7 +30,7 @@ npx @akira-tl/forgerelay init
 npx @akira-tl/forgerelay serve
 npx @akira-tl/forgerelay doctor
 npx @akira-tl/forgerelay config get
-npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com
+npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
 ```
 
 ## Environment variable compatibility
@@ -55,13 +55,38 @@ When both are present, `FORGERELAY_*` wins.
 | `HOST` | Local bind host. Defaults to `127.0.0.1`. |
 | `PORT` | Local port. Defaults to `7676`. |
 | `FORGERELAY_ALLOWED_ROOTS` | Comma-separated roots that workspaces may open. |
-| `FORGERELAY_PUBLIC_BASE_URL` | Public deployment base URL, without the final `/mcp`. A path prefix is preserved, e.g. `https://example.com/forgerelay/main` → `https://example.com/forgerelay/main/mcp`. |
+| `FORGERELAY_PUBLIC_BASE_URL` | One public base URL or a comma-separated list. Each URL may include its own routed path prefix; the first URL is canonical. All configured hostnames are added to the derived Host-header allowlist. |
 | `FORGERELAY_ALLOWED_HOSTS` | Optional Host-header allowlist override. |
 | `FORGERELAY_OAUTH_OWNER_TOKEN` | Owner password. Must be at least 16 characters. |
 | `FORGERELAY_STATE_DIR` | SQLite state directory. New default: `~/.local/share/forgerelay`. |
 | `FORGERELAY_WORKTREE_ROOT` | Managed worktree directory. New default: `~/.forgerelay/worktrees`. |
 | `FORGERELAY_WORKFLOW_INSTRUCTIONS` | Replace the built-in workflow policy while retaining the capability contract. |
 | `FORGERELAY_APPEND_INSTRUCTIONS` | Append project/operator workflow policy. |
+
+### Routed and multi-origin public deployments
+
+`publicBaseUrl` stays the single deployment setting. Persist one URL as a string,
+or multiple URLs as an array:
+
+```json
+{
+  "publicBaseUrl": [
+    "https://forge.example.com/forgerelay/main",
+    "https://forge-alt.example.com/relay"
+  ]
+}
+```
+
+Each entry keeps its own route prefix. The first URL is canonical and is used for
+generated OAuth/MCP URLs; every configured hostname is included in the derived
+Host-header allowlist. MCP App `_meta.ui.domain` uses the canonical URL's origin,
+while CSP resource/connect entries include every full public base URL. The full
+ordered `publicBaseUrl` list also participates in the MCP App resource cache
+identity, so changing any domain or route produces a new `ui://` resource URI.
+
+A single persisted string remains fully supported, so existing configs require no
+migration. For environment configuration, use a comma-separated list in
+`FORGERELAY_PUBLIC_BASE_URL`.
 
 If an existing legacy state/worktree directory is present and the new default is
 not, ForgeRelay reuses the legacy location rather than orphaning stored state.
@@ -334,12 +359,12 @@ regular Agent workflows should use the single `bash` process lifecycle.
 
 | Value | Behavior |
 | --- | --- |
-| `full` | Default. Attach UI to exposed workspace/file/edit/shell tools. |
-| `changes` | Attach UI to `open_workspace` and Capability Gateway review results from `review.changes`. |
+| `full` | Default. Attach the single ForgeRelay Panel through `activity_panel(workspaceId)`; ordinary work tools remain data-only. |
+| `changes` | Attach the same ForgeRelay Panel while retaining change-review checkpoint behavior. |
 | `off` | Disable widget UI. |
 
-The Activity Panel starts collapsed by default. Set
-`FORGERELAY_ACTIVITY_PANEL_EXPANDED=1` to start each new Host Turn expanded. The
+The Workspace Summary in the ForgeRelay Panel is always visible. While a Host Turn has no Activity, the Activity section is not rendered. After the first Activity appears, the Activity Panel starts collapsed by default. Set
+`FORGERELAY_ACTIVITY_PANEL_EXPANDED=1` to start each new Host Turn expanded once Activity is present. The
 same preference may be persisted as `activityPanelExpanded: true` in
 `~/.forgerelay/config.json`; an explicit environment variable overrides the
 persisted value. The preference is delivered only to the MCP App and does not

@@ -107,11 +107,12 @@ test("debug MCP logs retain transport session details without polluting info too
     level: "debug",
     event: "mcp_request",
     transportSessionIdPrefix: "7f7ce1d1",
-    rpcMethod: "resources/read",
-    rpcTarget: "ui://forgerelay/workspace-app-test.html",
+    rpcMethod: "tools/call",
+    rpcTarget: "read",
+    rpcMetaKeys: ["openai/session", "openai/turn"],
   }, { colorize: false });
 
-  assert.match(line, /transport:7f7ce1d1 \| mcp resources\/read ui:\/\/forgerelay\/workspace-app-test\.html$/);
+  assert.match(line, /transport:7f7ce1d1 \| mcp tools\/call read meta=\[openai\/session,openai\/turn\]$/);
 });
 
 test("debug app template logs distinguish current and compatibility reads", () => {

@@ -49,39 +49,45 @@ FORGERELAY_CONFIG_DIR="$HOME/.forgerelay" forgerelay init
 Do not delete the old directory until you have confirmed which persisted state,
 worktrees, skills, and profiles you still need.
 
-## Public URL includes `/mcp`
+## Public base URL includes `/mcp`
 
-Store the public **origin**:
-
-```text
-https://your-tunnel-host.example.com
-```
-
-The MCP client uses:
+Store the public base URL *before* the final `/mcp`. A routed deployment keeps
+its route inside the URL:
 
 ```text
-https://your-tunnel-host.example.com/mcp
+publicBaseUrl: https://your-tunnel-host.example.com/forgerelay/main
 ```
 
-Fix a persisted URL with:
+The MCP client then uses:
+
+```text
+https://your-tunnel-host.example.com/forgerelay/main/mcp
+```
+
+Fix persisted routing with:
 
 ```bash
-forgerelay config set publicBaseUrl https://your-tunnel-host.example.com
+forgerelay config set publicBaseUrl https://your-tunnel-host.example.com/forgerelay/main
 ```
+
+Do not include the final `/mcp` in `publicBaseUrl`.
 
 ## Tunnel URL changed
 
 For one run:
 
 ```bash
-FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com" forgerelay serve
+FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com/forgerelay/main" forgerelay serve
 ```
 
 For a stable URL:
 
 ```bash
-forgerelay config set publicBaseUrl https://forge.example.com
+forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main
 ```
+
+When multiple public entries are valid, configure them as a list (or a
+comma-separated environment/CLI value); each entry may use a different route.
 
 ## Host-header or 403 problems
 

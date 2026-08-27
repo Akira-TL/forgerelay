@@ -34,7 +34,10 @@ try {
       host: "127.0.0.1",
       port: 7676,
       allowedRoots: [doctorRoot],
-      publicBaseUrl: "https://forge.example.com/base/path",
+      publicBaseUrl: [
+        "https://forge.example.com/base/path",
+        "https://forge-alt.example.com/alternate/path",
+      ],
       subagents: true,
       artifactsEnabled: true,
     }),
@@ -53,6 +56,10 @@ try {
     },
   });
 
+  assert.match(
+    output,
+    /Public base URLs: https:\/\/forge\.example\.com\/base\/path, https:\/\/forge-alt\.example\.com\/alternate\/path/,
+  );
   assert.match(output, /Public base URL: https:\/\/forge\.example\.com\/base\/path/);
   assert.match(output, /Public MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Tool mode: minimal/);
@@ -63,6 +70,63 @@ try {
   assert.match(output, /Skills: disabled/);
 } finally {
   rmSync(doctorRoot, { recursive: true, force: true });
+}
+
+const publicConfigRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-public-config-test-"));
+try {
+  const configDir = join(publicConfigRoot, ".forgerelay");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "config.json"),
+    JSON.stringify({ publicBaseUrl: "https://legacy.example.com/old-route" }),
+  );
+  const env = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: configDir };
+
+  execFileSync(
+    "node",
+    [
+      "--import",
+      "tsx",
+      "src/cli.ts",
+      "config",
+      "set",
+      "publicBaseUrl",
+      "https://primary.example.com/forgerelay/debug,https://alias.example.com/relay",
+    ],
+    { cwd: process.cwd(), encoding: "utf8", env },
+  );
+
+  const multiple = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as Record<string, unknown>;
+  assert.deepEqual(multiple.publicBaseUrl, [
+    "https://primary.example.com/forgerelay/debug",
+    "https://alias.example.com/relay",
+  ]);
+  const resolved = loadConfig({
+    ...env,
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+  });
+  assert.equal(resolved.publicBaseUrl, "https://primary.example.com/forgerelay/debug");
+  assert.deepEqual(resolved.publicBaseUrls, [
+    "https://primary.example.com/forgerelay/debug",
+    "https://alias.example.com/relay",
+  ]);
+  assert.deepEqual(resolved.allowedHosts, [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "primary.example.com",
+    "alias.example.com",
+  ]);
+
+  execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "config", "set", "publicBaseUrl", "https://legacy.example.com/new-route"],
+    { cwd: process.cwd(), encoding: "utf8", env },
+  );
+  const single = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as Record<string, unknown>;
+  assert.equal(single.publicBaseUrl, "https://legacy.example.com/new-route");
+} finally {
+  rmSync(publicConfigRoot, { recursive: true, force: true });
 }
 
 const hooksRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-hooks-test-"));

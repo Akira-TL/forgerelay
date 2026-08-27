@@ -256,18 +256,44 @@ try {
   assert.ok(projectSkill);
   assert.match(formatPathForPrompt(projectSkill.filePath), /SKILL\.md$/);
 
-  const skillFileRead = resolveSkillReadPath(loaded.skills, new Set(), projectSkill.filePath);
+  const skillFileRead = resolveSkillReadPath(
+    loaded.skills,
+    new Set(),
+    `skills://${projectSkill.name}`,
+  );
   assert.equal(skillFileRead?.isSkillFile, true);
   assert.equal(skillFileRead?.absolutePath, projectSkill.filePath);
 
   const resourcePath = join(projectSkill.baseDir, "references.md");
   await writeFile(resourcePath, "reference\n");
-  assert.equal(resolveSkillReadPath(loaded.skills, new Set(), resourcePath), undefined);
   assert.equal(
-    resolveSkillReadPath(loaded.skills, new Set([projectSkill.baseDir]), resourcePath)
-      ?.isSkillFile,
+    resolveSkillReadPath(loaded.skills, new Set(), `skills://${projectSkill.name}/references.md`),
+    undefined,
+  );
+  assert.equal(
+    resolveSkillReadPath(
+      loaded.skills,
+      new Set([projectSkill.baseDir]),
+      `skills://${projectSkill.name}/references.md`,
+    )?.isSkillFile,
     false,
   );
+
+  assert.throws(
+    () => resolveSkillReadPath(
+      loaded.skills,
+      new Set([projectSkill.baseDir]),
+      `skills://${projectSkill.name}/../outside.md`,
+    ),
+    /Invalid skill URI/,
+  );
+  assert.throws(
+    () => resolveSkillReadPath(loaded.skills, new Set(), "skills://missing-skill"),
+    /Unknown advertised skill/,
+  );
+
+  // Legacy absolute paths remain readable for stale Host metadata, but are no longer advertised.
+  assert.equal(resolveSkillReadPath(loaded.skills, new Set(), projectSkill.filePath)?.isSkillFile, true);
 } finally {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;

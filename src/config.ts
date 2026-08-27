@@ -5,7 +5,12 @@ import { expandHomePath } from "./roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "./logger.js";
 import type { OAuthConfig } from "./oauth-provider.js";
 import { mergeHookConfigs, parseHookConfig, type HookConfig } from "./hooks.js";
-import { forgerelayAgentsDir, forgerelaySkillsDir, loadForgeRelayFiles } from "./user-config.js";
+import {
+  forgerelayAgentsDir,
+  forgerelaySkillsDir,
+  loadForgeRelayFiles,
+  type ForgeRelayUserConfig,
+} from "./user-config.js";
 import type { LanguageServerConfigInput } from "./lsp/language-server-config.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
@@ -20,7 +25,10 @@ export interface ServerConfig {
   oauth: OAuthConfig;
   allowedRoots: string[];
   allowedHosts: string[];
+  /** Canonical public base URL; this is publicBaseUrls[0]. */
   publicBaseUrl: string;
+  /** All configured public base URLs, each of which may include a route prefix. */
+  publicBaseUrls: string[];
   toolMode: ToolMode;
   workflowInstructions: string | false | undefined;
   appendInstructions: string | undefined;
@@ -270,19 +278,55 @@ function parseSystemInstructionsPath(value: unknown): string {
   return resolve(expandHomePath(value.trim()));
 }
 
+interface PublicDeploymentConfig {
+  baseUrls: string[];
+  canonicalBaseUrl: string;
+}
+
+function parsePublicBaseUrls(
+  value: string | string[] | null | undefined,
+  fallback: string[],
+): string[] {
+  if (value === null) return fallback;
+  const raw = Array.isArray(value)
+    ? value.map((entry) => entry.trim()).filter(Boolean)
+    : value?.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (value !== undefined && (!raw || raw.length === 0)) {
+    throw new Error("FORGERELAY_PUBLIC_BASE_URL must contain at least one public base URL.");
+  }
+  const normalized = (raw ?? fallback).map((entry) => parsePublicBaseUrl(entry));
+  return Array.from(new Set(normalized));
+}
+
+function resolvePublicDeployment(
+  env: NodeJS.ProcessEnv,
+  fileConfig: ForgeRelayUserConfig,
+  host: string,
+  port: number,
+): PublicDeploymentConfig {
+  const localBaseUrls = [parsePublicBaseUrl(localPublicBaseUrl(host, port))];
+  const envBaseUrl = productEnv(env, "PUBLIC_BASE_URL");
+  const baseUrls = envBaseUrl !== undefined
+    ? parsePublicBaseUrls(envBaseUrl, localBaseUrls)
+    : parsePublicBaseUrls(fileConfig.publicBaseUrl, localBaseUrls);
+  return {
+    baseUrls,
+    canonicalBaseUrl: baseUrls[0],
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const files = loadForgeRelayFiles(env);
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
   const port = parsePort(env.PORT ?? files.config.port);
-  const publicBaseUrl = parsePublicBaseUrl(
-    productEnv(env, "PUBLIC_BASE_URL") ?? files.config.publicBaseUrl ?? localPublicBaseUrl(host, port),
-  );
+  const publicDeployment = resolvePublicDeployment(env, files.config, host, port);
+  const publicBaseUrl = publicDeployment.canonicalBaseUrl;
   const derivedAllowedHosts = [
     "localhost",
     "127.0.0.1",
     "::1",
     host,
-    new URL(publicBaseUrl).hostname,
+    ...publicDeployment.baseUrls.map((baseUrl) => new URL(baseUrl).hostname),
     ...(files.config.allowedHosts ?? []),
   ];
 
@@ -293,6 +337,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedRoots: parseAllowedRoots(productEnv(env, "ALLOWED_ROOTS") ?? files.config.allowedRoots),
     allowedHosts: parseAllowedHosts(productEnv(env, "ALLOWED_HOSTS"), derivedAllowedHosts),
     publicBaseUrl,
+    publicBaseUrls: publicDeployment.baseUrls,
     toolMode: parseToolMode(env),
     workflowInstructions: parseWorkflowInstructions(
       productEnv(env, "WORKFLOW_INSTRUCTIONS"),

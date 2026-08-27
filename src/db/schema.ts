@@ -140,10 +140,16 @@ export const activityHostTurns = sqliteTable(
   {
     turnId: text("turn_id").primaryKey(),
     conversationScopeId: text("conversation_scope_id"),
+    workspaceId: text("workspace_id"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
     index("activity_host_turns_conversation_idx").on(table.conversationScopeId, table.createdAt),
+    index("activity_host_turns_conversation_workspace_idx").on(
+      table.conversationScopeId,
+      table.workspaceId,
+      table.createdAt,
+    ),
     index("activity_host_turns_created_idx").on(table.createdAt),
   ],
 );

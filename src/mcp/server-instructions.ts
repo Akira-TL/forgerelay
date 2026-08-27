@@ -38,7 +38,7 @@ export function buildServerInstructions(config: ServerConfig): string {
 
 export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
   const skillCapability = config.skillsEnabled
-    ? " Advertised skill paths may also be outside the workspace."
+    ? " Available skills are loaded through the virtual skills://<name> namespace; after loading a skill, files inside it may be read with skills://<name>/<relative-path>."
     : "";
   const shellSurface = config.toolMode === "codex"
     ? ""
@@ -59,18 +59,19 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
 function capabilityContractInstructions(config: ServerConfig): string {
   const staleWorkspacePolicy = config.toolMode === "codex"
     ? ""
-    : ` If ${toolNames.openWorkspace} reports logical workspaces idle for more than two days, let the user choose whether to resume or close them with ${toolNames.closeWorkspace}; never close them automatically.`;
-  const workspaceLifecycle = `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Reuse the workspaceId from ${toolNames.openWorkspace}; resume or create another logical workspace only when the user asks.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} releases checkout-backed workspaces or safely finalizes managed-worktree-backed ones; managed close requires commitMessage. Read the managed-worktrees capability guide for advanced failure semantics.`;
+    : ` If ${toolNames.openWorkspace} reports stale workspaces, let the user choose resume or ${toolNames.closeWorkspace}; never auto-close.`;
+  const workspaceLifecycle = `Use ForgeRelay as a local coding workspace. Default to the user's existing checkout. Reuse workspaceId from ${toolNames.openWorkspace}; change it only when asked.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} releases checkout workspaces or finalizes managed worktrees; managed close requires commitMessage.`;
+  const activityPanel = `Project-work order: ${toolNames.openWorkspace} if needed → activity_panel(workspaceId) once → work tools. activity_panel is the single ForgeRelay UI render tool: Workspace above Activity. A new workspaceId creates a new card. Never call activity_panel before needed ${toolNames.openWorkspace}.`;
 
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Read an availableAgentsFiles path before working under it.`;
   const capabilityGuides = `For optional capabilities from ${toolNames.openWorkspace}, use ${toolNames.capability}; if unfamiliar, describe first and read its advertised capability guide with ${toolNames.read}.`;
   const skills = config.skillsEnabled
-    ? `When a task matches an available skill from ${toolNames.openWorkspace}, read its advertised path before proceeding. Outside normal file roots, ${toolNames.read} permits only advertised entry files and files under already-loaded advertised directories.`
+    ? `For a matching skill from ${toolNames.openWorkspace}, load ${toolNames.read}(path="skills://<name>") first. Skill paths stay internal; loaded skill files use skills://<name>/<relative-path>.`
     : "";
   const shellMutationPolicy = buildShellMutationPolicy();
   const hooks = "When a ForgeRelay tool result reports Hook results, tell the user which meaningful hooks ran and whether they passed or blocked the operation. Do not claim the requested operation succeeded when a blocking hook prevented it.";
 
-  return joinInstructions(workspaceLifecycle, agents, capabilityGuides, skills, shellMutationPolicy, hooks);
+  return joinInstructions(workspaceLifecycle, activityPanel, agents, capabilityGuides, skills, shellMutationPolicy, hooks);
 }
 
 function selectedWorkflowInstructions(config: ServerConfig): string {

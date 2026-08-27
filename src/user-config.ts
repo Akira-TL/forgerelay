@@ -21,7 +21,7 @@ export interface ForgeRelayUserConfig {
   host?: string;
   port?: number;
   allowedRoots?: string[];
-  publicBaseUrl?: string | null;
+  publicBaseUrl?: string | string[] | null;
   allowedHosts?: string[];
   stateDir?: string;
   worktreeRoot?: string;

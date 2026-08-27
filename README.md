@@ -55,17 +55,21 @@ http://127.0.0.1:7676/mcp
 
 If the MCP host cannot reach localhost, put ForgeRelay behind a public HTTPS
 tunnel or reverse proxy such as Cloudflare Tunnel, ngrok, Pinggy, Tailscale
-Funnel, or your own proxy. During setup, enter the public origin without `/mcp`:
+Funnel, or your own proxy. During setup, enter the public base URL before the
+final `/mcp`; routed prefixes are allowed:
 
 ```text
-https://your-tunnel-host.example.com
+https://your-tunnel-host.example.com/forgerelay/main
 ```
 
 The client then connects to:
 
 ```text
-https://your-tunnel-host.example.com/mcp
+https://your-tunnel-host.example.com/forgerelay/main/mcp
 ```
+
+`publicBaseUrl` may also be an ordered list when multiple public entries are
+valid; each entry may use its own route and the first is canonical.
 
 ForgeRelay uses an Owner-password OAuth approval flow. `forgerelay init` prints
 the password and stores it in the active config directory. New installations use:

@@ -73,6 +73,10 @@ test("MCP instructions separate capability contract from configurable workflow p
   const activityPanelMeta = activityPanelTool?._meta as {
     ui?: { resourceUri?: string; visibility?: string[] };
   } | undefined;
+  const activityPanelInput = activityPanelTool?.inputSchema as {
+    required?: string[];
+    properties?: Record<string, { description?: string }>;
+  } | undefined;
   const activitySnapshotOutput = activityDataTools[0]?.outputSchema as {
     properties?: {
       activities?: {
@@ -114,19 +118,18 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /feedback window/i);
   assert.match(shellInputProperties?.timeoutMs?.description ?? "", /total execution timeout/i);
   assert.equal(shellToolMeta?.ui?.resourceUri, undefined);
-  assert.match(
-    openWorkspaceMeta?.ui?.resourceUri ?? "",
-    /^ui:\/\/forgerelay\/workspace-lifecycle-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
-  );
-  assert.deepEqual(openWorkspaceMeta?.ui?.visibility, ["model", "app"]);
-  assert.equal(closeWorkspaceMeta?.ui?.resourceUri, openWorkspaceMeta?.ui?.resourceUri);
-  assert.deepEqual(closeWorkspaceMeta?.ui?.visibility, ["model", "app"]);
+  assert.equal(openWorkspaceMeta?.ui?.resourceUri, undefined);
+  assert.equal(closeWorkspaceMeta?.ui?.resourceUri, undefined);
+  assert.equal(defaultTools.tools.some((tool) => tool.name === "workspace_lifecycle_panel"), false);
   assert.match(
     activityPanelMeta?.ui?.resourceUri ?? "",
     /^ui:\/\/forgerelay\/activity-panel-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
   );
   assert.deepEqual(activityPanelMeta?.ui?.visibility, ["model", "app"]);
-  assert.notEqual(activityPanelMeta?.ui?.resourceUri, openWorkspaceMeta?.ui?.resourceUri);
+  assert.deepEqual(activityPanelInput?.required, ["workspaceId"]);
+  assert.match(activityPanelInput?.properties?.workspaceId?.description ?? "", /returned by open_workspace/);
+  assert.match(activityPanelTool?.description ?? "", /If this Host Turn calls open_workspace, open_workspace must run first/);
+  assert.match(activityPanelTool?.description ?? "", /single ForgeRelay UI render tool/);
   assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.parentActivityId);
   assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.children);
   for (const tool of activityDataTools) {
@@ -175,41 +178,266 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(execCommandTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
 });
 
-test("workspace lifecycle and Activity Panel are separate MCP App resources", async (t) => {
+test("MCP App resource identities include the full public base URL list", async (t) => {
+  const first = await fixture(t, {
+    env: {
+      DEVSPACE_PUBLIC_BASE_URL:
+        "https://shared.example.com/forgerelay/main,https://alias-a.example.com/relay",
+    },
+  });
+  const second = await fixture(t, {
+    env: {
+      DEVSPACE_PUBLIC_BASE_URL:
+        "https://shared.example.com/forgerelay/main,https://alias-b.example.com/relay",
+    },
+  });
+
+  const currentUris = async (client: Client) => {
+    const resources = await client.listResources();
+    return resources.resources
+      .map((resource) => resource.uri)
+      .filter((uri) => /activity-panel-app-[0-9a-f]{12}\.html$/.test(uri))
+      .sort();
+  };
+
+  const firstUris = await currentUris(first.client);
+  const secondUris = await currentUris(second.client);
+  assert.equal(firstUris.length, 1);
+  assert.equal(secondUris.length, 1);
+  assert.notDeepEqual(firstUris, secondUris);
+});
+
+test("Activity Panel is the single advertised MCP App for new rendering", async (t) => {
   const context = await fixture(t, {
-    env: { DEVSPACE_PUBLIC_BASE_URL: "https://forge.example.com/base/path" },
+    env: {
+      DEVSPACE_PUBLIC_BASE_URL:
+        "https://forge.example.com/base/path,https://forge-alt.example.com/alternate/path",
+    },
   });
 
   const resources = await context.client.listResources();
-  const lifecycle = resources.resources.find((resource) =>
-    /^ui:\/\/forgerelay\/workspace-lifecycle-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
+  assert.equal(
+    resources.resources.some((resource) => /workspace-lifecycle-app-/.test(resource.uri)),
+    false,
   );
   const activity = resources.resources.find((resource) =>
     /^ui:\/\/forgerelay\/activity-panel-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/.test(resource.uri)
   );
-  assert.ok(lifecycle);
   assert.ok(activity);
-  assert.notEqual(lifecycle.uri, activity.uri);
-  const resourceMeta = lifecycle._meta as {
+  const resourceMeta = activity._meta as {
     ui?: {
       domain?: string;
       csp?: { resourceDomains?: string[]; connectDomains?: string[] };
     };
   } | undefined;
   assert.equal(resourceMeta?.ui?.domain, "https://forge.example.com");
-  assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, ["https://forge.example.com"]);
-  assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, ["https://forge.example.com"]);
+  assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, [
+    "https://forge.example.com/base/path",
+    "https://forge-alt.example.com/alternate/path",
+  ]);
+  assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, [
+    "https://forge.example.com/base/path",
+    "https://forge-alt.example.com/alternate/path",
+  ]);
 
-  const lifecycleRead = await context.client.readResource({ uri: lifecycle.uri });
   const activityRead = await context.client.readResource({ uri: activity.uri });
-  const lifecycleText = lifecycleRead.contents
-    .find((content): content is typeof content & { text: string } => "text" in content)?.text ?? "";
-  const activityText = activityRead.contents
-    .find((content): content is typeof content & { text: string } => "text" in content)?.text ?? "";
-  assert.match(lifecycleText, /mcp-app-assets\/assets\/workspace-lifecycle-app-[^"']+\.js/);
-  assert.match(activityText, /mcp-app-assets\/assets\/activity-panel-app-[^"']+\.js/);
-  assert.doesNotMatch(lifecycleText, /activity-panel-app-/);
+  const activityContent = activityRead.contents.find((content) => "text" in content);
+  const activityText = activityContent && "text" in activityContent ? activityContent.text : "";
+  const activityContentMeta = activityContent?._meta as {
+    ui?: {
+      domain?: string;
+      csp?: { resourceDomains?: string[]; connectDomains?: string[] };
+    };
+    domain?: string;
+    csp?: { resourceDomains?: string[]; connectDomains?: string[] };
+  } | undefined;
+  assert.equal(activityContentMeta?.ui?.domain, "https://forge.example.com");
+  assert.deepEqual(activityContentMeta?.ui?.csp?.resourceDomains, [
+    "https://forge.example.com/base/path",
+    "https://forge-alt.example.com/alternate/path",
+  ]);
+  assert.equal(activityContentMeta?.domain, "https://forge.example.com");
+  assert.deepEqual(activityContentMeta?.csp?.resourceDomains, [
+    "https://forge.example.com/base/path",
+    "https://forge-alt.example.com/alternate/path",
+  ]);
+  assert.deepEqual(activityContentMeta?.csp?.connectDomains, [
+    "https://forge.example.com/base/path",
+    "https://forge-alt.example.com/alternate/path",
+  ]);
+  assert.match(
+    activityText,
+    /https:\/\/forge\.example\.com\/base\/path\/mcp-app-assets\/assets\/activity-panel-app-[^"']+\.js/,
+  );
   assert.doesNotMatch(activityText, /workspace-lifecycle-app-/);
+
+  const templates = await context.client.listResourceTemplates();
+  assert.ok(templates.resourceTemplates.some(
+    (template) => template.uriTemplate === "ui://forgerelay/workspace-lifecycle-app-{revision}.html",
+  ));
+});
+
+test("activity_panel carries the selected Workspace presentation and changes it with workspaceId", async (t) => {
+  const context = await fixture(t);
+  const conversationScopeId = "unified-panel-chat";
+  const opened = await callOpen(context.client, context.project, conversationScopeId);
+  const workspaceId = structuredContent(opened).workspaceId as string;
+  assert.ok(workspaceId);
+
+  const firstPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  const firstTurnId = String(structuredContent(firstPanel).turnId);
+  const firstWorkspace = (firstPanel._meta as Record<string, unknown> | undefined)?.[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; root?: string; mode?: string } | undefined;
+  const firstStructuredWorkspace = structuredContent(firstPanel)[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; root?: string; mode?: string } | undefined;
+  assert.equal(firstWorkspace?.workspaceId, workspaceId);
+  assert.equal(firstWorkspace?.root, context.project);
+  assert.equal(firstWorkspace?.mode, "checkout");
+  assert.equal(firstStructuredWorkspace?.workspaceId, workspaceId);
+  assert.equal(firstStructuredWorkspace?.root, context.project);
+  assert.equal(firstStructuredWorkspace?.mode, "checkout");
+
+  const secondOpen = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { path: context.project, newWorkspace: true },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  const secondWorkspaceId = structuredContent(secondOpen).workspaceId as string;
+  assert.notEqual(secondWorkspaceId, workspaceId);
+
+  const secondPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: secondWorkspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  const secondTurnId = String(structuredContent(secondPanel).turnId);
+  const secondWorkspace = (secondPanel._meta as Record<string, unknown> | undefined)?.[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; root?: string } | undefined;
+  const secondStructuredWorkspace = structuredContent(secondPanel)[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; root?: string } | undefined;
+  assert.equal(secondWorkspace?.workspaceId, secondWorkspaceId);
+  assert.equal(secondWorkspace?.root, context.project);
+  assert.equal(secondStructuredWorkspace?.workspaceId, secondWorkspaceId);
+  assert.equal(secondStructuredWorkspace?.root, context.project);
+  assert.notEqual(secondTurnId, firstTurnId);
+
+  await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "package.json" },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: secondWorkspaceId, path: "package.json" },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+
+  const firstBootstrap = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { workspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  const secondBootstrap = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { workspaceId: secondWorkspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(structuredContent(firstBootstrap).turnId, firstTurnId);
+  assert.equal(structuredContent(secondBootstrap).turnId, secondTurnId);
+  assert.equal(
+    (structuredContent(firstBootstrap)["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
+    workspaceId,
+  );
+  assert.equal(
+    (structuredContent(secondBootstrap)["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
+    secondWorkspaceId,
+  );
+  assert.deepEqual(
+    (structuredContent(firstBootstrap).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
+    [workspaceId],
+  );
+  assert.deepEqual(
+    (structuredContent(secondBootstrap).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
+    [secondWorkspaceId],
+  );
+});
+
+test("transport session scopes Activity when openai/session metadata is absent", async (t) => {
+  const context = await fixture(t);
+  await writeFile(join(context.project, "transport-scope.txt"), "transport scoped activity\n");
+  const opened = await callOpen(context.client, context.project);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  const turnId = String(structuredContent(panel).turnId);
+
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "transport-scope.txt", offset: 1, limit: 2 },
+  });
+  assert.equal(read.isError, undefined, allResponseText(read));
+
+  const snapshot = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId },
+  });
+  assert.equal(snapshot.isError, undefined, allResponseText(snapshot));
+  assert.ok(Number(structuredContent(snapshot).revision) > 0);
+  assert.deepEqual(
+    (structuredContent(snapshot).activities as Array<{ tool?: string; workspaceId?: string; target?: string }>).map(
+      ({ tool, workspaceId: activityWorkspaceId, target }) => ({ tool, workspaceId: activityWorkspaceId, target }),
+    ),
+    [{ tool: "read", workspaceId, target: "transport-scope.txt" }],
+  );
+});
+
+test("Activity snapshot bootstraps the current Host Turn from conversation metadata", async (t) => {
+  const context = await fixture(t);
+  const conversationScopeId = "activity-bootstrap-chat";
+  const opened = await callOpen(context.client, context.project, conversationScopeId);
+  const workspaceId = structuredContent(opened).workspaceId as string;
+
+  const tools = await context.client.listTools();
+  const snapshotTool = tools.tools.find((tool) => tool.name === "activity_snapshot");
+  const snapshotInput = snapshotTool?.inputSchema as {
+    required?: string[];
+    properties?: Record<string, { description?: string }>;
+  } | undefined;
+  assert.equal(snapshotInput?.required?.includes("turnId") ?? false, false);
+  assert.match(snapshotInput?.properties?.turnId?.description ?? "", /initial App bootstrap/i);
+
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(panel).turnId);
+  assert.match(turnId, /^turn_/);
+
+  const bootstrap = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { workspaceId },
+    _meta: { "openai/session": conversationScopeId },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(bootstrap.isError, undefined);
+  assert.equal(structuredContent(bootstrap).turnId, turnId);
+  const bootstrapMeta = bootstrap._meta as Record<string, unknown> | undefined;
+  assert.equal(bootstrapMeta?.["forgerelay/activityPanelDefaultExpanded"], false);
+  assert.equal(
+    (bootstrapMeta?.["forgerelay/activityPanelWorkspace"] as { workspaceId?: string } | undefined)?.workspaceId,
+    workspaceId,
+  );
 });
 
 test("capability gateway supports catalog, describe, guide read, direct run, and stable errors", async (t) => {
@@ -416,7 +644,10 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
   const activityPanelMeta = tools.tools.find((tool) => tool.name === "activity_panel")?._meta as {
     ui?: { resourceUri?: string };
   } | undefined;
-  assert.equal(activityPanelMeta?.ui?.resourceUri, undefined);
+  assert.match(
+    activityPanelMeta?.ui?.resourceUri ?? "",
+    /^ui:\/\/forgerelay\/activity-panel-app-(?:[0-9a-f]{12}|\d+\.\d+\.\d+)\.html$/,
+  );
 });
 
 test("artifact.download capability preserves native-file transport without a dedicated tool alias", async (t) => {
@@ -905,6 +1136,67 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.equal(structuredContent(repeated).capabilityGuides, undefined);
 });
 
+test("open_workspace hides skill filesystem paths and read loads skills through skills://", async (t) => {
+  const context = await fixture(t);
+  const skillDir = join(context.project, ".agents", "skills", "hidden-path-skill");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(join(skillDir, "SKILL.md"), [
+    "---",
+    "name: hidden-path-skill",
+    "description: Loads without exposing its filesystem path.",
+    "---",
+    "skill entry body",
+  ].join("\n"));
+  await writeFile(join(skillDir, "reference.md"), "skill reference body\n");
+
+  const duplicateSkillDir = join(context.config.agentDir, "skills", "hidden-path-skill");
+  await mkdir(duplicateSkillDir, { recursive: true });
+  await writeFile(join(duplicateSkillDir, "SKILL.md"), [
+    "---",
+    "name: hidden-path-skill",
+    "description: Lower-priority duplicate.",
+    "---",
+    "duplicate body",
+  ].join("\n"));
+
+  const opened = await callOpen(context.client, context.project, "chat-skill-uri");
+  const openedStructured = structuredContent(opened);
+  const skills = openedStructured.skills as Array<Record<string, unknown>>;
+  const skill = skills.find((candidate) => candidate.name === "hidden-path-skill");
+  assert.deepEqual(skill, {
+    name: "hidden-path-skill",
+    description: "Loads without exposing its filesystem path.",
+  });
+  assert.equal("path" in skill!, false);
+  assert.doesNotMatch(allResponseText(opened), /hidden-path-skill\/SKILL\.md/);
+
+  const cardSkills = responseCard(opened).skills as Array<Record<string, unknown>>;
+  const cardSkill = cardSkills.find((candidate) => candidate.name === "hidden-path-skill");
+  assert.ok(cardSkill);
+  assert.equal("path" in cardSkill, false);
+
+  const diagnostics = openedStructured.skillDiagnostics as Array<Record<string, unknown>>;
+  const collision = diagnostics.find((diagnostic) => diagnostic.type === "collision");
+  assert.ok(collision);
+  assert.equal("path" in collision, false);
+  assert.doesNotMatch(JSON.stringify(collision), /winnerPath|loserPath|SKILL\.md|\.agents\/skills/);
+
+  const workspaceId = String(openedStructured.workspaceId);
+  const entry = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "skills://hidden-path-skill" },
+  });
+  assert.equal(entry.isError, undefined);
+  assert.match(allResponseText(entry), /skill entry body/);
+
+  const reference = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "skills://hidden-path-skill/reference.md" },
+  });
+  assert.equal(reference.isError, undefined);
+  assert.match(allResponseText(reference), /skill reference body/);
+});
+
 test("different MCP conversations get different stable workspace ids and can explicitly resume one", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
@@ -1103,7 +1395,12 @@ test("top-level work tools share the persistent Activity lifecycle while Bash pr
 
 test("Activity Panel exposes the default-expanded preference only through app result metadata", async (t) => {
   const collapsed = await fixture(t);
-  const collapsedPanel = await collapsed.client.callTool({ name: "activity_panel", arguments: {} });
+  const collapsedOpened = await callOpen(collapsed.client, collapsed.project, "chat-activity-panel-collapsed");
+  const collapsedWorkspaceId = String(structuredContent(collapsedOpened).workspaceId);
+  const collapsedPanel = await collapsed.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: collapsedWorkspaceId },
+  });
   assert.equal(
     (collapsedPanel._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelDefaultExpanded"],
     false,
@@ -1112,7 +1409,12 @@ test("Activity Panel exposes the default-expanded preference only through app re
   const expanded = await fixture(t, {
     env: { DEVSPACE_ACTIVITY_PANEL_EXPANDED: "1" },
   });
-  const expandedPanel = await expanded.client.callTool({ name: "activity_panel", arguments: {} });
+  const expandedOpened = await callOpen(expanded.client, expanded.project, "chat-activity-panel-expanded");
+  const expandedWorkspaceId = String(structuredContent(expandedOpened).workspaceId);
+  const expandedPanel = await expanded.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: expandedWorkspaceId },
+  });
   assert.equal(
     (expandedPanel._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelDefaultExpanded"],
     true,
@@ -1132,7 +1434,7 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
     _meta: { "openai/session": conversation },
   } as Parameters<Client["callTool"]>[0]);
 
-  const panel = await call("activity_panel", {});
+  const panel = await call("activity_panel", { workspaceId });
   const turnId = String(structuredContent(panel).turnId);
   assert.equal(turnId, "turn_host_test_1");
   assert.equal(structuredContent(panel).state, "working");
@@ -1203,7 +1505,7 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   assert.equal(structuredContent(unchanged).changed, false);
   assert.deepEqual(structuredContent(unchanged).activities, []);
 
-  const secondPanel = await call("activity_panel", {});
+  const secondPanel = await call("activity_panel", { workspaceId });
   const secondTurnId = String(structuredContent(secondPanel).turnId);
   assert.equal(secondTurnId, "turn_host_test_2");
   await call("read", { workspaceId, path: "AGENTS.md" });
@@ -1239,7 +1541,7 @@ test("batch.execute runs heterogeneous core tasks with one parent Activity and o
   await writeFile(join(context.project, "batch-edit.txt"), "before edit-target after\n");
   await writeFile(join(context.project, "batch-rename-before.txt"), "rename me\n");
   await writeFile(join(context.project, "batch-delete.txt"), "delete me\n");
-  const panel = await call("activity_panel", {});
+  const panel = await call("activity_panel", { workspaceId });
   const turnId = String(structuredContent(panel).turnId);
 
   const batch = await call("capability", {
@@ -1331,7 +1633,7 @@ test("batch.execute runs Capability children through declared batch policy and a
     _meta: { "openai/session": conversation },
   } as Parameters<Client["callTool"]>[0]);
   await writeFile(join(context.project, "batch-capability-read.txt"), "BATCH-CAPABILITY-READ\n");
-  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+  const turnId = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
 
   const batch = await call("capability", {
     workspaceId,
@@ -1379,7 +1681,7 @@ test("Host cancellation stops queued batch tasks and creates no fake child Activ
   const workspaceId = String(structuredContent(opened).workspaceId);
   const turn = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId },
     _meta: { "openai/session": conversation },
   } as Parameters<Client["callTool"]>[0]);
   const turnId = String(structuredContent(turn).turnId);
@@ -1448,7 +1750,7 @@ test("batch.execute accepts 100 tasks and persists 100 child Activities", async 
     arguments: arguments_,
     _meta: { "openai/session": conversation },
   } as Parameters<Client["callTool"]>[0]);
-  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+  const turnId = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
 
   const batch = await call("capability", {
     workspaceId,
@@ -1490,7 +1792,7 @@ test("batch.execute rejects more than 100 tasks before creating a Batch Activity
     arguments: arguments_,
     _meta: { "openai/session": conversation },
   } as Parameters<Client["callTool"]>[0]);
-  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+  const turnId = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const rejected = await call("capability", {
     workspaceId,
     name: "batch.execute",
@@ -1555,7 +1857,7 @@ test("bulk Read returns ordered per-file results and persists one parent Activit
 
   await writeFile(join(context.project, "bulk-a.txt"), "BULK-READ-A-SENTINEL\n");
   await writeFile(join(context.project, "bulk-b.txt"), "BULK-READ-B-SENTINEL\n");
-  const panel = await call("activity_panel", {});
+  const panel = await call("activity_panel", { workspaceId });
   const turnId = String(structuredContent(panel).turnId);
 
   const read = await call("read", {
@@ -1632,7 +1934,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   await writeFile(join(context.project, paths[1]!), "before common after\n");
   await writeFile(join(context.project, paths[2]!), "common and common\n");
 
-  const failedTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const failedTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const preflightFailure = await call("edit", {
     workspaceId,
     paths,
@@ -1650,7 +1952,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   assert.equal(failedActivities[0]?.detailAvailable, false);
   assert.equal(failedActivities[0]?.children, undefined);
 
-  const duplicateTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const duplicateTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const duplicateFailure = await call("edit", {
     workspaceId,
     paths: [paths[0], paths[0]],
@@ -1663,7 +1965,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   assert.equal(duplicateActivities.length, 1);
 
   await writeFile(join(context.project, paths[2]!), "before common after\n");
-  const successTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const successTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const edited = await call("edit", {
     workspaceId,
     paths,
@@ -1707,7 +2009,7 @@ test("bulk Edit stops after a mutation-phase Hook failure and reports unexecuted
   } as Parameters<Client["callTool"]>[0]);
   const paths = ["partial-a.txt", "partial-b.txt", "partial-c.txt"];
   for (const path of paths) await writeFile(join(context.project, path), "common\n");
-  const turnId = String(structuredContent(await call("activity_panel", {})).turnId);
+  const turnId = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
 
   const edited = await call("edit", {
     workspaceId,
@@ -1749,7 +2051,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   await mkdir(join(context.project, "delete-dir"));
   await writeFile(join(context.project, "delete-dir", "child.txt"), "child\n");
 
-  const failedTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const failedTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const nonEmptyFailure = await call("delete", {
     workspaceId,
     paths: ["delete-a.txt", "delete-dir"],
@@ -1764,7 +2066,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   assert.equal(failedActivities[0]?.target, "2 paths");
   assert.equal(failedActivities[0]?.detailAvailable, false);
 
-  const overlapTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const overlapTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const overlapFailure = await call("delete", {
     workspaceId,
     paths: ["delete-dir", "delete-dir/child.txt"],
@@ -1776,7 +2078,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   const overlapActivities = structuredContent(await call("activity_snapshot", { turnId: overlapTurn })).activities as Array<Record<string, unknown>>;
   assert.equal(overlapActivities.length, 1);
 
-  const successTurn = String(structuredContent(await call("activity_panel", {})).turnId);
+  const successTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
   const deleted = await call("delete", {
     workspaceId,
     paths: ["delete-a.txt", "delete-b.txt"],
@@ -2371,7 +2673,7 @@ test("final Bash process poll creates one Bash result Activity without mutating 
   const node = JSON.stringify(process.execPath);
   const firstPanel = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId },
     _meta: { "openai/session": "chat-bash-result-poll" },
   } as Parameters<Client["callTool"]>[0]);
   const firstTurnId = String(structuredContent(firstPanel).turnId);
@@ -2400,7 +2702,7 @@ test("final Bash process poll creates one Bash result Activity without mutating 
 
   const secondPanel = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId },
     _meta: { "openai/session": "chat-bash-result-poll" },
   } as Parameters<Client["callTool"]>[0]);
   const secondTurnId = String(structuredContent(secondPanel).turnId);
@@ -2434,7 +2736,7 @@ test("attached background completion creates one Bash result Activity on a later
   const node = JSON.stringify(process.execPath);
   const firstPanel = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId },
     _meta: { "openai/session": "chat-bash-result-attached" },
   } as Parameters<Client["callTool"]>[0]);
   const firstTurnId = String(structuredContent(firstPanel).turnId);
@@ -2453,7 +2755,7 @@ test("attached background completion creates one Bash result Activity on a later
   await new Promise((resolve) => setTimeout(resolve, 130));
   const secondPanel = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId },
     _meta: { "openai/session": "chat-bash-result-attached" },
   } as Parameters<Client["callTool"]>[0]);
   const secondTurnId = String(structuredContent(secondPanel).turnId);
@@ -2979,7 +3281,7 @@ test("checkout context and durable Activity queries survive a registry restart",
   const firstWorkspaceId = structuredContent(first).workspaceId;
   const panel = await context.client.callTool({
     name: "activity_panel",
-    arguments: {},
+    arguments: { workspaceId: firstWorkspaceId },
     _meta: { "openai/session": "chat-1" },
   } as Parameters<Client["callTool"]>[0]);
   const turnId = String(structuredContent(panel).turnId);
@@ -3042,7 +3344,8 @@ test("checkout context and durable Activity queries survive a registry restart",
     restoredBashOutputStore,
   );
   const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore, {
-    turnIdForConversation: (conversationScopeId) => restoredActivityQueries.currentTurnId(conversationScopeId),
+    turnIdForConversation: (conversationScopeId, workspaceId) =>
+      restoredActivityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
   const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
   const restoredProcessSessions = new ProcessManager({ outputAudit: restoredBashOutputStore });
@@ -3226,7 +3529,8 @@ async function fixture(
   const activityLifecycle = new ActivityLifecycle(auditStore, {
     activityId: () => `act_test_${++activitySequence}`,
     turnId: () => `turn_test_${++turnSequence}`,
-    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
+    turnIdForConversation: (conversationScopeId, workspaceId) =>
+      activityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
   const codeIntelligence = new CodeIntelligenceManager(config);
   const server = createMcpServer(

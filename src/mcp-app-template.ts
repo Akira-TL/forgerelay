@@ -5,6 +5,11 @@ export const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
 export const WORKSPACE_LIFECYCLE_APP_MANIFEST_ENTRY = "workspace-lifecycle-app.html";
 export const ACTIVITY_PANEL_APP_MANIFEST_ENTRY = "activity-panel-app.html";
 
+// Host caches are keyed by the ui:// resource URI, so the revision must cover
+// both bundle assets and the HTML/resource contract that serves them. Bump this
+// when the MCP App HTML shell or resource-to-entry mapping changes.
+export const MCP_APP_RESOURCE_TEMPLATE_REVISION = "4";
+
 // Historical mixed-widget resource. Keep serving it so existing ChatGPT Web
 // conversations can still render cards created before the UI split.
 export const WORKSPACE_APP_LEGACY_URI = "ui://forgerelay/workspace-app.html";
@@ -21,16 +26,25 @@ export const ACTIVITY_PANEL_APP_URI_TEMPLATE =
 export interface WorkspaceAppManifestEntry {
   file: string;
   css?: string[];
+  dependencies?: string[];
   isEntry?: boolean;
 }
 
-type WorkspaceAppManifest = Record<string, WorkspaceAppManifestEntry>;
+interface RawWorkspaceAppManifestEntry {
+  file: string;
+  css?: string[];
+  imports?: string[];
+  isEntry?: boolean;
+}
+
+type WorkspaceAppManifest = Record<string, RawWorkspaceAppManifestEntry>;
 
 interface AppIdentityOptions {
   manifestUrl: URL;
   buildDirectoryUrl: URL;
   manifestEntry: string;
   fallbackRevision: string;
+  resourceTemplateRevision?: string;
   uriForRevision: (revision: string) => string;
 }
 
@@ -38,6 +52,7 @@ export interface WorkspaceAppIdentityOptions {
   manifestUrl: URL;
   buildDirectoryUrl: URL;
   fallbackRevision: string;
+  resourceTemplateRevision?: string;
 }
 
 export interface WorkspaceAppIdentity {
@@ -69,7 +84,41 @@ export function readMcpAppManifestEntry(
     throw new Error(`Missing ${manifestEntry} in UI manifest.`);
   }
 
-  return entry;
+  const css: string[] = [];
+  const dependencies: string[] = [];
+  const seenCss = new Set<string>();
+  const seenDependencies = new Set<string>();
+  const visitedEntries = new Set<string>();
+
+  const visit = (key: string, root = false): void => {
+    if (visitedEntries.has(key)) return;
+    visitedEntries.add(key);
+
+    const current = manifest[key];
+    if (!current?.file) {
+      throw new Error(`Missing imported UI manifest entry ${key}.`);
+    }
+
+    if (!root && !seenDependencies.has(current.file)) {
+      dependencies.push(current.file);
+      seenDependencies.add(current.file);
+    }
+    for (const stylesheet of current.css ?? []) {
+      if (seenCss.has(stylesheet)) continue;
+      css.push(stylesheet);
+      seenCss.add(stylesheet);
+    }
+    for (const imported of current.imports ?? []) visit(imported);
+  };
+
+  visit(manifestEntry, true);
+
+  return {
+    file: entry.file,
+    ...(css.length > 0 ? { css } : {}),
+    ...(dependencies.length > 0 ? { dependencies } : {}),
+    ...(entry.isEntry !== undefined ? { isEntry: entry.isEntry } : {}),
+  };
 }
 
 export function readWorkspaceAppManifestEntry(manifestUrl: URL): WorkspaceAppManifestEntry {
@@ -87,9 +136,17 @@ export function readActivityPanelAppManifestEntry(manifestUrl: URL): WorkspaceAp
 export function workspaceAppBundleRevision(
   entry: WorkspaceAppManifestEntry,
   buildDirectoryUrl: URL,
+  resourceTemplateRevision = MCP_APP_RESOURCE_TEMPLATE_REVISION,
 ): string {
   const hash = createHash("sha256");
-  const assetPaths = [entry.file, ...(entry.css ?? [])];
+  hash.update("resource-template\0");
+  hash.update(resourceTemplateRevision);
+  hash.update("\0");
+  const assetPaths = [
+    entry.file,
+    ...(entry.dependencies ?? []),
+    ...(entry.css ?? []),
+  ];
 
   for (const assetPath of assetPaths) {
     hash.update(assetPath);
@@ -104,7 +161,11 @@ export function workspaceAppBundleRevision(
 function resolveAppIdentity(options: AppIdentityOptions): WorkspaceAppIdentity {
   try {
     const entry = readMcpAppManifestEntry(options.manifestUrl, options.manifestEntry);
-    const revision = workspaceAppBundleRevision(entry, options.buildDirectoryUrl);
+    const revision = workspaceAppBundleRevision(
+      entry,
+      options.buildDirectoryUrl,
+      options.resourceTemplateRevision,
+    );
     return {
       revision,
       uri: options.uriForRevision(revision),

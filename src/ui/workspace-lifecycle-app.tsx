@@ -1,5 +1,4 @@
-// Workspace Lifecycle has its own MCP App/resource identity while sharing the
-// established workspace-card renderer with historical cards. Tool metadata
-// ensures only open_workspace and close_workspace instantiate this entry.
-document.documentElement.dataset.forgerelayApp = "workspace-lifecycle";
+// Historical compatibility entry for cards created while ForgeRelay exposed a
+// dedicated Workspace Lifecycle App. New rendering is owned by activity_panel.
+document.documentElement.dataset.forgerelayApp = "workspace-lifecycle-compatibility";
 import "./workspace-app.js";

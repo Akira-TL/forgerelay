@@ -11,7 +11,7 @@ import {
   type LoadSkillsResult,
 } from "@earendil-works/pi-coding-agent";
 import type { ServerConfig } from "./config.js";
-import { expandHomePath } from "./roots.js";
+import { expandHomePath, isPathInsideRoot } from "./roots.js";
 
 export interface LoadedSkills {
   skills: Skill[];
@@ -77,6 +77,10 @@ export function resolveSkillReadPath(
   activatedSkillDirs: Set<string>,
   inputPath: string,
 ): SkillReadResolution | undefined {
+  const virtualRead = resolveVirtualSkillReadPath(skills, activatedSkillDirs, inputPath);
+  if (virtualRead) return virtualRead;
+
+  // Compatibility for stale Host metadata that still contains the historical real path.
   const resolution = resolveAdvertisedFileReadPath(skills, activatedSkillDirs, inputPath);
   if (!resolution) return undefined;
 
@@ -84,6 +88,66 @@ export function resolveSkillReadPath(
     absolutePath: resolution.absolutePath,
     skill: resolution.source,
     isSkillFile: resolution.isEntryFile,
+  };
+}
+
+function resolveVirtualSkillReadPath(
+  skills: Skill[],
+  activatedSkillDirs: Set<string>,
+  inputPath: string,
+): SkillReadResolution | undefined {
+  const prefix = "skills://";
+  if (!inputPath.startsWith(prefix)) return undefined;
+
+  const requested = inputPath.slice(prefix.length);
+  const slashIndex = requested.indexOf("/");
+  const encodedName = slashIndex === -1 ? requested : requested.slice(0, slashIndex);
+  if (!encodedName) throw new Error(`Invalid skill URI: ${inputPath}`);
+
+  let name: string;
+  try {
+    name = decodeURIComponent(encodedName);
+  } catch {
+    throw new Error(`Invalid skill URI: ${inputPath}`);
+  }
+
+  const skill = skills.find((candidate) => candidate.name === name);
+  if (!skill) throw new Error(`Unknown advertised skill: ${name}`);
+
+  if (slashIndex === -1 || slashIndex === requested.length - 1) {
+    return {
+      absolutePath: resolve(skill.filePath),
+      skill,
+      isSkillFile: true,
+    };
+  }
+
+  const relativePart = requested.slice(slashIndex + 1);
+  const segments = relativePart.split("/").map((segment) => {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      throw new Error(`Invalid skill URI: ${inputPath}`);
+    }
+    if (!decoded || decoded === "." || decoded === ".." || decoded.includes("/") || decoded.includes("\\")) {
+      throw new Error(`Invalid skill URI: ${inputPath}`);
+    }
+    return decoded;
+  });
+
+  const baseDir = resolve(skill.baseDir);
+  if (!activatedSkillDirs.has(baseDir)) return undefined;
+
+  const absolutePath = resolve(baseDir, ...segments);
+  if (!isPathInsideRoot(absolutePath, baseDir)) {
+    throw new Error(`Skill resource is outside its skill directory: ${inputPath}`);
+  }
+
+  return {
+    absolutePath,
+    skill,
+    isSkillFile: false,
   };
 }
 

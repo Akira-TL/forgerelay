@@ -5,6 +5,59 @@ import { join } from "node:path";
 import test from "node:test";
 import Database from "better-sqlite3";
 import { BashOutputStore } from "../activity/bash-output-store.js";
+import { HostTurnStore } from "../activity/host-turn-store.js";
+
+test("database migration backfills Host Turn workspace identity when historical Activity data is available", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-host-turn-workspace-test-"));
+  const databasePath = join(stateDir, "devspace.sqlite");
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    create table devspace_schema_migrations (
+      version integer primary key,
+      name text not null,
+      applied_at text not null
+    );
+
+    create table activity_host_turns (
+      turn_id text primary key,
+      conversation_scope_id text,
+      created_at text not null
+    );
+
+    create table activity_audit_events (
+      turn_id text,
+      workspace_id text,
+      created_at text not null
+    );
+
+    insert into activity_host_turns (turn_id, conversation_scope_id, created_at)
+      values ('turn_backfilled', 'conversation_backfilled', '2026-08-15T00:00:00.000Z');
+    insert into activity_host_turns (turn_id, conversation_scope_id, created_at)
+      values ('turn_unknown', 'conversation_backfilled', '2026-08-15T00:01:00.000Z');
+    insert into activity_audit_events (turn_id, workspace_id, created_at)
+      values ('turn_backfilled', 'ws_backfilled', '2026-08-15T00:00:01.000Z');
+  `);
+  const recordMigration = legacy.prepare(
+    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+  );
+  for (let version = 1; version <= 12; version += 1) {
+    recordMigration.run(version, `legacy-${version}`, "2026-08-15T00:00:00.000Z");
+  }
+  legacy.close();
+
+  const turns = new HostTurnStore(stateDir);
+  t.after(async () => {
+    turns.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  assert.equal(turns.get("turn_backfilled")?.workspaceId, "ws_backfilled");
+  assert.equal(
+    turns.current("conversation_backfilled", "ws_backfilled")?.turnId,
+    "turn_backfilled",
+  );
+  assert.equal(turns.get("turn_unknown")?.workspaceId, undefined);
+});
 
 test("database migration repairs a partial historical Bash output schema before completion writes", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-bash-output-test-"));

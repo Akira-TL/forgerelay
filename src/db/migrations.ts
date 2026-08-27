@@ -67,6 +67,11 @@ const migrations: Migration[] = [
     name: "bash-output-audit-columns",
     up: migrateBashOutputAuditColumns,
   },
+  {
+    version: 13,
+    name: "activity-host-turn-workspace",
+    up: migrateActivityHostTurnWorkspace,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -373,9 +378,38 @@ function migrateBashOutputAuditColumns(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "bash_output_streams", "completion_claimed_at", "text");
 }
 
+function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {
+  migrateActivityHostTurns(sqlite);
+  addColumnIfMissing(sqlite, "activity_host_turns", "workspace_id", "text");
+  if (tableExists(sqlite, "activity_audit_events")) {
+    sqlite.exec(`
+      update activity_host_turns
+         set workspace_id = (
+           select workspace_id
+             from activity_audit_events
+            where activity_audit_events.turn_id = activity_host_turns.turn_id
+              and workspace_id is not null
+            order by created_at asc
+            limit 1
+         )
+       where workspace_id is null;
+    `);
+  }
+  sqlite.exec(`
+    create index if not exists activity_host_turns_conversation_workspace_idx
+      on activity_host_turns(conversation_scope_id, workspace_id, created_at desc);
+  `);
+}
+
+function tableExists(sqlite: Database.Database, table: string): boolean {
+  return Boolean(
+    sqlite.prepare("select 1 from sqlite_master where type = 'table' and name = ?").get(table),
+  );
+}
+
 function addColumnIfMissing(
   sqlite: Database.Database,
-  table: "workspace_sessions" | "local_agent_sessions" | "bash_output_streams",
+  table: "workspace_sessions" | "local_agent_sessions" | "bash_output_streams" | "activity_host_turns",
   column: string,
   definition: string,
 ): void {

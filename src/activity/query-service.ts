@@ -69,13 +69,16 @@ export class ActivityQueryService {
     private readonly outputs: BashOutputStore,
   ) {}
 
-  beginTurn(conversationScopeId?: string): HostTurnSnapshot {
-    const turn = this.turns.begin(conversationScopeId);
+  beginTurn(conversationScopeId: string | undefined, workspaceId: string): HostTurnSnapshot {
+    const turn = this.turns.begin(conversationScopeId, workspaceId);
     return this.snapshot(turn.turnId);
   }
 
-  currentTurnId(conversationScopeId: string | undefined): string | undefined {
-    return this.turns.current(conversationScopeId)?.turnId;
+  currentTurnId(
+    conversationScopeId: string | undefined,
+    workspaceId: string | undefined,
+  ): string | undefined {
+    return this.turns.current(conversationScopeId, workspaceId)?.turnId;
   }
 
   snapshot(turnId: string, knownRevision?: number): HostTurnSnapshot {

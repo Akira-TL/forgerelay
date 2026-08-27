@@ -27,6 +27,10 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
   assert.match(result, /close_workspace/);
+  assert.match(result, /Project-work order: open_workspace if needed → activity_panel\(workspaceId\) once → work tools/);
+  assert.match(result, /single ForgeRelay UI render tool/);
+  assert.match(result, /Never call activity_panel before needed open_workspace/);
+  assert.doesNotMatch(result, /workspace_lifecycle_panel/);
   assert.doesNotMatch(result, /close_worktree/);
   assert.doesNotMatch(result, /write_stdin/);
   assert.match(result, /capability guide/);

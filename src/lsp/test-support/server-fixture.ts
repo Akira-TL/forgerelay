@@ -56,7 +56,8 @@ export async function createCodeIntelligenceServerFixture(
   const activityQueries = new ActivityQueryService(hostTurnStore, auditStore, bashOutputStore);
   const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
   const activityLifecycle = new ActivityLifecycle(auditStore, {
-    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
+    turnIdForConversation: (conversationScopeId, workspaceId) =>
+      activityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
   const codeIntelligence = new CodeIntelligenceManager(config, options.codeIntelligenceOptions);
   const server = createMcpServer(

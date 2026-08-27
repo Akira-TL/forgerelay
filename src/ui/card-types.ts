@@ -74,7 +74,6 @@ export interface ToolResultCard {
   skills?: Array<{
     name?: string;
     description?: string;
-    path?: string;
   }>;
   agentProviders?: Array<{
     name?: string;

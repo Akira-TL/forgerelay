@@ -36,7 +36,10 @@ export class ActivityPanelController {
   private readonly outputErrors = new Map<string, string>();
   private outputRefreshTimer: number | null = null;
 
-  constructor(private readonly root: HTMLElement) {}
+  constructor(
+    private readonly root: HTMLElement,
+    private readonly options: { embedded?: boolean } = {},
+  ) {}
 
   get active(): boolean {
     return this.snapshot !== null;
@@ -81,6 +84,10 @@ export class ActivityPanelController {
 
   render(): boolean {
     if (!this.snapshot) return false;
+    if (this.snapshot.activities.length === 0) {
+      this.root.replaceChildren();
+      return true;
+    }
     this.renderPanel(this.snapshot);
     return true;
   }
@@ -361,7 +368,6 @@ export class ActivityPanelController {
     const previousViewport = this.root.querySelector<HTMLElement>(".activity-viewport");
     if (previousViewport) this.scrollTop = previousViewport.scrollTop;
 
-    const main = element("main", { className: "shell" });
     const section = element("section", {
       className: `activity-panel state-${snapshot.state}`,
     });
@@ -445,8 +451,7 @@ export class ActivityPanelController {
       }
       body.prepend(viewport);
       section.append(body);
-      main.append(section);
-      this.root.replaceChildren(main);
+      this.replacePanel(section);
 
       if (this.followTail) {
         viewport.scrollTop = viewport.scrollHeight;
@@ -460,6 +465,15 @@ export class ActivityPanelController {
       return;
     }
 
+    this.replacePanel(section);
+  }
+
+  private replacePanel(section: HTMLElement): void {
+    if (this.options.embedded) {
+      this.root.replaceChildren(section);
+      return;
+    }
+    const main = element("main", { className: "shell" });
     main.append(section);
     this.root.replaceChildren(main);
   }

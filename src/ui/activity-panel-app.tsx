@@ -4,19 +4,33 @@ import {
   applyHostFonts,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { HostContext } from "./card-types.js";
 import { ActivityPanelController } from "./activity/panel.js";
+import { WorkspacePanelController } from "./workspace/panel.js";
 import "./workspace-app.css";
+
+document.documentElement.dataset.forgerelayApp = "panel";
 
 const maybeAppRoot = document.querySelector<HTMLElement>("#app");
 if (!maybeAppRoot) throw new Error("Missing #app root element.");
 
 const appRoot = maybeAppRoot;
-const activityPanel = new ActivityPanelController(appRoot);
+const panel = element("section", "forgerelay-panel");
+const workspaceRoot = element("div", "workspace-panel-slot");
+const activityRoot = element("div", "activity-panel-slot");
+panel.append(workspaceRoot, activityRoot);
+appRoot.replaceChildren(panel);
+
+const workspacePanel = new WorkspacePanelController(workspaceRoot);
+const activityPanel = new ActivityPanelController(activityRoot, { embedded: true });
 let app: App | null = null;
 let hostContext: HostContext | undefined;
 let connected = false;
 let connectionError: string | null = null;
+let currentWorkspaceId: string | undefined;
+let bootstrapInFlight = false;
+let bootstrapAttemptedFor: string | undefined;
 
 void boot();
 
@@ -24,27 +38,32 @@ async function boot(): Promise<void> {
   render();
 
   app = new App(
-    { name: "forgerelay-activity-panel", version: "0.1.0" },
+    { name: "forgerelay-panel", version: "0.1.0" },
     {},
   );
 
-  app.ontoolresult = (result) => {
-    if (activityPanel.accept(result)) {
-      activityPanel.render();
-      return;
+  app.ontoolinput = (input) => {
+    const workspaceId = input.arguments?.workspaceId;
+    if (typeof workspaceId === "string" && workspaceId.length > 0) {
+      currentWorkspaceId = workspaceId;
+      if (connected && !activityPanel.active) void bootstrapCurrentTurn();
     }
-    renderEmpty("Waiting for Activity Panel state.");
+    render();
+  };
+
+  app.ontoolresult = (result) => {
+    acceptToolResult(result);
   };
 
   app.onhostcontextchanged = (ctx) => {
     hostContext = { ...hostContext, ...ctx };
     applyHostContext();
-    if (activityPanel.active) activityPanel.render();
   };
 
   app.onteardown = async () => {
     connected = false;
     activityPanel.detach();
+    workspacePanel.clear();
     return {};
   };
 
@@ -55,11 +74,44 @@ async function boot(): Promise<void> {
     applyHostContext();
     connected = true;
     activityPanel.attach(app);
+    if (currentWorkspaceId && !activityPanel.active) void bootstrapCurrentTurn();
   } catch (error) {
     connectionError = error instanceof Error ? error.message : String(error);
   }
 
   render();
+}
+
+function acceptToolResult(result: CallToolResult): void {
+  const workspaceAccepted = workspacePanel.accept(result);
+  if (workspaceAccepted) currentWorkspaceId = workspacePanel.workspaceId;
+  activityPanel.accept(result);
+  render();
+}
+
+async function bootstrapCurrentTurn(): Promise<void> {
+  const workspaceId = currentWorkspaceId;
+  if (
+    !app || !connected || !workspaceId || activityPanel.active || bootstrapInFlight ||
+    bootstrapAttemptedFor === workspaceId
+  ) {
+    return;
+  }
+  if (!app.getHostCapabilities()?.serverTools) return;
+
+  bootstrapAttemptedFor = workspaceId;
+  bootstrapInFlight = true;
+  render();
+  try {
+    const result = await app.callServerTool({
+      name: "activity_snapshot",
+      arguments: { workspaceId },
+    });
+    if (!result.isError) acceptToolResult(result);
+  } finally {
+    bootstrapInFlight = false;
+    render();
+  }
 }
 
 function applyHostContext(): void {
@@ -68,30 +120,47 @@ function applyHostContext(): void {
   if (hostContext?.styles?.css?.fonts) applyHostFonts(hostContext.styles.css.fonts);
 
   const insets = hostContext?.safeAreaInsets;
-  if (insets) {
-    document.body.style.padding = `${insets.top}px ${insets.right}px ${insets.bottom}px ${insets.left}px`;
-  }
+  if (!insets) return;
+  document.body.style.padding = `${insets.top}px ${insets.right}px ${insets.bottom}px ${insets.left}px`;
 }
 
 function render(): void {
-  if (connectionError) {
-    renderEmpty(connectionError, "error");
-    return;
-  }
-  if (!connected) {
-    renderEmpty("Connecting to host...");
-    return;
-  }
-  if (activityPanel.render()) return;
-  renderEmpty("Waiting for Activity Panel state.");
+  if (!workspacePanel.render()) renderWorkspacePending();
+  if (!activityPanel.render()) activityRoot.replaceChildren();
 }
 
-function renderEmpty(message: string, tone: "muted" | "error" = "muted"): void {
-  const main = document.createElement("main");
-  main.className = "shell";
-  const section = document.createElement("section");
-  section.className = `empty ${tone}`;
-  section.textContent = message;
-  main.append(section);
-  appRoot.replaceChildren(main);
+function renderWorkspacePending(): void {
+  const section = element("section", "workspace-panel pending");
+  const header = element("div", "workspace-panel-header");
+  const titleGroup = element("span", "workspace-panel-title-group");
+  titleGroup.append(
+    element("span", "workspace-panel-title", "Workspace"),
+    element(
+      "span",
+      "workspace-panel-subtitle",
+      connectionError
+        ? connectionError
+        : currentWorkspaceId
+          ? bootstrapInFlight
+            ? "Loading workspace…"
+            : currentWorkspaceId
+          : connected
+            ? "Waiting for workspace…"
+            : "Connecting to host…",
+    ),
+  );
+  header.append(titleGroup);
+  section.append(header);
+  workspaceRoot.replaceChildren(section);
+}
+
+function element<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }

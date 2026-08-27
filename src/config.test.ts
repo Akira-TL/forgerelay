@@ -259,15 +259,40 @@ assert.throws(
 );
 
 assert.equal(loadConfig(baseEnv).publicBaseUrl, "http://127.0.0.1:7676");
+assert.deepEqual(loadConfig(baseEnv).publicBaseUrls, ["http://127.0.0.1:7676"]);
 assert.deepEqual(loadConfig(baseEnv).allowedHosts, ["localhost", "127.0.0.1", "::1"]);
 
-assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).publicBaseUrl,
-  "https://abc.trycloudflare.com",
-);
+const routedPublic = loadConfig({
+  ...baseEnv,
+  DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/forgerelay/debug/",
+});
+assert.equal(routedPublic.publicBaseUrl, "https://abc.trycloudflare.com/forgerelay/debug");
+assert.deepEqual(routedPublic.publicBaseUrls, ["https://abc.trycloudflare.com/forgerelay/debug"]);
 assert.deepEqual(
-  loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).allowedHosts,
+  routedPublic.allowedHosts,
   ["localhost", "127.0.0.1", "::1", "abc.trycloudflare.com"],
+);
+
+const multiplePublic = loadConfig({
+  ...baseEnv,
+  DEVSPACE_PUBLIC_BASE_URL:
+    "https://primary.example.com/forgerelay/debug, https://alias.example.com/relay, https://primary.example.com/forgerelay/debug/",
+});
+assert.equal(multiplePublic.publicBaseUrl, "https://primary.example.com/forgerelay/debug");
+assert.deepEqual(multiplePublic.publicBaseUrls, [
+  "https://primary.example.com/forgerelay/debug",
+  "https://alias.example.com/relay",
+]);
+assert.deepEqual(multiplePublic.allowedHosts, [
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "primary.example.com",
+  "alias.example.com",
+]);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "" }),
+  /PUBLIC_BASE_URL must contain at least one public base URL/,
 );
 assert.equal(
   loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).logging.trustProxy,
@@ -300,7 +325,10 @@ writeFileSync(
   JSON.stringify({
     port: 8787,
     allowedRoots: [process.cwd()],
-    publicBaseUrl: "https://devspace.example.com",
+    publicBaseUrl: [
+      "https://devspace.example.com/forgerelay/main",
+      "https://devspace-alt.example.com/alternate",
+    ],
     subagents: true,
     artifactsEnabled: true,
     artifactMaxFileBytes: 321,
@@ -323,7 +351,11 @@ writeFileSync(
 const fileConfig = loadConfig({ DEVSPACE_CONFIG_DIR: configDir });
 assert.equal(fileConfig.port, 8787);
 assert.equal(fileConfig.oauth.ownerToken, "persisted-owner-token-long-enough");
-assert.equal(fileConfig.publicBaseUrl, "https://devspace.example.com");
+assert.equal(fileConfig.publicBaseUrl, "https://devspace.example.com/forgerelay/main");
+assert.deepEqual(fileConfig.publicBaseUrls, [
+  "https://devspace.example.com/forgerelay/main",
+  "https://devspace-alt.example.com/alternate",
+]);
 assert.equal(fileConfig.subagents, true);
 assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
@@ -353,6 +385,7 @@ assert.deepEqual(fileConfig.allowedHosts, [
   "127.0.0.1",
   "::1",
   "devspace.example.com",
+  "devspace-alt.example.com",
 ]);
 
 const invalidHooksConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-invalid-hooks-test-"));

@@ -6,6 +6,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
   ACTIVITY_PANEL_APP_LEGACY_URI,
+  ACTIVITY_PANEL_APP_MANIFEST_ENTRY,
   ACTIVITY_PANEL_APP_URI_TEMPLATE,
   activityPanelAppUriForRevision,
   readWorkspaceAppManifestEntry,
@@ -70,6 +71,84 @@ test("workspace app identity hashes the built JavaScript and CSS", async (t) => 
     fallbackRevision: "0.2.5",
   });
   assert.notEqual(jsChanged.uri, cssChanged.uri);
+});
+
+test("MCP App identity changes when the resource template revision changes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-app-template-revision-test-"));
+  const buildDir = join(root, "ui");
+  const manifestDir = join(buildDir, ".vite");
+  await mkdir(join(buildDir, "assets"), { recursive: true });
+  await mkdir(manifestDir, { recursive: true });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  await writeFile(join(buildDir, "assets", "activity-panel-app.js"), "console.log('activity');\n");
+  await writeFile(join(manifestDir, "manifest.json"), JSON.stringify({
+    [ACTIVITY_PANEL_APP_MANIFEST_ENTRY]: {
+      file: "assets/activity-panel-app.js",
+      isEntry: true,
+    },
+  }));
+
+  const options = {
+    manifestUrl: pathToFileURL(join(manifestDir, "manifest.json")),
+    buildDirectoryUrl: pathToFileURL(`${buildDir}/`),
+    fallbackRevision: "0.5.6",
+  };
+  const first = resolveActivityPanelAppIdentity({
+    ...options,
+    resourceTemplateRevision: "1",
+  });
+  const templateChanged = resolveActivityPanelAppIdentity({
+    ...options,
+    resourceTemplateRevision: "2",
+  });
+
+  assert.notEqual(templateChanged.uri, first.uri);
+});
+
+test("MCP App manifest entries include CSS and JS from static imports", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-app-import-test-"));
+  const buildDir = join(root, "ui");
+  const manifestDir = join(buildDir, ".vite");
+  await mkdir(join(buildDir, "assets"), { recursive: true });
+  await mkdir(manifestDir, { recursive: true });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  await writeFile(join(buildDir, "assets", "entry.js"), "import './shared.js';\n");
+  await writeFile(join(buildDir, "assets", "shared.js"), "console.log('shared');\n");
+  await writeFile(join(buildDir, "assets", "shared.css"), ".activity { display: grid; }\n");
+  await writeFile(join(manifestDir, "manifest.json"), JSON.stringify({
+    [WORKSPACE_APP_MANIFEST_ENTRY]: {
+      file: "assets/entry.js",
+      imports: ["_shared.js"],
+      isEntry: true,
+    },
+    "_shared.js": {
+      file: "assets/shared.js",
+      css: ["assets/shared.css"],
+    },
+  }));
+
+  const manifestUrl = pathToFileURL(join(manifestDir, "manifest.json"));
+  const buildDirectoryUrl = pathToFileURL(`${buildDir}/`);
+  const entry = readWorkspaceAppManifestEntry(manifestUrl);
+  assert.deepEqual(entry.css, ["assets/shared.css"]);
+  assert.deepEqual(entry.dependencies, ["assets/shared.js"]);
+
+  const first = workspaceAppBundleRevision(entry, buildDirectoryUrl);
+  await writeFile(join(buildDir, "assets", "shared.css"), ".activity { display: flex; }\n");
+  const cssChanged = workspaceAppBundleRevision(
+    readWorkspaceAppManifestEntry(manifestUrl),
+    buildDirectoryUrl,
+  );
+  assert.notEqual(cssChanged, first);
+
+  await writeFile(join(buildDir, "assets", "shared.js"), "console.log('changed');\n");
+  const jsChanged = workspaceAppBundleRevision(
+    readWorkspaceAppManifestEntry(manifestUrl),
+    buildDirectoryUrl,
+  );
+  assert.notEqual(jsChanged, cssChanged);
 });
 
 test("workspace app identity falls back when build artifacts are unavailable", () => {

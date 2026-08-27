@@ -99,10 +99,11 @@ import {
   type ProcessSnapshot,
 } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
-import { openAiConversationScopeId } from "./request-meta.js";
+import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
 import {
   ACTIVITY_PANEL_APP_LEGACY_URI,
   ACTIVITY_PANEL_APP_URI_TEMPLATE,
+  MCP_APP_RESOURCE_TEMPLATE_REVISION,
   readActivityPanelAppManifestEntry,
   readWorkspaceAppManifestEntry,
   readWorkspaceLifecycleAppManifestEntry,
@@ -195,9 +196,7 @@ interface ToolWidgetDescriptorMeta {
 
 function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
   if (mode === "off") return false;
-  if (kind === "workspace") return true;
-  if (kind === "activity") return mode === "full";
-  return false;
+  return kind === "activity";
 }
 
 function toolWidgetDescriptorMeta(
@@ -207,8 +206,8 @@ function toolWidgetDescriptorMeta(
   if (!shouldAttachWidget(config.widgets, kind)) return { _meta: {} };
 
   const resourceUri = kind === "activity"
-    ? currentActivityPanelAppIdentity().uri
-    : currentWorkspaceLifecycleAppIdentity().uri;
+    ? currentActivityPanelAppIdentity(config).uri
+    : currentWorkspaceLifecycleAppIdentity(config).uri;
   return {
     _meta: {
       ui: {
@@ -314,8 +313,45 @@ function resultOutputSchema(extra: z.ZodRawShape = {}): z.ZodRawShape {
 const workspaceSkillOutputSchema = z.object({
   name: z.string(),
   description: z.string(),
-  path: z.string(),
 });
+
+const workspaceSkillDiagnosticOutputSchema = z.object({
+  type: z.enum(["warning", "error", "collision"]),
+  message: z.string(),
+  collision: z.object({
+    resourceType: z.enum(["extension", "skill", "prompt", "theme"]),
+    name: z.string(),
+  }).optional(),
+});
+
+function redactSkillDiagnosticPaths(
+  diagnostics: Workspace["skillDiagnostics"],
+): Array<z.infer<typeof workspaceSkillDiagnosticOutputSchema>> {
+  return diagnostics.map((diagnostic) => {
+    let message = diagnostic.message;
+    const hiddenPaths = [
+      diagnostic.path,
+      diagnostic.collision?.winnerPath,
+      diagnostic.collision?.loserPath,
+    ].filter((path): path is string => Boolean(path));
+    for (const path of hiddenPaths) {
+      message = message.split(path).join("<skill-path>");
+    }
+
+    return {
+      type: diagnostic.type,
+      message,
+      ...(diagnostic.collision
+        ? {
+            collision: {
+              resourceType: diagnostic.collision.resourceType,
+              name: diagnostic.collision.name,
+            },
+          }
+        : {}),
+    };
+  });
+}
 
 const capabilityFingerprintOutputSchema = z.object({
   version: z.string(),
@@ -454,6 +490,10 @@ function mcpRequestDebugFields(body: unknown): Record<string, unknown> {
   const params = request.params && typeof request.params === "object" && !Array.isArray(request.params)
     ? request.params as Record<string, unknown>
     : undefined;
+  const rpcMeta = params?._meta && typeof params._meta === "object" && !Array.isArray(params._meta)
+    ? params._meta as Record<string, unknown>
+    : undefined;
+  const rpcMetaKeys = rpcMeta ? Object.keys(rpcMeta).sort() : [];
   let rpcTarget: string | undefined;
   if (rpcMethod === "resources/read" && typeof params?.uri === "string") {
     rpcTarget = params.uri;
@@ -461,7 +501,11 @@ function mcpRequestDebugFields(body: unknown): Record<string, unknown> {
     rpcTarget = params.name;
   }
 
-  return { rpcMethod, rpcTarget };
+  return {
+    rpcMethod,
+    rpcTarget,
+    ...(rpcMetaKeys.length > 0 ? { rpcMetaKeys } : {}),
+  };
 }
 
 function logToolCall(config: ServerConfig, fields: ToolLogFields): void {
@@ -575,35 +619,69 @@ function uiBuildDirectoryUrl(): URL {
   return new URL("../dist/ui/", import.meta.url);
 }
 
-let cachedWorkspaceAppIdentity: ReturnType<typeof resolveWorkspaceAppIdentity> | undefined;
-let cachedWorkspaceLifecycleAppIdentity:
-  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> | undefined;
-let cachedActivityPanelAppIdentity:
-  ReturnType<typeof resolveActivityPanelAppIdentity> | undefined;
+const cachedWorkspaceAppIdentities = new Map<
+  string,
+  ReturnType<typeof resolveWorkspaceAppIdentity>
+>();
+const cachedWorkspaceLifecycleAppIdentities = new Map<
+  string,
+  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity>
+>();
+const cachedActivityPanelAppIdentities = new Map<
+  string,
+  ReturnType<typeof resolveActivityPanelAppIdentity>
+>();
 
-function appIdentityOptions() {
+function appResourceContractRevision(config: ServerConfig): string {
+  return [
+    MCP_APP_RESOURCE_TEMPLATE_REVISION,
+    `publicBaseUrls=${JSON.stringify(config.publicBaseUrls)}`,
+  ].join("\0");
+}
+
+function appIdentityOptions(config: ServerConfig) {
   return {
     manifestUrl: uiManifestUrl(),
     buildDirectoryUrl: uiBuildDirectoryUrl(),
     fallbackRevision: FORGERELAY_VERSION,
+    resourceTemplateRevision: appResourceContractRevision(config),
   };
 }
 
-function currentWorkspaceAppIdentity(): ReturnType<typeof resolveWorkspaceAppIdentity> {
-  cachedWorkspaceAppIdentity ??= resolveWorkspaceAppIdentity(appIdentityOptions());
-  return cachedWorkspaceAppIdentity;
+function currentWorkspaceAppIdentity(
+  config: ServerConfig,
+): ReturnType<typeof resolveWorkspaceAppIdentity> {
+  const key = appResourceContractRevision(config);
+  let identity = cachedWorkspaceAppIdentities.get(key);
+  if (!identity) {
+    identity = resolveWorkspaceAppIdentity(appIdentityOptions(config));
+    cachedWorkspaceAppIdentities.set(key, identity);
+  }
+  return identity;
 }
 
-function currentWorkspaceLifecycleAppIdentity():
-  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> {
-  cachedWorkspaceLifecycleAppIdentity ??=
-    resolveWorkspaceLifecycleAppIdentity(appIdentityOptions());
-  return cachedWorkspaceLifecycleAppIdentity;
+function currentWorkspaceLifecycleAppIdentity(
+  config: ServerConfig,
+): ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> {
+  const key = appResourceContractRevision(config);
+  let identity = cachedWorkspaceLifecycleAppIdentities.get(key);
+  if (!identity) {
+    identity = resolveWorkspaceLifecycleAppIdentity(appIdentityOptions(config));
+    cachedWorkspaceLifecycleAppIdentities.set(key, identity);
+  }
+  return identity;
 }
 
-function currentActivityPanelAppIdentity(): ReturnType<typeof resolveActivityPanelAppIdentity> {
-  cachedActivityPanelAppIdentity ??= resolveActivityPanelAppIdentity(appIdentityOptions());
-  return cachedActivityPanelAppIdentity;
+function currentActivityPanelAppIdentity(
+  config: ServerConfig,
+): ReturnType<typeof resolveActivityPanelAppIdentity> {
+  const key = appResourceContractRevision(config);
+  let identity = cachedActivityPanelAppIdentities.get(key);
+  if (!identity) {
+    identity = resolveActivityPanelAppIdentity(appIdentityOptions(config));
+    cachedActivityPanelAppIdentities.set(key, identity);
+  }
+  return identity;
 }
 
 function getWorkspaceAppManifestEntry(): WorkspaceAppManifestEntry {
@@ -688,10 +766,9 @@ function appCsp(config: ServerConfig): {
   resourceDomains: string[];
   connectDomains: string[];
 } {
-  const origin = new URL(config.publicBaseUrl).origin;
   return {
-    resourceDomains: [origin],
-    connectDomains: [origin],
+    resourceDomains: [...config.publicBaseUrls],
+    connectDomains: [...config.publicBaseUrls],
   };
 }
 
@@ -755,6 +832,11 @@ async function readMcpAppResource(
             domain: appDomain(config),
             csp: appCsp(config),
           },
+          // MCP Apps defines resource metadata under `_meta.ui`. Inspector 2.3.0
+          // reads the content-item CSP/domain from `_meta` directly, so mirror
+          // these values until that installed-host compatibility gap is gone.
+          domain: appDomain(config),
+          csp: appCsp(config),
         },
       }],
     };
@@ -781,7 +863,7 @@ function readWorkspaceAppResource(
   config: ServerConfig,
   requestedUri: string,
   transportSessionId?: string,
-  currentUri = currentWorkspaceAppIdentity().uri,
+  currentUri = currentWorkspaceAppIdentity(config).uri,
   legacyUri = WORKSPACE_APP_LEGACY_URI,
 ) {
   return readMcpAppResource(config, {
@@ -801,7 +883,7 @@ function readWorkspaceLifecycleAppResource(
 ) {
   return readMcpAppResource(config, {
     requestedUri,
-    currentUri: currentWorkspaceLifecycleAppIdentity().uri,
+    currentUri: currentWorkspaceLifecycleAppIdentity(config).uri,
     legacyUri: WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
     entry: getWorkspaceLifecycleAppManifestEntry(),
     html: workspaceLifecycleAppHtml(config),
@@ -816,7 +898,7 @@ function readActivityPanelAppResource(
 ) {
   return readMcpAppResource(config, {
     requestedUri,
-    currentUri: currentActivityPanelAppIdentity().uri,
+    currentUri: currentActivityPanelAppIdentity(config).uri,
     legacyUri: ACTIVITY_PANEL_APP_LEGACY_URI,
     entry: getActivityPanelAppManifestEntry(),
     html: activityPanelAppHtml(config),
@@ -1225,7 +1307,7 @@ function activityRelationFor(context: CoreOperationContext): ActivityRelationCon
 function runActivityTool<T>(
   lifecycle: ActivityLifecycle,
   workspace: Workspace,
-  requestMeta: unknown,
+  conversationScopeId: string,
   tool: string,
   request: unknown,
   operation: (context: ActivityExecutionContext) => Promise<T>,
@@ -1235,7 +1317,7 @@ function runActivityTool<T>(
   return lifecycle.run({
     tool,
     workspace: workspaceActivitySnapshot(workspace),
-    conversationScopeId: openAiConversationScopeId(requestMeta),
+    conversationScopeId,
     request,
     operation,
     outcome,
@@ -1247,7 +1329,7 @@ function runActivityToolWithHooks<T>(
   lifecycle: ActivityLifecycle,
   hooks: HookRunner,
   workspace: Workspace,
-  requestMeta: unknown,
+  conversationScopeId: string,
   request: unknown,
   hookOptions: ToolHookOptions<T>,
   relation: ActivityRelationContext = {},
@@ -1255,7 +1337,7 @@ function runActivityToolWithHooks<T>(
   return runActivityTool(
     lifecycle,
     workspace,
-    requestMeta,
+    conversationScopeId,
     hookOptions.tool,
     request,
     () => runToolWithHooks(hooks, hookOptions),
@@ -1468,6 +1550,9 @@ export function createMcpServer(
   bashOutputStore: BashOutputStore,
   activityQueries: ActivityQueryService,
 ): McpServer {
+  const connectionScopeId = `mcp-connection:${randomUUID()}`;
+  const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
+    hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
     config.hooks,
@@ -1580,7 +1665,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         input,
         {
           signal: context.signal,
@@ -1669,7 +1754,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         input,
         {
           signal: context.signal,
@@ -1745,7 +1830,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         input,
         {
           signal: context.signal,
@@ -1824,7 +1909,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         input,
         {
           signal: context.signal,
@@ -1894,7 +1979,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         input,
         {
           signal: context.signal,
@@ -1999,7 +2084,7 @@ export function createMcpServer(
       const activityResult = await runActivityTool(
         activityLifecycle,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         surface,
         activityRequest,
         async (activityContext) => {
@@ -2088,7 +2173,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        context.requestMeta,
+        hostScopeIdFor(context.requestMeta, context.sessionId),
         { workspaceId, name, action: "run", arguments: capabilityArguments, file },
         {
           signal: context.signal,
@@ -2204,6 +2289,18 @@ export function createMcpServer(
     },
   );
 
+  const workspacePanelStates = new Map<string, Record<string, unknown>>();
+  const rememberWorkspacePanelState = (
+    workspaceId: string,
+    response: { _meta?: unknown },
+  ): void => {
+    if (typeof response._meta !== "object" || response._meta === null) return;
+    const meta = response._meta as Record<string, unknown>;
+    const card = meta.card;
+    if (meta.tool !== toolNames.openWorkspace || typeof card !== "object" || card === null) return;
+    workspacePanelStates.set(workspaceId, card as Record<string, unknown>);
+  };
+
   const workspaceAppResourceMetadata = {
     description: "Historical ForgeRelay tool card UI.",
     _meta: {
@@ -2214,15 +2311,15 @@ export function createMcpServer(
     },
   };
   const workspaceLifecycleResourceMetadata = {
-    description: "ForgeRelay Workspace lifecycle UI for open and close results.",
+    description: "Historical ForgeRelay Workspace lifecycle UI compatibility resource.",
     _meta: workspaceAppResourceMetadata._meta,
   };
   const activityPanelResourceMetadata = {
-    description: "ForgeRelay Activity Panel UI for one Host Turn.",
+    description: "ForgeRelay unified Workspace and Activity UI for one Host Turn.",
     _meta: workspaceAppResourceMetadata._meta,
   };
 
-  const currentWorkspaceAppUri = currentWorkspaceAppIdentity().uri;
+  const currentWorkspaceAppUri = currentWorkspaceAppIdentity(config).uri;
   registerAppResource(
     server,
     "ForgeRelay historical tool card",
@@ -2256,31 +2353,8 @@ export function createMcpServer(
     ),
   );
 
-  const currentWorkspaceLifecycleAppUri = currentWorkspaceLifecycleAppIdentity().uri;
-  registerAppResource(
-    server,
-    "ForgeRelay Workspace Lifecycle",
-    currentWorkspaceLifecycleAppUri,
-    workspaceLifecycleResourceMetadata,
-    async (uri, extra) => readWorkspaceLifecycleAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-  registerAppResource(
-    server,
-    "ForgeRelay Workspace Lifecycle legacy",
-    WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
-    workspaceLifecycleResourceMetadata,
-    async (uri, extra) => readWorkspaceLifecycleAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
   server.registerResource(
-    "ForgeRelay Workspace Lifecycle compatibility",
+    "ForgeRelay historical Workspace Lifecycle compatibility",
     new ResourceTemplate(WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE, { list: undefined }),
     { ...workspaceLifecycleResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
     async (uri, _variables, extra) => readWorkspaceLifecycleAppResource(
@@ -2290,7 +2364,7 @@ export function createMcpServer(
     ),
   );
 
-  const currentActivityPanelAppUri = currentActivityPanelAppIdentity().uri;
+  const currentActivityPanelAppUri = currentActivityPanelAppIdentity(config).uri;
   registerAppResource(
     server,
     "ForgeRelay Activity Panel",
@@ -2457,13 +2531,13 @@ export function createMcpServer(
         skills: z.array(workspaceSkillOutputSchema).optional(),
         agentProviders: z.array(workspaceLocalAgentProviderOutputSchema).optional(),
         agents: z.array(workspaceLocalAgentOutputSchema).optional(),
-        skillDiagnostics: z.array(z.unknown()).optional(),
+        skillDiagnostics: z.array(workspaceSkillDiagnosticOutputSchema).optional(),
         workspaces: z.array(workspaceInventoryEntryOutputSchema).optional(),
         summary: workspaceInventorySummaryOutputSchema.optional(),
         page: workspaceInventoryPageOutputSchema.optional(),
         instruction: z.string(),
       },
-      ...toolWidgetDescriptorMeta(config, "workspace"),
+      _meta: {},
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -2584,7 +2658,6 @@ export function createMcpServer(
         .map((skill) => ({
           name: skill.name,
           description: skill.description,
-          path: formatPathForPrompt(skill.filePath),
         }));
       const capabilityGuides = workspace.capabilityGuides.map((guide) => ({
         name: guide.name,
@@ -2611,6 +2684,9 @@ export function createMcpServer(
         path: formatAgentsPath(file.path, workspace.root),
       }));
       const visibleSkills = includeBootstrapContext ? cardSkills : [];
+      const visibleSkillDiagnostics = includeBootstrapContext
+        ? redactSkillDiagnosticPaths(workspace.skillDiagnostics)
+        : [];
       const visibleCapabilityGuides = includeBootstrapContext ? capabilityGuides : [];
       const visibleAgentProviders = includeBootstrapContext ? cardAgentProviders : [];
       const visibleAgents = includeBootstrapContext ? cardAgents : [];
@@ -2621,7 +2697,7 @@ export function createMcpServer(
       const workspaceManagementInstruction =
         "When you need to continue an earlier logical workspace or organize workspace state, use open_workspace(action=\"list\") to inspect candidates, then resume a selected workspaceId or ask the user before close_workspace cleanup.";
       const cardInstruction = config.skillsEnabled
-        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill or capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
+        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
         : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
       const instruction = workspaceReused
         ? includeBootstrapContext
@@ -2696,7 +2772,7 @@ export function createMcpServer(
         durationMs: Math.round(performance.now() - startedAt),
       });
 
-      return hooks.decorateResult(workspace.id, attachHookReports({
+      const response = hooks.decorateResult(workspace.id, attachHookReports({
         content: resultContent,
         _meta: {
           tool: "open_workspace",
@@ -2751,20 +2827,25 @@ export function createMcpServer(
                 skills: visibleSkills,
                 agentProviders: visibleAgentProviders,
                 agents: visibleAgents,
-                skillDiagnostics: workspace.skillDiagnostics,
+                skillDiagnostics: visibleSkillDiagnostics,
               }
             : {}),
           instruction,
         },
       }, hookReports));
+      rememberWorkspacePanelState(workspace.id, response);
+      return response;
     },
   );
 
   registerActivityQueryTools(
     server,
     activityQueries,
+    connectionScopeId,
     toolWidgetDescriptorMeta(config, "activity")._meta,
     config.activityPanelExpanded,
+    config.logging,
+    (workspaceId) => workspacePanelStates.get(workspaceId),
   );
 
   registerAppTool(
@@ -2880,7 +2961,7 @@ export function createMcpServer(
         activityLifecycle,
         hooks,
         workspace,
-        extra._meta,
+        hostScopeIdFor(extra._meta, extra.sessionId),
         { workspaceId, name, action, arguments: capabilityArguments, file },
         {
           signal: extra.signal,
@@ -2968,12 +3049,12 @@ export function createMcpServer(
         committed: z.boolean().optional(),
         cleanupWarning: z.string().optional(),
       }),
-      ...toolWidgetDescriptorMeta(config, "workspace"),
+      _meta: {},
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, commitMessage }, extra) => {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return runToolWithHooks(hooks, {
+      const response = await runToolWithHooks(hooks, {
         signal: extra.signal,
         tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
@@ -3082,6 +3163,8 @@ export function createMcpServer(
           };
         },
       });
+      workspacePanelStates.delete(workspaceId);
+      return response;
     },
   );
 
@@ -3100,7 +3183,7 @@ export function createMcpServer(
           .optional()
           .describe(
             config.skillsEnabled
-              ? "One file path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised skill or capability-guide path from open_workspace, including a ~/... home-relative path. Use exactly one of path or paths."
+              ? "One file path to read, relative to the workspace root or absolute inside the OS temp directory. Load an available skill with skills://<name>; after loading it, read files in that skill with skills://<name>/<relative-path>. Advertised capability-guide paths from open_workspace are also readable. Use exactly one of path or paths."
               : "One file path to read, relative to the workspace root or absolute inside the OS temp directory. May also be an advertised capability-guide path from open_workspace. Use exactly one of path or paths.",
           ),
         paths: z
@@ -3164,7 +3247,7 @@ export function createMcpServer(
       await runActivityTool(
         activityLifecycle,
         workspace,
-        extra._meta,
+        hostScopeIdFor(extra._meta, extra.sessionId),
         toolNames.read,
         { workspaceId, paths, offset, limit },
         async (parentContext) => {
@@ -3456,7 +3539,7 @@ export function createMcpServer(
           activityLifecycle,
           hooks,
           workspace,
-          extra._meta,
+          hostScopeIdFor(extra._meta, extra.sessionId),
           { workspaceId, patch },
           {
             signal: extra.signal,
@@ -3774,7 +3857,8 @@ export function createServer(
   const hostTurnStore = new HostTurnStore(config.stateDir);
   const activityQueries = new ActivityQueryService(hostTurnStore, activityAuditStore, bashOutputStore);
   const activityLifecycle = new ActivityLifecycle(activityAuditStore, {
-    turnIdForConversation: (conversationScopeId) => activityQueries.currentTurnId(conversationScopeId),
+    turnIdForConversation: (conversationScopeId, workspaceId) =>
+      activityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessManager({ outputAudit: bashOutputStore });

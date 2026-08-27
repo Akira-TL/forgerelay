@@ -22,8 +22,8 @@ Run:
 npx @akira-tl/forgerelay init
 ```
 
-The setup flow asks for the allowed project roots, local port, and public base
-URL.
+The setup flow asks for the allowed project roots, local port, public domains,
+and an optional routed path prefix.
 
 ### Project roots
 
@@ -59,16 +59,23 @@ Point your tunnel or reverse proxy at:
 http://127.0.0.1:7676
 ```
 
-Enter the public origin without `/mcp`:
+Enter one or more public base URLs. Each URL may include its own route prefix;
+the first URL is canonical:
 
 ```text
-https://your-tunnel-host.example.com
+https://your-tunnel-host.example.com/forgerelay/main
 ```
 
-Configure the MCP client with:
+For multiple public entries, separate them with commas during setup:
 
 ```text
-https://your-tunnel-host.example.com/mcp
+https://forge.example.com/forgerelay/main, https://forge-alt.example.com/relay
+```
+
+Configure the MCP client with the canonical base URL plus `/mcp`:
+
+```text
+https://your-tunnel-host.example.com/forgerelay/main/mcp
 ```
 
 ## Start the server
@@ -77,17 +84,24 @@ https://your-tunnel-host.example.com/mcp
 npx @akira-tl/forgerelay serve
 ```
 
-For a one-run public URL override:
+For a one-run public deployment override:
 
 ```bash
-FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com" \
+FORGERELAY_PUBLIC_BASE_URL="https://new-tunnel.example.com/forgerelay/main" \
 npx @akira-tl/forgerelay serve
 ```
 
-For a stable public URL:
+For multiple one-run URLs, use a comma-separated list:
 
 ```bash
-npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com
+FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay" \
+npx @akira-tl/forgerelay serve
+```
+
+For a stable public deployment:
+
+```bash
+npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
 npx @akira-tl/forgerelay serve
 ```
 

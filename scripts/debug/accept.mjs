@@ -120,7 +120,7 @@ try {
   assert.match(serverInstructions, /Shell commands may modify ordinary project files/);
   assert.match(serverInstructions, /\/etc\/sudoers/);
   assert.match(serverInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
-  assert.match(serverInstructions, /managed-worktrees capability guide/);
+  assert.match(serverInstructions, /Project-work order: open_workspace if needed → activity_panel\(workspaceId\) once → work tools/);
   assert.ok(serverInstructions.length < 3_000, `server instructions should stay compact, got ${serverInstructions.length} characters`);
   assert.doesNotMatch(serverInstructions, /fast-forwards the original target branch/);
   assert.doesNotMatch(serverInstructions, /Do not create or modify files with bash/);
@@ -146,6 +146,10 @@ try {
   const toolNames = tools.map((tool) => tool.name);
   assert.deepEqual(toolNames, [
     "open_workspace",
+    "activity_panel",
+    "activity_snapshot",
+    "activity_detail",
+    "activity_output",
     "capability",
     "close_workspace",
     "read",
@@ -176,14 +180,13 @@ try {
   assert.ok(openWorkspaceTool?.outputSchema?.properties?.capabilityGuides);
   const capabilityTool = tools.find((tool) => tool.name === "capability");
   assert.deepEqual(capabilityTool?._meta?.["openai/fileParams"], ["file"]);
-  const templateUri = capabilityTool?._meta?.ui?.resourceUri;
+  const activityPanelTool = tools.find((tool) => tool.name === "activity_panel");
+  const activityTemplateUri = activityPanelTool?._meta?.ui?.resourceUri;
   assert.match(
-    templateUri ?? "",
-    /^ui:\/\/forgerelay\/workspace-app-[0-9a-f]{12}\.html$/,
-    JSON.stringify(bashTool ?? {}),
+    activityTemplateUri ?? "",
+    /^ui:\/\/forgerelay\/activity-panel-app-[0-9a-f]{12}\.html$/,
   );
-  assert.deepEqual(capabilityTool?._meta?.ui?.visibility, ["model", "app"]);
-  assert.equal(capabilityTool?._meta?.["openai/outputTemplate"], templateUri);
+  assert.deepEqual(activityPanelTool?._meta?.ui?.visibility, ["model", "app"]);
   pass("MCP tools/list", `${toolNames.length} tools: ${toolNames.join(", ")}`);
 
   const resources = mcpRequest(oauth.accessToken, sessionId, {
@@ -192,9 +195,13 @@ try {
     method: "resources/list",
     params: {},
   }).message.result.resources;
-  const currentResource = resources.find((resource) => resource.uri === templateUri);
-  assert.ok(currentResource);
-  assert.equal(currentResource._meta?.ui?.domain, debugBaseUrl);
+  const currentActivityResource = resources.find((resource) => resource.uri === activityTemplateUri);
+  assert.ok(currentActivityResource);
+  assert.equal(currentActivityResource._meta?.ui?.domain, debugBaseUrl);
+  assert.equal(
+    resources.some((resource) => /^ui:\/\/forgerelay\/workspace-lifecycle-app-/.test(resource.uri)),
+    false,
+  );
   assert.ok(resources.some((resource) => resource.uri === "ui://forgerelay/workspace-app.html"));
 
   const resourceTemplates = mcpRequest(oauth.accessToken, sessionId, {
@@ -204,7 +211,10 @@ try {
     params: {},
   }).message.result.resourceTemplates;
   assert.ok(resourceTemplates.some(
-    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/workspace-app-{revision}.html",
+    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/workspace-lifecycle-app-{revision}.html",
+  ));
+  assert.ok(resourceTemplates.some(
+    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/activity-panel-app-{revision}.html",
   ));
 
   const readTemplate = (id, uri) => mcpRequest(oauth.accessToken, sessionId, {
@@ -214,28 +224,21 @@ try {
     params: { uri },
   }).message.result.contents[0];
 
-  const template = readTemplate(23, templateUri);
-  assert.equal(template.uri, templateUri);
-  assert.equal(template.mimeType, "text/html;profile=mcp-app");
-  assert.match(template.text ?? "", /<script type="module" crossorigin src="[^"]+\/mcp-app-assets\//);
-  assert.equal(template._meta?.ui?.domain, debugBaseUrl);
-  assert.ok(template._meta?.ui?.csp?.resourceDomains?.includes(debugBaseUrl));
-  const scriptUrl = template.text?.match(/<script type="module" crossorigin src="([^"]+)"/)?.[1];
+  const activityTemplate = readTemplate(24, activityTemplateUri);
+  assert.equal(activityTemplate.uri, activityTemplateUri);
+  assert.equal(activityTemplate.mimeType, "text/html;profile=mcp-app");
+  assert.match(activityTemplate.text ?? "", /activity-panel-app-[^\"]+\.js/);
+  assert.equal(activityTemplate._meta?.ui?.domain, debugBaseUrl);
+  assert.ok(activityTemplate._meta?.ui?.csp?.resourceDomains?.includes(debugBaseUrl));
+  const scriptUrl = activityTemplate.text?.match(/<script type="module" crossorigin src="([^"]+)"/)?.[1];
   assert.ok(scriptUrl);
   const scriptAsset = curlRequest({ method: "GET", url: scriptUrl });
   assert.equal(scriptAsset.status, 200, scriptAsset.body);
 
-  const legacyTemplate = readTemplate(24, "ui://forgerelay/workspace-app.html");
+  const legacyTemplate = readTemplate(25, "ui://forgerelay/workspace-app.html");
   assert.equal(legacyTemplate.uri, "ui://forgerelay/workspace-app.html");
   assert.equal(legacyTemplate.mimeType, "text/html;profile=mcp-app");
-  assert.equal(legacyTemplate.text, template.text);
-
-  const historicalUri = "ui://forgerelay/workspace-app-0.2.4.html";
-  const historicalTemplate = readTemplate(25, historicalUri);
-  assert.equal(historicalTemplate.uri, historicalUri);
-  assert.equal(historicalTemplate.mimeType, "text/html;profile=mcp-app");
-  assert.equal(historicalTemplate.text, template.text);
-  pass("MCP app template", `${templateUri} + legacy/history compatibility -> ${scriptUrl}`);
+  pass("MCP app templates", `${activityTemplateUri} + historical compatibility templates`);
 
   const workspaceConversationMeta = { "openai/session": "acceptance-workspace" };
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {
@@ -259,6 +262,7 @@ try {
       "hooks.lifecycle",
       "capability-guides.read",
       "code.intelligence",
+      "batch.execute",
       ...(process.platform === "linux" ? ["artifact.native-download"] : []),
       "ui.mcp-app",
       "review.changes",
@@ -269,6 +273,7 @@ try {
     "hooks.check",
     "review.changes",
     "code.intelligence",
+    "batch.execute",
     ...(process.platform === "linux" ? ["artifact.download"] : []),
   ]);
   assert.equal(capabilityCatalog[0].available, true);
@@ -398,6 +403,7 @@ try {
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "batch-execution",
   ]);
   const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {
     workspaceId,
@@ -406,6 +412,20 @@ try {
   assert.match(hooksGuide.structuredContent.result, /BeforeTool/);
   assert.match(hooksGuide.structuredContent.result, /BeforeWorktreeClose/);
   pass("open_workspace", `${workspaceId} -> ${capabilityCatalog.length} capabilities + ${capabilityGuides.length} capability guides`);
+
+  const unifiedPanel = callTool(oauth.accessToken, sessionId, 89, "activity_panel", {
+    workspaceId,
+  }, workspaceConversationMeta);
+  assert.equal(unifiedPanel.isError, undefined);
+  assert.equal(
+    unifiedPanel._meta?.["forgerelay/activityPanelWorkspace"]?.workspaceId,
+    workspaceId,
+  );
+  assert.equal(
+    unifiedPanel._meta?.["forgerelay/activityPanelWorkspace"]?.root,
+    checkoutWorkspace,
+  );
+  pass("unified ForgeRelay Panel", `${workspaceId} -> Workspace + Activity`);
 
   const inspectorActivityPath = join(checkoutWorkspace, "inspector-activity.txt");
   writeFileSync(inspectorActivityPath, "inspector transport-scoped activity\n");

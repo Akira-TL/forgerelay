@@ -16,7 +16,7 @@ async function withDebugConfig(t) {
     port: 7677,
     allowedRoots: [home],
     allowedHosts: ["localhost", "127.0.0.1", "::1", "debug.example.test"],
-    publicBaseUrl: "https://debug.example.test",
+    publicBaseUrl: "https://debug.example.test/forgerelay/debug",
   }) + "\n");
   await writeFile(join(configDir, "auth.json"), JSON.stringify({
     ownerToken: "debug-owner-password-123456",

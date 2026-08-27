@@ -49,13 +49,19 @@ export interface LinkedActivityRecordOptions extends Omit<ActivityRecordOptions,
 export interface ActivityLifecycleOptions {
   activityId?: () => string;
   turnId?: () => string;
-  turnIdForConversation?: (conversationScopeId: string | undefined) => string | undefined;
+  turnIdForConversation?: (
+    conversationScopeId: string | undefined,
+    workspaceId: string | undefined,
+  ) => string | undefined;
 }
 
 export class ActivityLifecycle {
   private readonly activityId: () => string;
   private readonly turnId: () => string;
-  private readonly turnIdForConversation?: (conversationScopeId: string | undefined) => string | undefined;
+  private readonly turnIdForConversation?: (
+    conversationScopeId: string | undefined,
+    workspaceId: string | undefined,
+  ) => string | undefined;
 
   constructor(
     private readonly auditStore: ActivityAuditStore,
@@ -117,7 +123,7 @@ export class ActivityLifecycle {
   }): ActivityExecutionContext {
     const activityId = options.activityId ?? this.activityId();
     const turnId = options.turnId
-      ?? this.turnIdForConversation?.(options.conversationScopeId)
+      ?? this.turnIdForConversation?.(options.conversationScopeId, options.workspace.id)
       ?? this.turnId();
     const request = normalizeAuditValue(options.request);
     this.auditStore.append({

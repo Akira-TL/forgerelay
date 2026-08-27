@@ -1087,6 +1087,24 @@ export class WorkspaceRegistry {
   }
 
   resolveReadPath(workspace: Workspace, inputPath: string): WorkspaceReadPath {
+    if (inputPath.startsWith("skills://")) {
+      const skillRead = resolveSkillReadPath(
+        workspace.skills,
+        workspace.activatedSkillDirs,
+        inputPath,
+      );
+      if (!skillRead) {
+        throw new Error(
+          `Skill resource is not readable before its skill is loaded: ${inputPath}. Read skills://<name> first.`,
+        );
+      }
+      return {
+        absolutePath: skillRead.absolutePath,
+        readRoots: [workspace.root, skillRead.skill.baseDir],
+        skillRead,
+      };
+    }
+
     try {
       return {
         absolutePath: this.resolvePath(workspace, inputPath),

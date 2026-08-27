@@ -6,14 +6,20 @@
 
 ForgeRelay 本地监听一个 HTTP origin，MCP endpoint 是 `/mcp`。当 Host 无法直接访问 localhost 时，需要用户自己提供 public HTTPS tunnel/reverse proxy；ForgeRelay 不创建 tunnel。
 
-持久化的 `publicBaseUrl` 必须是 origin，不要包含 `/mcp`：
+公网部署继续使用 `publicBaseUrl`；它既可以是单个字符串，也可以是多个 URL 的列表。每个 URL 可以带自己的路由前缀，第一项是 canonical：
 
-```text
-publicBaseUrl: https://forge.example.com
-Host MCP URL:  https://forge.example.com/mcp
+```json
+{
+  "publicBaseUrl": [
+    "https://forge.example.com/forgerelay/main",
+    "https://forge-alt.example.com/relay"
+  ]
+}
 ```
 
-临时覆盖可使用 `FORGERELAY_PUBLIC_BASE_URL`。Host-header/403 问题先运行 `forgerelay doctor` 检查 resolved public URL 与 allowed hosts；`FORGERELAY_ALLOWED_HOSTS="*"` 只适合明确的本地调试。
+对应 canonical Host MCP URL 为 `https://forge.example.com/forgerelay/main/mcp`。全部配置项的 hostname 都会进入派生 Host-header allowlist；MCP、OAuth 与 MCP App asset URL 使用第一项作为 canonical base。单个字符串形式保持完全兼容，不需要迁移。
+
+临时覆盖使用 `FORGERELAY_PUBLIC_BASE_URL`；多个 URL 用逗号分隔。Host-header/403 问题先运行 `forgerelay doctor` 检查 resolved public base URLs 与 allowed hosts；`FORGERELAY_ALLOWED_HOSTS="*"` 只适合明确的本地调试。
 
 当 ForgeRelay 绑定 loopback、但 `publicBaseUrl` 指向公网 tunnel/reverse proxy 时，ForgeRelay 会自动信任恰好 1 个上游代理 hop，让 Express 与 OAuth rate limiter 使用一致的客户端 IP。不要把 Express `trust proxy` 设为无条件 `true`；直接监听 `0.0.0.0` 等非 loopback 地址时也不会自动开启代理信任。可用 `FORGERELAY_TRUST_PROXY=0|1` 显式覆盖。
 
@@ -47,13 +53,13 @@ npm run build
 npm run debug:accept
 ```
 
-ForgeRelay 正常会广告 content-hashed：
+ForgeRelay 对新的项目工作只广告统一 Panel 的 content-hashed App resource：
 
 ```text
-ui://forgerelay/workspace-app-<hash>.html
+ui://forgerelay/activity-panel-app-<hash>.html
 ```
 
-`resources/list` 与 `resources/read` 的 MCP App metadata 都应包含唯一 `_meta.ui.domain`，其值来自 resolved `publicBaseUrl` 的 origin；CSP 仍使用完整 public base URL 约束资源与连接域。`resources/read` 应返回 `text/html;profile=mcp-app`，并且 HTML 引用的 `/mcp-app-assets/` 资源必须可达。ForgeRelay 还保留 legacy `ui://forgerelay/workspace-app.html` 和历史 `workspace-app-*.html` 兼容指针，以容忍 Host 暂时持有旧 metadata snapshot。
+`activity_panel(workspaceId)` 是唯一的新 render tool；`open_workspace` 只返回 Workspace handle/context，不单独挂 UI。`resources/list` 与 `resources/read` 的当前 App metadata 都应包含 `_meta.ui.domain`，其值使用 canonical `publicBaseUrl` 的 origin；标准 `ui.domain` 本身不塞路由。CSP 的 resource/connect entries 使用完整 `publicBaseUrl` 列表，因此每个入口可以有不同路由。完整、有序的 public base URL 列表与 bundle/template contract 一起进入 MCP App resource identity；修改任一域名或路由都必须生成新的 `ui://` URI，不能让 Host 继续命中旧 metadata cache。`resources/read` 应返回 `text/html;profile=mcp-app`，并且 HTML 引用的 canonical routed `/mcp-app-assets/` 资源必须可达。ForgeRelay 仍保留 legacy `workspace-app` 与 Workspace Lifecycle URI/template 作为历史卡片读取兼容入口，但它们不代表当前产品存在第二个 App。
 
 需要 live trace 时，可用：
 
