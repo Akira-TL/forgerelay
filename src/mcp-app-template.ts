@@ -172,9 +172,18 @@ function resolveAppIdentity(options: AppIdentityOptions): WorkspaceAppIdentity {
       source: "bundle",
     };
   } catch {
+    const revision = options.resourceTemplateRevision
+      ? createHash("sha256")
+        .update("fallback\0")
+        .update(options.fallbackRevision)
+        .update("\0resource-template\0")
+        .update(options.resourceTemplateRevision)
+        .digest("hex")
+        .slice(0, 12)
+      : options.fallbackRevision;
     return {
-      revision: options.fallbackRevision,
-      uri: options.uriForRevision(options.fallbackRevision),
+      revision,
+      uri: options.uriForRevision(revision),
       source: "fallback",
     };
   }

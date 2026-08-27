@@ -165,6 +165,29 @@ test("workspace app identity falls back when build artifacts are unavailable", (
   });
 });
 
+test("fallback app identity includes the resource contract revision when supplied", () => {
+  const base = {
+    manifestUrl: new URL("file:///missing/manifest.json"),
+    buildDirectoryUrl: new URL("file:///missing/ui/"),
+    fallbackRevision: "0.6.0-rc.1",
+  };
+  const first = resolveActivityPanelAppIdentity({
+    ...base,
+    resourceTemplateRevision: "template=4\0publicBaseUrls=[\"https://one.example\"]",
+  });
+  const second = resolveActivityPanelAppIdentity({
+    ...base,
+    resourceTemplateRevision: "template=4\0publicBaseUrls=[\"https://two.example\"]",
+  });
+
+  assert.match(first.revision, /^[0-9a-f]{12}$/);
+  assert.match(second.revision, /^[0-9a-f]{12}$/);
+  assert.notEqual(first.revision, second.revision);
+  assert.notEqual(first.uri, second.uri);
+  assert.equal(first.source, "fallback");
+  assert.equal(second.source, "fallback");
+});
+
 test("split MCP App identities fall back to separate stable URIs", () => {
   const options = {
     manifestUrl: new URL("file:///missing/manifest.json"),
