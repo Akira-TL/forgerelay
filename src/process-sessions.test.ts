@@ -110,14 +110,24 @@ assert.equal(background.sessionId, background.processId);
 const bufferedWait = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "console.log('wait-ready'); const timer = setInterval(() => console.log('wait-tick'), 10); setTimeout(() => { clearInterval(timer); console.log('wait-finished'); }, 160)"`,
-  yieldTimeMs: 20,
+  command: `${node} -e "console.log('wait-ready'); const timer = setInterval(() => console.log('wait-tick'), 10); setTimeout(() => { clearInterval(timer); console.log('wait-finished'); }, 500)"`,
+  yieldTimeMs: 1,
 });
 assert.equal(bufferedWait.running, true);
 assert.ok(bufferedWait.processId);
-assert.match(bufferedWait.output, /wait-ready/);
 
-await new Promise((resolve) => setTimeout(resolve, 40));
+await new Promise((resolve) => setTimeout(resolve, 100));
+const initialBufferedOutput = await manager.write({
+  workspaceId: "workspace-a",
+  processId: bufferedWait.processId,
+  yieldTimeMs: 0,
+});
+assert.equal(initialBufferedOutput.running, true);
+assert.match(initialBufferedOutput.output, /wait-(?:ready|tick)/);
+
+// Let the still-running process refill its buffer. An explicit wait must wait for
+// completion even when output is already buffered instead of degrading to a poll.
+await new Promise((resolve) => setTimeout(resolve, 50));
 const waitedToCompletion = await manager.write({
   workspaceId: "workspace-a",
   processId: bufferedWait.processId,
