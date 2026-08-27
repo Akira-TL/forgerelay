@@ -1,52 +1,44 @@
-import { spawnSync } from "node:child_process";
+#!/usr/bin/env node
+
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const minimumNode = "22.19.0";
-const npmVersion = "11";
+const NODE_VERSION = "22.19.0";
+const NPM_VERSION = "10.9.3";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const debugRoot = join(repoRoot, ".forgerelay-debug");
 const sandbox = mkdtempSync(join(ensureDirectory(debugRoot), "release-parity-node22-"));
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-const highRiskTests = [
-  "scripts/lsp-interop-support.test.mjs",
-  "src/lsp/language-server-config.test.ts",
-  "src/lsp/runtime/semantic-requests.test.ts",
-  "src/lsp/operations/request-hardening.server.test.ts",
-  "src/lsp/operations/recovery.server.test.ts",
-  "src/lsp/operations/lifecycle.server.test.ts",
-];
+
+assertCleanReleaseHead();
 
 try {
-  copy("package.json");
-  copy("package-lock.json");
-  copy("tsconfig.json");
-  copy("src");
-  copy("scripts");
-  copy("capabilities");
+  copyTrackedTree(sandbox);
+  const env = {
+    ...process.env,
+    FORGERELAY_ALLOWED_ROOTS: sandbox,
+    FORGERELAY_OAUTH_OWNER_TOKEN: "ci-owner-token-that-is-long-enough",
+    FORGERELAY_PUBLIC_BASE_URL: "http://127.0.0.1:7676",
+  };
 
-  run(
-    ["--yes", "-p", `node@${minimumNode}`, "-p", `npm@${npmVersion}`, "--", "npm", "ci", "--no-audit", "--no-fund"],
-    `Node ${minimumNode} isolated npm ci`,
+  runNodeNpm(
     sandbox,
+    env,
+    ["npm", "ci", "--no-audit", "--no-fund"],
+    `Node ${NODE_VERSION} / npm ${NPM_VERSION} install`,
   );
+  runNodeNpm(sandbox, env, ["npm", "run", "release:check"], "Release metadata");
+  runNodeNpm(sandbox, env, ["npm", "run", "typecheck"], "Typecheck");
+  runNodeNpm(sandbox, env, ["npm", "test"], "Full test suite");
+  runNodeNpm(sandbox, env, ["npm", "run", "build"], "Build");
+  runNodeNpm(sandbox, env, ["npm", "run", "lsp:interop"], "Optional LSP interoperability");
+  runNode(sandbox, env, ["dist/cli.js", "doctor"], "Doctor");
 
-  run(
-    [
-      "--yes",
-      `node@${minimumNode}`,
-      "--import",
-      "tsx",
-      "--test",
-      "--test-concurrency=1",
-      ...highRiskTests,
-    ],
-    `Node ${minimumNode} high-risk parity tests`,
-    sandbox,
+  console.log(
+    `Release parity passed with the cloud CI command surface on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
   );
-
-  console.log(`Release parity passed in an isolated Node ${minimumNode} sandbox.`);
 } finally {
   rmSync(sandbox, {
     recursive: true,
@@ -56,30 +48,62 @@ try {
   });
 }
 
+function git(args) {
+  return execFileSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function assertCleanReleaseHead() {
+  const status = git(["status", "--porcelain", "--untracked-files=all"]);
+  if (status) {
+    throw new Error(
+      "release parity requires a clean committed release HEAD; commit or remove every release input first",
+    );
+  }
+}
+
 function ensureDirectory(path) {
   mkdirSync(path, { recursive: true });
   return `${path}/`;
 }
 
-function copy(relativePath) {
-  cpSync(join(repoRoot, relativePath), join(sandbox, relativePath), {
-    recursive: true,
-    force: true,
-  });
+function copyTrackedTree(destinationRoot) {
+  const files = execFileSync("git", ["ls-files", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  }).split("\0").filter(Boolean);
+  for (const relativePath of files) {
+    const source = join(repoRoot, relativePath);
+    const destination = join(destinationRoot, relativePath);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(source, destination, { recursive: true, force: true });
+  }
 }
 
-function run(args, label, cwd) {
+function runNodeNpm(cwd, env, command, label) {
+  run(
+    cwd,
+    env,
+    ["--yes", "-p", `node@${NODE_VERSION}`, "-p", `npm@${NPM_VERSION}`, "--", ...command],
+    label,
+  );
+}
+
+function runNode(cwd, env, args, label) {
+  run(cwd, env, ["--yes", `node@${NODE_VERSION}`, ...args], label);
+}
+
+function run(cwd, env, args, label) {
   console.log(`\n== ${label} ==`);
   const result = spawnSync(npx, args, {
     cwd,
-    env: process.env,
+    env,
     stdio: "inherit",
     windowsHide: true,
   });
   if (result.error) throw result.error;
-  if (result.status !== 0) {
-    console.error(`${label} failed with exit ${result.status ?? "unknown"}.`);
-    process.exitCode = result.status ?? 1;
-    throw new Error(`${label} failed.`);
-  }
+  if (result.status !== 0) throw new Error(`${label} failed with exit ${result.status ?? "unknown"}`);
 }

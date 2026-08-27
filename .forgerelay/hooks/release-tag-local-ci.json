@@ -4,7 +4,7 @@
     "tool": "bash",
     "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+(?:-rc\\.\\d+)?"
   },
-  "command": "node scripts/release/tag-local-ci.mjs",
-  "timeoutSeconds": 300,
+  "command": "node scripts/release-proof.mjs check-hook",
+  "timeoutSeconds": 30,
   "report": true
 }
