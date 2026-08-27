@@ -430,7 +430,8 @@ export class ProcessManager {
     const writableChars = chars.replaceAll("\u0003", "");
     if (writableChars && processEntry.running) processEntry.process?.write(writableChars);
 
-    if ((interactionRequested || !processEntry.buffer.hasOutput()) && processEntry.running) {
+    const explicitWaitRequested = input.yieldTimeMs !== undefined;
+    if ((explicitWaitRequested || interactionRequested || !processEntry.buffer.hasOutput()) && processEntry.running) {
       const fallback = interactionRequested ? DEFAULT_INTERACTIVE_YIELD_MS : DEFAULT_POLL_YIELD_MS;
       const maximum = interactionRequested ? MAX_COMMAND_YIELD_MS : MAX_POLL_YIELD_MS;
       const yieldTimeMs = boundedInteger(input.yieldTimeMs, fallback, maximum);

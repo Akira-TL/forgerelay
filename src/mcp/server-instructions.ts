@@ -88,7 +88,7 @@ function defaultWorkflowInstructions(config: ServerConfig): string {
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, git inspection, package scripts, generators, formatters, and commands that are better executed by the shell. If ${toolNames.shell} returns a running process with a processId, call ${toolNames.shell} again with action=\"process\" when you need to poll, wait, interact, resize, or interrupt it; otherwise you may continue other work and consume its completion notice from a later tool result.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, Git/package scripts, generators, formatters, and shell-suited commands. If ${toolNames.shell} returns a running processId, use action=\"process\" to poll/wait/interact/resize/interrupt it. When only waiting, set yieldTimeMs instead of short polling; reuse processId if still running. Otherwise keep working and consume its later completion notice.`,
   );
 }
 

@@ -107,6 +107,26 @@ assert.ok(background.processId);
 assert.equal(typeof background.processId, "number");
 assert.equal(background.sessionId, background.processId);
 
+const bufferedWait = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('wait-ready'); const timer = setInterval(() => console.log('wait-tick'), 10); setTimeout(() => { clearInterval(timer); console.log('wait-finished'); }, 160)"`,
+  yieldTimeMs: 20,
+});
+assert.equal(bufferedWait.running, true);
+assert.ok(bufferedWait.processId);
+assert.match(bufferedWait.output, /wait-ready/);
+
+await new Promise((resolve) => setTimeout(resolve, 40));
+const waitedToCompletion = await manager.write({
+  workspaceId: "workspace-a",
+  processId: bufferedWait.processId,
+  yieldTimeMs: 2_000,
+});
+assert.equal(waitedToCompletion.running, false);
+assert.equal(waitedToCompletion.exitCode, 0);
+assert.match(waitedToCompletion.output, /wait-finished/);
+
 await assert.rejects(
   manager.write({
     workspaceId: "workspace-b",
