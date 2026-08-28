@@ -448,7 +448,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
     : defaultRemoteAlias(remote.target);
   const alias = parsed.alias?.trim() || existingAlias || defaultAlias;
   if (!files.auth.instanceId) {
-    writeDevspaceAuth({ ...files.auth, instanceId: generateInstanceId() });
+    ensureForgeRelayInstanceId();
   }
   writeForgeRelayRemote(alias, remote);
   console.log(`Authenticated remote ${alias} (${remote.instanceId}).`);

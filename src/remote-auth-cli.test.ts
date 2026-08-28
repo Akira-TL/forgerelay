@@ -166,6 +166,80 @@ void test("forgerelay auth directly authenticates and persists a remote instance
   assert.match(conflicting.stderr, /already belongs to another ForgeRelay instance/i);
 });
 
+void test("concurrent remote authentication preserves both remote records", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-remote-auth-concurrent-"));
+  const localConfigDir = join(root, "local-config");
+  await mkdir(localConfigDir, { recursive: true });
+  await writeFile(
+    join(localConfigDir, "auth.json"),
+    JSON.stringify({ ownerToken: "existing-local-owner-token" }),
+    { mode: 0o600 },
+  );
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  let arrivals = 0;
+  let releaseBarrier!: () => void;
+  const barrier = new Promise<void>((resolve) => { releaseBarrier = resolve; });
+  const startRemote = async (name: string, instanceId: string) => {
+    const provider = new SingleUserOAuthProvider(
+      {
+        ownerToken,
+        accessTokenTtlSeconds: 3600,
+        refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
+        scopes: ["devspace"],
+        allowedRedirectHosts: ["chatgpt.com"],
+      },
+      new URL(`https://${name}.example.test/mcp`),
+      join(root, `${name}-state`),
+    );
+    t.after(() => provider.close());
+    const app = express();
+    app.use(async (req, _res, next) => {
+      if (req.path === "/auth/cli") {
+        arrivals += 1;
+        if (arrivals === 2) releaseBarrier();
+        await barrier;
+      }
+      next();
+    });
+    app.use(createForgeRelayAuthRouter({
+      provider,
+      cliAuthenticationProvider: provider,
+      instanceId,
+      issuerUrl: new URL(`https://${name}.example.test`),
+      resourceServerUrl: new URL(`https://${name}.example.test/mcp`),
+      scopesSupported: ["devspace"],
+      resourceName: "ForgeRelay",
+    } as Parameters<typeof createForgeRelayAuthRouter>[0] & { instanceId: string }));
+    const server = app.listen(0, "127.0.0.1");
+    t.after(() => server.close());
+    await once(server, "listening");
+    return (server.address() as AddressInfo).port;
+  };
+
+  const [alphaPort, betaPort] = await Promise.all([
+    startRemote("alpha", "forge-concurrent-alpha"),
+    startRemote("beta", "forge-concurrent-beta"),
+  ]);
+  const env = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: localConfigDir };
+  const [alpha, beta] = await Promise.all([
+    runCli(["auth", `127.0.0.1:${alphaPort}`, "--token", ownerToken, "--alias", "alpha"], env),
+    runCli(["auth", `127.0.0.1:${betaPort}`, "--token", ownerToken, "--alias", "beta"], env),
+  ]);
+  assert.equal(alpha.status, 0, alpha.stderr || alpha.stdout);
+  assert.equal(beta.status, 0, beta.stderr || beta.stdout);
+
+  const auth = JSON.parse(await readFile(join(localConfigDir, "auth.json"), "utf8")) as {
+    ownerToken?: string;
+    instanceId?: string;
+    remotes?: Record<string, { instanceId?: string }>;
+  };
+  assert.equal(auth.ownerToken, "existing-local-owner-token");
+  assert.match(auth.instanceId ?? "", /^forge-/);
+  assert.deepEqual(Object.keys(auth.remotes ?? {}).sort(), ["alpha", "beta"]);
+  assert.equal(auth.remotes?.alpha?.instanceId, "forge-concurrent-alpha");
+  assert.equal(auth.remotes?.beta?.instanceId, "forge-concurrent-beta");
+});
 
 async function runCli(
   args: string[],

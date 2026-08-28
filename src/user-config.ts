@@ -1,9 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -16,6 +21,11 @@ import {
   type HookConfig,
   type HookConfigInput,
 } from "./hooks.js";
+
+const AUTH_LOCK_RETRY_MS = 10;
+const AUTH_LOCK_TIMEOUT_MS = 5_000;
+const AUTH_LOCK_STALE_MS = 30_000;
+const AUTH_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 export interface ForgeRelayUserConfig {
   host?: string;
@@ -150,8 +160,10 @@ export function writeForgeRelayAuth(
 ): string {
   const filePath = forgerelayAuthPath(env);
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  writeJsonFile(filePath, auth, 0o600);
-  return filePath;
+  return withAuthFileLock(filePath, () => {
+    writeJsonFile(filePath, auth, 0o600);
+    return filePath;
+  });
 }
 
 export function generateOwnerToken(): string {
@@ -163,13 +175,20 @@ export function generateInstanceId(): string {
 }
 
 export function ensureForgeRelayInstanceId(env: NodeJS.ProcessEnv = process.env): string {
-  const files = loadForgeRelayFiles(env);
-  const existing = files.auth.instanceId?.trim();
+  const existing = loadForgeRelayFiles(env).auth.instanceId?.trim();
   if (existing) return existing;
 
-  const instanceId = generateInstanceId();
-  writeForgeRelayAuth({ ...files.auth, instanceId }, env);
-  return instanceId;
+  let resolved = "";
+  updateForgeRelayAuth((auth) => {
+    const current = auth.instanceId?.trim();
+    if (current) {
+      resolved = current;
+      return auth;
+    }
+    resolved = generateInstanceId();
+    return { ...auth, instanceId: resolved };
+  }, env);
+  return resolved;
 }
 
 function normalizeRemoteAlias(alias: string): string {
@@ -186,20 +205,21 @@ export function writeForgeRelayRemote(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const normalizedAlias = normalizeRemoteAlias(alias);
-  const files = loadForgeRelayFiles(env);
-  const remotes = { ...(files.auth.remotes ?? {}) };
-  const existing = remotes[normalizedAlias];
-  if (existing && existing.instanceId !== remote.instanceId) {
-    throw new Error(`Remote alias ${normalizedAlias} already belongs to another ForgeRelay instance.`);
-  }
-  const duplicate = Object.entries(remotes).find(
-    ([name, record]) => name !== normalizedAlias && record.instanceId === remote.instanceId,
-  );
-  if (duplicate) {
-    throw new Error(`ForgeRelay instance is already registered as ${duplicate[0]}; rename that remote instead.`);
-  }
-  remotes[normalizedAlias] = remote;
-  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
+  return updateForgeRelayAuth((auth) => {
+    const remotes = { ...(auth.remotes ?? {}) };
+    const existing = remotes[normalizedAlias];
+    if (existing && existing.instanceId !== remote.instanceId) {
+      throw new Error(`Remote alias ${normalizedAlias} already belongs to another ForgeRelay instance.`);
+    }
+    const duplicate = Object.entries(remotes).find(
+      ([name, record]) => name !== normalizedAlias && record.instanceId === remote.instanceId,
+    );
+    if (duplicate) {
+      throw new Error(`ForgeRelay instance is already registered as ${duplicate[0]}; rename that remote instead.`);
+    }
+    remotes[normalizedAlias] = remote;
+    return { ...auth, remotes };
+  }, env);
 }
 
 
@@ -210,14 +230,15 @@ export function renameForgeRelayRemote(
 ): string {
   const from = normalizeRemoteAlias(fromAlias);
   const to = normalizeRemoteAlias(toAlias);
-  const files = loadForgeRelayFiles(env);
-  const remotes = { ...(files.auth.remotes ?? {}) };
-  const remote = remotes[from];
-  if (!remote) throw new Error(`Unknown remote alias: ${from}`);
-  if (from !== to && remotes[to]) throw new Error(`Remote alias already exists: ${to}`);
-  delete remotes[from];
-  remotes[to] = remote;
-  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
+  return updateForgeRelayAuth((auth) => {
+    const remotes = { ...(auth.remotes ?? {}) };
+    const remote = remotes[from];
+    if (!remote) throw new Error(`Unknown remote alias: ${from}`);
+    if (from !== to && remotes[to]) throw new Error(`Remote alias already exists: ${to}`);
+    delete remotes[from];
+    remotes[to] = remote;
+    return { ...auth, remotes };
+  }, env);
 }
 
 export function removeForgeRelayRemote(
@@ -225,11 +246,12 @@ export function removeForgeRelayRemote(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const normalizedAlias = normalizeRemoteAlias(alias);
-  const files = loadForgeRelayFiles(env);
-  const remotes = { ...(files.auth.remotes ?? {}) };
-  if (!remotes[normalizedAlias]) throw new Error(`Unknown remote alias: ${normalizedAlias}`);
-  delete remotes[normalizedAlias];
-  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
+  return updateForgeRelayAuth((auth) => {
+    const remotes = { ...(auth.remotes ?? {}) };
+    if (!remotes[normalizedAlias]) throw new Error(`Unknown remote alias: ${normalizedAlias}`);
+    delete remotes[normalizedAlias];
+    return { ...auth, remotes };
+  }, env);
 }
 
 export function ensureForgeRelayDefaultSkills(env: NodeJS.ProcessEnv = process.env): string[] {
@@ -294,6 +316,59 @@ function readJsonFile<T>(filePath: string): T {
   }
 }
 
+function updateForgeRelayAuth(
+  update: (auth: ForgeRelayAuthConfig) => ForgeRelayAuthConfig,
+  env: NodeJS.ProcessEnv,
+): string {
+  const filePath = forgerelayAuthPath(env);
+  mkdirSync(forgerelayConfigDir(env), { recursive: true });
+  return withAuthFileLock(filePath, () => {
+    const auth = existsSync(filePath) ? readJsonFile<ForgeRelayAuthConfig>(filePath) : {};
+    writeJsonFile(filePath, update(auth), 0o600);
+    return filePath;
+  });
+}
+
+function withAuthFileLock<T>(filePath: string, operation: () => T): T {
+  const lockPath = `${filePath}.lock`;
+  const deadline = Date.now() + AUTH_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      closeSync(fd);
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > AUTH_LOCK_STALE_MS) {
+          rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw statError;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for ForgeRelay auth lock: ${lockPath}`);
+      }
+      Atomics.wait(AUTH_LOCK_SLEEP, 0, 0, AUTH_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return operation();
+  } finally {
+    rmSync(lockPath, { force: true });
+  }
+}
+
 function writeJsonFile(filePath: string, value: unknown, mode: number): void {
-  writeFileSync(filePath, JSON.stringify(value, null, 2) + "\n", { mode });
+  const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", { mode });
+    renameSync(tempPath, filePath);
+  } finally {
+    rmSync(tempPath, { force: true });
+  }
 }

@@ -99,6 +99,7 @@ import {
   type ProcessSnapshot,
 } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
 import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
 import {
   ACTIVITY_PANEL_APP_LEGACY_URI,
@@ -1551,6 +1552,7 @@ export function createMcpServer(
   activityQueries: ActivityQueryService,
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
+  const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir);
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
   const toolDescriptions = buildToolDescriptions(config);
@@ -2404,7 +2406,7 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open or resume a local coding workspace. Reuse the returned workspaceId for later calls. Default to checkout; use mode=\"worktree\" only when the user explicitly requests isolated or parallel Git work. Every call returns lightweight workspace metadata; bootstrap context is delivered automatically only when needed and can be explicitly suppressed or refreshed.",
+        "Open or resume a coding workspace. Defaults to local execution; for a new workspace, relay may name a registered direct remote ForgeRelay. Reuse the returned Gateway workspaceId for later calls. Default to checkout; use mode=\"worktree\" only for explicitly isolated or parallel Git work. Bootstrap context is delivered automatically only when needed and can be suppressed or refreshed.",
       inputSchema: {
         action: z
           .enum(["open", "list"])
@@ -2415,6 +2417,12 @@ export function createMcpServer(
           .optional()
           .describe(
             "Project path to open. Required for action=open unless workspaceId is supplied. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
+          ),
+        relay: z
+          .string()
+          .optional()
+          .describe(
+            "Optional registered remote ForgeRelay alias. When supplied for action=open, the workspace is opened and executed on that remote instance while this Gateway returns its own workspaceId.",
           ),
         workspaceId: z
           .string()
@@ -2548,6 +2556,7 @@ export function createMcpServer(
     async ({
       action = "open",
       path,
+      relay,
       workspaceId,
       mode,
       baseRef,
@@ -2567,11 +2576,11 @@ export function createMcpServer(
 
       if (action === "list") {
         if (
-          path !== undefined || baseRef !== undefined || newWorktree !== undefined ||
+          path !== undefined || relay !== undefined || baseRef !== undefined || newWorktree !== undefined ||
           newWorkspace !== undefined || context !== undefined
         ) {
           throw new Error(
-            "open_workspace action=list does not accept path, baseRef, newWorktree, newWorkspace, or context. Use root/workspaceId/mode/status/state/staleOnly for inventory filters.",
+            "open_workspace action=list does not accept path, relay, baseRef, newWorktree, newWorkspace, or context. Use root/workspaceId/mode/status/state/staleOnly for inventory filters.",
           );
         }
         const inventory = await workspaces.listWorkspaces(
@@ -2625,6 +2634,59 @@ export function createMcpServer(
         throw new Error(
           "open_workspace inventory filters root, status, state, staleOnly, offset, and limit are only valid with action=list.",
         );
+      }
+
+      if (relay !== undefined) {
+        if (workspaceId !== undefined) {
+          throw new Error("Relayed open_workspace requires a path; resuming a relayed workspace is not available in this tracer bullet.");
+        }
+        if (!path) throw new Error("Relayed open_workspace requires path.");
+        const opened = await remoteWorkspaces.openWorkspace(relay, {
+          path,
+          mode,
+          baseRef,
+          newWorktree,
+          newWorkspace,
+        });
+        const result = [
+          `Opened relayed workspace ${opened.workspaceId}.`,
+          `Execution remote: ${relay}`,
+          `Root: ${opened.root}`,
+          `Mode: ${opened.mode}`,
+          opened.instruction,
+        ].join("\n");
+        const response = {
+          content: [textBlock(result)],
+          _meta: {
+            tool: "open_workspace",
+            card: {
+              workspaceId: opened.workspaceId,
+              root: opened.root,
+              path: opened.root,
+              mode: opened.mode,
+              relay,
+              instruction: opened.instruction,
+              summary: { mode: opened.mode, relay },
+            },
+          },
+          structuredContent: {
+            action: "open" as const,
+            workspaceId: opened.workspaceId,
+            root: opened.root,
+            mode: opened.mode,
+            ...(opened.sourceRoot ? { sourceRoot: opened.sourceRoot } : {}),
+            instruction: opened.instruction,
+          },
+        };
+        logToolCall(config, {
+          tool: "open_workspace",
+          action: "relay",
+          path: opened.root,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        rememberWorkspacePanelState(opened.workspaceId, response);
+        return response;
       }
 
       const {
@@ -3053,6 +3115,11 @@ export function createMcpServer(
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, commitMessage }, extra) => {
+      if (remoteWorkspaces.has(workspaceId)) {
+        const response = await remoteWorkspaces.closeWorkspace(workspaceId, commitMessage);
+        workspacePanelStates.delete(workspaceId);
+        return response;
+      }
       const workspace = workspaces.getWorkspace(workspaceId);
       const response = await runToolWithHooks(hooks, {
         signal: extra.signal,
@@ -3221,6 +3288,9 @@ export function createMcpServer(
     async ({ workspaceId, path, paths, offset, limit }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("read requires exactly one of path or paths.");
+      }
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.read(workspaceId, { path, paths, offset, limit });
       }
       if (path !== undefined) {
         return coreOperations.read(

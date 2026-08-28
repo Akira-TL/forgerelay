@@ -22,6 +22,7 @@ const DEFAULT_ARTIFACT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 export interface ServerConfig {
   instanceId: string;
+  configDir: string;
   host: string;
   port: number;
   oauth: OAuthConfig;
@@ -335,6 +336,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 
   return {
     instanceId,
+    configDir: files.dir,
     host,
     port,
     oauth: parseOAuthConfig(env, files.auth.ownerToken),
