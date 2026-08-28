@@ -178,7 +178,7 @@ void test("gateway mutates files only on the remote workspace", async (t) => {
 
   const hookConfig = (logPath: string) => ({
     AfterFileChange: [{
-      command: `node -e "require('node:fs').appendFileSync('${logPath}', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')"`,
+      command: `node -e "require('node:fs').appendFileSync(process.argv[1], process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')" "${logPath}"`,
       timeoutSeconds: 30,
       report: false,
     }],
