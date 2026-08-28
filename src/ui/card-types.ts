@@ -31,6 +31,14 @@ export interface ToolResultCard {
   tool: ToolName;
   capabilityName?: string;
   workspaceId?: string;
+  kind?: "workspace" | "composite";
+  name?: string;
+  members?: Array<{
+    name?: string;
+    purpose?: string;
+    workspaceId?: string;
+  }>;
+  member?: string;
   path?: string;
   root?: string;
   workspaceReused?: boolean;

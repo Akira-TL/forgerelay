@@ -834,6 +834,35 @@ test("open_workspace context policy suppresses, automatically delivers, and forc
   assert.match(allResponseText(forced), /context="auto" avoids repeating unchanged bootstrap context/);
 });
 
+test("open_workspace creates and resumes an empty Composite Workspace through the normal lifecycle", async (t) => {
+  const context = await fixture(t);
+  const created = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "research-project", context: "none" },
+    _meta: { "openai/session": "chat-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  const createdStructured = structuredContent(created);
+
+  assert.match(String(createdStructured.workspaceId), /^cws_[a-f0-9]{10}$/);
+  assert.equal(createdStructured.kind, "composite");
+  assert.equal(createdStructured.name, "research-project");
+  assert.deepEqual(createdStructured.members, []);
+  assert.equal(createdStructured.root, undefined);
+  assert.equal(createdStructured.mode, undefined);
+  assert.match(allResponseText(created), /Composite Workspace/i);
+
+  const resumed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: createdStructured.workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-composite-other" },
+  } as Parameters<Client["callTool"]>[0]);
+  const resumedStructured = structuredContent(resumed);
+  assert.equal(resumedStructured.workspaceId, createdStructured.workspaceId);
+  assert.equal(resumedStructured.kind, "composite");
+  assert.equal(resumedStructured.name, "research-project");
+  assert.deepEqual(resumedStructured.members, []);
+});
+
 test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-list-1");

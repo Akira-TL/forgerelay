@@ -32,7 +32,7 @@ export function getToolDisplay(card: ToolResultCard): ToolDisplay {
       return {
         icon: card.mode === "worktree" ? toolIcons.gitBranch : toolIcons.folderOpen,
         title: workspaceTitle(card),
-        label: card.root ?? card.path,
+        label: card.kind === "composite" ? card.name : card.root ?? card.path,
         tone: "workspace",
       };
     case "close_workspace":
@@ -190,6 +190,9 @@ function patchIcon(kind: ReturnType<typeof getPatchDisplayParts>["iconKind"]): T
 }
 
 function workspaceTitle(card: ToolResultCard): string {
+  if (card.kind === "composite") {
+    return `${card.workspaceReused ? "Reused" : "Opened"} composite workspace`;
+  }
   return `${card.workspaceReused ? "Reused" : "Opened"} workspace`;
 }
 

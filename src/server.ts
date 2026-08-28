@@ -99,6 +99,7 @@ import {
   type ProcessSnapshot,
 } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
 import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
 import {
@@ -1553,6 +1554,7 @@ export function createMcpServer(
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
+  const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
   const toolDescriptions = buildToolDescriptions(config);
@@ -2424,17 +2426,25 @@ export function createMcpServer(
     {
       title: "Open workspace",
       description:
-        "Open or resume a coding workspace. Defaults to local execution; for a new workspace, relay may name a registered direct remote ForgeRelay. Reuse the returned Gateway workspaceId for later calls. Default to checkout; use mode=\"worktree\" only for explicitly isolated or parallel Git work. Bootstrap context is delivered automatically only when needed and can be suppressed or refreshed.",
+        "Open or resume a ForgeRelay Workspace. Ordinary workspaces default to local execution; relay may name a registered remote ForgeRelay. Composite Workspaces use the same open lifecycle but have kind=\"composite\" and a name instead of a mounted root. Reuse the returned workspaceId for later calls. Bootstrap context is delivered automatically only when needed and can be suppressed or refreshed.",
       inputSchema: {
         action: z
           .enum(["open", "list"])
           .optional()
           .describe("Defaults to open. Use list only when you need to inspect or choose logical workspaces before resuming or cleaning them up."),
+        kind: z
+          .enum(["workspace", "composite"])
+          .optional()
+          .describe("Workspace kind for action=open. Defaults to workspace. Use composite with name and no path to create or reopen a named Composite Workspace."),
+        name: z
+          .string()
+          .optional()
+          .describe("Composite Workspace name. Used only with kind=\"composite\" when creating/opening by name."),
         path: z
           .string()
           .optional()
           .describe(
-            "Project path to open. Required for action=open unless workspaceId is supplied. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
+            "Project path to open for an ordinary Workspace. Required for action=open unless workspaceId is supplied or kind=\"composite\" with name is used. With mode=\"worktree\", this may also be a managed worktree path previously returned by ForgeRelay.",
           ),
         relay: z
           .string()
@@ -2509,6 +2519,13 @@ export function createMcpServer(
       outputSchema: {
         action: z.enum(["open", "list"]),
         workspaceId: z.string().optional(),
+        kind: z.enum(["workspace", "composite"]).optional(),
+        name: z.string().optional(),
+        members: z.array(z.object({
+          name: z.string(),
+          purpose: z.string(),
+          workspaceId: z.string(),
+        })).optional(),
         root: z.string().optional(),
         mode: z.enum(["checkout", "worktree"]).optional(),
         sourceRoot: z.string().optional(),
@@ -2559,6 +2576,18 @@ export function createMcpServer(
         agents: z.array(workspaceLocalAgentOutputSchema).optional(),
         skillDiagnostics: z.array(workspaceSkillDiagnosticOutputSchema).optional(),
         workspaces: z.array(workspaceInventoryEntryOutputSchema).optional(),
+        compositeWorkspaces: z.array(z.object({
+          workspaceId: z.string(),
+          kind: z.literal("composite"),
+          name: z.string(),
+          members: z.array(z.object({
+            name: z.string(),
+            purpose: z.string(),
+            workspaceId: z.string(),
+          })),
+          createdAt: z.string(),
+          lastUsedAt: z.string(),
+        })).optional(),
         summary: workspaceInventorySummaryOutputSchema.optional(),
         page: workspaceInventoryPageOutputSchema.optional(),
         instruction: z.string(),
@@ -2573,6 +2602,8 @@ export function createMcpServer(
     },
     async ({
       action = "open",
+      kind,
+      name,
       path,
       relay,
       workspaceId,
@@ -2594,27 +2625,72 @@ export function createMcpServer(
 
       if (action === "list") {
         if (
-          path !== undefined || relay !== undefined || baseRef !== undefined || newWorktree !== undefined ||
+          path !== undefined || relay !== undefined || name !== undefined || baseRef !== undefined || newWorktree !== undefined ||
           newWorkspace !== undefined || context !== undefined
         ) {
           throw new Error(
-            "open_workspace action=list does not accept path, relay, baseRef, newWorktree, newWorkspace, or context. Use root/workspaceId/mode/status/state/staleOnly for inventory filters.",
+            "open_workspace action=list does not accept path, relay, name, baseRef, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
           );
+        }
+        if (kind === "composite") {
+          if (
+            root !== undefined || mode !== undefined || status !== undefined || state !== undefined ||
+            staleOnly !== undefined || offset !== undefined || limit !== undefined
+          ) {
+            throw new Error(
+              "Composite Workspace inventory does not accept root/mode/status/state/staleOnly/offset/limit filters; use workspaceId when selecting one Composite Workspace.",
+            );
+          }
+          const composites = compositeWorkspaces.list()
+            .filter((entry) => workspaceId === undefined || entry.id === workspaceId)
+            .map((entry) => ({
+              workspaceId: entry.id,
+              kind: entry.kind,
+              name: entry.name,
+              members: entry.members,
+              createdAt: entry.createdAt,
+              lastUsedAt: entry.lastUsedAt,
+            }));
+          const instruction =
+            "Resume a Composite Workspace with open_workspace(action=\"open\", workspaceId=...). Use close_workspace only when the user chooses to dissolve it.";
+          const result = [
+            `Composite Workspace inventory: ${composites.length} matching record${composites.length === 1 ? "" : "s"}.`,
+            ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] members=${entry.members.length} last-used=${entry.lastUsedAt}`),
+            instruction,
+          ].join("\n");
+          return {
+            content: [textBlock(result)],
+            structuredContent: {
+              action: "list" as const,
+              compositeWorkspaces: composites,
+              instruction,
+            },
+          };
         }
         const inventory = await workspaces.listWorkspaces(
           { workspaceId, mode, root, status, state, staleOnly, offset, limit },
           { conversationScopeId, protectedWorkspaceIds },
         );
+        const composites = kind === "workspace"
+          ? []
+          : compositeWorkspaces.list().map((entry) => ({
+              workspaceId: entry.id,
+              kind: entry.kind,
+              name: entry.name,
+              members: entry.members,
+              createdAt: entry.createdAt,
+              lastUsedAt: entry.lastUsedAt,
+            }));
         const nextOffset = inventory.page.offset + inventory.page.limit;
         const instruction = [
           "Resume a selected workspaceId with open_workspace(action=\"open\", workspaceId=...).",
-          "Use close_workspace only after the user chooses cleanup; never close inventory entries automatically.",
+          "Use close_workspace only after the user chooses cleanup or Composite dissolution; never close inventory entries automatically.",
           inventory.page.hasMore
             ? `More matching workspaces are available; continue with offset=${nextOffset}.`
             : undefined,
         ].filter(Boolean).join(" ");
         const result = [
-          `Logical workspace inventory: ${inventory.summary.matching} matching of ${inventory.summary.total} stored records.`,
+          `Logical workspace inventory: ${inventory.summary.matching} matching ordinary records; ${composites.length} Composite Workspace record${composites.length === 1 ? "" : "s"}.`,
           `States: active=${inventory.summary.active}, stale=${inventory.summary.stale}, invalid=${inventory.summary.invalid}, closed=${inventory.summary.closed}.`,
           ...inventory.workspaces.map((entry) => [
             entry.label,
@@ -2626,6 +2702,7 @@ export function createMcpServer(
             `root=${entry.root}`,
             `last-used=${entry.lastUsedAt}`,
           ].filter(Boolean).join(" ")),
+          ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] kind=composite members=${entry.members.length}`),
           instruction,
         ].join("\n");
         logToolCall(config, {
@@ -2640,6 +2717,7 @@ export function createMcpServer(
           structuredContent: {
             action: "list" as const,
             ...inventory,
+            ...(composites.length > 0 ? { compositeWorkspaces: composites } : {}),
             instruction,
           },
         };
@@ -2654,6 +2732,65 @@ export function createMcpServer(
         );
       }
 
+      const openingComposite = kind === "composite" ||
+        (workspaceId !== undefined && compositeWorkspaces.has(workspaceId));
+      if (openingComposite) {
+        if (relay !== undefined || path !== undefined || mode !== undefined || baseRef !== undefined ||
+          newWorktree !== undefined || newWorkspace !== undefined) {
+          throw new Error(
+            "Composite Workspace open accepts name/workspaceId/context only; members are attached separately and keep their own Workspace definitions.",
+          );
+        }
+        if (workspaceId !== undefined && kind === "workspace") {
+          throw new Error(`${workspaceId} is a Composite Workspace, not an ordinary Workspace.`);
+        }
+        const composite = workspaceId !== undefined
+          ? compositeWorkspaces.open(workspaceId)
+          : compositeWorkspaces.create(name ?? "");
+        const instruction = [
+          `This is Composite Workspace ${composite.name} (${composite.id}).`,
+          "It has no mounted working directory of its own. Use the Composite workspaceId as the top-level Workspace handle and explicitly select one named member for member-scoped work operations.",
+          composite.members.length > 0
+            ? `Members: ${composite.members.map((member) => `${member.name} — ${member.purpose}`).join("; ")}.`
+            : "This Composite Workspace currently has no members.",
+          "Member names and purposes are structural context and are always returned when this Composite Workspace is opened. context=auto/full/none controls only heavy member bootstrap context, not this Composite identity.",
+          "Use close_workspace only when the user chooses to dissolve this Composite Workspace; dissolution does not close or clean up member Workspaces.",
+        ].join("\n\n");
+        const response = {
+          content: [textBlock(instruction)],
+          _meta: {
+            tool: "open_workspace",
+            card: {
+              workspaceId: composite.id,
+              kind: "composite" as const,
+              name: composite.name,
+              path: composite.name,
+              members: composite.members,
+              instruction,
+              summary: { members: composite.members.length },
+            },
+          },
+          structuredContent: {
+            action: "open" as const,
+            workspaceId: composite.id,
+            kind: "composite" as const,
+            name: composite.name,
+            members: composite.members,
+            instruction,
+          },
+        };
+        logToolCall(config, {
+          tool: "open_workspace",
+          action: "composite",
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        rememberWorkspacePanelState(composite.id, response);
+        return response;
+      }
+      if (name !== undefined) {
+        throw new Error("open_workspace name is only valid with kind=\"composite\".");
+      }
       if (relay !== undefined) {
         if (workspaceId !== undefined) {
           throw new Error("Relayed open_workspace requires a path; resuming a relayed workspace is not available in this tracer bullet.");
@@ -2692,6 +2829,7 @@ export function createMcpServer(
             tool: "open_workspace",
             card: {
               workspaceId: opened.workspaceId,
+              kind: "workspace" as const,
               root: opened.root,
               path: opened.root,
               mode: opened.mode,
@@ -2703,6 +2841,7 @@ export function createMcpServer(
           structuredContent: {
             action: "open" as const,
             workspaceId: opened.workspaceId,
+            kind: "workspace" as const,
             root: opened.root,
             mode: opened.mode,
             ...(opened.sourceRoot ? { sourceRoot: opened.sourceRoot } : {}),
@@ -2895,6 +3034,7 @@ export function createMcpServer(
           tool: "open_workspace",
           card: {
             workspaceId: workspace.id,
+            kind: "workspace" as const,
             root: workspace.root,
             path: workspace.root,
             mode: workspace.mode,
@@ -2927,6 +3067,7 @@ export function createMcpServer(
         structuredContent: {
           action: "open" as const,
           workspaceId: workspace.id,
+          kind: "workspace" as const,
           root: workspace.root,
           mode: workspace.mode,
           sourceRoot: workspace.sourceRoot,

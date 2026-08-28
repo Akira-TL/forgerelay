@@ -121,6 +121,14 @@ _Avoid_: Activity, Activity Record, UI event
 The queryable representation of one Activity derived from its Audit Events, including the state and detail needed for inspection without making the Activity Panel authoritative.
 _Avoid_: Audit Event, Activity Panel, tool response
 
+**复合工作区（Composite Workspace）**：
+一种与普通 Workspace 使用相同打开入口、但内部类型不同的 ForgeRelay 工作区。它可以独立存在，并由零个或多个彼此独立、具名且具有明确用途定义的成员 Workspace 组成。复合工作区不直接代表某个挂载工作目录，也不合并成员工作区的文件系统、版本控制状态、进程、钩子、技能、语言服务或活动事实。同一 Host/conversation 工作区绑定中，复合工作区与其成员 Workspace 不能同时作为顶层打开工作区存在；接手复合工作区时，成员只作为该复合工作区内部可选择的执行目标存在。
+避免混用：普通 Workspace、文件同步、共享目录、远端工作区
+
+**复合工作区成员（Composite Workspace Member）**：
+复合工作区中的一个具名成员，引用一个实际 ForgeRelay Workspace，并带有在复合工作区定义时显式声明的用途说明，帮助 Host/Agent 区分不同执行环境，例如 `code`、`compute`、`dataset`。用途定义只提供 Agent-facing 语义，不产生隐式自动路由、权限或故障转移；实际文件、进程与活动事实仍属于成员引用的 Workspace 及其 Execution ForgeRelay。
+避免混用：Workspace、Forge alias、设备、角色权限
+
 **工作区接力（Workspace Relay）**：
 一个锻造中继（ForgeRelay）实例把某个工作区的实际执行委托给另一个已经完成远端认证的锻造中继实例，同时保留原宿主连接和对外工作区句柄。工作区接力描述执行位置，不描述如何抵达或认证远端实例。
 避免混用：远端认证（Remote Authentication）、文件同步、故障转移
