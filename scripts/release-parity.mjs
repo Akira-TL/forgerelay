@@ -30,9 +30,10 @@ try {
     `Node ${NODE_VERSION} / npm ${NPM_VERSION} install`,
   );
   runNodeNpm(sandbox, env, ["npm", "run", "ci:verify"], "Cloud verification entrypoint");
+  runNodeNpm(sandbox, env, ["npm", "run", "release:pack"], "Cloud release packaging");
 
   console.log(
-    `Release parity passed through ci:verify on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
+    `Release parity passed through ci:verify and release:pack on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
   );
 } finally {
   rmSync(sandbox, {

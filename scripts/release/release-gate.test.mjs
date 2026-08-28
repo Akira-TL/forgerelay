@@ -71,6 +71,7 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   assert.match(source, /const NPM_VERSION = "10\.9\.3"/);
   assert.ok(source.includes('["npm", "ci", "--no-audit", "--no-fund"]'));
   assert.ok(source.includes('["npm", "run", "ci:verify"]'));
+  assert.ok(source.includes('["npm", "run", "release:pack"]'));
   assert.doesNotMatch(source, /\["npm", "run", "typecheck"\]/);
   assert.doesNotMatch(source, /\["npm", "test"\]/);
 });
