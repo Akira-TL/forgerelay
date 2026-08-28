@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -400,7 +400,7 @@ test("code.intelligence normalizes LocationLink results and marks External code 
     selectedServer: "typescript-test",
     projectRoot: ".",
     locations: [{
-      path: externalTarget,
+      path: await realpath(externalTarget),
       external: true,
       range: {
         start: { line: 1, column: 8 },
