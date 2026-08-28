@@ -262,58 +262,44 @@ async function runCli(
   return { status, stdout, stderr };
 }
 
-function pseudoTerminalScriptArgs(
-  args: string[],
-  platform: NodeJS.Platform = process.platform,
-): string[] {
-  const cliArgs = ["node", "--import", "tsx", "src/cli.ts", ...args];
-  if (platform === "darwin") {
-    return ["-q", "/dev/null", ...cliArgs];
-  }
-  const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
-  return ["-qefc", cliArgs.map(shellQuote).join(" "), "/dev/null"];
-}
-
-void test("pseudo-terminal auth helper uses the native script dialect on Linux and macOS", () => {
-  assert.deepEqual(
-    pseudoTerminalScriptArgs(["auth", "127.0.0.1:7676"], "darwin"),
-    ["-q", "/dev/null", "node", "--import", "tsx", "src/cli.ts", "auth", "127.0.0.1:7676"],
-  );
-  const linux = pseudoTerminalScriptArgs(["auth", "127.0.0.1:7676"], "linux");
-  assert.equal(linux[0], "-qefc");
-  assert.equal(linux[2], "/dev/null");
-  assert.match(linux[1] ?? "", /'node'.*'auth'.*'127\.0\.0\.1:7676'/);
-});
-
 async function runCliWithPseudoTerminal(
   args: string[],
   env: NodeJS.ProcessEnv,
   password: string,
 ): Promise<{ status: number | null; output: string }> {
-  const child = spawn("script", pseudoTerminalScriptArgs(args), {
-    cwd: process.cwd(),
-    env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const nodePty = await import("node-pty");
+  const ptyEnv = Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  const child = nodePty.spawn(
+    process.execPath,
+    ["--import", "tsx", "src/cli.ts", ...args],
+    {
+      cwd: process.cwd(),
+      env: ptyEnv,
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
+    },
+  );
   let terminalOutput = "";
   let sent = false;
   let passwordTimer: NodeJS.Timeout | undefined;
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  const collectTerminalOutput = (chunk: string) => {
+  const dataDisposable = child.onData((chunk) => {
     terminalOutput += chunk;
     if (!sent && !passwordTimer) {
       passwordTimer = setTimeout(() => {
         sent = true;
-        child.stdin.write(`${password}\r`);
+        child.write(`${password}\r`);
       }, 200);
     }
-  };
-  child.stdout.on("data", collectTerminalOutput);
-  child.stderr.on("data", collectTerminalOutput);
-  const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
-  const [status] = await once(child, "close") as [number | null];
+  });
+  const timer = setTimeout(() => child.kill(), 10_000);
+  const status = await new Promise<number | null>((resolve) => {
+    child.onExit(({ exitCode }) => resolve(exitCode));
+  });
   clearTimeout(timer);
+  dataDisposable.dispose();
   if (passwordTimer) clearTimeout(passwordTimer);
   return { status, output: terminalOutput };
 }
