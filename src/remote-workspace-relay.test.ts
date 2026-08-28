@@ -29,7 +29,6 @@ const cleanProductEnv = Object.fromEntries(
 
 void test("gateway opens, reads, and closes a workspace on a direct remote ForgeRelay", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -163,11 +162,11 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
   assert.equal(failedClose.isError, true);
   assert.doesNotMatch(resultText(failedClose), new RegExp(failureRemoteWorkspaceId));
   assert.match(resultText(failedClose), new RegExp(failureGatewayWorkspaceId));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("gateway mutates files only on the remote workspace", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-mutations-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -264,11 +263,11 @@ void test("gateway mutates files only on the remote workspace", async (t) => {
     arguments: { workspaceId },
   });
   assert.equal(closed.isError, undefined, resultText(closed));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("remote bulk mutations preserve execution-instance preflight semantics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-bulk-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -362,11 +361,11 @@ void test("remote bulk mutations preserve execution-instance preflight semantics
 
   const closed = await client.callTool({ name: "close_workspace", arguments: { workspaceId } });
   assert.equal(closed.isError, undefined, resultText(closed));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("relayed workspace routes survive a new gateway instance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -448,11 +447,11 @@ void test("relayed workspace routes survive a new gateway instance", async (t) =
     arguments: { workspaceId },
   });
   assert.equal(closed.isError, undefined, resultText(closed));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("concurrent gateway sessions preserve every relayed workspace route", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-concurrent-routes-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -526,11 +525,11 @@ void test("concurrent gateway sessions preserve every relayed workspace route", 
   assert.equal(readB.isError, undefined, resultText(readB));
   assert.match(resultText(readA), /route-a/);
   assert.match(resultText(readB), /route-b/);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway instances", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const fakeBin = join(root, "bin");
   const sshLog = join(root, "ssh.log");
@@ -632,11 +631,11 @@ void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway in
 
   const closed = await restartedClient.callTool({ name: "close_workspace", arguments: { workspaceId } });
   assert.equal(closed.isError, undefined, resultText(closed));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("single-target SSH relay executes a remote workspace without ProxyJump", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-single-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const fakeBin = join(root, "bin");
   const sshLog = join(root, "ssh.log");
@@ -706,11 +705,11 @@ void test("single-target SSH relay executes a remote workspace without ProxyJump
   assert.ok(forwardCalls.length >= 3, JSON.stringify(sshCalls));
   assert.ok(forwardCalls.every((args) => args.includes("target@example.test")));
   assert.ok(forwardCalls.every((args) => !args.includes("-J")), JSON.stringify(sshCalls));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("relayed open failures are explicit and never fall back to the gateway filesystem", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-errors-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -791,6 +790,7 @@ void test("relayed open failures are explicit and never fall back to the gateway
   assert.equal(offline.isError, true);
   assert.match(resultText(offline), /remote forgerelay offline request failed/i);
   assert.doesNotMatch(resultText(offline), /gateway-fallback-must-not-run/);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 interface RunningForge {
