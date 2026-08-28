@@ -250,6 +250,150 @@ void test("gateway routes remote commands, process lifecycle, and capabilities t
 });
 
 
+void test("gateway forwards remote Host activity queries without duplicating execution facts", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-activity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const gatewayConfigDir = join(root, "gateway", "config");
+  const gatewayStateDir = join(root, "gateway", "state");
+  const remoteStateDir = join(root, "remote", "state");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(remoteRoot, "session-a.txt"), "session-a-remote\n");
+  await writeFile(join(remoteRoot, "session-b.txt"), "session-b-remote\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-activity-owner-token-long-enough",
+    instanceId: "forge-relay-activity-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-activity-owner-token-long-enough",
+    instanceId: "forge-relay-activity-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+  });
+  const sessionA = { "openai/session": "relay-activity-session-a" };
+  const sessionB = { "openai/session": "relay-activity-session-b" };
+  const call = (name: string, arguments_: Record<string, unknown>, meta: Record<string, string>) =>
+    client.callTool({ name, arguments: arguments_, _meta: meta } as Parameters<Client["callTool"]>[0]);
+
+  const opened = await call("open_workspace", {
+    path: remoteRoot,
+    relay: "workstation",
+    context: "none",
+  }, sessionA);
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.match(workspaceId, /^rws_/);
+
+  const panelA = await call("activity_panel", { workspaceId }, sessionA);
+  assert.equal(panelA.isError, undefined, resultText(panelA));
+  const turnA = String(structuredContent(panelA).turnId);
+  const bootstrapA = await call("activity_snapshot", { workspaceId }, sessionA);
+  assert.equal(bootstrapA.isError, undefined, resultText(bootstrapA));
+  assert.equal(structuredContent(bootstrapA).turnId, turnA);
+  assert.doesNotMatch(JSON.stringify(bootstrapA), /"ws_[0-9a-f]{10}"/);
+
+  const readA = await call("read", { workspaceId, path: "session-a.txt" }, sessionA);
+  assert.equal(readA.isError, undefined, resultText(readA));
+  const foreground = await call("bash", {
+    workspaceId,
+    action: "run",
+    command: "node -e \"console.log('REMOTE-ACTIVITY-FOREGROUND')\"",
+  }, sessionA);
+  assert.equal(foreground.isError, undefined, resultText(foreground));
+
+  const background = await call("bash", {
+    workspaceId,
+    action: "run",
+    command: "node -e \"setTimeout(()=>console.log('REMOTE-ACTIVITY-BACKGROUND'), 120)\"",
+    yieldTimeMs: 0,
+  }, sessionA);
+  assert.equal(background.isError, undefined, resultText(background));
+  const outputId = String(structuredContent(background).outputId);
+  assert.ok(outputId.length > 0);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const completionTrigger = await call("read", { workspaceId, path: "session-a.txt" }, sessionA);
+  assert.equal(completionTrigger.isError, undefined, resultText(completionTrigger));
+
+  const snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
+  assert.equal(snapshotA.isError, undefined, resultText(snapshotA));
+  const activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+  assert.equal(activitiesA.some((activity) => activity.tool === "read"), true);
+  assert.equal(activitiesA.some((activity) => activity.tool === "bash"), true);
+  assert.equal(activitiesA.some((activity) => activity.tool === "bash_result"), true);
+  assert.equal(activitiesA.some((activity) => activity.target === "session-b.txt"), false);
+  assert.doesNotMatch(JSON.stringify(snapshotA), /"ws_[0-9a-f]{10}"/);
+  assert.doesNotMatch(JSON.stringify(snapshotA), new RegExp(remote.endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(JSON.stringify(snapshotA), /remote-activity-owner-token|accessToken|refreshToken/);
+
+  const detailActivity = activitiesA.find((activity) => activity.detailAvailable === true);
+  assert.ok(detailActivity && typeof detailActivity.activityId === "string");
+  const detail = await call("activity_detail", {
+    turnId: turnA,
+    activityId: detailActivity.activityId,
+  }, sessionA);
+  assert.equal(detail.isError, undefined, resultText(detail));
+  assert.doesNotMatch(JSON.stringify(detail), /"ws_[0-9a-f]{10}"/);
+  assert.match(JSON.stringify(detail), new RegExp(workspaceId));
+
+  const output = await call("activity_output", { turnId: turnA, outputId }, sessionA);
+  assert.equal(output.isError, undefined, resultText(output));
+  assert.match(String(structuredContent(output).output), /REMOTE-ACTIVITY-BACKGROUND/);
+  assert.doesNotMatch(JSON.stringify(output), /"ws_[0-9a-f]{10}"/);
+
+  const panelB = await call("activity_panel", { workspaceId }, sessionB);
+  assert.equal(panelB.isError, undefined, resultText(panelB));
+  const turnB = String(structuredContent(panelB).turnId);
+  assert.notEqual(turnA, turnB);
+  const readB = await call("read", { workspaceId, path: "session-b.txt" }, sessionB);
+  assert.equal(readB.isError, undefined, resultText(readB));
+  const snapshotB = await call("activity_snapshot", { turnId: turnB }, sessionB);
+  assert.equal(snapshotB.isError, undefined, resultText(snapshotB));
+  const activitiesB = structuredContent(snapshotB).activities as Array<Record<string, unknown>>;
+  assert.equal(activitiesB.some((activity) => activity.target === "session-b.txt"), true);
+  assert.equal(activitiesB.some((activity) => activity.target === "session-a.txt"), false);
+
+  const snapshotAAfterB = await call("activity_snapshot", { turnId: turnA }, sessionA);
+  const activitiesAAfterB = structuredContent(snapshotAAfterB).activities as Array<Record<string, unknown>>;
+  assert.equal(activitiesAAfterB.some((activity) => activity.target === "session-b.txt"), false);
+
+  const routeState = JSON.parse(
+    await readFile(join(gatewayStateDir, "remote-workspace-routes.json"), "utf8"),
+  ) as Array<{ gatewayWorkspaceId: string; remoteWorkspaceId: string }>;
+  const remoteWorkspaceId = routeState.find((route) => route.gatewayWorkspaceId === workspaceId)?.remoteWorkspaceId;
+  assert.ok(remoteWorkspaceId);
+  const remoteClosed = await withRemoteMcpClient(remoteRecord, remote.endpoint, (remoteClient) =>
+    remoteClient.callTool({ name: "close_workspace", arguments: { workspaceId: remoteWorkspaceId } })
+  );
+  assert.equal(remoteClosed.isError, undefined, resultText(remoteClosed));
+  const stalePanel = await call("activity_panel", { workspaceId }, sessionA);
+  assert.equal(stalePanel.isError, true);
+  assert.doesNotMatch(JSON.stringify(stalePanel), /"ws_[0-9a-f]{10}"/);
+  assert.match(JSON.stringify(stalePanel), new RegExp(workspaceId));
+
+  const gatewayAudit = new ActivityAuditStore(gatewayStateDir);
+  t.after(() => gatewayAudit.close());
+  assert.equal(gatewayAudit.listActivitiesByTurn(turnA).length, 0);
+  assert.equal(gatewayAudit.listActivitiesByTurn(turnB).length, 0);
+  const remoteAudit = new ActivityAuditStore(remoteStateDir);
+  t.after(() => remoteAudit.close());
+  assert.ok(remoteAudit.listActivitiesByTurn(turnA).length >= activitiesA.length);
+  assert.ok(remoteAudit.listActivitiesByTurn(turnB).length >= activitiesB.length);
+});
+
+
 interface RunningForge {
   endpoint: string;
   ownerToken: string;

@@ -2292,6 +2292,24 @@ export function createMcpServer(
   );
 
   const workspacePanelStates = new Map<string, Record<string, unknown>>();
+  const workspacePanelState = (workspaceId: string): Record<string, unknown> | undefined => {
+    const remembered = workspacePanelStates.get(workspaceId);
+    if (remembered) return remembered;
+    try {
+      const workspace = workspaces.getWorkspace(workspaceId);
+      return {
+        workspaceId: workspace.id,
+        root: workspace.root,
+        path: workspace.root,
+        mode: workspace.mode,
+        sourceRoot: workspace.sourceRoot,
+        instruction: `Use workspaceId ${workspace.id} for subsequent calls.`,
+        summary: { mode: workspace.mode },
+      };
+    } catch {
+      return undefined;
+    }
+  };
   const rememberWorkspacePanelState = (
     workspaceId: string,
     response: { _meta?: unknown },
@@ -2648,7 +2666,7 @@ export function createMcpServer(
           newWorktree,
           newWorkspace,
           context,
-        });
+        }, hostScopeIdFor(_meta, sessionId));
         const relayedSkills = Array.isArray(opened.skills)
           ? opened.skills as Array<{ name?: unknown }>
           : [];
@@ -2944,7 +2962,19 @@ export function createMcpServer(
     toolWidgetDescriptorMeta(config, "activity")._meta,
     config.activityPanelExpanded,
     config.logging,
-    (workspaceId) => workspacePanelStates.get(workspaceId),
+    workspacePanelState,
+    {
+      panel: async (workspaceId, conversationScopeId) =>
+        remoteWorkspaces.has(workspaceId)
+          ? remoteWorkspaces.activityPanel(workspaceId, conversationScopeId)
+          : undefined,
+      snapshot: (input, conversationScopeId) =>
+        remoteWorkspaces.activitySnapshot(input, conversationScopeId),
+      detail: (turnId, activityId, conversationScopeId) =>
+        remoteWorkspaces.activityDetail(turnId, activityId, conversationScopeId),
+      output: (turnId, outputId, conversationScopeId) =>
+        remoteWorkspaces.activityOutput(turnId, outputId, conversationScopeId),
+    },
   );
 
   registerAppTool(
@@ -2995,7 +3025,7 @@ export function createMcpServer(
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
-        });
+        }, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       if (action === "run" && name === "batch.execute") {
         const workspace = workspaces.getWorkspace(workspaceId);
@@ -3161,7 +3191,11 @@ export function createMcpServer(
     },
     async ({ workspaceId, commitMessage }, extra) => {
       if (remoteWorkspaces.has(workspaceId)) {
-        const response = await remoteWorkspaces.closeWorkspace(workspaceId, commitMessage);
+        const response = await remoteWorkspaces.closeWorkspace(
+          workspaceId,
+          commitMessage,
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
         workspacePanelStates.delete(workspaceId);
         return response;
       }
@@ -3335,7 +3369,11 @@ export function createMcpServer(
         throw new Error("read requires exactly one of path or paths.");
       }
       if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.read(workspaceId, { path, paths, offset, limit });
+        return remoteWorkspaces.read(
+          workspaceId,
+          { path, paths, offset, limit },
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
       }
       if (path !== undefined) {
         return coreOperations.read(
@@ -3447,7 +3485,11 @@ export function createMcpServer(
     },
     async ({ workspaceId, ...input }, extra) => {
       if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.write(workspaceId, input);
+        return remoteWorkspaces.write(
+          workspaceId,
+          input,
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
       }
       return coreOperations.write(
         { workspaceId, ...input },
@@ -3513,7 +3555,11 @@ export function createMcpServer(
         throw new Error("edit requires exactly one of path or paths.");
       }
       if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.edit(workspaceId, { path, paths, edits });
+        return remoteWorkspaces.edit(
+          workspaceId,
+          { path, paths, edits },
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
       }
       if (path !== undefined) {
         return coreOperations.edit(
@@ -3559,7 +3605,11 @@ export function createMcpServer(
     },
     async ({ workspaceId, path, newPath }, extra) => {
       if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.rename(workspaceId, { path, newPath });
+        return remoteWorkspaces.rename(
+          workspaceId,
+          { path, newPath },
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
       }
       return coreOperations.rename(
         { workspaceId, path, newPath },
@@ -3611,7 +3661,11 @@ export function createMcpServer(
         throw new Error("delete requires exactly one of path or paths.");
       }
       if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.delete(workspaceId, { path, paths, recursive });
+        return remoteWorkspaces.delete(
+          workspaceId,
+          { path, paths, recursive },
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
       }
       if (path !== undefined) {
         return coreOperations.delete(
@@ -3844,7 +3898,7 @@ export function createMcpServer(
             ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          });
+          }, hostScopeIdFor(extra._meta, extra.sessionId));
         }
         const workspace = workspaces.getWorkspace(workspaceId);
         if (action === "run") {

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { logEvent, transportSessionIdPrefix, type LoggingConfig } from "../logger.js";
@@ -42,6 +43,16 @@ const activitySummarySchema = z.object({
   }).optional(),
 });
 
+export interface ActivityQueryRelay {
+  panel(workspaceId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
+  snapshot(
+    input: { turnId?: string; workspaceId?: string; knownRevision?: number },
+    conversationScopeId: string,
+  ): Promise<CallToolResult | undefined>;
+  detail(turnId: string, activityId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
+  output(turnId: string, outputId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
+}
+
 const snapshotOutputSchema = {
   turnId: z.string(),
   revision: z.number().int().nonnegative(),
@@ -59,6 +70,7 @@ export function registerActivityQueryTools(
   panelDefaultExpanded = false,
   logging?: LoggingConfig,
   workspacePanelState?: (workspaceId: string) => Record<string, unknown> | undefined,
+  relay?: ActivityQueryRelay,
 ): void {
   const panelUi = typeof panelMeta.ui === "object" && panelMeta.ui !== null
     ? panelMeta.ui as Record<string, unknown>
@@ -95,10 +107,27 @@ export function registerActivityQueryTools(
           `No Workspace presentation is available for ${workspaceId}. Call open_workspace for that workspace before activity_panel.`,
         );
       }
-      const snapshot = queries.beginTurn(
-        hostConversationScopeId(extra._meta, extra.sessionId, connectionScopeId),
-        workspaceId,
+      const conversationScopeId = hostConversationScopeId(
+        extra._meta,
+        extra.sessionId,
+        connectionScopeId,
       );
+      const relayed = await relay?.panel(workspaceId, conversationScopeId);
+      if (relayed) {
+        return {
+          ...relayed,
+          _meta: {
+            ...(relayed._meta ?? {}),
+            [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
+            [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+          },
+          structuredContent: {
+            ...((relayed.structuredContent ?? {}) as Record<string, unknown>),
+            [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+          },
+        };
+      }
+      const snapshot = queries.beginTurn(conversationScopeId, workspaceId);
       if (logging) {
         logEvent(logging, "debug", "activity_panel_call", {
           turnId: snapshot.turnId,
@@ -151,6 +180,30 @@ export function registerActivityQueryTools(
         extra.sessionId,
         connectionScopeId,
       );
+      const relayed = await relay?.snapshot(
+        { turnId, workspaceId, knownRevision },
+        conversationScopeId,
+      );
+      if (relayed) {
+        const workspace = workspaceId ? workspacePanelState?.(workspaceId) : undefined;
+        if (workspaceId && !workspace) {
+          throw new Error(`No Workspace presentation is available for ${workspaceId}.`);
+        }
+        return workspace
+          ? {
+              ...relayed,
+              _meta: {
+                ...(relayed._meta ?? {}),
+                [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
+                [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+              },
+              structuredContent: {
+                ...((relayed.structuredContent ?? {}) as Record<string, unknown>),
+                [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+              },
+            }
+          : relayed;
+      }
       const resolvedTurnId = turnId ?? queries.currentTurnId(conversationScopeId, workspaceId);
       if (!resolvedTurnId) {
         throw new Error(
@@ -213,6 +266,13 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, activityId }, extra) => {
+      const conversationScopeId = hostConversationScopeId(
+        extra._meta,
+        extra.sessionId,
+        connectionScopeId,
+      );
+      const relayed = await relay?.detail(turnId, activityId, conversationScopeId);
+      if (relayed) return relayed;
       const detail = queries.detail(turnId, activityId);
       if (logging) {
         logEvent(logging, "debug", "activity_detail_call", {
@@ -258,6 +318,13 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, outputId }, extra) => {
+      const conversationScopeId = hostConversationScopeId(
+        extra._meta,
+        extra.sessionId,
+        connectionScopeId,
+      );
+      const relayed = await relay?.output(turnId, outputId, conversationScopeId);
+      if (relayed) return relayed;
       const output = queries.bashOutput(turnId, outputId);
       if (logging) {
         logEvent(logging, "debug", "activity_output_call", {

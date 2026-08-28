@@ -61,6 +61,7 @@ export interface RelayedWorkspaceOpenResult {
 
 export class RemoteWorkspaceRelay {
   private readonly routes = new Map<string, RelayedWorkspaceRoute>();
+  private readonly turnRoutes = new Map<string, string>();
   private readonly authEnv: NodeJS.ProcessEnv;
   private readonly routeStateDir: string;
   private readonly routeStatePath: string;
@@ -88,6 +89,7 @@ export class RemoteWorkspaceRelay {
       newWorkspace?: boolean;
       context?: "auto" | "full" | "none";
     },
+    conversationScopeId?: string,
   ): Promise<RelayedWorkspaceOpenResult> {
     const resolved = this.remoteByAlias(alias);
     let result: ToolCallResult;
@@ -99,7 +101,7 @@ export class RemoteWorkspaceRelay {
         ...(input.newWorktree !== undefined ? { newWorktree: input.newWorktree } : {}),
         ...(input.newWorkspace !== undefined ? { newWorkspace: input.newWorkspace } : {}),
         ...(input.context !== undefined ? { context: input.context } : {}),
-      });
+      }, conversationScopeId);
       assertRemoteToolSucceeded(alias, "open_workspace", result);
     } catch (error) {
       throw sanitizedRemoteError(error);
@@ -171,15 +173,17 @@ export class RemoteWorkspaceRelay {
       offset?: number;
       limit?: number;
     },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "read", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "read", input, conversationScopeId);
   }
 
   async write(
     gatewayWorkspaceId: string,
     input: { path: string; content: string },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "write", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "write", input, conversationScopeId);
   }
 
   async edit(
@@ -189,29 +193,33 @@ export class RemoteWorkspaceRelay {
       paths?: string[];
       edits: Array<{ oldText: string; newText: string }>;
     },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "edit", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "edit", input, conversationScopeId);
   }
 
   async rename(
     gatewayWorkspaceId: string,
     input: { path: string; newPath: string },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "rename", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "rename", input, conversationScopeId);
   }
 
   async delete(
     gatewayWorkspaceId: string,
     input: { path?: string; paths?: string[]; recursive?: boolean },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "delete", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "delete", input, conversationScopeId);
   }
 
   async bash(
     gatewayWorkspaceId: string,
     input: Record<string, unknown>,
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "bash", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "bash", input, conversationScopeId);
   }
 
   async capability(
@@ -222,14 +230,113 @@ export class RemoteWorkspaceRelay {
       arguments?: Record<string, unknown>;
       file?: unknown;
     },
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "capability", input);
+    return this.callWorkspaceTool(gatewayWorkspaceId, "capability", input, conversationScopeId);
+  }
+
+  async activityPanel(
+    gatewayWorkspaceId: string,
+    conversationScopeId: string,
+  ): Promise<ToolCallResult> {
+    const result = await this.callWorkspaceTool(
+      gatewayWorkspaceId,
+      "activity_panel",
+      {},
+      conversationScopeId,
+    );
+    if (result.isError === true) {
+      throw new Error(`Remote activity_panel failed: ${toolResultText(result)}`);
+    }
+    const turnId = stringField(
+      result.structuredContent as Record<string, unknown> | undefined,
+      "turnId",
+      "Remote activity_panel response",
+    );
+    this.turnRoutes.set(turnId, gatewayWorkspaceId);
+    return result;
+  }
+
+  async activitySnapshot(
+    input: {
+      turnId?: string;
+      workspaceId?: string;
+      knownRevision?: number;
+    },
+    conversationScopeId: string,
+  ): Promise<ToolCallResult | undefined> {
+    const gatewayWorkspaceId = input.workspaceId && this.has(input.workspaceId)
+      ? input.workspaceId
+      : input.turnId
+        ? this.turnRoutes.get(input.turnId)
+        : undefined;
+    if (!gatewayWorkspaceId) return undefined;
+    const route = this.requireRoute(gatewayWorkspaceId);
+    const resolved = this.remoteByInstance(route.remoteInstanceId);
+    try {
+      const result = await this.callRemoteTool(resolved.alias, resolved.remote, "activity_snapshot", {
+        ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+        ...(input.workspaceId !== undefined ? { workspaceId: route.remoteWorkspaceId } : {}),
+        ...(input.knownRevision !== undefined ? { knownRevision: input.knownRevision } : {}),
+      }, conversationScopeId);
+      const remapped = remapToolResultWorkspaceId(result, route.remoteWorkspaceId, gatewayWorkspaceId);
+      const turnId = stringField(
+        remapped.structuredContent as Record<string, unknown> | undefined,
+        "turnId",
+        "Remote activity_snapshot response",
+      );
+      this.turnRoutes.set(turnId, gatewayWorkspaceId);
+      return remapped;
+    } catch (error) {
+      throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
+    }
+  }
+
+  async activityDetail(
+    turnId: string,
+    activityId: string,
+    conversationScopeId: string,
+  ): Promise<ToolCallResult | undefined> {
+    return this.callTurnTool(turnId, "activity_detail", { turnId, activityId }, conversationScopeId);
+  }
+
+  async activityOutput(
+    turnId: string,
+    outputId: string,
+    conversationScopeId: string,
+  ): Promise<ToolCallResult | undefined> {
+    return this.callTurnTool(turnId, "activity_output", { turnId, outputId }, conversationScopeId);
+  }
+
+  private async callTurnTool(
+    turnId: string,
+    name: string,
+    args: Record<string, unknown>,
+    conversationScopeId: string,
+  ): Promise<ToolCallResult | undefined> {
+    const gatewayWorkspaceId = this.turnRoutes.get(turnId);
+    if (!gatewayWorkspaceId) return undefined;
+    const route = this.requireRoute(gatewayWorkspaceId);
+    const resolved = this.remoteByInstance(route.remoteInstanceId);
+    try {
+      const result = await this.callRemoteTool(
+        resolved.alias,
+        resolved.remote,
+        name,
+        args,
+        conversationScopeId,
+      );
+      return remapToolResultWorkspaceId(result, route.remoteWorkspaceId, gatewayWorkspaceId);
+    } catch (error) {
+      throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
+    }
   }
 
   private async callWorkspaceTool(
     gatewayWorkspaceId: string,
     name: string,
     args: Record<string, unknown>,
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
@@ -237,7 +344,7 @@ export class RemoteWorkspaceRelay {
       const result = await this.callRemoteTool(resolved.alias, resolved.remote, name, {
         ...args,
         workspaceId: route.remoteWorkspaceId,
-      });
+      }, conversationScopeId);
       return remapToolResultWorkspaceId(result, route.remoteWorkspaceId, gatewayWorkspaceId);
     } catch (error) {
       throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
@@ -247,6 +354,7 @@ export class RemoteWorkspaceRelay {
   async closeWorkspace(
     gatewayWorkspaceId: string,
     commitMessage?: string,
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
@@ -255,7 +363,7 @@ export class RemoteWorkspaceRelay {
       result = await this.callRemoteTool(resolved.alias, resolved.remote, "close_workspace", {
         workspaceId: route.remoteWorkspaceId,
         ...(commitMessage !== undefined ? { commitMessage } : {}),
-      });
+      }, conversationScopeId);
       assertRemoteToolSucceeded(resolved.alias, "close_workspace", result);
     } catch (error) {
       throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
@@ -263,6 +371,9 @@ export class RemoteWorkspaceRelay {
     const remoteStructured = result.structuredContent as Record<string, unknown> | undefined;
     this.routes.delete(gatewayWorkspaceId);
     this.deletePersistedRoute(gatewayWorkspaceId);
+    for (const [turnId, routedWorkspaceId] of this.turnRoutes) {
+      if (routedWorkspaceId === gatewayWorkspaceId) this.turnRoutes.delete(turnId);
+    }
 
     const text = route.mode === "worktree"
       ? `Closed relayed worktree workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`
@@ -425,6 +536,7 @@ export class RemoteWorkspaceRelay {
     initialRemote: ForgeRelayRemoteRecord,
     name: string,
     args: Record<string, unknown>,
+    conversationScopeId?: string,
   ): Promise<ToolCallResult> {
     return withRemoteServiceEndpoint(
       initialRemote.target,
@@ -441,7 +553,13 @@ export class RemoteWorkspaceRelay {
           remote,
           endpoint,
           async (client) => CallToolResultSchema.parse(
-            await client.callTool({ name, arguments: args }),
+            await client.callTool({
+              name,
+              arguments: args,
+              ...(conversationScopeId
+                ? { _meta: { "openai/session": conversationScopeId } }
+                : {}),
+            } as Parameters<Client["callTool"]>[0]),
           ),
         );
         try {
