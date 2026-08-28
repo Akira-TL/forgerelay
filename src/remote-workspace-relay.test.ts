@@ -634,6 +634,80 @@ void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway in
   assert.equal(closed.isError, undefined, resultText(closed));
 });
 
+void test("single-target SSH relay executes a remote workspace without ProxyJump", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-single-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const fakeBin = join(root, "bin");
+  const sshLog = join(root, "ssh.log");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(fakeBin, "ssh"), fakeSshRelaySource(), { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  const previousSshLog = process.env.TEST_SSH_LOG;
+  process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
+  process.env.TEST_SSH_LOG = sshLog;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousSshLog === undefined) delete process.env.TEST_SSH_LOG;
+    else process.env.TEST_SSH_LOG = previousSshLog;
+  });
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(remoteRoot, "single-ssh.txt"), "single-target-ssh-workspace\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-single-ssh-owner-token-long-enough",
+    instanceId: "forge-relay-single-ssh-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  remoteRecord.sshRoute = ["target@example.test"];
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-single-ssh-owner-token-long-enough",
+    instanceId: "forge-relay-single-ssh-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+  });
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const read = await client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "single-ssh.txt" },
+  });
+  assert.equal(read.isError, undefined, resultText(read));
+  assert.match(resultText(read), /single-target-ssh-workspace/);
+
+  const closed = await client.callTool({ name: "close_workspace", arguments: { workspaceId } });
+  assert.equal(closed.isError, undefined, resultText(closed));
+
+  const sshCalls = (await readFile(sshLog, "utf8"))
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  const forwardCalls = sshCalls.filter((args) => args.includes("-L"));
+  assert.ok(forwardCalls.length >= 3, JSON.stringify(sshCalls));
+  assert.ok(forwardCalls.every((args) => args.includes("target@example.test")));
+  assert.ok(forwardCalls.every((args) => !args.includes("-J")), JSON.stringify(sshCalls));
+});
+
 void test("relayed open failures are explicit and never fall back to the gateway filesystem", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-errors-"));
   t.after(() => rm(root, { recursive: true, force: true }));
