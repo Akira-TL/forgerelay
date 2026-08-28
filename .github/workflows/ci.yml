@@ -35,3 +35,17 @@ jobs:
 
       - name: Verify
         run: npm run ci:verify
+
+      - name: Pack verified npm artifact
+        if: runner.os == 'Linux'
+        run: npm run release:pack
+
+      - name: Upload verified npm artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: .release-artifacts/*.tgz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7

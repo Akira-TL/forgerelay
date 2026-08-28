@@ -63,3 +63,25 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   assert.doesNotMatch(source, /\["npm", "run", "typecheck"\]/);
   assert.doesNotMatch(source, /\["npm", "test"\]/);
 });
+
+test("cloud verification produces one reusable npm package on Linux", async () => {
+  const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  assert.match(workflow, /if:\s*runner\.os == 'Linux'[\s\S]*run:\s*npm run release:pack/);
+  assert.match(workflow, /uses:\s*actions\/upload-artifact@v4/);
+  assert.match(workflow, /name:\s*npm-package/);
+  assert.match(workflow, /overwrite:\s*true/);
+});
+
+test("release workflow is tag-only and promotes the verified npm artifact without rebuilding", async () => {
+  const workflow = await readFile(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
+  assert.doesNotMatch(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /needs:\s*verify/);
+  assert.match(workflow, /uses:\s*actions\/download-artifact@v5/);
+  assert.match(workflow, /name:\s*npm-package/);
+  assert.match(workflow, /run:\s*npm run release:publish/);
+  assert.match(workflow, /npm install --global npm@11\.19\.1/);
+  assert.doesNotMatch(workflow, /run:\s*npm ci/);
+  assert.doesNotMatch(workflow, /run:\s*npm run build/);
+  assert.doesNotMatch(workflow, /run:\s*\|/);
+  assert.doesNotMatch(workflow, /shell:\s*bash/);
+});
