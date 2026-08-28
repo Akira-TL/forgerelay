@@ -42,15 +42,15 @@ function currentHead() {
   return git(["rev-parse", "HEAD"]);
 }
 
-function assertReleaseTreeClean() {
+function assertReleaseTreeClean(context) {
   const status = git(["status", "--porcelain", "--untracked-files=all"]);
   if (status) {
-    throw new Error("working tree differs from HEAD or contains untracked files; commit or remove every release input before running release:verify");
+    throw new Error(`working tree differs from HEAD or contains untracked files; commit or remove every release input before ${context}`);
   }
 }
 
 function writeProof() {
-  assertReleaseTreeClean();
+  assertReleaseTreeClean("running release:verify");
   const proof = {
     proofVersion: PROOF_VERSION,
     head: currentHead(),
@@ -114,20 +114,13 @@ function hookTag() {
   return tagMatch[1];
 }
 
-function checkHookProof() {
-  assertReleaseTreeClean();
-  const proof = readProof();
+function checkHookTag() {
+  assertReleaseTreeClean("pushing a release tag");
   const head = currentHead();
   const version = packageVersion();
   const tag = hookTag();
   const expectedTag = `v${version}`;
 
-  if (proof.head !== head) {
-    throw new Error(`release proof is for ${proof.head.slice(0, 12)}, but current HEAD is ${head.slice(0, 12)}; rerun npm run release:verify`);
-  }
-  if (proof.packageVersion !== version) {
-    throw new Error(`release proof is for package ${proof.packageVersion}, but package.json is ${version}; rerun npm run release:verify`);
-  }
   if (tag !== expectedTag) {
     throw new Error(`tag ${tag} does not match package version ${version}; expected ${expectedTag}`);
   }
@@ -139,16 +132,16 @@ function checkHookProof() {
     throw new Error(`local tag ${tag} does not exist or does not resolve to a commit`);
   }
   if (tagHead !== head) {
-    throw new Error(`tag ${tag} points to ${tagHead.slice(0, 12)}, but verified HEAD is ${head.slice(0, 12)}`);
+    throw new Error(`tag ${tag} points to ${tagHead.slice(0, 12)}, but current HEAD is ${head.slice(0, 12)}`);
   }
 
-  console.log(`Release proof OK: ${tag} -> ${head.slice(0, 12)} (${proof.verifiedAt}).`);
+  console.log(`Release tag gate OK: ${tag} -> ${head.slice(0, 12)}; cloud CI will perform release verification.`);
 }
 
 const action = process.argv[2];
 try {
   if (action === "write") writeProof();
-  else if (action === "check-hook") checkHookProof();
+  else if (action === "check-hook") checkHookTag();
   else throw new Error("usage: node scripts/release-proof.mjs <write|check-hook>");
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

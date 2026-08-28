@@ -10,8 +10,8 @@ async function readJson(relativePath) {
   return JSON.parse(await readFile(resolve(repoRoot, relativePath), "utf8"));
 }
 
-test("release tag Hook is a fast proof gate for common origin tag push forms", async () => {
-  const hook = await readJson(".forgerelay/hooks/release-tag-local-ci.json");
+test("release tag Hook is a fast repository-state gate for common origin tag push forms", async () => {
+  const hook = await readJson(".forgerelay/hooks/release-tag-gate.json");
   assert.equal(hook.event, "BeforeTool");
   assert.equal(hook.command, "node scripts/release-proof.mjs check-hook");
   assert.ok(hook.timeoutSeconds <= 30);
@@ -28,7 +28,7 @@ test("release tag Hook is a fast proof gate for common origin tag push forms", a
   assert.doesNotMatch("git push origin main", matcher);
 });
 
-test("release:verify records proof only after the cloud-equivalent parity gate", async () => {
+test("optional release:verify records proof only after the cloud-equivalent parity gate", async () => {
   const pkg = await readJson("package.json");
   assert.equal(
     pkg.scripts["release:verify"],

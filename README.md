@@ -158,7 +158,7 @@ You can rebase and verify inside the worktree, then retry the close.
 
 Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一个文件：全局放在 `~/.forgerelay/hooks/<hook-name>.json`，项目放在 `<repo>/.forgerelay/hooks/<hook-name>.json`。文件名就是 Hook 名，方便直接从目录看出每条规则的用途；全局与项目规则组合执行，不需要额外批准。
 
-例如项目里的 `.forgerelay/hooks/release-tag-local-ci.json` 可以要求稳定版本 tag push 前先完成本地发布检查：
+例如项目里的 `.forgerelay/hooks/release-tag-gate.json` 可以在稳定版本 tag push 前执行轻量发布门禁：
 
 ```json
 {
@@ -173,7 +173,7 @@ Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一
 }
 ```
 
-耗时的 `npm run release:verify` 应先在已提交的 release-ready HEAD 上运行，它会写入绑定 HEAD/package version 的本地 release proof。命中 `BeforeTool` 后，Hook 只快速验证该 proof、clean working tree（含 untracked）与 tag 指向；成功才继续原始 `git push`，失败则直接阻断。这样发布 gate 不依赖一个持续数分钟的 MCP 请求。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
+命中 `BeforeTool` 后，Hook 只快速验证 clean working tree（含 untracked）、tag 与 package version 一致，以及本地 tag 指向当前 HEAD；成功才继续原始 `git push`，失败则直接阻断。Hook 不运行、也不要求本地 CI。tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后才进入发布。`npm run release:verify` 仅作为可选的本地云端复现工具。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
 
 旧的 inline `hooks` 和聚合 `hooks.json` 仍兼容；新配置建议都用独立 `hooks/*.json` 文件。
 
@@ -293,18 +293,15 @@ npm run release:check
 npm run release:patch
 npm run release:minor
 npm run release:major
-npm run release:verify
 ```
 
-Daily branch pushes do not run cloud CI. When preparing a release, commit the
-release-ready tree and run the full local release verification on that clean HEAD.
-`release:verify` includes a focused parity pass in an isolated Node 22.19.0 environment
-with its own `npm ci`, matching the cloud CI runtime for native addons and high-risk
-LSP lifecycle tests, then writes the local proof consumed by the tag-push Hook. Pushing a matching
-`vX.Y.Z` tag to `Akira-TL/forgerelay` is the only cloud CI and publish trigger:
-GitHub Actions runs the reusable multi-platform CI, then publishes
-`@akira-tl/forgerelay` and creates the matching GitHub Release only after CI
-succeeds.
+Daily branch pushes do not run cloud CI. Commit the release-ready tree, push it to
+`main`, then push the matching `vX.Y.Z` tag. That tag is the only cloud CI and publish
+trigger: GitHub Actions runs the reusable Linux/macOS/Windows verification matrix,
+then publishes `@akira-tl/forgerelay` and creates the matching GitHub Release only
+after all platforms succeed. `npm run release:verify` remains available only when a
+cloud failure needs local reproduction against the pinned Node runtime; it is not a
+release prerequisite.
 
 See [Versioning and Release Management](docs/versioning.md) for the bootstrap and
 Trusted Publishing setup.

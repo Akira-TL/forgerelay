@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,7 +21,7 @@ async function runProof(cwd, action, env = {}) {
   });
 }
 
-test("release proof binds a successful local verification to the exact tag HEAD", async (t) => {
+test("release tag hook gate uses repository facts instead of requiring a local proof", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }) + "\n");
@@ -34,12 +34,13 @@ test("release proof binds a successful local verification to the exact tag HEAD"
 
   const written = await runProof(root, "write");
   assert.match(written.stdout, /Release verification proof recorded/);
+  await rm(join(root, ".git", "forgerelay", "release-proof.json"));
   await git(root, ["tag", "v1.2.3"]);
 
   const checked = await runProof(root, "check-hook", {
     FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v1.2.3" }),
   });
-  assert.match(checked.stdout, /Release proof OK: v1\.2\.3/);
+  assert.match(checked.stdout, /Release tag gate OK: v1\.2\.3/);
 
   for (const command of [
     "git push --atomic origin v1.2.3",
@@ -49,7 +50,7 @@ test("release proof binds a successful local verification to the exact tag HEAD"
     const alternative = await runProof(root, "check-hook", {
       FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command, originalCommand: command }),
     });
-    assert.match(alternative.stdout, /Release proof OK: v1\.2\.3/);
+    assert.match(alternative.stdout, /Release tag gate OK: v1\.2\.3/);
   }
 
   await assert.rejects(
@@ -95,13 +96,13 @@ test("release proof binds a successful local verification to the exact tag HEAD"
       FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v1.2.3" }),
     }),
     (error) => {
-      assert.match(String(error.stderr ?? error), /release proof is for .* current HEAD is/);
+      assert.match(String(error.stderr ?? error), /tag v1\.2\.3 points to .* current HEAD is/);
       return true;
     },
   );
 });
 
-test("release proof accepts an rc tag for the verified package version", async (t) => {
+test("release tag hook gate accepts an rc tag for the package version", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.6.0-rc.1" }) + "\n");
@@ -110,16 +111,15 @@ test("release proof accepts an rc tag for the verified package version", async (
   await git(root, ["config", "user.name", "Release Proof Test"]);
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "release 0.6.0-rc.1"]);
-  await runProof(root, "write");
   await git(root, ["tag", "v0.6.0-rc.1"]);
 
   const checked = await runProof(root, "check-hook", {
     FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v0.6.0-rc.1" }),
   });
-  assert.match(checked.stdout, /Release proof OK: v0\.6\.0-rc\.1/);
+  assert.match(checked.stdout, /Release tag gate OK: v0\.6\.0-rc\.1/);
 });
 
-test("release proof rejects a mismatched tag without invoking a remote", async (t) => {
+test("release tag hook gate rejects a mismatched tag without invoking a remote", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "2.0.0" }) + "\n");
@@ -128,7 +128,6 @@ test("release proof rejects a mismatched tag without invoking a remote", async (
   await git(root, ["config", "user.name", "Release Proof Test"]);
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "release 2.0.0"]);
-  await runProof(root, "write");
   await git(root, ["tag", "v2.0.0"]);
 
   await assert.rejects(
@@ -141,6 +140,4 @@ test("release proof rejects a mismatched tag without invoking a remote", async (
     },
   );
 
-  const proof = JSON.parse(await readFile(join(root, ".git", "forgerelay", "release-proof.json"), "utf8"));
-  assert.equal(proof.packageVersion, "2.0.0");
 });

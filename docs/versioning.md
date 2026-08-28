@@ -79,25 +79,20 @@ The bump commands update:
 
 They do not commit, tag, push, or publish.
 
-Run the full local release gate with:
+For local diagnosis or cloud-parity reproduction, you can optionally run:
 
 ```bash
 npm run release:verify
 ```
 
-`release:verify` checks the current committed release-ready runtime and then runs a focused
-`release:parity` gate in an isolated Node 22.19.0 sandbox. After every check passes it
-records a local release proof under `.git/forgerelay/`, binding that verification to
-current HEAD and the package version. The parity sandbox
-performs its own `npm ci` so native addons use the same Node ABI as cloud CI,
-then reruns the LSP/release tests most sensitive to event-loop timing, process
-lifecycle, path canonicalization, executable discovery, and cleanup behavior.
-It also tests that a command which exists on `PATH` but fails its `--version`
-preflight is treated as unavailable rather than as an installed Language server.
+`release:verify` runs the same focused parity checks in an isolated Node 22.19.0 sandbox
+and records a local proof under `.git/forgerelay/` for debugging/audit purposes. It is
+not a prerequisite for pushing a release tag. The authoritative release verification
+is the tag-triggered GitHub Actions matrix on Linux, macOS, and Windows.
 
-Cloud verification and the publication job are both pinned to Node 22.19.0, the
-minimum supported Node release, so local parity and the release runners use the
-same runtime instead of drifting across separate Node 22/24 variants.
+Cloud verification and the publication job are pinned to Node 22.19.0, the minimum
+supported Node release. The optional local parity tool uses the same runtime so a cloud
+failure can be reproduced locally without making local execution part of the release gate.
 
 Validate a specific tag with:
 
@@ -172,11 +167,8 @@ npm publishing token.
 3. Run the appropriate `release:patch`, `release:minor`, or `release:major`
    command.
 4. Review the generated version and changelog diff, then commit the release-ready code and metadata.
-5. Run `npm run release:verify` locally on that clean committed HEAD. This full local gate includes the isolated
-   Node 22.19.0 parity sandbox and records the local release proof consumed by the tag-push Hook; ordinary development
-   pushes do not need to run the full release gate.
-6. Push the verified `main` commit without changing it afterward.
-7. Create the exact version tag, for example:
+5. Push the release-ready `main` commit without changing it afterward.
+6. Create the exact version tag, for example:
 
    ```bash
    git tag v0.2.0
@@ -185,7 +177,7 @@ npm publishing token.
 
 The tag push is the publication action. The release workflow publishes npm only after cloud CI passes, then extracts the matching `CHANGELOG.md` release section as the GitHub Release body. Keep `Unreleased` user-facing and structured (`Added`, `Changed`, `Fixed`, `Security`) because those notes are what users see on the Release page.
 
-Project release Hooks match the stable tag-push command as a substring of the ForgeRelay shell request. A compound command is allowed: when `commandRegex` matches `git push origin vX.Y.Z`, the Hook receives that matched command as `FORGERELAY_HOOK_PAYLOAD.command` and retains the complete shell request as `originalCommand` when they differ. The release Hook does **not** rerun the multi-minute local gate inside the tag-push MCP request. Instead it quickly verifies the proof written by `release:verify`, requires a clean working tree including untracked files, requires the proof HEAD/package version to equal the current release state, and requires the local tag to resolve to that same verified HEAD. Any change after verification invalidates the proof and blocks the push until `release:verify` is rerun.
+Project release Hooks match the stable tag-push command as a substring of the ForgeRelay shell request. A compound command is allowed: when `commandRegex` matches `git push origin vX.Y.Z`, the Hook receives that matched command as `FORGERELAY_HOOK_PAYLOAD.command` and retains the complete shell request as `originalCommand` when they differ. The release Hook is intentionally lightweight: it rejects force/deletion forms, requires a clean working tree including untracked files, requires the tag to match the package version, and requires the local tag to resolve to current HEAD. It does not run or require local CI. The pushed tag then starts the authoritative Linux/macOS/Windows cloud verification; publication cannot run unless that matrix succeeds.
 
 ## Attribution guardrails
 

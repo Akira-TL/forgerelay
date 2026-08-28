@@ -171,7 +171,7 @@ async function prepareRelease(state, nextVersion, dryRun) {
 
   console.log(`${state.pkg.version} -> ${nextVersion}`);
   console.log("updated package.json, package-lock.json, and CHANGELOG.md");
-  console.log("next: review the diff, commit the release-ready tree, run npm run release:verify on that clean HEAD, then push the matching release tag");
+  console.log("next: review the diff, commit and push the release-ready tree, then push the matching release tag; cloud CI is the authoritative release verification");
 }
 
 function promoteUnreleased(changelog, nextVersion) {

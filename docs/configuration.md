@@ -386,7 +386,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 <workspace>/.forgerelay/hooks/<hook-name>.json
 ```
 
-文件名去掉 `.json` 后就是 Hook 名，也是日志和 Agent-visible report 中显示的名称。例如 `release-tag-local-ci.json` 会显示为 `release-tag-local-ci`。目录内按文件名字典序执行；需要显式排序时可以使用 `10-release-verify.json`、`20-package-inspection.json` 这样的前缀。ForgeRelay 只读取普通 `*.json` 文件，所以临时停用某条 Hook 时可以把扩展名改掉。
+文件名去掉 `.json` 后就是 Hook 名，也是日志和 Agent-visible report 中显示的名称。例如 `release-tag-gate.json` 会显示为 `release-tag-gate`。目录内按文件名字典序执行；需要显式排序时可以使用 `10-release-verify.json`、`20-package-inspection.json` 这样的前缀。ForgeRelay 只读取普通 `*.json` 文件，所以临时停用某条 Hook 时可以把扩展名改掉。
 
 全局 Hook 在 server 启动时读取，修改后需要重启 ForgeRelay；项目目录在每次事件时重新读取，所以 Agent 修改项目 Hook 后不需要重启。全局规则先执行，项目规则随后执行，两边都只做追加，不互相覆盖。
 
@@ -405,7 +405,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 }
 ```
 
-这个例子可以保存为 `.forgerelay/hooks/release-tag-local-ci.json`。耗时的 `npm run release:verify` 应在已提交的 release-ready HEAD 上提前运行，并在 `.git/forgerelay/` 写入 release proof。Agent 之后通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 只快速校验 proof、当前 HEAD/package version、clean working tree（含 untracked）与本地 tag 指向；全部一致才执行原始 `git push`。因此发布 gate 不再依赖一个持续数分钟的单次 MCP request，同时任何验证后的代码变化都会使 proof 失效并阻断推送。
+这个例子可以保存为 `.forgerelay/hooks/release-tag-gate.json`。Agent 通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 只执行轻量仓库状态门禁：拒绝 force/delete 形式，校验 clean working tree（含 untracked）、tag 与 package version 一致，并要求本地 tag 指向当前 HEAD。Hook 不运行、也不要求本地 CI；tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后发布 job 才会继续。`npm run release:verify` 仅用于需要时本地复现云端环境。
 
 独立 Hook 文件支持这些顶层字段：
 
@@ -472,7 +472,7 @@ Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令�
 
 ```text
 Hook results:
-✓ release-tag-local-ci (BeforeTool, project) passed in 42ms
+✓ release-tag-gate (BeforeTool, project) passed in 42ms
 ```
 
 阻断失败会明确显示 `failed`。ForgeRelay 的 server instructions 要求 Agent 在出现 Hook results 时，向用户说明有意义的 Hook 是否通过或阻断了操作。异步 subagent 的 `SubagentStart` / `SubagentStop` 报告会随 session 持久化，并由 `forgerelay agents show` 展示。
