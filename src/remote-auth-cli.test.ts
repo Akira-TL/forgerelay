@@ -106,26 +106,28 @@ void test("forgerelay auth directly authenticates and persists a remote instance
   assert.equal(verified.clientId, "forgerelay-cli");
   assert.equal(verified.resource?.href, remoteResourceUrl.href);
 
-  const interactiveConfigDir = join(root, "interactive-config");
-  await mkdir(interactiveConfigDir, { recursive: true });
-  const interactive = await runCliWithPseudoTerminal(
-    ["auth", `127.0.0.1:${port}`, "--alias", "interactive"],
-    {
-      ...cleanProductEnv,
-      FORGERELAY_CONFIG_DIR: interactiveConfigDir,
-    },
-    ownerToken,
-  );
-  assert.equal(interactive.status, 0, interactive.output);
-  const normalizedTerminalOutput = interactive.output
-    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
-    .replace(/\s/g, "");
-  assert.match(normalizedTerminalOutput, /RemoteForgeRelayownertoken/);
-  assert.doesNotMatch(normalizedTerminalOutput, new RegExp(ownerToken));
-  const interactiveAuth = JSON.parse(
-    await readFile(join(interactiveConfigDir, "auth.json"), "utf8"),
-  ) as { remotes?: Record<string, { instanceId: string }> };
-  assert.equal(interactiveAuth.remotes?.interactive?.instanceId, "forge-remote-test");
+  if (process.platform !== "win32") {
+    const interactiveConfigDir = join(root, "interactive-config");
+    await mkdir(interactiveConfigDir, { recursive: true });
+    const interactive = await runCliWithPseudoTerminal(
+      ["auth", `127.0.0.1:${port}`, "--alias", "interactive"],
+      {
+        ...cleanProductEnv,
+        FORGERELAY_CONFIG_DIR: interactiveConfigDir,
+      },
+      ownerToken,
+    );
+    assert.equal(interactive.status, 0, interactive.output);
+    const normalizedTerminalOutput = interactive.output
+      .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+      .replace(/\s/g, "");
+    assert.match(normalizedTerminalOutput, /RemoteForgeRelayownertoken/);
+    assert.doesNotMatch(normalizedTerminalOutput, new RegExp(ownerToken));
+    const interactiveAuth = JSON.parse(
+      await readFile(join(interactiveConfigDir, "auth.json"), "utf8"),
+    ) as { remotes?: Record<string, { instanceId: string }> };
+    assert.equal(interactiveAuth.remotes?.interactive?.instanceId, "forge-remote-test");
+  }
 
   const movedServer = app.listen(0, "127.0.0.1");
   t.after(() => movedServer.close());
@@ -260,14 +262,35 @@ async function runCli(
   return { status, stdout, stderr };
 }
 
+function pseudoTerminalScriptArgs(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const cliArgs = ["node", "--import", "tsx", "src/cli.ts", ...args];
+  if (platform === "darwin") {
+    return ["-q", "/dev/null", ...cliArgs];
+  }
+  const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+  return ["-qefc", cliArgs.map(shellQuote).join(" "), "/dev/null"];
+}
+
+void test("pseudo-terminal auth helper uses the native script dialect on Linux and macOS", () => {
+  assert.deepEqual(
+    pseudoTerminalScriptArgs(["auth", "127.0.0.1:7676"], "darwin"),
+    ["-q", "/dev/null", "node", "--import", "tsx", "src/cli.ts", "auth", "127.0.0.1:7676"],
+  );
+  const linux = pseudoTerminalScriptArgs(["auth", "127.0.0.1:7676"], "linux");
+  assert.equal(linux[0], "-qefc");
+  assert.equal(linux[2], "/dev/null");
+  assert.match(linux[1] ?? "", /'node'.*'auth'.*'127\.0\.0\.1:7676'/);
+});
+
 async function runCliWithPseudoTerminal(
   args: string[],
   env: NodeJS.ProcessEnv,
   password: string,
 ): Promise<{ status: number | null; output: string }> {
-  const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
-  const command = ["node", "--import", "tsx", "src/cli.ts", ...args].map(shellQuote).join(" ");
-  const child = spawn("script", ["-qefc", command, "/dev/null"], {
+  const child = spawn("script", pseudoTerminalScriptArgs(args), {
     cwd: process.cwd(),
     env,
     stdio: ["pipe", "pipe", "pipe"],
