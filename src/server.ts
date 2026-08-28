@@ -1552,7 +1552,7 @@ export function createMcpServer(
   activityQueries: ActivityQueryService,
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
-  const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir);
+  const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
   const toolDescriptions = buildToolDescriptions(config);

@@ -1,4 +1,16 @@
 import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -6,6 +18,7 @@ import {
   refreshRemoteAuthentication,
   withRemoteMcpClient,
 } from "./remote-auth.js";
+import { withRemoteServiceEndpoint } from "./remote-transport.js";
 import {
   loadForgeRelayFiles,
   type ForgeRelayRemoteRecord,
@@ -13,6 +26,11 @@ import {
 } from "./user-config.js";
 
 type ToolCallResult = CallToolResult;
+
+const ROUTE_LOCK_RETRY_MS = 10;
+const ROUTE_LOCK_TIMEOUT_MS = 5_000;
+const ROUTE_LOCK_STALE_MS = 30_000;
+const ROUTE_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 interface RelayedWorkspaceRoute {
   gatewayWorkspaceId: string;
@@ -44,12 +62,19 @@ export interface RelayedWorkspaceOpenResult {
 export class RemoteWorkspaceRelay {
   private readonly routes = new Map<string, RelayedWorkspaceRoute>();
   private readonly authEnv: NodeJS.ProcessEnv;
+  private readonly routeStateDir: string;
+  private readonly routeStatePath: string;
 
-  constructor(configDir: string) {
+  constructor(configDir: string, stateDir: string) {
     this.authEnv = { FORGERELAY_CONFIG_DIR: configDir };
+    this.routeStateDir = stateDir;
+    this.routeStatePath = join(stateDir, "remote-workspace-routes.json");
+    this.loadRoutes();
   }
 
   has(workspaceId: string): boolean {
+    if (this.routes.has(workspaceId)) return true;
+    this.loadRoutes();
     return this.routes.has(workspaceId);
   }
 
@@ -88,14 +113,16 @@ export class RemoteWorkspaceRelay {
     }
     const gatewayWorkspaceId = this.allocateGatewayWorkspaceId();
     const sourceRoot = typeof structured?.sourceRoot === "string" ? structured.sourceRoot : undefined;
-    this.routes.set(gatewayWorkspaceId, {
+    const route: RelayedWorkspaceRoute = {
       gatewayWorkspaceId,
       remoteInstanceId: resolved.remote.instanceId,
       remoteWorkspaceId,
       root,
       mode,
       ...(sourceRoot ? { sourceRoot } : {}),
-    });
+    };
+    this.routes.set(gatewayWorkspaceId, route);
+    this.persistRoute(route);
     const remapContext = (value: unknown) =>
       replaceExactWorkspaceId(value, remoteWorkspaceId, gatewayWorkspaceId);
     const remoteInstruction = typeof structured?.instruction === "string"
@@ -235,6 +262,7 @@ export class RemoteWorkspaceRelay {
     }
     const remoteStructured = result.structuredContent as Record<string, unknown> | undefined;
     this.routes.delete(gatewayWorkspaceId);
+    this.deletePersistedRoute(gatewayWorkspaceId);
 
     const text = route.mode === "worktree"
       ? `Closed relayed worktree workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`
@@ -277,9 +305,104 @@ export class RemoteWorkspaceRelay {
   }
 
   private requireRoute(workspaceId: string): RelayedWorkspaceRoute {
-    const route = this.routes.get(workspaceId);
+    let route = this.routes.get(workspaceId);
+    if (!route) {
+      this.loadRoutes();
+      route = this.routes.get(workspaceId);
+    }
     if (!route) throw new Error(`Unknown relayed workspace: ${workspaceId}`);
     return route;
+  }
+
+  private loadRoutes(): void {
+    for (const [workspaceId, route] of this.readRoutesFromDisk()) {
+      this.routes.set(workspaceId, route);
+    }
+  }
+
+  private persistRoute(route: RelayedWorkspaceRoute): void {
+    this.updatePersistedRoutes((routes) => {
+      routes.set(route.gatewayWorkspaceId, route);
+    });
+  }
+
+  private deletePersistedRoute(workspaceId: string): void {
+    this.updatePersistedRoutes((routes) => {
+      routes.delete(workspaceId);
+    });
+  }
+
+  private updatePersistedRoutes(update: (routes: Map<string, RelayedWorkspaceRoute>) => void): void {
+    mkdirSync(this.routeStateDir, { recursive: true });
+    this.withRouteFileLock(() => {
+      const routes = this.readRoutesFromDisk();
+      update(routes);
+      this.writeRoutesToDisk(routes);
+    });
+  }
+
+  private readRoutesFromDisk(): Map<string, RelayedWorkspaceRoute> {
+    const routes = new Map<string, RelayedWorkspaceRoute>();
+    if (!existsSync(this.routeStatePath)) return routes;
+    const parsed = JSON.parse(readFileSync(this.routeStatePath, "utf8")) as RelayedWorkspaceRoute[];
+    if (!Array.isArray(parsed)) {
+      throw new Error(`Invalid relayed workspace route state: ${this.routeStatePath}`);
+    }
+    for (const route of parsed) {
+      if (
+        !route || typeof route.gatewayWorkspaceId !== "string" ||
+        typeof route.remoteInstanceId !== "string" || typeof route.remoteWorkspaceId !== "string" ||
+        typeof route.root !== "string" || (route.mode !== "checkout" && route.mode !== "worktree")
+      ) {
+        throw new Error(`Invalid relayed workspace route state: ${this.routeStatePath}`);
+      }
+      routes.set(route.gatewayWorkspaceId, route);
+    }
+    return routes;
+  }
+
+  private writeRoutesToDisk(routes: Map<string, RelayedWorkspaceRoute>): void {
+    const tempPath = `${this.routeStatePath}.${process.pid}.${randomBytes(5).toString("hex")}.tmp`;
+    try {
+      writeFileSync(tempPath, JSON.stringify([...routes.values()], null, 2) + "\n", { mode: 0o600 });
+      renameSync(tempPath, this.routeStatePath);
+    } finally {
+      rmSync(tempPath, { force: true });
+    }
+  }
+
+  private withRouteFileLock<T>(operation: () => T): T {
+    const lockPath = `${this.routeStatePath}.lock`;
+    const deadline = Date.now() + ROUTE_LOCK_TIMEOUT_MS;
+    for (;;) {
+      try {
+        const fd = openSync(lockPath, "wx", 0o600);
+        closeSync(fd);
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "EEXIST") throw error;
+        try {
+          if (Date.now() - statSync(lockPath).mtimeMs > ROUTE_LOCK_STALE_MS) {
+            rmSync(lockPath, { force: true });
+            continue;
+          }
+        } catch (statError) {
+          if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw statError;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error(`Timed out waiting for relayed workspace route lock: ${lockPath}`);
+        }
+        Atomics.wait(ROUTE_LOCK_SLEEP, 0, 0, ROUTE_LOCK_RETRY_MS);
+      }
+    }
+
+    try {
+      return operation();
+    } finally {
+      rmSync(lockPath, { force: true });
+    }
   }
 
   private remoteByAlias(aliasInput: string): { alias: string; remote: ForgeRelayRemoteRecord } {
@@ -287,7 +410,6 @@ export class RemoteWorkspaceRelay {
     if (!alias) throw new Error("Remote relay alias must not be empty.");
     const remote = loadForgeRelayFiles(this.authEnv).auth.remotes?.[alias];
     if (!remote) throw new Error(`Unknown remote relay alias: ${alias}`);
-    assertDirectRemote(alias, remote);
     return { alias, remote };
   }
 
@@ -295,7 +417,6 @@ export class RemoteWorkspaceRelay {
     const entry = Object.entries(loadForgeRelayFiles(this.authEnv).auth.remotes ?? {})
       .find(([, remote]) => remote.instanceId === instanceId);
     if (!entry) throw new Error(`Remote ForgeRelay instance ${instanceId} is no longer registered.`);
-    assertDirectRemote(entry[0], entry[1]);
     return { alias: entry[0], remote: entry[1] };
   }
 
@@ -305,39 +426,46 @@ export class RemoteWorkspaceRelay {
     name: string,
     args: Record<string, unknown>,
   ): Promise<ToolCallResult> {
-    let remote = initialRemote;
-    let refreshed = false;
-    if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
-      remote = await this.refreshRemote(alias, remote);
-      refreshed = true;
-    }
+    return withRemoteServiceEndpoint(
+      initialRemote.target,
+      initialRemote.sshRoute,
+      async (endpoint) => {
+        let remote = initialRemote;
+        let refreshed = false;
+        if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+          remote = await this.refreshRemote(alias, remote, endpoint);
+          refreshed = true;
+        }
 
-    const invoke = () => withRemoteMcpClient(
-      remote,
-      remote.target,
-      async (client) => CallToolResultSchema.parse(
-        await client.callTool({ name, arguments: args }),
-      ),
+        const invoke = () => withRemoteMcpClient(
+          remote,
+          endpoint,
+          async (client) => CallToolResultSchema.parse(
+            await client.callTool({ name, arguments: args }),
+          ),
+        );
+        try {
+          return await invoke();
+        } catch (error) {
+          if (!refreshed && isRemoteMcpUnauthorized(error)) {
+            remote = await this.refreshRemote(alias, remote, endpoint);
+            return invoke();
+          }
+          throw new Error(
+            `Remote ForgeRelay ${alias} request failed: ${errorMessage(error)}`,
+            { cause: error },
+          );
+        }
+      },
     );
-    try {
-      return await invoke();
-    } catch (error) {
-      if (!refreshed && isRemoteMcpUnauthorized(error)) {
-        remote = await this.refreshRemote(alias, remote);
-        return invoke();
-      }
-      throw new Error(
-        `Remote ForgeRelay ${alias} request failed: ${errorMessage(error)}`,
-        { cause: error },
-      );
-    }
   }
 
   private async refreshRemote(
     alias: string,
     remote: ForgeRelayRemoteRecord,
+    endpoint: string,
   ): Promise<ForgeRelayRemoteRecord> {
-    const refreshed = await refreshRemoteAuthentication(remote);
+    const refreshed = await refreshRemoteAuthentication(remote, endpoint);
     writeForgeRelayRemote(alias, refreshed, this.authEnv);
     return refreshed;
   }
@@ -348,14 +476,6 @@ export class RemoteWorkspaceRelay {
       workspaceId = `rws_${randomBytes(5).toString("hex")}`;
     } while (this.routes.has(workspaceId));
     return workspaceId;
-  }
-}
-
-function assertDirectRemote(alias: string, remote: ForgeRelayRemoteRecord): void {
-  if (remote.sshRoute && remote.sshRoute.length > 0) {
-    throw new Error(
-      `Remote relay ${alias} requires an SSH route; SSH-routed workspace relay is not enabled in this tracer bullet.`,
-    );
   }
 }
 

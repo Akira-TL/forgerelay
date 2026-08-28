@@ -364,6 +364,276 @@ void test("remote bulk mutations preserve execution-instance preflight semantics
   assert.equal(closed.isError, undefined, resultText(closed));
 });
 
+void test("relayed workspace routes survive a new gateway instance", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-restart-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const gatewayConfigDir = join(root, "gateway", "config");
+  const gatewayStateDir = join(root, "gateway", "state");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(remoteRoot, "restart.txt"), "remote-route-survived\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-restart-owner-token-long-enough",
+    instanceId: "forge-relay-restart-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-restart-owner-token-long-enough",
+    instanceId: "forge-relay-restart-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const firstClient = await startGatewayClient(t, {
+    root: join(root, "gateway-first"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const opened = await firstClient.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.match(workspaceId, /^rws_/);
+
+  const movedEndpoint = await remote.openAdditionalEndpoint();
+  const movedRecord = await authenticateRemote(movedEndpoint, remote.ownerToken);
+  assert.equal(movedRecord.instanceId, remoteRecord.instanceId);
+  const oldRefreshToken = movedRecord.refreshToken;
+  movedRecord.accessToken = "expired-after-gateway-restart";
+  movedRecord.accessTokenExpiresAt = 0;
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-restart-owner-token-long-enough",
+    instanceId: "forge-relay-restart-gateway",
+    remotes: { workstation: movedRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const restartedClient = await startGatewayClient(t, {
+    root: join(root, "gateway-second"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const readAfterRestart = await restartedClient.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "restart.txt" },
+  });
+  assert.equal(readAfterRestart.isError, undefined, resultText(readAfterRestart));
+  assert.match(resultText(readAfterRestart), /remote-route-survived/);
+  const refreshedAuth = JSON.parse(await readFile(join(gatewayConfigDir, "auth.json"), "utf8")) as {
+    remotes?: Record<string, {
+      instanceId: string;
+      target: string;
+      accessToken: string;
+      refreshToken: string;
+    }>;
+  };
+  const refreshedRemote = refreshedAuth.remotes?.workstation;
+  assert.ok(refreshedRemote);
+  assert.equal(refreshedRemote.instanceId, remoteRecord.instanceId);
+  assert.equal(refreshedRemote.target, movedEndpoint);
+  assert.notEqual(refreshedRemote.accessToken, "expired-after-gateway-restart");
+  assert.notEqual(refreshedRemote.refreshToken, oldRefreshToken);
+
+  const closed = await restartedClient.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(closed.isError, undefined, resultText(closed));
+});
+
+void test("concurrent gateway sessions preserve every relayed workspace route", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-concurrent-routes-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const remoteA = join(remoteRoot, "a");
+  const remoteB = join(remoteRoot, "b");
+  const gatewayConfigDir = join(root, "gateway", "config");
+  const gatewayStateDir = join(root, "gateway", "state");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteA, { recursive: true });
+  await mkdir(remoteB, { recursive: true });
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(remoteA, "route.txt"), "route-a\n");
+  await writeFile(join(remoteB, "route.txt"), "route-b\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-concurrent-route-owner-token-long-enough",
+    instanceId: "forge-relay-concurrent-route-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-concurrent-route-owner-token-long-enough",
+    instanceId: "forge-relay-concurrent-route-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const clientA = await startGatewayClient(t, {
+    root: join(root, "gateway-a"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const clientB = await startGatewayClient(t, {
+    root: join(root, "gateway-b"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+
+  const openedA = await clientA.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteA, relay: "workstation", context: "none" },
+  });
+  assert.equal(openedA.isError, undefined, resultText(openedA));
+  const workspaceA = String(structuredContent(openedA).workspaceId);
+
+  const openedB = await clientB.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteB, relay: "workstation", context: "none" },
+  });
+  assert.equal(openedB.isError, undefined, resultText(openedB));
+  const workspaceB = String(structuredContent(openedB).workspaceId);
+  assert.notEqual(workspaceA, workspaceB);
+
+  const restartedClient = await startGatewayClient(t, {
+    root: join(root, "gateway-restarted"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const readA = await restartedClient.callTool({
+    name: "read",
+    arguments: { workspaceId: workspaceA, path: "route.txt" },
+  });
+  const readB = await restartedClient.callTool({
+    name: "read",
+    arguments: { workspaceId: workspaceB, path: "route.txt" },
+  });
+  assert.equal(readA.isError, undefined, resultText(readA));
+  assert.equal(readB.isError, undefined, resultText(readB));
+  assert.match(resultText(readA), /route-a/);
+  assert.match(resultText(readB), /route-b/);
+});
+
+void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway instances", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-restart-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const fakeBin = join(root, "bin");
+  const sshLog = join(root, "ssh.log");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(fakeBin, "ssh"), fakeSshRelaySource(), { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  const previousSshLog = process.env.TEST_SSH_LOG;
+  process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
+  process.env.TEST_SSH_LOG = sshLog;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousSshLog === undefined) delete process.env.TEST_SSH_LOG;
+    else process.env.TEST_SSH_LOG = previousSshLog;
+  });
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const gatewayConfigDir = join(root, "gateway", "config");
+  const gatewayStateDir = join(root, "gateway", "state");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(remoteRoot, "ssh-restart.txt"), "ssh-route-survived\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-ssh-restart-owner-token-long-enough",
+    instanceId: "forge-relay-ssh-restart-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  remoteRecord.sshRoute = ["jump@example.test", "target@example.test"];
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-ssh-restart-owner-token-long-enough",
+    instanceId: "forge-relay-ssh-restart-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const firstClient = await startGatewayClient(t, {
+    root: join(root, "gateway-first"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const opened = await firstClient.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.match(workspaceId, /^rws_/);
+
+  const firstRead = await firstClient.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "ssh-restart.txt" },
+  });
+  assert.equal(firstRead.isError, undefined, resultText(firstRead));
+  const routeStateText = await readFile(
+    join(gatewayStateDir, "remote-workspace-routes.json"),
+    "utf8",
+  );
+  assert.match(routeStateText, new RegExp(remoteRecord.instanceId));
+  assert.doesNotMatch(routeStateText, /workstation|jump@example\.test|target@example\.test/);
+  assert.doesNotMatch(routeStateText, new RegExp(remote.endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-ssh-restart-owner-token-long-enough",
+    instanceId: "forge-relay-ssh-restart-gateway",
+    remotes: { renamed: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+
+  const restartedClient = await startGatewayClient(t, {
+    root: join(root, "gateway-second"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const restartedRead = await restartedClient.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "ssh-restart.txt" },
+  });
+  assert.equal(restartedRead.isError, undefined, resultText(restartedRead));
+  assert.match(resultText(restartedRead), /ssh-route-survived/);
+
+  const sshCalls = (await readFile(sshLog, "utf8"))
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  const forwardPorts = sshCalls.flatMap((args) => {
+    const index = args.indexOf("-L");
+    if (index < 0 || !args[index + 1]) return [];
+    const match = /^127\.0\.0\.1:(\d+):/.exec(args[index + 1]!);
+    return match ? [Number(match[1])] : [];
+  });
+  assert.ok(forwardPorts.length >= 3, JSON.stringify(sshCalls));
+  assert.equal(new Set(forwardPorts).size, forwardPorts.length);
+  assert.ok(sshCalls.every((args) => args.includes("jump@example.test") && args.includes("target@example.test")));
+
+  const closed = await restartedClient.callTool({ name: "close_workspace", arguments: { workspaceId } });
+  assert.equal(closed.isError, undefined, resultText(closed));
+});
+
 void test("relayed open failures are explicit and never fall back to the gateway filesystem", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-errors-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -452,6 +722,7 @@ void test("relayed open failures are explicit and never fall back to the gateway
 interface RunningForge {
   endpoint: string;
   ownerToken: string;
+  openAdditionalEndpoint(): Promise<string>;
 }
 
 async function startForge(
@@ -502,14 +773,21 @@ async function startForge(
   return {
     endpoint: `http://127.0.0.1:${port}`,
     ownerToken: options.ownerToken,
+    openAdditionalEndpoint: async () => {
+      const additionalServer = running.app.listen(0, "127.0.0.1");
+      await new Promise<void>((resolve) => additionalServer.once("listening", resolve));
+      const additionalPort = (additionalServer.address() as AddressInfo).port;
+      t.after(() => new Promise<void>((resolve) => additionalServer.close(() => resolve())));
+      return `http://127.0.0.1:${additionalPort}`;
+    },
   };
 }
 
 async function startGatewayClient(
   t: TestContext,
-  options: { root: string; allowedRoot: string; configDir: string; hooks?: unknown },
+  options: { root: string; allowedRoot: string; configDir: string; stateDir?: string; hooks?: unknown },
 ): Promise<Client> {
-  const stateDir = join(options.root, "state");
+  const stateDir = options.stateDir ?? join(options.root, "state");
   await mkdir(stateDir, { recursive: true });
   await writeFile(join(options.configDir, "config.json"), JSON.stringify({
     allowedRoots: [options.allowedRoot],
@@ -561,6 +839,52 @@ async function startGatewayClient(
     workspaceStore.close();
   });
   return client;
+}
+
+function fakeSshRelaySource(): string {
+  return `#!/usr/bin/env node
+const fs = require("node:fs");
+const net = require("node:net");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.TEST_SSH_LOG, JSON.stringify(args) + "\\n");
+const forwardIndex = args.indexOf("-L");
+const forward = forwardIndex >= 0 ? args[forwardIndex + 1] : undefined;
+if (!forward) {
+  process.stderr.write("fake ssh: missing -L\\n");
+  process.exit(40);
+}
+const match = /^127\\.0\\.0\\.1:(\\d+):([^:]+):(\\d+)$/.exec(forward);
+if (!match) {
+  process.stderr.write("fake ssh: invalid forward " + forward + "\\n");
+  process.exit(41);
+}
+const localPort = Number(match[1]);
+const remoteHost = match[2];
+const remotePort = Number(match[3]);
+const sockets = new Set();
+const server = net.createServer((client) => {
+  const upstream = net.connect(remotePort, remoteHost);
+  sockets.add(client);
+  sockets.add(upstream);
+  client.on("close", () => sockets.delete(client));
+  upstream.on("close", () => sockets.delete(upstream));
+  client.pipe(upstream);
+  upstream.pipe(client);
+});
+server.on("error", (error) => {
+  process.stderr.write(String(error) + "\\n");
+  process.exit(42);
+});
+server.listen(localPort, "127.0.0.1", () => {
+  process.stderr.write("debug1: Local forwarding listening on 127.0.0.1 port " + localPort + ".\\n");
+});
+const stop = () => {
+  for (const socket of sockets) socket.destroy();
+  server.close(() => process.exit(0));
+};
+process.on("SIGTERM", stop);
+process.on("SIGINT", stop);
+`;
 }
 
 function structuredContent(result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> {
