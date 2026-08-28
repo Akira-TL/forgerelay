@@ -23,6 +23,7 @@ export interface CliAuthenticationProvider {
 export interface ForgeRelayAuthRouterOptions {
   provider: OAuthServerProvider;
   cliAuthenticationProvider?: CliAuthenticationProvider;
+  instanceId?: string;
   issuerUrl: URL;
   resourceServerUrl: URL;
   scopesSupported?: string[];
@@ -33,6 +34,7 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
   const {
     provider,
     cliAuthenticationProvider,
+    instanceId,
     issuerUrl,
     resourceServerUrl,
     scopesSupported,
@@ -87,7 +89,7 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
 
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Pragma", "no-cache");
-      res.status(200).json(tokens);
+      res.status(200).json({ ...tokens, ...(instanceId ? { instance_id: instanceId } : {}) });
     });
   }
   router.use("/authorize", authorizationHandler({ provider }));

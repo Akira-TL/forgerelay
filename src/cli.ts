@@ -31,18 +31,30 @@ import {
 import { createLocalAgentStore, type LocalAgentRecord } from "./local-agent-store.js";
 import type { LocalAgentRunResult } from "./local-agent-runtime.js";
 import {
+  ensureForgeRelayInstanceId,
+  generateInstanceId,
   generateOwnerToken,
   loadDevspaceFiles,
+  removeForgeRelayRemote,
+  renameForgeRelayRemote,
   resolveSubagentsFlag,
   writeDevspaceAuth,
   writeDevspaceConfig,
+  writeForgeRelayRemote,
   type DevspaceUserConfig,
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { publicEndpointUrl } from "./oauth/public-url.js";
+import {
+  authenticateRemote,
+  defaultRemoteAlias,
+  isRemoteMcpUnauthorized,
+  refreshRemoteAuthentication,
+  verifyRemoteMcp,
+} from "./remote-auth.js";
 
-type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "help" | "version";
+type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "help" | "version";
 const require = createRequire(import.meta.url);
 const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 
@@ -72,6 +84,9 @@ async function main(argv: string[]): Promise<void> {
     case "agents":
       await runAgentsCommand(args);
       return;
+    case "auth":
+      await runAuthCommand(args);
+      return;
     case "help":
       printHelp();
       return;
@@ -83,7 +98,7 @@ async function main(argv: string[]): Promise<void> {
 
 function normalizeCommand(command: string | undefined): Command {
   if (!command || command === "serve" || command === "start") return "serve";
-  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents") return command;
+  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents" || command === "auth") return command;
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
   throw new Error(`Unknown command: ${command}`);
@@ -91,8 +106,14 @@ function normalizeCommand(command: string | undefined): Command {
 
 async function ensureConfigured(): Promise<void> {
   const files = loadDevspaceFiles();
-  if (files.configExists && files.authExists) return;
-  if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN) return;
+  if (files.configExists && files.authExists) {
+    ensureForgeRelayInstanceId();
+    return;
+  }
+  if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN) {
+    ensureForgeRelayInstanceId();
+    return;
+  }
 
   if (!input.isTTY || !output.isTTY) {
     throw new Error(
@@ -176,7 +197,9 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       subagents: resolveSubagentsFlag(files.config),
     };
     const auth = {
+      ...files.auth,
       ownerToken: files.auth.ownerToken ?? generateOwnerToken(),
+      instanceId: files.auth.instanceId ?? generateInstanceId(),
     };
 
     const configPath = writeDevspaceConfig(config);
@@ -258,6 +281,123 @@ async function serve(): Promise<void> {
   process.once("SIGTERM", handleShutdown);
 }
 
+
+interface AuthCommandArgs {
+  target: string;
+  alias?: string;
+  ownerToken?: string;
+}
+
+function parseAuthCommandArgs(args: string[]): AuthCommandArgs {
+  let target: string | undefined;
+  let alias: string | undefined;
+  let ownerToken: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--alias") {
+      alias = args[++index];
+      if (!alias) throw new Error("Missing value for --alias.");
+      continue;
+    }
+    if (arg === "--token") {
+      ownerToken = args[++index];
+      if (!ownerToken) throw new Error("Missing value for --token.");
+      continue;
+    }
+    if (arg.startsWith("-")) throw new Error(`Unknown auth option: ${arg}`);
+    if (target) throw new Error(`Unexpected auth argument: ${arg}`);
+    target = arg;
+  }
+
+  if (!target) throw new Error("Missing remote service target.");
+  return { target, alias, ownerToken };
+}
+
+async function resolveAuthOwnerToken(ownerToken: string | undefined): Promise<string> {
+  if (ownerToken) return ownerToken;
+  if (!input.isTTY || !output.isTTY) {
+    throw new Error("Missing owner token. Pass --token or run in an interactive terminal.");
+  }
+  const result = await prompts.password({
+    message: "Remote ForgeRelay owner token",
+    validate: (value) => value?.trim() ? undefined : "Enter the remote owner token.",
+  });
+  if (prompts.isCancel(result)) throw new Error("Remote authentication cancelled.");
+  return String(result);
+}
+
+async function runAuthCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (subcommand === "list") {
+    if (rest.length > 0) throw new Error("forgerelay auth list does not accept additional arguments.");
+    const remotes = loadDevspaceFiles().auth.remotes ?? {};
+    if (Object.keys(remotes).length === 0) {
+      console.log("No remote ForgeRelay instances registered.");
+      return;
+    }
+    for (const [alias, remote] of Object.entries(remotes).sort(([left], [right]) => left.localeCompare(right))) {
+      console.log(`${alias}\t${remote.target}\t${remote.instanceId}`);
+    }
+    return;
+  }
+  if (subcommand === "rename") {
+    const [fromAlias, toAlias, ...extra] = rest;
+    if (!fromAlias || !toAlias || extra.length > 0) {
+      throw new Error("Usage: forgerelay auth rename <old-alias> <new-alias>");
+    }
+    renameForgeRelayRemote(fromAlias, toAlias);
+    console.log(`Renamed remote ${fromAlias} to ${toAlias}.`);
+    return;
+  }
+  if (subcommand === "remove") {
+    const [alias, ...extra] = rest;
+    if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth remove <alias>");
+    removeForgeRelayRemote(alias);
+    console.log(`Removed remote ${alias}.`);
+    return;
+  }
+  if (subcommand === "test") {
+    const [alias, ...extra] = rest;
+    if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth test <alias>");
+    const files = loadDevspaceFiles();
+    let remote = files.auth.remotes?.[alias];
+    if (!remote) throw new Error(`Unknown remote alias: ${alias}`);
+
+    let refreshed = false;
+    if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+      remote = await refreshRemoteAuthentication(remote);
+      writeForgeRelayRemote(alias, remote);
+      refreshed = true;
+    }
+
+    try {
+      await verifyRemoteMcp(remote);
+    } catch (error) {
+      if (refreshed || !isRemoteMcpUnauthorized(error)) throw error;
+      remote = await refreshRemoteAuthentication(remote);
+      writeForgeRelayRemote(alias, remote);
+      await verifyRemoteMcp(remote);
+    }
+    console.log(`${alias}\tok\t${remote.instanceId}`);
+    return;
+  }
+
+  const parsed = parseAuthCommandArgs(args);
+  const ownerToken = await resolveAuthOwnerToken(parsed.ownerToken);
+  const remote = await authenticateRemote(parsed.target, ownerToken);
+  const files = loadDevspaceFiles();
+  const existingAlias = Object.entries(files.auth.remotes ?? {}).find(
+    ([, record]) => record.instanceId === remote.instanceId,
+  )?.[0];
+  const alias = parsed.alias?.trim() || existingAlias || defaultRemoteAlias(remote.target);
+  if (!files.auth.instanceId) {
+    writeDevspaceAuth({ ...files.auth, instanceId: generateInstanceId() });
+  }
+  writeForgeRelayRemote(alias, remote);
+  console.log(`Authenticated remote ${alias} (${remote.instanceId}).`);
+}
+
 async function runDoctor(): Promise<void> {
   const files = loadDevspaceFiles();
   console.log(`Config dir: ${files.dir}`);
@@ -332,6 +472,11 @@ function printHelp(): void {
       "  forgerelay agents ls       List subagent sessions",
       "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
       "  forgerelay agents show <id>",
+      "  forgerelay auth <target> [--alias <name>] [--token <owner-token>]",
+      "  forgerelay auth list",
+      "  forgerelay auth test <alias>",
+      "  forgerelay auth rename <old-alias> <new-alias>",
+      "  forgerelay auth remove <alias>",
       "  forgerelay -v, --version   Print the installed version",
       "",
       "For temporary tunnels:",

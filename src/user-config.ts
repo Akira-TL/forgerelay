@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -37,8 +37,19 @@ export interface ForgeRelayUserConfig {
   hooks?: HookConfigInput;
 }
 
+export interface ForgeRelayRemoteRecord {
+  instanceId: string;
+  target: string;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number;
+  scope?: string;
+}
+
 export interface ForgeRelayAuthConfig {
   ownerToken?: string;
+  instanceId?: string;
+  remotes?: Record<string, ForgeRelayRemoteRecord>;
 }
 
 export interface ForgeRelayFiles {
@@ -144,6 +155,80 @@ export function writeForgeRelayAuth(
 
 export function generateOwnerToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+export function generateInstanceId(): string {
+  return `forge-${randomUUID()}`;
+}
+
+export function ensureForgeRelayInstanceId(env: NodeJS.ProcessEnv = process.env): string {
+  const files = loadForgeRelayFiles(env);
+  const existing = files.auth.instanceId?.trim();
+  if (existing) return existing;
+
+  const instanceId = generateInstanceId();
+  writeForgeRelayAuth({ ...files.auth, instanceId }, env);
+  return instanceId;
+}
+
+function normalizeRemoteAlias(alias: string): string {
+  const normalized = alias.trim();
+  if (!normalized || /\s/.test(normalized)) {
+    throw new Error("Remote alias must be a non-empty name without whitespace.");
+  }
+  return normalized;
+}
+
+export function writeForgeRelayRemote(
+  alias: string,
+  remote: ForgeRelayRemoteRecord,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const normalizedAlias = normalizeRemoteAlias(alias);
+  const files = loadForgeRelayFiles(env);
+  const remotes = { ...(files.auth.remotes ?? {}) };
+  const existing = remotes[normalizedAlias];
+  if (existing && existing.instanceId !== remote.instanceId) {
+    throw new Error(`Remote alias ${normalizedAlias} already belongs to another ForgeRelay instance.`);
+  }
+  const duplicate = Object.entries(remotes).find(
+    ([name, record]) => name !== normalizedAlias && record.instanceId === remote.instanceId,
+  );
+  if (duplicate) {
+    throw new Error(`ForgeRelay instance is already registered as ${duplicate[0]}; rename that remote instead.`);
+  }
+  remotes[normalizedAlias] = remote;
+  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
+}
+
+
+export function renameForgeRelayRemote(
+  fromAlias: string,
+  toAlias: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const from = normalizeRemoteAlias(fromAlias);
+  const to = normalizeRemoteAlias(toAlias);
+  const files = loadForgeRelayFiles(env);
+  const remotes = { ...(files.auth.remotes ?? {}) };
+  const remote = remotes[from];
+  if (!remote) throw new Error(`Unknown remote alias: ${from}`);
+  if (from !== to && remotes[to]) throw new Error(`Remote alias already exists: ${to}`);
+  delete remotes[from];
+  remotes[to] = remote;
+  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
+}
+
+export function removeForgeRelayRemote(
+  alias: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const normalizedAlias = normalizeRemoteAlias(alias);
+  const files = loadForgeRelayFiles(env);
+  const remotes = { ...(files.auth.remotes ?? {}) };
+  if (!remotes[normalizedAlias]) throw new Error(`Unknown remote alias: ${normalizedAlias}`);
+  delete remotes[normalizedAlias];
+  return writeForgeRelayAuth({ ...files.auth, remotes }, env);
 }
 
 export function ensureForgeRelayDefaultSkills(env: NodeJS.ProcessEnv = process.env): string[] {

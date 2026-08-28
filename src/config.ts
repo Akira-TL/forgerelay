@@ -8,6 +8,7 @@ import { mergeHookConfigs, parseHookConfig, type HookConfig } from "./hooks.js";
 import {
   forgerelayAgentsDir,
   forgerelaySkillsDir,
+  generateInstanceId,
   loadForgeRelayFiles,
   type ForgeRelayUserConfig,
 } from "./user-config.js";
@@ -20,6 +21,7 @@ const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ARTIFACT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 export interface ServerConfig {
+  instanceId: string;
   host: string;
   port: number;
   oauth: OAuthConfig;
@@ -317,6 +319,7 @@ function resolvePublicDeployment(
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const files = loadForgeRelayFiles(env);
+  const instanceId = files.auth.instanceId?.trim() || generateInstanceId();
   const host = env.HOST ?? files.config.host ?? "127.0.0.1";
   const port = parsePort(env.PORT ?? files.config.port);
   const publicDeployment = resolvePublicDeployment(env, files.config, host, port);
@@ -331,6 +334,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   ];
 
   return {
+    instanceId,
     host,
     port,
     oauth: parseOAuthConfig(env, files.auth.ownerToken),

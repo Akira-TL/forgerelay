@@ -224,11 +224,9 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     scopes?: string[],
     resource?: URL,
   ): Promise<OAuthTokens> {
-    const refreshTokenHash = hashToken(refreshToken);
-    const record = this.oauthStore.getRefreshToken(refreshTokenHash);
-    if (!record || record.clientId !== client.client_id || record.expiresAt < Math.floor(Date.now() / 1000)) {
-      throw new InvalidGrantError("Invalid refresh token");
-    }
+    const refresh = this.validRefreshToken(refreshToken, client.client_id);
+    if (!refresh) throw new InvalidGrantError("Invalid refresh token");
+    const { refreshTokenHash, record } = refresh;
     if (resource && !checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceServerUrl })) {
       throw new InvalidGrantError("Invalid resource");
     }
@@ -252,21 +250,13 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   }
 
   exchangeCliRefreshToken(refreshToken: string): OAuthTokens | undefined {
-    const refreshTokenHash = hashToken(refreshToken);
-    const record = this.oauthStore.getRefreshToken(refreshTokenHash);
-    if (
-      !record ||
-      record.clientId !== CLI_CLIENT_ID ||
-      record.expiresAt < Math.floor(Date.now() / 1000)
-    ) {
-      return undefined;
-    }
-
+    const refresh = this.validRefreshToken(refreshToken, CLI_CLIENT_ID);
+    if (!refresh) return undefined;
     return this.issueTokens(
       CLI_CLIENT_ID,
-      record.scopes,
-      record.resource ? new URL(record.resource) : this.resourceServerUrl,
-      refreshTokenHash,
+      refresh.record.scopes,
+      refresh.record.resource ? new URL(refresh.record.resource) : this.resourceServerUrl,
+      refresh.refreshTokenHash,
     );
   }
 
@@ -294,6 +284,15 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   close(): void {
     this.codes.clear();
     this.oauthStore.close();
+  }
+
+  private validRefreshToken(refreshToken: string, clientId: string) {
+    const refreshTokenHash = hashToken(refreshToken);
+    const record = this.oauthStore.getRefreshToken(refreshTokenHash);
+    if (!record || record.clientId !== clientId || record.expiresAt < Math.floor(Date.now() / 1000)) {
+      return undefined;
+    }
+    return { refreshTokenHash, record };
   }
 
   private pruneExpiredAuthorizationCodes(nowMs = Date.now()): void {
