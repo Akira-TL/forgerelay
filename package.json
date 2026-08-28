@@ -41,6 +41,7 @@
     "debug:serve": "node scripts/debug/serve.mjs",
     "debug:accept": "node scripts/debug/accept.mjs",
     "lsp:interop": "node scripts/lsp-interop.mjs",
+    "ci:verify": "node scripts/ci/verify.mjs",
     "release:parity": "node scripts/release-parity.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "start": "node dist/cli.js serve",
