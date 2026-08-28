@@ -44,7 +44,6 @@ void test("forgerelay auth directly authenticates and persists a remote instance
     remoteStateDir,
   );
   t.after(() => provider.close());
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const app = express();
   app.use(createForgeRelayAuthRouter({
@@ -166,6 +165,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
   );
   assert.equal(conflicting.status, 1);
   assert.match(conflicting.stderr, /already belongs to another ForgeRelay instance/i);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("concurrent remote authentication preserves both remote records", async (t) => {
@@ -177,8 +177,6 @@ void test("concurrent remote authentication preserves both remote records", asyn
     JSON.stringify({ ownerToken: "existing-local-owner-token" }),
     { mode: 0o600 },
   );
-  t.after(() => rm(root, { recursive: true, force: true }));
-
   let arrivals = 0;
   let releaseBarrier!: () => void;
   const barrier = new Promise<void>((resolve) => { releaseBarrier = resolve; });
@@ -223,6 +221,7 @@ void test("concurrent remote authentication preserves both remote records", asyn
     startRemote("alpha", "forge-concurrent-alpha"),
     startRemote("beta", "forge-concurrent-beta"),
   ]);
+  t.after(() => rm(root, { recursive: true, force: true }));
   const env = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: localConfigDir };
   const [alpha, beta] = await Promise.all([
     runCli(["auth", `127.0.0.1:${alphaPort}`, "--token", ownerToken, "--alias", "alpha"], env),
@@ -369,7 +368,6 @@ void test("forgerelay auth test persists rotated credentials before MCP verifica
   const localConfigDir = join(root, "local-config");
   const remoteStateDir = join(root, "remote-state");
   await mkdir(localConfigDir, { recursive: true });
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const remoteResourceUrl = new URL("https://remote.example.test/mcp");
   const provider = new SingleUserOAuthProvider(
@@ -399,6 +397,7 @@ void test("forgerelay auth test persists rotated credentials before MCP verifica
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server.close());
+  t.after(() => rm(root, { recursive: true, force: true }));
   await once(server, "listening");
   const { port } = server.address() as AddressInfo;
   const localEnv = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: localConfigDir };
@@ -438,7 +437,6 @@ void test("forgerelay auth test refreshes an expired access token and verifies M
   await mkdir(remoteConfigDir, { recursive: true });
   await mkdir(remoteWorkspace, { recursive: true });
   await mkdir(localConfigDir, { recursive: true });
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   await writeFile(join(remoteConfigDir, "config.json"), JSON.stringify({
     host: "127.0.0.1",
@@ -468,6 +466,7 @@ void test("forgerelay auth test refreshes an expired access token and verifies M
     });
     await running.close();
   });
+  t.after(() => rm(root, { recursive: true, force: true }));
   const { port } = httpServer.address() as AddressInfo;
   const target = `127.0.0.1:${port}`;
   const localEnv = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: localConfigDir };
