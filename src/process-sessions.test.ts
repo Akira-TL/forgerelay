@@ -110,18 +110,27 @@ assert.equal(background.sessionId, background.processId);
 const bufferedWait = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "console.log('wait-ready'); const timer = setInterval(() => console.log('wait-tick'), 10); setTimeout(() => { clearInterval(timer); console.log('wait-finished'); }, 500)"`,
+  command: `${node} -e "console.log('wait-ready'); const timer = setInterval(() => console.log('wait-tick'), 10); setTimeout(() => { clearInterval(timer); console.log('wait-finished'); }, 2000)"`,
   yieldTimeMs: 1,
 });
 assert.equal(bufferedWait.running, true);
 assert.ok(bufferedWait.processId);
 
-await new Promise((resolve) => setTimeout(resolve, 100));
-const initialBufferedOutput = await manager.write({
+let initialBufferedOutput = await manager.write({
   workspaceId: "workspace-a",
   processId: bufferedWait.processId,
   yieldTimeMs: 0,
 });
+const initialOutputDeadline = Date.now() + 5_000;
+while (!/wait-(?:ready|tick)/.test(initialBufferedOutput.output) && Date.now() < initialOutputDeadline) {
+  assert.equal(initialBufferedOutput.running, true);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  initialBufferedOutput = await manager.write({
+    workspaceId: "workspace-a",
+    processId: bufferedWait.processId,
+    yieldTimeMs: 0,
+  });
+}
 assert.equal(initialBufferedOutput.running, true);
 assert.match(initialBufferedOutput.output, /wait-(?:ready|tick)/);
 
@@ -195,11 +204,29 @@ assert.match(inputResult.output, /input:hello/);
 const defaultInteractive = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
-  command: `${node} -e "process.stdin.once('data', data => setTimeout(() => { console.log('default-input:' + data.toString().trim()); process.exit(0); }, 100))"`,
+  command: `${node} -e "console.log('default-ready'); process.stdin.once('data', data => setTimeout(() => { console.log('default-input:' + data.toString().trim()); process.exit(0); }, 100))"`,
   yieldTimeMs: 5,
 });
 assert.equal(defaultInteractive.running, true);
 assert.ok(defaultInteractive.processId);
+
+let defaultReady = await manager.write({
+  workspaceId: "workspace-a",
+  processId: defaultInteractive.processId,
+  yieldTimeMs: 0,
+});
+const defaultReadyDeadline = Date.now() + 5_000;
+while (!/default-ready/.test(defaultReady.output) && Date.now() < defaultReadyDeadline) {
+  assert.equal(defaultReady.running, true);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  defaultReady = await manager.write({
+    workspaceId: "workspace-a",
+    processId: defaultInteractive.processId,
+    yieldTimeMs: 0,
+  });
+}
+assert.equal(defaultReady.running, true);
+assert.match(defaultReady.output, /default-ready/);
 
 const defaultInputResult = await manager.write({
   workspaceId: "workspace-a",
