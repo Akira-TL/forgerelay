@@ -4,6 +4,25 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-08-28
+
+### Added
+
+- Added Workspace Relay: register a remote ForgeRelay with `forgerelay auth`, then open a remote Workspace through the existing MCP surface with `open_workspace(..., relay="<alias>")`; direct targets and system-SSH-routed targets share the same authentication and MCP protocol.
+- Added CLI remote authentication with hidden owner-token input, explicit `--token`, and SSH-assisted `--ssh-auth`; `-J` accepts one final SSH target or a full comma-separated jump route while the remote service target remains one independent `host:port`/URL value.
+- Added remote routing for Workspace reads and mutations, Bash/process lifecycle and durable output, optional capabilities, Skills, Hooks, and Host Activity snapshot/detail/output queries while keeping execution facts owned by the execution ForgeRelay.
+- Added restart-safe remote identity and Workspace routing: stable remote instance IDs survive alias/target changes, access tokens refresh through the existing token store, SSH tunnels are rebuilt on fresh random loopback ports, and relayed Workspace IDs remain stable across Gateway restarts.
+
+### Changed
+
+- Activity Panel bootstrap can reconstruct Workspace presentation from the execution instance across independent MCP connections, allowing relayed Host Turns and App-only Activity queries to follow the execution Workspace without requiring one long-lived transport session.
+- ForgeRelay authentication and relayed-Workspace route files now use lock-protected read/modify/write updates with atomic replacement so concurrent CLI/server sessions do not overwrite each other.
+
+### Security
+
+- Remote targets, SSH routes, temporary tunnel ports, owner tokens, access tokens, refresh tokens, and execution-side Workspace IDs stay out of the model-facing relay contract; the Host sees the configured relay alias and Gateway `rws_...` identity instead.
+- SSH-assisted authentication retrieves the remote owner token only into the initiating process, then reuses the normal CLI token exchange; runtime forwarding binds loopback only, and failed direct/SSH/remote operations never silently fall back to a local or different remote Workspace.
+
 ## [0.6.0] - 2026-08-27
 
 ### Added
