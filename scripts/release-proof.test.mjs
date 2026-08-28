@@ -41,6 +41,30 @@ test("release proof binds a successful local verification to the exact tag HEAD"
   });
   assert.match(checked.stdout, /Release proof OK: v1\.2\.3/);
 
+  for (const command of [
+    "git push --atomic origin v1.2.3",
+    "git push origin refs/tags/v1.2.3",
+    "git status && git push origin tag v1.2.3 && echo done",
+  ]) {
+    const alternative = await runProof(root, "check-hook", {
+      FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command, originalCommand: command }),
+    });
+    assert.match(alternative.stdout, /Release proof OK: v1\.2\.3/);
+  }
+
+  await assert.rejects(
+    () => runProof(root, "check-hook", {
+      FORGERELAY_HOOK_PAYLOAD: JSON.stringify({
+        command: "git push origin v1.2.3",
+        originalCommand: "git push --force origin v1.2.3",
+      }),
+    }),
+    (error) => {
+      assert.match(String(error.stderr ?? error), /force push is not allowed for release tags/);
+      return true;
+    },
+  );
+
   await writeFile(join(root, "tracked.txt"), "changed after verification\n");
   await assert.rejects(
     () => runProof(root, "check-hook", {

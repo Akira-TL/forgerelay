@@ -10,11 +10,22 @@ async function readJson(relativePath) {
   return JSON.parse(await readFile(resolve(repoRoot, relativePath), "utf8"));
 }
 
-test("release tag Hook is a fast proof gate, not a multi-minute CI runner", async () => {
+test("release tag Hook is a fast proof gate for common origin tag push forms", async () => {
   const hook = await readJson(".forgerelay/hooks/release-tag-local-ci.json");
   assert.equal(hook.event, "BeforeTool");
   assert.equal(hook.command, "node scripts/release-proof.mjs check-hook");
   assert.ok(hook.timeoutSeconds <= 30);
+
+  const matcher = new RegExp(hook.matcher.commandRegex);
+  for (const command of [
+    "git push origin v1.2.3",
+    "git push --atomic origin v1.2.3",
+    "git push origin refs/tags/v1.2.3",
+    "git status && git push origin tag v1.2.3 && echo done",
+  ]) {
+    assert.match(command, matcher);
+  }
+  assert.doesNotMatch("git push origin main", matcher);
 });
 
 test("release:verify records proof only after the cloud-equivalent parity gate", async () => {

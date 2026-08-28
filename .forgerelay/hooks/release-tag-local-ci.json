@@ -2,7 +2,7 @@
   "event": "BeforeTool",
   "matcher": {
     "tool": "bash",
-    "commandRegex": "git\\s+push\\s+origin\\s+v\\d+\\.\\d+\\.\\d+(?:-rc\\.\\d+)?"
+    "commandRegex": "git\\s+push\\b[^;&|\\n]*\\borigin\\b[^;&|\\n]*(?:refs/tags/)?v\\d+\\.\\d+\\.\\d+(?:-rc\\.\\d+)?"
   },
   "command": "node scripts/release-proof.mjs check-hook",
   "timeoutSeconds": 30,
