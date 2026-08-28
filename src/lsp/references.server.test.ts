@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -124,7 +124,7 @@ test("code.intelligence references preserve External location metadata", async (
   assert.equal(response.isError, undefined);
   const result = structuredContent(response).result as { locations: Array<{ path: string; external: boolean }> };
   assert.equal(result.locations.length, 1);
-  assert.equal(result.locations[0]?.path, externalTarget);
+  assert.equal(result.locations[0]?.path, await realpath(externalTarget));
   assert.equal(result.locations[0]?.external, true);
 });
 

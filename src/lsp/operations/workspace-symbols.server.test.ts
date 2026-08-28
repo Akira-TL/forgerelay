@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -140,6 +140,6 @@ test("workspaceSymbols preserves External location metadata", async (t) => {
   const result = structuredContent(response).result as {
     symbols: Array<{ location: { path: string; external: boolean } }>;
   };
-  assert.equal(result.symbols[0]?.location.path, externalTarget);
+  assert.equal(result.symbols[0]?.location.path, await realpath(externalTarget));
   assert.equal(result.symbols[0]?.location.external, true);
 });
