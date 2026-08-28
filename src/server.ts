@@ -2647,14 +2647,27 @@ export function createMcpServer(
           baseRef,
           newWorktree,
           newWorkspace,
+          context,
         });
+        const relayedSkills = Array.isArray(opened.skills)
+          ? opened.skills as Array<{ name?: unknown }>
+          : [];
+        const relayedCapabilities = Array.isArray(opened.capabilityCatalog)
+          ? opened.capabilityCatalog as Array<{ name?: unknown }>
+          : [];
         const result = [
           `Opened relayed workspace ${opened.workspaceId}.`,
           `Execution remote: ${relay}`,
           `Root: ${opened.root}`,
           `Mode: ${opened.mode}`,
+          relayedSkills.length > 0
+            ? `Available skills: ${relayedSkills.map((skill) => String(skill.name ?? "")).filter(Boolean).join(", ")}`
+            : undefined,
+          relayedCapabilities.length > 0
+            ? `Optional capabilities: ${relayedCapabilities.map((entry) => String(entry.name ?? "")).filter(Boolean).join(", ")}`
+            : undefined,
           opened.instruction,
-        ].join("\n");
+        ].filter(Boolean).join("\n");
         const response = {
           content: [textBlock(result)],
           _meta: {
@@ -2675,6 +2688,30 @@ export function createMcpServer(
             root: opened.root,
             mode: opened.mode,
             ...(opened.sourceRoot ? { sourceRoot: opened.sourceRoot } : {}),
+            ...(opened.contextFingerprint !== undefined
+              ? { contextFingerprint: opened.contextFingerprint }
+              : {}),
+            ...(opened.capabilityFingerprint !== undefined
+              ? { capabilityFingerprint: opened.capabilityFingerprint }
+              : {}),
+            ...(opened.capabilityCatalog !== undefined
+              ? { capabilityCatalog: opened.capabilityCatalog }
+              : {}),
+            ...(opened.capabilityGuides !== undefined
+              ? { capabilityGuides: opened.capabilityGuides }
+              : {}),
+            ...(opened.agentsFiles !== undefined ? { agentsFiles: opened.agentsFiles } : {}),
+            ...(opened.availableAgentsFiles !== undefined
+              ? { availableAgentsFiles: opened.availableAgentsFiles }
+              : {}),
+            ...(opened.skills !== undefined ? { skills: opened.skills } : {}),
+            ...(opened.agentProviders !== undefined
+              ? { agentProviders: opened.agentProviders }
+              : {}),
+            ...(opened.agents !== undefined ? { agents: opened.agents } : {}),
+            ...(opened.skillDiagnostics !== undefined
+              ? { skillDiagnostics: opened.skillDiagnostics }
+              : {}),
             instruction: opened.instruction,
           },
         };
@@ -2952,6 +2989,14 @@ export function createMcpServer(
       },
     },
     async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.capability(workspaceId, {
+          name,
+          action,
+          ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
+          ...(file !== undefined ? { file } : {}),
+        });
+      }
       if (action === "run" && name === "batch.execute") {
         const workspace = workspaces.getWorkspace(workspaceId);
         const startedAt = performance.now();
@@ -3784,6 +3829,23 @@ export function createMcpServer(
         timeoutMs,
         maxOutputTokens,
       }, extra) => {
+        if (remoteWorkspaces.has(workspaceId)) {
+          return remoteWorkspaces.bash(workspaceId, {
+            action,
+            ...(command !== undefined ? { command } : {}),
+            ...(processId !== undefined ? { processId } : {}),
+            ...(outputId !== undefined ? { outputId } : {}),
+            ...(input !== undefined ? { input } : {}),
+            ...(interrupt !== undefined ? { interrupt } : {}),
+            ...(tty !== undefined ? { tty } : {}),
+            ...(columns !== undefined ? { columns } : {}),
+            ...(rows !== undefined ? { rows } : {}),
+            ...(workingDirectory !== undefined ? { workingDirectory } : {}),
+            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+          });
+        }
         const workspace = workspaces.getWorkspace(workspaceId);
         if (action === "run") {
           if (!command) throw new Error("bash action=run requires command.");

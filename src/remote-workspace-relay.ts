@@ -28,8 +28,16 @@ export interface RelayedWorkspaceOpenResult {
   root: string;
   mode: "checkout" | "worktree";
   sourceRoot?: string;
+  contextFingerprint?: unknown;
   capabilityFingerprint?: unknown;
   capabilityCatalog?: unknown;
+  capabilityGuides?: unknown;
+  agentsFiles?: unknown;
+  availableAgentsFiles?: unknown;
+  skills?: unknown;
+  agentProviders?: unknown;
+  agents?: unknown;
+  skillDiagnostics?: unknown;
   instruction: string;
 }
 
@@ -53,6 +61,7 @@ export class RemoteWorkspaceRelay {
       baseRef?: string;
       newWorktree?: boolean;
       newWorkspace?: boolean;
+      context?: "auto" | "full" | "none";
     },
   ): Promise<RelayedWorkspaceOpenResult> {
     const resolved = this.remoteByAlias(alias);
@@ -64,12 +73,12 @@ export class RemoteWorkspaceRelay {
         ...(input.baseRef ? { baseRef: input.baseRef } : {}),
         ...(input.newWorktree !== undefined ? { newWorktree: input.newWorktree } : {}),
         ...(input.newWorkspace !== undefined ? { newWorkspace: input.newWorkspace } : {}),
-        context: "none",
+        ...(input.context !== undefined ? { context: input.context } : {}),
       });
+      assertRemoteToolSucceeded(alias, "open_workspace", result);
     } catch (error) {
       throw sanitizedRemoteError(error);
     }
-    assertRemoteToolSucceeded(alias, "open_workspace", result);
     const structured = result.structuredContent as Record<string, unknown> | undefined;
     const remoteWorkspaceId = stringField(structured, "workspaceId", "Remote open_workspace response");
     const root = stringField(structured, "root", "Remote open_workspace response");
@@ -87,14 +96,43 @@ export class RemoteWorkspaceRelay {
       mode,
       ...(sourceRoot ? { sourceRoot } : {}),
     });
+    const remapContext = (value: unknown) =>
+      replaceExactWorkspaceId(value, remoteWorkspaceId, gatewayWorkspaceId);
+    const remoteInstruction = typeof structured?.instruction === "string"
+      ? String(remapContext(structured.instruction))
+      : `Use workspaceId ${gatewayWorkspaceId} for subsequent calls.`;
     return {
       workspaceId: gatewayWorkspaceId,
       root,
       mode,
       ...(sourceRoot ? { sourceRoot } : {}),
-      capabilityFingerprint: structured?.capabilityFingerprint,
-      capabilityCatalog: structured?.capabilityCatalog,
-      instruction: `Use workspaceId ${gatewayWorkspaceId} for subsequent calls. This workspace executes on remote ${alias}.`,
+      ...(structured?.contextFingerprint !== undefined
+        ? { contextFingerprint: remapContext(structured.contextFingerprint) }
+        : {}),
+      ...(structured?.capabilityFingerprint !== undefined
+        ? { capabilityFingerprint: remapContext(structured.capabilityFingerprint) }
+        : {}),
+      ...(structured?.capabilityCatalog !== undefined
+        ? { capabilityCatalog: remapContext(structured.capabilityCatalog) }
+        : {}),
+      ...(structured?.capabilityGuides !== undefined
+        ? { capabilityGuides: remapContext(structured.capabilityGuides) }
+        : {}),
+      ...(structured?.agentsFiles !== undefined
+        ? { agentsFiles: remapContext(structured.agentsFiles) }
+        : {}),
+      ...(structured?.availableAgentsFiles !== undefined
+        ? { availableAgentsFiles: remapContext(structured.availableAgentsFiles) }
+        : {}),
+      ...(structured?.skills !== undefined ? { skills: remapContext(structured.skills) } : {}),
+      ...(structured?.agentProviders !== undefined
+        ? { agentProviders: remapContext(structured.agentProviders) }
+        : {}),
+      ...(structured?.agents !== undefined ? { agents: remapContext(structured.agents) } : {}),
+      ...(structured?.skillDiagnostics !== undefined
+        ? { skillDiagnostics: remapContext(structured.skillDiagnostics) }
+        : {}),
+      instruction: `${remoteInstruction}\nThis workspace executes on remote ${alias}.`,
     };
   }
 
@@ -140,6 +178,25 @@ export class RemoteWorkspaceRelay {
     input: { path?: string; paths?: string[]; recursive?: boolean },
   ): Promise<ToolCallResult> {
     return this.callWorkspaceTool(gatewayWorkspaceId, "delete", input);
+  }
+
+  async bash(
+    gatewayWorkspaceId: string,
+    input: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "bash", input);
+  }
+
+  async capability(
+    gatewayWorkspaceId: string,
+    input: {
+      name: string;
+      action: "describe" | "run";
+      arguments?: Record<string, unknown>;
+      file?: unknown;
+    },
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "capability", input);
   }
 
   private async callWorkspaceTool(
