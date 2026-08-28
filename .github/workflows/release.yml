@@ -5,13 +5,19 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing failed release tag to recover without moving it"
+        required: true
+        type: string
 
 permissions:
   contents: write
   id-token: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -26,9 +32,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
     steps:
-      - name: Checkout tagged commit
+      - name: Checkout release candidate
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -47,7 +54,7 @@ jobs:
         run: npm ci
 
       - name: Validate release tag
-        run: npm run release:tag-check -- "$GITHUB_REF_NAME"
+        run: npm run release:tag-check -- "$RELEASE_TAG"
 
       - name: Resolve release channel
         id: release-channel
@@ -62,14 +69,48 @@ jobs:
             echo "github_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Require tagged commit on main
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Require release tag and candidate on main
+        shell: bash
+        run: |
+          tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          git merge-base --is-ancestor "$tag_sha" origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            git merge-base --is-ancestor "$tag_sha" "$GITHUB_SHA"
+          fi
 
       - name: Build publish artifact
         run: npm run build
 
-      - name: Inspect published package
-        run: npm pack --dry-run
+      - name: Pack publish artifact
+        id: publish-package
+        shell: bash
+        run: |
+          package_dir="$RUNNER_TEMP/publish-package"
+          mkdir -p "$package_dir"
+          package_name="$(npm pack --pack-destination "$package_dir")"
+          package_path="$package_dir/$package_name"
+          test -f "$package_path"
+          echo "path=$package_path" >> "$GITHUB_OUTPUT"
+
+      - name: Verify failed-tag recovery artifact identity
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          tag_source="$RUNNER_TEMP/tag-source"
+          tag_package_dir="$RUNNER_TEMP/tag-package"
+          mkdir -p "$tag_source" "$tag_package_dir"
+          git archive "$RELEASE_TAG" | tar -x -C "$tag_source"
+          (
+            cd "$tag_source"
+            npm ci
+            npm run build
+            npm pack --pack-destination "$tag_package_dir" >/dev/null
+          )
+          tag_package="$(find "$tag_package_dir" -maxdepth 1 -name '*.tgz' -print -quit)"
+          test -n "$tag_package"
+          sha256sum "${{ steps.publish-package.outputs.path }}" "$tag_package"
+          cmp "${{ steps.publish-package.outputs.path }}" "$tag_package"
 
       - name: Check npm publication state
         id: npm-state
@@ -87,20 +128,20 @@ jobs:
         if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
+        run: npm publish "${{ steps.publish-package.outputs.path }}" --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
 
       - name: Publish to npm with Trusted Publishing
         if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN != 'true'
-        run: npm publish --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
+        run: npm publish "${{ steps.publish-package.outputs.path }}" --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
 
       - name: Prepare GitHub Release notes
         shell: bash
         run: |
-          manual_notes="docs/releases/${GITHUB_REF_NAME}.md"
+          manual_notes="docs/releases/${RELEASE_TAG}.md"
           if [[ -f "$manual_notes" ]]; then
             cp "$manual_notes" "$RUNNER_TEMP/release-notes.md"
           else
-            node scripts/release-version.mjs notes "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+            node scripts/release-version.mjs notes "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
           fi
 
       - name: Create GitHub Release
@@ -109,12 +150,12 @@ jobs:
           GH_PRERELEASE: ${{ steps.release-channel.outputs.github_prerelease }}
         shell: bash
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "GitHub Release $GITHUB_REF_NAME already exists; leaving it unchanged."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; leaving it unchanged."
           else
             prerelease_args=()
             if [[ "$GH_PRERELEASE" == "true" ]]; then
               prerelease_args+=(--prerelease)
             fi
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease_args[@]}"
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease_args[@]}"
           fi
