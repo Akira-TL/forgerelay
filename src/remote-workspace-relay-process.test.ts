@@ -30,7 +30,6 @@ const cleanProductEnv = Object.fromEntries(
 
 void test("gateway routes remote commands, process lifecycle, and capabilities to the execution instance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-processes-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -54,7 +53,7 @@ void test("gateway routes remote commands, process lifecycle, and capabilities t
   const bashHookConfig = (logPath: string, count = 1) => ({
     BeforeTool: Array.from({ length: count }, () => ({
       matcher: { tool: "bash" },
-      command: `node -e "require('node:fs').appendFileSync('${logPath}', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')"`,
+      command: `node -e "require('node:fs').appendFileSync(process.argv[1], process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_TOOL_NAME + '\\n')" "${logPath}"`,
       timeoutSeconds: 30,
       report: false,
     })),
@@ -247,12 +246,12 @@ void test("gateway routes remote commands, process lifecycle, and capabilities t
 
   const closed = await client.callTool({ name: "close_workspace", arguments: { workspaceId } });
   assert.equal(closed.isError, undefined, resultText(closed));
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 
 void test("gateway forwards remote Host activity queries without duplicating execution facts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-activity-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -323,13 +322,18 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   assert.equal(background.isError, undefined, resultText(background));
   const outputId = String(structuredContent(background).outputId);
   assert.ok(outputId.length > 0);
-  await new Promise((resolve) => setTimeout(resolve, 250));
-  const completionTrigger = await call("read", { workspaceId, path: "session-a.txt" }, sessionA);
-  assert.equal(completionTrigger.isError, undefined, resultText(completionTrigger));
-
-  const snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
+  let snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
   assert.equal(snapshotA.isError, undefined, resultText(snapshotA));
-  const activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+  let activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+  const completionDeadline = Date.now() + 5_000;
+  while (!activitiesA.some((activity) => activity.tool === "bash_result") && Date.now() < completionDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const completionTrigger = await call("read", { workspaceId, path: "session-a.txt" }, sessionA);
+    assert.equal(completionTrigger.isError, undefined, resultText(completionTrigger));
+    snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
+    assert.equal(snapshotA.isError, undefined, resultText(snapshotA));
+    activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+  }
   assert.equal(activitiesA.some((activity) => activity.tool === "read"), true);
   assert.equal(activitiesA.some((activity) => activity.tool === "bash"), true);
   assert.equal(activitiesA.some((activity) => activity.tool === "bash_result"), true);
@@ -391,6 +395,7 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   t.after(() => remoteAudit.close());
   assert.ok(remoteAudit.listActivitiesByTurn(turnA).length >= activitiesA.length);
   assert.ok(remoteAudit.listActivitiesByTurn(turnB).length >= activitiesB.length);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 
