@@ -107,15 +107,52 @@ export class RemoteWorkspaceRelay {
       limit?: number;
     },
   ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "read", input);
+  }
+
+  async write(
+    gatewayWorkspaceId: string,
+    input: { path: string; content: string },
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "write", input);
+  }
+
+  async edit(
+    gatewayWorkspaceId: string,
+    input: {
+      path?: string;
+      paths?: string[];
+      edits: Array<{ oldText: string; newText: string }>;
+    },
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "edit", input);
+  }
+
+  async rename(
+    gatewayWorkspaceId: string,
+    input: { path: string; newPath: string },
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "rename", input);
+  }
+
+  async delete(
+    gatewayWorkspaceId: string,
+    input: { path?: string; paths?: string[]; recursive?: boolean },
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "delete", input);
+  }
+
+  private async callWorkspaceTool(
+    gatewayWorkspaceId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
     try {
-      const result = await this.callRemoteTool(resolved.alias, resolved.remote, "read", {
+      const result = await this.callRemoteTool(resolved.alias, resolved.remote, name, {
+        ...args,
         workspaceId: route.remoteWorkspaceId,
-        ...(input.path !== undefined ? { path: input.path } : {}),
-        ...(input.paths !== undefined ? { paths: input.paths } : {}),
-        ...(input.offset !== undefined ? { offset: input.offset } : {}),
-        ...(input.limit !== undefined ? { limit: input.limit } : {}),
       });
       return remapToolResultWorkspaceId(result, route.remoteWorkspaceId, gatewayWorkspaceId);
     } catch (error) {

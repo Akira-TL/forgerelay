@@ -3400,14 +3400,19 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "write"),
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }, extra) => coreOperations.write(
-      { workspaceId, ...input },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
+    async ({ workspaceId, ...input }, extra) => {
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.write(workspaceId, input);
       }
-    ),
+      return coreOperations.write(
+        { workspaceId, ...input },
+        {
+          requestMeta: extra._meta,
+          signal: extra.signal,
+          sessionId: extra.sessionId,
+        },
+      );
+    },
   );
 
   registerAppTool(
@@ -3462,6 +3467,9 @@ export function createMcpServer(
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("edit requires exactly one of path or paths.");
       }
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.edit(workspaceId, { path, paths, edits });
+      }
       if (path !== undefined) {
         return coreOperations.edit(
           { workspaceId, path, edits },
@@ -3504,14 +3512,19 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, newPath }, extra) => coreOperations.rename(
-      { workspaceId, path, newPath },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
+    async ({ workspaceId, path, newPath }, extra) => {
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.rename(workspaceId, { path, newPath });
       }
-    ),
+      return coreOperations.rename(
+        { workspaceId, path, newPath },
+        {
+          requestMeta: extra._meta,
+          signal: extra.signal,
+          sessionId: extra.sessionId,
+        },
+      );
+    },
   );
 
   registerAppTool(
@@ -3551,6 +3564,9 @@ export function createMcpServer(
     async ({ workspaceId, path, paths, recursive }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("delete requires exactly one of path or paths.");
+      }
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.delete(workspaceId, { path, paths, recursive });
       }
       if (path !== undefined) {
         return coreOperations.delete(
