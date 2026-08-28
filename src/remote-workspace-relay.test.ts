@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import type { SpawnOptions } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +22,12 @@ import { ProcessManager } from "./process-sessions.js";
 import { createMcpServer, createServer } from "./server.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
+
+interface MutableChildProcessModule {
+  spawn: typeof import("node:child_process").spawn;
+}
+
+const childProcessModule = createRequire(import.meta.url)("node:child_process") as MutableChildProcessModule;
 
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>
@@ -531,20 +539,8 @@ void test("concurrent gateway sessions preserve every relayed workspace route", 
 void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway instances", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-restart-"));
 
-  const fakeBin = join(root, "bin");
   const sshLog = join(root, "ssh.log");
-  await mkdir(fakeBin, { recursive: true });
-  await writeFile(join(fakeBin, "ssh"), fakeSshRelaySource(), { mode: 0o755 });
-  const previousPath = process.env.PATH;
-  const previousSshLog = process.env.TEST_SSH_LOG;
-  process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
-  process.env.TEST_SSH_LOG = sshLog;
-  t.after(() => {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousSshLog === undefined) delete process.env.TEST_SSH_LOG;
-    else process.env.TEST_SSH_LOG = previousSshLog;
-  });
+  await installFakeSsh(t, root, sshLog);
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -637,20 +633,8 @@ void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway in
 void test("single-target SSH relay executes a remote workspace without ProxyJump", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-ssh-single-"));
 
-  const fakeBin = join(root, "bin");
   const sshLog = join(root, "ssh.log");
-  await mkdir(fakeBin, { recursive: true });
-  await writeFile(join(fakeBin, "ssh"), fakeSshRelaySource(), { mode: 0o755 });
-  const previousPath = process.env.PATH;
-  const previousSshLog = process.env.TEST_SSH_LOG;
-  process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
-  process.env.TEST_SSH_LOG = sshLog;
-  t.after(() => {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousSshLog === undefined) delete process.env.TEST_SSH_LOG;
-    else process.env.TEST_SSH_LOG = previousSshLog;
-  });
+  await installFakeSsh(t, root, sshLog);
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -913,6 +897,32 @@ async function startGatewayClient(
     workspaceStore.close();
   });
   return client;
+}
+
+async function installFakeSsh(t: TestContext, root: string, sshLog: string): Promise<void> {
+  const fakeSshPath = join(root, "fake-ssh.cjs");
+  await writeFile(fakeSshPath, fakeSshRelaySource());
+  const originalSpawn = childProcessModule.spawn;
+  childProcessModule.spawn = ((
+    command: string,
+    args: readonly string[] = [],
+    options: SpawnOptions = {},
+  ) => {
+    if (command !== "ssh") return originalSpawn(command, args, options);
+    return originalSpawn(process.execPath, [fakeSshPath, ...args], {
+      ...options,
+      env: {
+        ...process.env,
+        ...(options.env ?? {}),
+        TEST_SSH_LOG: sshLog,
+      },
+    });
+  }) as typeof childProcessModule.spawn;
+  syncBuiltinESMExports();
+  t.after(() => {
+    childProcessModule.spawn = originalSpawn;
+    syncBuiltinESMExports();
+  });
 }
 
 function fakeSshRelaySource(): string {
