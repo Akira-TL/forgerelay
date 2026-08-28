@@ -40,6 +40,7 @@ export interface ForgeRelayUserConfig {
 export interface ForgeRelayRemoteRecord {
   instanceId: string;
   target: string;
+  sshRoute?: string[];
   accessToken: string;
   refreshToken: string;
   accessTokenExpiresAt: number;

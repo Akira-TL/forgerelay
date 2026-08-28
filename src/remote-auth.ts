@@ -47,9 +47,10 @@ export async function authenticateRemote(
 
 export async function refreshRemoteAuthentication(
   remote: ForgeRelayRemoteRecord,
+  endpointInput: string = remote.target,
 ): Promise<ForgeRelayRemoteRecord> {
   const refreshed = await exchangeCliCredential(
-    normalizeRemoteServiceTarget(remote.target),
+    normalizeRemoteServiceTarget(endpointInput),
     { refresh_token: remote.refreshToken },
   );
   if (refreshed.instanceId !== remote.instanceId) {
@@ -70,9 +71,13 @@ export function isRemoteMcpUnauthorized(error: unknown): boolean {
   return error instanceof UnauthorizedError;
 }
 
-export async function verifyRemoteMcp(remote: ForgeRelayRemoteRecord): Promise<void> {
+export async function verifyRemoteMcp(
+  remote: ForgeRelayRemoteRecord,
+  endpointInput: string = remote.target,
+): Promise<void> {
+  const endpoint = normalizeRemoteServiceTarget(endpointInput);
   const client = new Client({ name: "forgerelay-cli", version: packageVersion });
-  const transport = new StreamableHTTPClientTransport(publicEndpointUrl(remote.target, "mcp"), {
+  const transport = new StreamableHTTPClientTransport(publicEndpointUrl(endpoint, "mcp"), {
     requestInit: {
       headers: { Authorization: `Bearer ${remote.accessToken}` },
     },

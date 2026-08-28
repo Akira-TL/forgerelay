@@ -50,9 +50,16 @@ import {
   authenticateRemote,
   defaultRemoteAlias,
   isRemoteMcpUnauthorized,
+  normalizeRemoteServiceTarget,
   refreshRemoteAuthentication,
   verifyRemoteMcp,
 } from "./remote-auth.js";
+import {
+  defaultSshRouteAlias,
+  parseSshRoute,
+  readRemoteOwnerToken,
+  withRemoteServiceEndpoint,
+} from "./remote-transport.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "help" | "version";
 const require = createRequire(import.meta.url);
@@ -286,12 +293,16 @@ interface AuthCommandArgs {
   target: string;
   alias?: string;
   ownerToken?: string;
+  sshRoute?: string[];
+  sshAuth: boolean;
 }
 
 function parseAuthCommandArgs(args: string[]): AuthCommandArgs {
   let target: string | undefined;
   let alias: string | undefined;
   let ownerToken: string | undefined;
+  let sshRoute: string[] | undefined;
+  let sshAuth = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -305,19 +316,31 @@ function parseAuthCommandArgs(args: string[]): AuthCommandArgs {
       if (!ownerToken) throw new Error("Missing value for --token.");
       continue;
     }
+    if (arg === "-J") {
+      const route = args[++index];
+      if (!route) throw new Error("Missing value for -J.");
+      sshRoute = parseSshRoute(route);
+      continue;
+    }
+    if (arg === "--ssh-auth") {
+      sshAuth = true;
+      continue;
+    }
     if (arg.startsWith("-")) throw new Error(`Unknown auth option: ${arg}`);
     if (target) throw new Error(`Unexpected auth argument: ${arg}`);
     target = arg;
   }
 
   if (!target) throw new Error("Missing remote service target.");
-  return { target, alias, ownerToken };
+  if (sshAuth && !sshRoute) throw new Error("--ssh-auth requires -J <ssh-route>.");
+  if (sshAuth && ownerToken) throw new Error("--ssh-auth and --token cannot be used together.");
+  return { target, alias, ownerToken, sshRoute, sshAuth };
 }
 
 async function resolveAuthOwnerToken(ownerToken: string | undefined): Promise<string> {
   if (ownerToken) return ownerToken;
   if (!input.isTTY || !output.isTTY) {
-    throw new Error("Missing owner token. Pass --token or run in an interactive terminal.");
+    throw new Error("Missing owner token. Pass --token, use --ssh-auth with -J, or run in an interactive terminal.");
   }
   const result = await prompts.password({
     message: "Remote ForgeRelay owner token",
@@ -327,8 +350,21 @@ async function resolveAuthOwnerToken(ownerToken: string | undefined): Promise<st
   return String(result);
 }
 
+function localOwnerToken(): string {
+  const token = process.env.FORGERELAY_OAUTH_OWNER_TOKEN
+    ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN
+    ?? loadDevspaceFiles().auth.ownerToken;
+  if (!token) throw new Error("ForgeRelay owner token is not configured on this machine.");
+  return token;
+}
+
 async function runAuthCommand(args: string[]): Promise<void> {
   const [subcommand, ...rest] = args;
+  if (subcommand === "__owner-token") {
+    if (rest.length > 0) throw new Error("Internal owner-token command does not accept arguments.");
+    process.stdout.write(`${localOwnerToken()}\n`);
+    return;
+  }
   if (subcommand === "list") {
     if (rest.length > 0) throw new Error("forgerelay auth list does not accept additional arguments.");
     const remotes = loadDevspaceFiles().auth.remotes ?? {};
@@ -361,36 +397,56 @@ async function runAuthCommand(args: string[]): Promise<void> {
     const [alias, ...extra] = rest;
     if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth test <alias>");
     const files = loadDevspaceFiles();
-    let remote = files.auth.remotes?.[alias];
-    if (!remote) throw new Error(`Unknown remote alias: ${alias}`);
+    const storedRemote = files.auth.remotes?.[alias];
+    if (!storedRemote) throw new Error(`Unknown remote alias: ${alias}`);
+    let remote = storedRemote;
 
-    let refreshed = false;
-    if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
-      remote = await refreshRemoteAuthentication(remote);
-      writeForgeRelayRemote(alias, remote);
-      refreshed = true;
-    }
+    await withRemoteServiceEndpoint(remote.target, remote.sshRoute, async (endpoint) => {
+      let refreshed = false;
+      if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+        remote = await refreshRemoteAuthentication(remote, endpoint);
+        writeForgeRelayRemote(alias, remote);
+        refreshed = true;
+      }
 
-    try {
-      await verifyRemoteMcp(remote);
-    } catch (error) {
-      if (refreshed || !isRemoteMcpUnauthorized(error)) throw error;
-      remote = await refreshRemoteAuthentication(remote);
-      writeForgeRelayRemote(alias, remote);
-      await verifyRemoteMcp(remote);
-    }
+      try {
+        await verifyRemoteMcp(remote, endpoint);
+      } catch (error) {
+        if (refreshed || !isRemoteMcpUnauthorized(error)) throw error;
+        remote = await refreshRemoteAuthentication(remote, endpoint);
+        writeForgeRelayRemote(alias, remote);
+        await verifyRemoteMcp(remote, endpoint);
+      }
+    });
     console.log(`${alias}\tok\t${remote.instanceId}`);
     return;
   }
 
   const parsed = parseAuthCommandArgs(args);
-  const ownerToken = await resolveAuthOwnerToken(parsed.ownerToken);
-  const remote = await authenticateRemote(parsed.target, ownerToken);
+  const target = normalizeRemoteServiceTarget(parsed.target);
+  const authenticated = await withRemoteServiceEndpoint(
+    target,
+    parsed.sshRoute,
+    async (endpoint) => {
+      const ownerToken = parsed.sshAuth
+        ? await readRemoteOwnerToken(parsed.sshRoute ?? [])
+        : await resolveAuthOwnerToken(parsed.ownerToken);
+      return authenticateRemote(endpoint, ownerToken);
+    },
+  );
+  const remote = {
+    ...authenticated,
+    target,
+    ...(parsed.sshRoute ? { sshRoute: parsed.sshRoute } : {}),
+  };
   const files = loadDevspaceFiles();
   const existingAlias = Object.entries(files.auth.remotes ?? {}).find(
     ([, record]) => record.instanceId === remote.instanceId,
   )?.[0];
-  const alias = parsed.alias?.trim() || existingAlias || defaultRemoteAlias(remote.target);
+  const defaultAlias = parsed.sshRoute
+    ? defaultSshRouteAlias(parsed.sshRoute)
+    : defaultRemoteAlias(remote.target);
+  const alias = parsed.alias?.trim() || existingAlias || defaultAlias;
   if (!files.auth.instanceId) {
     writeDevspaceAuth({ ...files.auth, instanceId: generateInstanceId() });
   }
@@ -473,6 +529,7 @@ function printHelp(): void {
       "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
       "  forgerelay agents show <id>",
       "  forgerelay auth <target> [--alias <name>] [--token <owner-token>]",
+      "  forgerelay auth -J <ssh-route> <target> [--alias <name>] [--token <owner-token>|--ssh-auth]",
       "  forgerelay auth list",
       "  forgerelay auth test <alias>",
       "  forgerelay auth rename <old-alias> <new-alias>",
