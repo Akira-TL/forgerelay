@@ -90,12 +90,28 @@ function hookTag() {
   } catch {
     throw new Error("FORGERELAY_HOOK_PAYLOAD is not valid JSON");
   }
-  const command = typeof payload.command === "string" ? payload.command : "";
-  const match = /git\s+push\s+origin\s+(v\d+\.\d+\.\d+(?:-rc\.\d+)?)/.exec(command);
-  if (!match?.[1]) {
+  const command = typeof payload.originalCommand === "string"
+    ? payload.originalCommand
+    : typeof payload.command === "string"
+      ? payload.command
+      : "";
+  const pushMatch = /git\s+push\b([^;&|\n]*)/.exec(command);
+  if (!pushMatch?.[0] || !/\borigin\b/.test(pushMatch[0])) {
+    throw new Error("release Hook payload does not contain an origin release tag push");
+  }
+  const pushCommand = pushMatch[0];
+  if (/(?:^|\s)(?:-f|--force(?:-with-lease)?)(?:=\S*)?(?=$|\s)/.test(pushCommand)
+    || /(?:^|\s)\+(?:refs\/tags\/)?v\d+\.\d+\.\d+(?:-rc\.\d+)?(?=$|\s)/.test(pushCommand)) {
+    throw new Error("force push is not allowed for release tags");
+  }
+  if (/(?:^|\s)(?:-d|--delete)(?=$|\s)/.test(pushCommand)) {
+    throw new Error("deleting a release tag is not allowed");
+  }
+  const tagMatch = /(?:^|\s)(?:tag\s+)?(?:refs\/tags\/)?(v\d+\.\d+\.\d+(?:-rc\.\d+)?)(?=$|\s)/.exec(pushCommand);
+  if (!tagMatch?.[1]) {
     throw new Error("release Hook payload does not contain a release tag push");
   }
-  return match[1];
+  return tagMatch[1];
 }
 
 function checkHookProof() {

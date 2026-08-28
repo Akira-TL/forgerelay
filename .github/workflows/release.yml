@@ -5,37 +5,35 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing failed release tag to recover without moving it"
-        required: true
-        type: string
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   verify:
     name: Cloud CI
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   release:
-    name: Publish npm and GitHub Release
+    name: Publish verified npm artifact
     needs: verify
     if: github.repository == 'Akira-TL/forgerelay'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     env:
-      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_PACKAGE_DIR: .release-package
 
     steps:
-      - name: Checkout release candidate
+      - name: Checkout verified release
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -43,119 +41,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 22.19.0
+          node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
-      - name: Use npm 11
-        run: npm install --global npm@11
+      - name: Use pinned publishing npm
+        run: npm install --global npm@11.19.1
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Download verified npm artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: npm-package
+          path: .release-package
 
-      - name: Validate release tag
-        run: npm run release:tag-check -- "$RELEASE_TAG"
-
-      - name: Resolve release channel
-        id: release-channel
-        shell: bash
-        run: |
-          package_version="$(node -p "require('./package.json').version")"
-          if [[ "$package_version" == *-rc.* ]]; then
-            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
-            echo "github_prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
-            echo "github_prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Require release tag and candidate on main
-        shell: bash
-        run: |
-          tag_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
-          git merge-base --is-ancestor "$tag_sha" origin/main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            git merge-base --is-ancestor "$tag_sha" "$GITHUB_SHA"
-          fi
-
-      - name: Build publish artifact
-        run: npm run build
-
-      - name: Pack publish artifact
-        id: publish-package
-        shell: bash
-        run: |
-          package_dir="$RUNNER_TEMP/publish-package"
-          mkdir -p "$package_dir"
-          package_name="$(npm pack --pack-destination "$package_dir")"
-          package_path="$package_dir/$package_name"
-          test -f "$package_path"
-          echo "path=$package_path" >> "$GITHUB_OUTPUT"
-
-      - name: Verify failed-tag recovery artifact identity
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          tag_source="$RUNNER_TEMP/tag-source"
-          tag_package_dir="$RUNNER_TEMP/tag-package"
-          mkdir -p "$tag_source" "$tag_package_dir"
-          git archive "$RELEASE_TAG" | tar -x -C "$tag_source"
-          (
-            cd "$tag_source"
-            npm ci
-            npm run build
-            npm pack --pack-destination "$tag_package_dir" >/dev/null
-          )
-          tag_package="$(find "$tag_package_dir" -maxdepth 1 -name '*.tgz' -print -quit)"
-          test -n "$tag_package"
-          sha256sum "${{ steps.publish-package.outputs.path }}" "$tag_package"
-          cmp "${{ steps.publish-package.outputs.path }}" "$tag_package"
-
-      - name: Check npm publication state
-        id: npm-state
-        shell: bash
-        run: |
-          package_name="$(node -p "require('./package.json').name")"
-          package_version="$(node -p "require('./package.json').version")"
-          if npm view "${package_name}@${package_version}" version --json >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to npm with bootstrap token
-        if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN == 'true'
+      - name: Publish verified release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "${{ steps.publish-package.outputs.path }}" --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
-
-      - name: Publish to npm with Trusted Publishing
-        if: steps.npm-state.outputs.published != 'true' && env.HAS_NPM_TOKEN != 'true'
-        run: npm publish "${{ steps.publish-package.outputs.path }}" --access public --tag "${{ steps.release-channel.outputs.npm_tag }}"
-
-      - name: Prepare GitHub Release notes
-        shell: bash
-        run: |
-          manual_notes="docs/releases/${RELEASE_TAG}.md"
-          if [[ -f "$manual_notes" ]]; then
-            cp "$manual_notes" "$RUNNER_TEMP/release-notes.md"
-          else
-            node scripts/release-version.mjs notes "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
-          fi
-
-      - name: Create GitHub Release
-        env:
           GH_TOKEN: ${{ github.token }}
-          GH_PRERELEASE: ${{ steps.release-channel.outputs.github_prerelease }}
-        shell: bash
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $RELEASE_TAG already exists; leaving it unchanged."
-          else
-            prerelease_args=()
-            if [[ "$GH_PRERELEASE" == "true" ]]; then
-              prerelease_args+=(--prerelease)
-            fi
-            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease_args[@]}"
-          fi
+        run: npm run release:publish

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const NODE_VERSION = "22.19.0";
 const NPM_VERSION = "10.9.3";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const NODE_VERSION = readFileSync(join(repoRoot, ".nvmrc"), "utf8").trim();
 const debugRoot = join(repoRoot, ".forgerelay-debug");
 const sandbox = mkdtempSync(join(ensureDirectory(debugRoot), "release-parity-node22-"));
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -29,15 +29,11 @@ try {
     ["npm", "ci", "--no-audit", "--no-fund"],
     `Node ${NODE_VERSION} / npm ${NPM_VERSION} install`,
   );
-  runNodeNpm(sandbox, env, ["npm", "run", "release:check"], "Release metadata");
-  runNodeNpm(sandbox, env, ["npm", "run", "typecheck"], "Typecheck");
-  runNodeNpm(sandbox, env, ["npm", "test"], "Full test suite");
-  runNodeNpm(sandbox, env, ["npm", "run", "build"], "Build");
-  runNodeNpm(sandbox, env, ["npm", "run", "lsp:interop"], "Optional LSP interoperability");
-  runNode(sandbox, env, ["dist/cli.js", "doctor"], "Doctor");
+  runNodeNpm(sandbox, env, ["npm", "run", "ci:verify"], "Cloud verification entrypoint");
+  runNodeNpm(sandbox, env, ["npm", "run", "release:pack"], "Cloud release packaging");
 
   console.log(
-    `Release parity passed with the cloud CI command surface on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
+    `Release parity passed through ci:verify and release:pack on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
   );
 } finally {
   rmSync(sandbox, {
@@ -90,10 +86,6 @@ function runNodeNpm(cwd, env, command, label) {
     ["--yes", "-p", `node@${NODE_VERSION}`, "-p", `npm@${NPM_VERSION}`, "--", ...command],
     label,
   );
-}
-
-function runNode(cwd, env, args, label) {
-  run(cwd, env, ["--yes", `node@${NODE_VERSION}`, ...args], label);
 }
 
 function run(cwd, env, args, label) {
