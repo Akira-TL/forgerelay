@@ -81,6 +81,7 @@ test("cloud verification produces one reusable npm package on Linux", async () =
   assert.match(workflow, /if:\s*runner\.os == 'Linux'[\s\S]*run:\s*npm run release:pack/);
   assert.match(workflow, /uses:\s*actions\/upload-artifact@v4/);
   assert.match(workflow, /name:\s*npm-package/);
+  assert.match(workflow, /include-hidden-files:\s*true/);
   assert.match(workflow, /overwrite:\s*true/);
 });
 

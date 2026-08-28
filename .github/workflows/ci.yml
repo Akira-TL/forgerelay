@@ -47,5 +47,6 @@ jobs:
           name: npm-package
           path: .release-artifacts/*.tgz
           if-no-files-found: error
+          include-hidden-files: true
           overwrite: true
           retention-days: 7
