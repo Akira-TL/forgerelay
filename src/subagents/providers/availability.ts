@@ -2,26 +2,26 @@ import { spawnSync } from "node:child_process";
 import { delimiter, resolve } from "node:path";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import {
-  LOCAL_AGENT_PROVIDERS,
-  type LocalAgentProvider,
+  SUBAGENT_PROVIDERS,
+  type SubagentProvider,
 } from "../profiles.js";
 
-export interface LocalAgentProviderAvailability {
-  name: LocalAgentProvider;
+export interface SubagentProviderAvailability {
+  name: SubagentProvider;
   available: boolean;
   reason?: string;
 }
 
-export function getLocalAgentProviderAvailabilitySnapshot(
+export function getSubagentProviderAvailabilitySnapshot(
   env: NodeJS.ProcessEnv = process.env,
-): LocalAgentProviderAvailability[] {
-  return LOCAL_AGENT_PROVIDERS.map((provider) => checkLocalAgentProviderAvailability(provider, env));
+): SubagentProviderAvailability[] {
+  return SUBAGENT_PROVIDERS.map((provider) => checkSubagentProviderAvailability(provider, env));
 }
 
-export function checkLocalAgentProviderAvailability(
-  provider: LocalAgentProvider,
+export function checkSubagentProviderAvailability(
+  provider: SubagentProvider,
   env: NodeJS.ProcessEnv = process.env,
-): LocalAgentProviderAvailability {
+): SubagentProviderAvailability {
   switch (provider) {
     case "codex":
       return packageAvailability(provider, "@openai/codex-sdk");
@@ -40,19 +40,19 @@ export function checkLocalAgentProviderAvailability(
   }
 }
 
-export function assertLocalAgentProviderAvailable(
-  provider: LocalAgentProvider,
+export function assertSubagentProviderAvailable(
+  provider: SubagentProvider,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  const availability = checkLocalAgentProviderAvailability(provider, env);
+  const availability = checkSubagentProviderAvailability(provider, env);
   if (availability.available) return;
   throw new Error(
     `${provider} provider is not available: ${availability.reason ?? "provider preflight failed"}`,
   );
 }
 
-export function formatLocalAgentProviderAvailabilitySummary(
-  providers: LocalAgentProviderAvailability[],
+export function formatSubagentProviderAvailabilitySummary(
+  providers: SubagentProviderAvailability[],
 ): string {
   const available = providers
     .filter((provider) => provider.available)
@@ -67,9 +67,9 @@ export function formatLocalAgentProviderAvailabilitySummary(
 }
 
 function packageAvailability(
-  provider: LocalAgentProvider,
+  provider: SubagentProvider,
   packageName: string,
-): LocalAgentProviderAvailability {
+): SubagentProviderAvailability {
   try {
     import.meta.resolve(packageName);
     return { name: provider, available: true };
@@ -83,10 +83,10 @@ function packageAvailability(
 }
 
 function commandAvailability(
-  provider: LocalAgentProvider,
+  provider: SubagentProvider,
   command: string,
   options: { env?: NodeJS.ProcessEnv } = {},
-): LocalAgentProviderAvailability {
+): SubagentProviderAvailability {
   const executable = resolveCommand(command, options.env);
   if (!executable) {
     return {

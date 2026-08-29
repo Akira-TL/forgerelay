@@ -12,11 +12,11 @@ import {
   extractPiStreamingText,
   piCommandEnvironment,
 } from "./adapters/pi.js";
-import { createLocalAgentAdapter } from "./registry.js";
+import { createSubagentProviderAdapter } from "./registry.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
-import type { LocalAgentProvider } from "../profiles.js";
+import type { SubagentProvider } from "../profiles.js";
 
-const providers: LocalAgentProvider[] = [
+const providers: SubagentProvider[] = [
   "codex",
   "claude",
   "opencode",
@@ -26,7 +26,7 @@ const providers: LocalAgentProvider[] = [
 ];
 
 for (const provider of providers) {
-  const adapter = createLocalAgentAdapter(provider);
+  const adapter = createSubagentProviderAdapter(provider);
   assert.equal(adapter.provider, provider);
   assert.equal(typeof adapter.run, "function");
 }

@@ -4,9 +4,9 @@ import { basename, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { ServerConfig } from "../config.js";
 
-export type LocalAgentProvider = "codex" | "claude" | "opencode" | "pi" | "cursor" | "copilot";
+export type SubagentProvider = "codex" | "claude" | "opencode" | "pi" | "cursor" | "copilot";
 
-export const LOCAL_AGENT_PROVIDERS: readonly LocalAgentProvider[] = [
+export const SUBAGENT_PROVIDERS: readonly SubagentProvider[] = [
   "codex",
   "claude",
   "opencode",
@@ -15,10 +15,10 @@ export const LOCAL_AGENT_PROVIDERS: readonly LocalAgentProvider[] = [
   "copilot",
 ];
 
-export interface LocalAgentProfile {
+export interface SubagentProfile {
   name: string;
   description: string;
-  provider: LocalAgentProvider;
+  provider: SubagentProvider;
   model?: string;
   thinking?: string;
   filePath: string;
@@ -26,10 +26,10 @@ export interface LocalAgentProfile {
   disabled: boolean;
 }
 
-export interface LocalAgentProfileSummary {
+export interface SubagentProfileSummary {
   name: string;
   description: string;
-  provider: LocalAgentProvider;
+  provider: SubagentProvider;
   model?: string;
   thinking?: string;
 }
@@ -40,12 +40,12 @@ interface ParsedFrontmatter {
 }
 
 const FRONTMATTER_DELIMITER = "---";
-const PROVIDERS = new Set<LocalAgentProvider>(LOCAL_AGENT_PROVIDERS);
+const PROVIDERS = new Set<SubagentProvider>(SUBAGENT_PROVIDERS);
 
-export async function loadLocalAgentProfiles(
+export async function loadSubagentProfiles(
   config: ServerConfig,
   workspaceRoot: string,
-): Promise<LocalAgentProfile[]> {
+): Promise<SubagentProfile[]> {
   if (!config.subagents) return [];
 
   const profileDirs = [
@@ -53,7 +53,7 @@ export async function loadLocalAgentProfiles(
     join(workspaceRoot, ".devspace", "agents"),
     join(workspaceRoot, ".forgerelay", "agents"),
   ];
-  const profilesByName = new Map<string, LocalAgentProfile>();
+  const profilesByName = new Map<string, SubagentProfile>();
 
   for (const directory of profileDirs) {
     for (const profile of await loadProfilesFromDirectory(directory)) {
@@ -66,9 +66,9 @@ export async function loadLocalAgentProfiles(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function summarizeLocalAgentProfile(
-  profile: LocalAgentProfile,
-): LocalAgentProfileSummary {
+export function summarizeSubagentProfile(
+  profile: SubagentProfile,
+): SubagentProfileSummary {
   return {
     name: profile.name,
     description: profile.description,
@@ -78,12 +78,12 @@ export function summarizeLocalAgentProfile(
   };
 }
 
-async function loadProfilesFromDirectory(directory: string): Promise<LocalAgentProfile[]> {
+async function loadProfilesFromDirectory(directory: string): Promise<SubagentProfile[]> {
   const resolvedDirectory = resolve(directory);
   if (!existsSync(resolvedDirectory)) return [];
 
   const entries = await readdir(resolvedDirectory, { withFileTypes: true });
-  const profiles: LocalAgentProfile[] = [];
+  const profiles: SubagentProfile[] = [];
 
   for (const entry of entries) {
     if (!entry.isFile()) continue;
@@ -100,7 +100,7 @@ async function loadProfilesFromDirectory(directory: string): Promise<LocalAgentP
   return profiles;
 }
 
-async function loadProfileFile(filePath: string): Promise<LocalAgentProfile> {
+async function loadProfileFile(filePath: string): Promise<SubagentProfile> {
   const content = await readFile(filePath, "utf8");
   const parsed = parseFrontmatter(content, filePath);
   return profileFromFrontmatter(parsed.frontmatter, parsed.body, filePath);
@@ -145,7 +145,7 @@ function profileFromFrontmatter(
   frontmatter: Record<string, unknown>,
   body: string,
   filePath: string,
-): LocalAgentProfile {
+): SubagentProfile {
   const name = readString(frontmatter, "name") ?? basename(filePath, ".md");
   const description = readString(frontmatter, "description");
   const provider = readProvider(frontmatter, filePath);
@@ -165,21 +165,21 @@ function profileFromFrontmatter(
   };
 }
 
-function readProvider(frontmatter: Record<string, unknown>, filePath: string): LocalAgentProvider {
+function readProvider(frontmatter: Record<string, unknown>, filePath: string): SubagentProvider {
   const provider = readString(frontmatter, "provider");
   if (!provider) {
     throw new Error(`Subagent profile is missing provider: ${filePath}`);
   }
-  if (!PROVIDERS.has(provider as LocalAgentProvider)) {
+  if (!PROVIDERS.has(provider as SubagentProvider)) {
     throw new Error(
       `Subagent profile provider must be codex, claude, opencode, pi, cursor, or copilot: ${filePath}`,
     );
   }
-  return provider as LocalAgentProvider;
+  return provider as SubagentProvider;
 }
 
-export function isLocalAgentProvider(value: string): value is LocalAgentProvider {
-  return PROVIDERS.has(value as LocalAgentProvider);
+export function isSubagentProvider(value: string): value is SubagentProvider {
+  return PROVIDERS.has(value as SubagentProvider);
 }
 
 function readString(frontmatter: Record<string, unknown>, key: string): string | undefined {

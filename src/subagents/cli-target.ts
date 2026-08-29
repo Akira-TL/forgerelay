@@ -1,35 +1,35 @@
 import {
-  isLocalAgentProvider,
-  LOCAL_AGENT_PROVIDERS,
-  type LocalAgentProfile,
-  type LocalAgentProvider,
+  isSubagentProvider,
+  SUBAGENT_PROVIDERS,
+  type SubagentProfile,
+  type SubagentProvider,
 } from "./profiles.js";
 
-export interface ParsedLocalAgentRunArgs {
+export interface ParsedSubagentRunArgs {
   target: string;
   prompt: string;
   model?: string;
   thinking?: string;
 }
 
-export type LocalAgentTarget =
+export type SubagentTarget =
   | {
       kind: "profile";
       name: string;
-      provider: LocalAgentProvider;
+      provider: SubagentProvider;
       model?: string;
       thinking?: string;
-      profile: LocalAgentProfile;
+      profile: SubagentProfile;
     }
   | {
       kind: "provider";
-      name: LocalAgentProvider;
-      provider: LocalAgentProvider;
+      name: SubagentProvider;
+      provider: SubagentProvider;
       model?: string;
       thinking?: string;
     };
 
-export function parseLocalAgentRunArgs(args: string[]): ParsedLocalAgentRunArgs {
+export function parseSubagentRunArgs(args: string[]): ParsedSubagentRunArgs {
   const [target, ...rest] = args;
   if (!target) {
     throw new Error('Usage: forgerelay agents run <profile-or-provider-or-id> [--model <model>] [--thinking <level>] "<prompt>"');
@@ -77,12 +77,12 @@ export function parseLocalAgentRunArgs(args: string[]): ParsedLocalAgentRunArgs 
   return { target, prompt, model, thinking };
 }
 
-export function resolveLocalAgentTarget(
+export function resolveSubagentTarget(
   target: string,
-  profiles: LocalAgentProfile[],
+  profiles: SubagentProfile[],
   modelOverride?: string,
   thinkingOverride?: string,
-): LocalAgentTarget | undefined {
+): SubagentTarget | undefined {
   const profile = profiles.find((candidate) => candidate.name === target);
   if (profile) {
     return {
@@ -95,7 +95,7 @@ export function resolveLocalAgentTarget(
     };
   }
 
-  if (isLocalAgentProvider(target)) {
+  if (isSubagentProvider(target)) {
     return {
       kind: "provider",
       name: target,
@@ -108,11 +108,11 @@ export function resolveLocalAgentTarget(
   return undefined;
 }
 
-export function formatAvailableLocalAgentTargets(profiles: LocalAgentProfile[]): string {
+export function formatAvailableSubagentTargets(profiles: SubagentProfile[]): string {
   const profileNames = profiles.map((profile) => profile.name);
   const parts = [
     profileNames.length > 0 ? `profiles: ${profileNames.join(", ")}` : undefined,
-    `providers: ${LOCAL_AGENT_PROVIDERS.join(", ")}`,
+    `providers: ${SUBAGENT_PROVIDERS.join(", ")}`,
   ].filter(Boolean);
   return parts.join("; ");
 }

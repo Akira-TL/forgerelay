@@ -38,8 +38,8 @@ import {
   type SkillReadResolution,
 } from "./skills.js";
 import {
-  loadLocalAgentProfiles,
-  type LocalAgentProfile,
+  loadSubagentProfiles,
+  type SubagentProfile,
 } from "./subagents/profiles.js";
 
 export interface LoadedAgentsFile {
@@ -71,7 +71,7 @@ export interface Workspace {
   skills: LoadedSkills["skills"];
   skillDiagnostics: LoadedSkills["diagnostics"];
   capabilityGuides: CapabilityGuide[];
-  agentProfiles: LocalAgentProfile[];
+  agentProfiles: SubagentProfile[];
   activatedSkillDirs: Set<string>;
   activatedCapabilityGuideDirs: Set<string>;
   scannedInstructionDirs: Set<string>;
@@ -995,7 +995,7 @@ export class WorkspaceRegistry {
   private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     Object.assign(workspace, this.loadSkillsForWorkspace(workspace.root));
     workspace.capabilityGuides = loadCapabilityGuides(this.config);
-    workspace.agentProfiles = await loadLocalAgentProfiles(this.config, workspace.root);
+    workspace.agentProfiles = await loadSubagentProfiles(this.config, workspace.root);
     workspace.scannedInstructionDirs.clear();
     workspace.knownInstructionPathsByDir.clear();
     workspace.loadedInstructionRealPaths.clear();
@@ -1204,7 +1204,7 @@ export class WorkspaceRegistry {
       worktree: input.worktree,
       ...this.loadSkillsForWorkspace(input.root),
       capabilityGuides: loadCapabilityGuides(this.config),
-      agentProfiles: await loadLocalAgentProfiles(this.config, input.root),
+      agentProfiles: await loadSubagentProfiles(this.config, input.root),
       activatedSkillDirs: new Set(),
       activatedCapabilityGuideDirs: new Set(),
       scannedInstructionDirs: new Set(),

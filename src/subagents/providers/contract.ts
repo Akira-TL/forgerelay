@@ -1,24 +1,24 @@
-import type { LocalAgentProvider } from "../profiles.js";
+import type { SubagentProvider } from "../profiles.js";
 
-export type LocalAgentWriteMode = "read_only" | "allowed" | "full_access";
+export type SubagentWriteMode = "read_only" | "allowed" | "full_access";
 
-export interface LocalAgentRunInput {
+export interface SubagentRunInput {
   prompt: string;
   workspace: string;
   providerSessionId?: string;
-  writeMode?: LocalAgentWriteMode;
+  writeMode?: SubagentWriteMode;
   model?: string;
   thinking?: string;
 }
 
-export interface LocalAgentRunResult {
+export interface SubagentRunResult {
   provider: string;
   providerSessionId: string | null;
   finalResponse: string;
   items: unknown[];
 }
 
-export interface LocalAgentAdapter {
-  readonly provider: LocalAgentProvider;
-  run(input: LocalAgentRunInput): Promise<LocalAgentRunResult>;
+export interface SubagentProviderAdapter {
+  readonly provider: SubagentProvider;
+  run(input: SubagentRunInput): Promise<SubagentRunResult>;
 }

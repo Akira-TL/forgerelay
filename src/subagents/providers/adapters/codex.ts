@@ -7,10 +7,10 @@ import type {
   ThreadOptions,
 } from "@openai/codex-sdk";
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
-  LocalAgentWriteMode,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
+  SubagentWriteMode,
 } from "../contract.js";
 
 interface CodexThreadLike {
@@ -25,7 +25,7 @@ interface CodexClientLike {
 
 type CodexFactory = (options?: CodexOptions) => CodexClientLike;
 
-function sandboxModeFor(writeMode: LocalAgentWriteMode | undefined): SandboxMode {
+function sandboxModeFor(writeMode: SubagentWriteMode | undefined): SandboxMode {
   switch (writeMode) {
     case "allowed":
       return "workspace-write";
@@ -37,7 +37,7 @@ function sandboxModeFor(writeMode: LocalAgentWriteMode | undefined): SandboxMode
   }
 }
 
-function threadOptionsFor(input: LocalAgentRunInput): ThreadOptions {
+function threadOptionsFor(input: SubagentRunInput): ThreadOptions {
   return {
     workingDirectory: input.workspace,
     sandboxMode: sandboxModeFor(input.writeMode),
@@ -47,7 +47,7 @@ function threadOptionsFor(input: LocalAgentRunInput): ThreadOptions {
   };
 }
 
-export class CodexSdkLocalAgentRuntime {
+export class CodexSdkSubagentRuntime {
   readonly provider = "codex" as const;
   private readonly codex: CodexClientLike;
 
@@ -55,7 +55,7 @@ export class CodexSdkLocalAgentRuntime {
     this.codex = codex;
   }
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const options = threadOptionsFor(input);
     const thread = input.providerSessionId
       ? this.codex.resumeThread(input.providerSessionId, options)
@@ -71,19 +71,19 @@ export class CodexSdkLocalAgentRuntime {
   }
 }
 
-export async function createCodexSdkLocalAgentRuntime(
+export async function createCodexSdkSubagentRuntime(
   options?: CodexOptions,
   codexFactory?: CodexFactory,
-): Promise<CodexSdkLocalAgentRuntime> {
+): Promise<CodexSdkSubagentRuntime> {
   const factory = codexFactory ?? (await defaultCodexFactory());
-  return new CodexSdkLocalAgentRuntime(factory(options));
+  return new CodexSdkSubagentRuntime(factory(options));
 }
 
-export class CodexLocalAgentAdapter implements LocalAgentAdapter {
+export class CodexSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "codex" as const;
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
-    const runtime = await createCodexSdkLocalAgentRuntime();
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
+    const runtime = await createCodexSdkSubagentRuntime();
     return runtime.run(input);
   }
 }

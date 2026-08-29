@@ -13,23 +13,23 @@ import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
 import { formatVisibleHookReports, HookRunner } from "./hooks.js";
 import { runHooksCommand } from "./hook-cli.js";
-import { runLocalAgentProvider } from "./subagents/providers/registry.js";
+import { runSubagentProvider } from "./subagents/providers/registry.js";
 import {
-  isLocalAgentProvider,
-  loadLocalAgentProfiles,
-  type LocalAgentProfile,
+  isSubagentProvider,
+  loadSubagentProfiles,
+  type SubagentProfile,
 } from "./subagents/profiles.js";
 import {
-  assertLocalAgentProviderAvailable,
-  formatLocalAgentProviderAvailabilitySummary,
+  assertSubagentProviderAvailable,
+  formatSubagentProviderAvailabilitySummary,
 } from "./subagents/providers/availability.js";
 import {
-  formatAvailableLocalAgentTargets,
-  parseLocalAgentRunArgs,
-  resolveLocalAgentTarget,
-} from "./subagents/targets.js";
-import { createLocalAgentStore, type LocalAgentRecord } from "./subagents/store.js";
-import type { LocalAgentRunResult } from "./subagents/providers/contract.js";
+  formatAvailableSubagentTargets,
+  parseSubagentRunArgs,
+  resolveSubagentTarget,
+} from "./subagents/cli-target.js";
+import { createSubagentSessionStore, type SubagentSession } from "./subagents/session-store.js";
+import type { SubagentRunResult } from "./subagents/providers/contract.js";
 import {
   ensureForgeRelayInstanceId,
   generateInstanceId,
@@ -255,7 +255,7 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
-  const { app, close, localAgentProviders } = createServer(config);
+  const { app, close, subagentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`forgerelay listening on http://${config.host}:${config.port}/mcp`);
     console.log(`public base url: ${config.publicBaseUrl}`);
@@ -267,7 +267,7 @@ async function serve(): Promise<void> {
     console.log("auth: Owner password approval required");
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
     if (config.subagents) {
-      console.log(`subagent providers: ${formatLocalAgentProviderAvailabilitySummary(localAgentProviders)}`);
+      console.log(`subagent providers: ${formatSubagentProviderAvailabilitySummary(subagentProviders)}`);
     }
   });
 
@@ -571,7 +571,7 @@ async function runAgentsCommand(args: string[]): Promise<void> {
 
 async function runAgentsList(): Promise<void> {
   const config = loadConfig();
-  const store = createLocalAgentStore(config);
+  const store = createSubagentSessionStore(config);
   const agents = store.list(resolveCurrentWorkspaceScope());
 
   if (agents.length === 0) {
@@ -585,18 +585,18 @@ async function runAgentsList(): Promise<void> {
 }
 
 async function runAgentsRun(args: string[]): Promise<void> {
-  const parsed = parseLocalAgentRunArgs(args);
+  const parsed = parseSubagentRunArgs(args);
 
   const config = loadConfig();
   const workspaceRoot = resolveCurrentWorkspaceRoot();
-  const store = createLocalAgentStore(config);
+  const store = createSubagentSessionStore(config);
   const existing = store.get(parsed.target);
 
   if (existing) {
-    if (!isLocalAgentProvider(existing.provider)) {
+    if (!isSubagentProvider(existing.provider)) {
       throw new Error(`Unknown subagent provider for existing session: ${existing.provider}`);
     }
-    assertLocalAgentProviderAvailable(existing.provider);
+    assertSubagentProviderAvailable(existing.provider);
     const promptFile = writeAgentPromptFile(parsed.prompt);
     store.update(existing.id, {
       status: "starting",
@@ -616,14 +616,14 @@ async function runAgentsRun(args: string[]): Promise<void> {
     return;
   }
 
-  const profiles = await loadLocalAgentProfiles(config, workspaceRoot);
-  const target = resolveLocalAgentTarget(parsed.target, profiles, parsed.model, parsed.thinking);
+  const profiles = await loadSubagentProfiles(config, workspaceRoot);
+  const target = resolveSubagentTarget(parsed.target, profiles, parsed.model, parsed.thinking);
   if (!target) {
     throw new Error(
-      `Unknown subagent profile, provider, or id: ${parsed.target}. Available ${formatAvailableLocalAgentTargets(profiles)}`,
+      `Unknown subagent profile, provider, or id: ${parsed.target}. Available ${formatAvailableSubagentTargets(profiles)}`,
     );
   }
-  assertLocalAgentProviderAvailable(target.provider);
+  assertSubagentProviderAvailable(target.provider);
 
   const promptFile = writeAgentPromptFile(parsed.prompt);
   const record = store.create({
@@ -644,7 +644,7 @@ async function runAgentsShow(args: string[]): Promise<void> {
   if (!id) throw new Error("Usage: forgerelay agents show <id>");
 
   const config = loadConfig();
-  const store = createLocalAgentStore(config);
+  const store = createSubagentSessionStore(config);
   let record = store.get(id);
   if (!record) throw new Error(`Unknown subagent id: ${id}`);
 
@@ -677,7 +677,7 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  const store = createLocalAgentStore(config);
+  const store = createSubagentSessionStore(config);
   const record = store.get(id);
   if (!record) throw new Error(`Unknown subagent id: ${id}`);
   const hooks = new HookRunner(config.hooks, config.logging);
@@ -697,12 +697,12 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   const hookReports = await hooks.run("SubagentStart", hookInvocation);
   store.update(record.id, { hookReports });
   try {
-    const profiles = await loadLocalAgentProfiles(config, record.workspaceRoot);
+    const profiles = await loadSubagentProfiles(config, record.workspaceRoot);
     const profile = profiles.find((candidate) => candidate.name === record.profileName);
     const prompt = await readFile(promptFile, "utf8");
     const result = profile
-      ? await runLocalAgentProfile(profile, record, prompt)
-      : await runRawLocalAgentProvider(record, prompt);
+      ? await runSubagentProfile(profile, record, prompt)
+      : await runRawSubagentProvider(record, prompt);
     hookReports.push(...await hooks.run("SubagentStop", {
       ...hookInvocation,
       payload: {
@@ -735,14 +735,14 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   }
 }
 
-async function runLocalAgentProfile(
-  profile: LocalAgentProfile,
-  record: LocalAgentRecord,
+async function runSubagentProfile(
+  profile: SubagentProfile,
+  record: SubagentSession,
   prompt: string,
-): Promise<LocalAgentRunResult> {
+): Promise<SubagentRunResult> {
   const body = profile.body.trim();
   const fullPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
-  return runLocalAgentProvider(profile.provider, {
+  return runSubagentProvider(profile.provider, {
     prompt: fullPrompt,
     workspace: record.workspaceRoot,
     providerSessionId: record.providerSessionId,
@@ -752,15 +752,15 @@ async function runLocalAgentProfile(
   });
 }
 
-async function runRawLocalAgentProvider(
-  record: LocalAgentRecord,
+async function runRawSubagentProvider(
+  record: SubagentSession,
   prompt: string,
-): Promise<LocalAgentRunResult> {
-  if (record.profileName !== record.provider || !isLocalAgentProvider(record.provider)) {
+): Promise<SubagentRunResult> {
+  if (record.profileName !== record.provider || !isSubagentProvider(record.provider)) {
     throw new Error(`Subagent profile not found: ${record.profileName}`);
   }
 
-  return runLocalAgentProvider(record.provider, {
+  return runSubagentProvider(record.provider, {
     prompt,
     workspace: record.workspaceRoot,
     providerSessionId: record.providerSessionId,
@@ -806,7 +806,7 @@ function resolveCurrentWorkspaceScope(): { workspaceId?: string; workspaceRoot: 
 }
 
 function formatAgentLine(agent: Pick<
-  LocalAgentRecord,
+  SubagentSession,
   "id" | "status" | "profileName" | "provider" | "model" | "thinking"
 >): string {
   const model = agent.model ? ` ${agent.model}` : "";

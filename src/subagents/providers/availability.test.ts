@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import {
-  checkLocalAgentProviderAvailability,
-  formatLocalAgentProviderAvailabilitySummary,
-  getLocalAgentProviderAvailabilitySnapshot,
+  checkSubagentProviderAvailability,
+  formatSubagentProviderAvailabilitySummary,
+  getSubagentProviderAvailabilitySnapshot,
 } from "./availability.js";
 
-assert.equal(checkLocalAgentProviderAvailability("codex").available, true);
+assert.equal(checkSubagentProviderAvailability("codex").available, true);
 
 {
-  const availability = checkLocalAgentProviderAvailability("pi", {
+  const availability = checkSubagentProviderAvailability("pi", {
     ...process.env,
     PI_COMMAND: "/definitely/missing/devspace-pi",
   });
@@ -17,7 +17,7 @@ assert.equal(checkLocalAgentProviderAvailability("codex").available, true);
 }
 
 {
-  const snapshot = getLocalAgentProviderAvailabilitySnapshot({
+  const snapshot = getSubagentProviderAvailabilitySnapshot({
     ...process.env,
     PI_COMMAND: "/definitely/missing/devspace-pi",
   });
@@ -29,7 +29,7 @@ assert.equal(checkLocalAgentProviderAvailability("codex").available, true);
 }
 
 assert.equal(
-  formatLocalAgentProviderAvailabilitySummary([
+  formatSubagentProviderAvailabilitySummary([
     { name: "codex", available: true },
     { name: "pi", available: false, reason: "pi executable not found" },
   ]),

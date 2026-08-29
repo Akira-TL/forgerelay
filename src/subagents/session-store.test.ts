@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalAgentStore } from "./store.js";
+import { SubagentSessionStore } from "./session-store.js";
 
 const root = mkdtempSync(join(tmpdir(), "devspace-local-agent-store-test-"));
-const stores: LocalAgentStore[] = [];
+const stores: SubagentSessionStore[] = [];
 
 try {
-  const store = new LocalAgentStore(root);
+  const store = new SubagentSessionStore(root);
   stores.push(store);
   const created = store.create({
     workspaceId: "ws_1",
@@ -65,7 +65,7 @@ try {
   assert.deepEqual(store.list({ workspaceId: "ws_other" }), []);
   assert.deepEqual(store.list({ workspaceRoot: join(root, "other") }), []);
 
-  const otherStore = new LocalAgentStore(root);
+  const otherStore = new SubagentSessionStore(root);
   stores.push(otherStore);
   const createdFromOtherStore = otherStore.create({
     workspaceId: "ws_1",

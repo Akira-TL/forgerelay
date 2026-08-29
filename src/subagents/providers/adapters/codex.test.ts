@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import type { RunResult, ThreadOptions } from "@openai/codex-sdk";
 import {
-  CodexSdkLocalAgentRuntime,
-  createCodexSdkLocalAgentRuntime,
+  CodexSdkSubagentRuntime,
+  createCodexSdkSubagentRuntime,
 } from "./codex.js";
 
 const emptyTurn = (finalResponse: string): RunResult => ({
@@ -40,7 +40,7 @@ class FakeCodex {
 }
 
 const codex = new FakeCodex();
-const runtime = new CodexSdkLocalAgentRuntime(codex);
+const runtime = new CodexSdkSubagentRuntime(codex);
 const readOnly = await runtime.run({
   prompt: "inspect only",
   workspace: "/tmp/project",
@@ -96,5 +96,5 @@ assert.deepEqual(codex.resumed, [
   },
 ]);
 
-const created = await createCodexSdkLocalAgentRuntime(undefined, () => new FakeCodex());
+const created = await createCodexSdkSubagentRuntime(undefined, () => new FakeCodex());
 assert.equal(created.provider, "codex");

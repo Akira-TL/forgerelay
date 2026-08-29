@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
 } from "../contract.js";
 import {
   asRecord,
@@ -18,13 +18,13 @@ const ACP_COMMANDS: Record<"cursor" | "copilot", [string, ...string[]]> = {
   copilot: ["copilot", "--acp"],
 };
 
-export class AcpLocalAgentAdapter implements LocalAgentAdapter {
+export class AcpSubagentAdapter implements SubagentProviderAdapter {
   constructor(
     readonly provider: "cursor" | "copilot",
     private readonly command: [string, ...string[]] = ACP_COMMANDS[provider],
   ) {}
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const { client } = await import("@agentclientprotocol/sdk");
     const { methods } = await import("@agentclientprotocol/sdk");
     const { ndJsonStream } = await import("@agentclientprotocol/sdk");

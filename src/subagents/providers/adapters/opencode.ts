@@ -1,7 +1,7 @@
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
 } from "../contract.js";
 import {
   asRecord,
@@ -11,10 +11,10 @@ import {
   unwrapProviderPayload,
 } from "../shared.js";
 
-export class OpencodeLocalAgentAdapter implements LocalAgentAdapter {
+export class OpencodeSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "opencode" as const;
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const { createOpencode } = await import("@opencode-ai/sdk/v2");
     const { client, server } = await createOpencode();
     try {
@@ -38,7 +38,7 @@ export class OpencodeLocalAgentAdapter implements LocalAgentAdapter {
   }
 }
 
-async function createOpencodeSession(client: unknown, input: LocalAgentRunInput): Promise<string> {
+async function createOpencodeSession(client: unknown, input: SubagentRunInput): Promise<string> {
   const sessionClient = client as {
     session: {
       create(parameters?: unknown, options?: unknown): Promise<unknown>;
@@ -63,7 +63,7 @@ async function createOpencodeSession(client: unknown, input: LocalAgentRunInput)
 async function promptOpencodeSession(
   client: unknown,
   sessionId: string,
-  input: LocalAgentRunInput,
+  input: SubagentRunInput,
 ): Promise<unknown> {
   const session = (client as {
     session: {

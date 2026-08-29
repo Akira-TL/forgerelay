@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import {
-  formatAvailableLocalAgentTargets,
-  parseLocalAgentRunArgs,
-  resolveLocalAgentTarget,
-} from "./targets.js";
-import type { LocalAgentProfile } from "./profiles.js";
+  formatAvailableSubagentTargets,
+  parseSubagentRunArgs,
+  resolveSubagentTarget,
+} from "./cli-target.js";
+import type { SubagentProfile } from "./profiles.js";
 
-const profiles: LocalAgentProfile[] = [
+const profiles: SubagentProfile[] = [
   {
     name: "reviewer",
     description: "Review changes.",
@@ -28,35 +28,35 @@ const profiles: LocalAgentProfile[] = [
   },
 ];
 
-assert.deepEqual(parseLocalAgentRunArgs(["codex", "hello", "world"]), {
+assert.deepEqual(parseSubagentRunArgs(["codex", "hello", "world"]), {
   target: "codex",
   prompt: "hello world",
   model: undefined,
   thinking: undefined,
 });
 
-assert.deepEqual(parseLocalAgentRunArgs(["codex", "--model", "gpt-5.1", "hello"]), {
+assert.deepEqual(parseSubagentRunArgs(["codex", "--model", "gpt-5.1", "hello"]), {
   target: "codex",
   prompt: "hello",
   model: "gpt-5.1",
   thinking: undefined,
 });
 
-assert.deepEqual(parseLocalAgentRunArgs(["codex", "--model=gpt-5.1", "hello"]), {
+assert.deepEqual(parseSubagentRunArgs(["codex", "--model=gpt-5.1", "hello"]), {
   target: "codex",
   prompt: "hello",
   model: "gpt-5.1",
   thinking: undefined,
 });
 
-assert.deepEqual(parseLocalAgentRunArgs(["codex", "--thinking", "high", "hello"]), {
+assert.deepEqual(parseSubagentRunArgs(["codex", "--thinking", "high", "hello"]), {
   target: "codex",
   prompt: "hello",
   model: undefined,
   thinking: "high",
 });
 
-assert.deepEqual(parseLocalAgentRunArgs(["codex", "--thinking=high", "hello"]), {
+assert.deepEqual(parseSubagentRunArgs(["codex", "--thinking=high", "hello"]), {
   target: "codex",
   prompt: "hello",
   model: undefined,
@@ -64,17 +64,17 @@ assert.deepEqual(parseLocalAgentRunArgs(["codex", "--thinking=high", "hello"]), 
 });
 
 assert.throws(
-  () => parseLocalAgentRunArgs(["codex", "--model"]),
+  () => parseSubagentRunArgs(["codex", "--model"]),
   /Missing value for --model/,
 );
 
 assert.throws(
-  () => parseLocalAgentRunArgs(["codex", "--thinking"]),
+  () => parseSubagentRunArgs(["codex", "--thinking"]),
   /Missing value for --thinking/,
 );
 
 {
-  const target = resolveLocalAgentTarget("reviewer", profiles);
+  const target = resolveSubagentTarget("reviewer", profiles);
   assert.equal(target?.kind, "profile");
   assert.equal(target?.name, "reviewer");
   assert.equal(target?.provider, "codex");
@@ -83,14 +83,14 @@ assert.throws(
 }
 
 {
-  const target = resolveLocalAgentTarget("reviewer", profiles, "gpt-5.2", "xhigh");
+  const target = resolveSubagentTarget("reviewer", profiles, "gpt-5.2", "xhigh");
   assert.equal(target?.kind, "profile");
   assert.equal(target?.model, "gpt-5.2");
   assert.equal(target?.thinking, "xhigh");
 }
 
 {
-  const target = resolveLocalAgentTarget("opencode", profiles);
+  const target = resolveSubagentTarget("opencode", profiles);
   assert.equal(target?.kind, "provider");
   assert.equal(target?.name, "opencode");
   assert.equal(target?.provider, "opencode");
@@ -99,18 +99,18 @@ assert.throws(
 }
 
 {
-  const target = resolveLocalAgentTarget("opencode", profiles, "kimi-k2", "deep");
+  const target = resolveSubagentTarget("opencode", profiles, "kimi-k2", "deep");
   assert.equal(target?.kind, "provider");
   assert.equal(target?.model, "kimi-k2");
   assert.equal(target?.thinking, "deep");
 }
 
 {
-  const target = resolveLocalAgentTarget("claude", profiles);
+  const target = resolveSubagentTarget("claude", profiles);
   assert.equal(target?.kind, "profile");
   assert.equal(target?.provider, "opencode");
 }
 
-assert.equal(resolveLocalAgentTarget("missing", profiles), undefined);
-assert.match(formatAvailableLocalAgentTargets(profiles), /profiles: reviewer, claude/);
-assert.match(formatAvailableLocalAgentTargets([]), /providers: codex, claude, opencode, pi, cursor, copilot/);
+assert.equal(resolveSubagentTarget("missing", profiles), undefined);
+assert.match(formatAvailableSubagentTargets(profiles), /profiles: reviewer, claude/);
+assert.match(formatAvailableSubagentTargets([]), /providers: codex, claude, opencode, pi, cursor, copilot/);

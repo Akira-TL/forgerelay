@@ -1,16 +1,16 @@
 import { spawnSync } from "node:child_process";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
 } from "../contract.js";
 import { directString, requireFinalResponse } from "../shared.js";
 
-export class ClaudeLocalAgentAdapter implements LocalAgentAdapter {
+export class ClaudeSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "claude" as const;
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
     const claudeExecutable = process.env.CLAUDE_COMMAND ?? resolveExecutable("claude");
     const messages = query({

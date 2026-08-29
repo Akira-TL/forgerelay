@@ -1,41 +1,41 @@
-import type { LocalAgentProvider } from "../profiles.js";
-import { AcpLocalAgentAdapter } from "./adapters/acp.js";
-import { ClaudeLocalAgentAdapter } from "./adapters/claude.js";
-import { CodexLocalAgentAdapter } from "./adapters/codex.js";
-import { extractOpenCodeFinalResponse, OpencodeLocalAgentAdapter } from "./adapters/opencode.js";
+import type { SubagentProvider } from "../profiles.js";
+import { AcpSubagentAdapter } from "./adapters/acp.js";
+import { ClaudeSubagentAdapter } from "./adapters/claude.js";
+import { CodexSubagentAdapter } from "./adapters/codex.js";
+import { extractOpenCodeFinalResponse, OpencodeSubagentAdapter } from "./adapters/opencode.js";
 import {
   extractPiFinalResponse,
-  PiRpcLocalAgentAdapter,
+  PiRpcSubagentAdapter,
 } from "./adapters/pi.js";
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
 } from "./contract.js";
 
-export async function runLocalAgentProvider(
-  provider: LocalAgentProvider,
-  input: LocalAgentRunInput,
-): Promise<LocalAgentRunResult> {
-  return createLocalAgentAdapter(provider).run(input);
+export async function runSubagentProvider(
+  provider: SubagentProvider,
+  input: SubagentRunInput,
+): Promise<SubagentRunResult> {
+  return createSubagentProviderAdapter(provider).run(input);
 }
 
-export function createLocalAgentAdapter(provider: LocalAgentProvider): LocalAgentAdapter {
+export function createSubagentProviderAdapter(provider: SubagentProvider): SubagentProviderAdapter {
   switch (provider) {
     case "codex":
-      return new CodexLocalAgentAdapter();
+      return new CodexSubagentAdapter();
     case "claude":
-      return new ClaudeLocalAgentAdapter();
+      return new ClaudeSubagentAdapter();
     case "opencode":
-      return new OpencodeLocalAgentAdapter();
+      return new OpencodeSubagentAdapter();
     case "pi":
-      return new PiRpcLocalAgentAdapter();
+      return new PiRpcSubagentAdapter();
     case "cursor":
     case "copilot":
-      return new AcpLocalAgentAdapter(provider);
+      return new AcpSubagentAdapter(provider);
   }
 }
 
-export function extractLocalAgentResponseText(value: unknown): string {
+export function extractSubagentResponseText(value: unknown): string {
   return extractOpenCodeFinalResponse(value) || extractPiFinalResponse(value);
 }

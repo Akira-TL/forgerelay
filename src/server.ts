@@ -123,11 +123,11 @@ import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
-import { summarizeLocalAgentProfile } from "./subagents/profiles.js";
+import { summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
-  formatLocalAgentProviderAvailabilitySummary,
-  getLocalAgentProviderAvailabilitySnapshot,
-  type LocalAgentProviderAvailability,
+  formatSubagentProviderAvailabilitySummary,
+  getSubagentProviderAvailabilitySnapshot,
+  type SubagentProviderAvailability,
 } from "./subagents/providers/availability.js";
 
 type Transport = StreamableHTTPServerTransport;
@@ -160,7 +160,7 @@ const SHELL_TOOL_ANNOTATIONS = {
 interface RunningServer {
   app: ReturnType<typeof createMcpExpressApp>;
   config: ServerConfig;
-  localAgentProviders: LocalAgentProviderAvailability[];
+  subagentProviders: SubagentProviderAvailability[];
   close(): Promise<void>;
 }
 
@@ -298,7 +298,7 @@ function formatVisibleAgent(agent: {
   return `${agent.name} (${agent.provider}${model}${thinking}${availability})`;
 }
 
-function formatUnavailableAgentProvider(provider: LocalAgentProviderAvailability): string {
+function formatUnavailableSubagentProvider(provider: SubagentProviderAvailability): string {
   return `${provider.name} (${provider.reason ?? "unavailable"})`;
 }
 
@@ -404,7 +404,7 @@ const workspaceLocalAgentOutputSchema = z.object({
   providerUnavailableReason: z.string().optional(),
 });
 
-const workspaceLocalAgentProviderOutputSchema = z.object({
+const workspaceSubagentProviderOutputSchema = z.object({
   name: z.string(),
   available: z.boolean(),
   reason: z.string().optional(),
@@ -1663,7 +1663,7 @@ export function createMcpServer(
   workspaces: WorkspaceRegistry,
   reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>,
   processSessions: ProcessManager,
-  localAgentProviders: LocalAgentProviderAvailability[],
+  subagentProviders: SubagentProviderAvailability[],
   incomingArtifactAdapters: readonly IncomingArtifactAdapter[],
   codeIntelligence: CodeIntelligenceManager,
   activityLifecycle: ActivityLifecycle,
@@ -2840,7 +2840,7 @@ export function createMcpServer(
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
         availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),
         skills: z.array(workspaceSkillOutputSchema).optional(),
-        agentProviders: z.array(workspaceLocalAgentProviderOutputSchema).optional(),
+        agentProviders: z.array(workspaceSubagentProviderOutputSchema).optional(),
         agents: z.array(workspaceLocalAgentOutputSchema).optional(),
         skillDiagnostics: z.array(workspaceSkillDiagnosticOutputSchema).optional(),
         workspaces: z.array(workspaceInventoryEntryOutputSchema).optional(),
@@ -3350,9 +3350,9 @@ export function createMcpServer(
         path: formatPathForPrompt(guide.filePath),
       }));
       const capabilityCatalog = capabilityRegistry.catalog(capabilityContextFor(workspace));
-      const cardAgentProviders = config.subagents ? localAgentProviders : [];
+      const cardAgentProviders = config.subagents ? subagentProviders : [];
       const cardAgents = workspace.agentProfiles.map((profile) => {
-        const summary = summarizeLocalAgentProfile(profile);
+        const summary = summarizeSubagentProfile(profile);
         const availability = cardAgentProviders.find((provider) => provider.name === summary.provider);
         return {
           ...summary,
@@ -3432,7 +3432,7 @@ export function createMcpServer(
               ? `Available subagent providers: ${visibleAgentProviders.filter((provider) => provider.available).map((provider) => provider.name).join(", ")}`
               : undefined,
             visibleAgentProviders.some((provider) => !provider.available)
-              ? `Unavailable subagent providers: ${visibleAgentProviders.filter((provider) => !provider.available).map(formatUnavailableAgentProvider).join(", ")}`
+              ? `Unavailable subagent providers: ${visibleAgentProviders.filter((provider) => !provider.available).map(formatUnavailableSubagentProvider).join(", ")}`
               : undefined,
             visibleAgents.length > 0
               ? `Available subagent profiles: ${visibleAgents.map(formatVisibleAgent).join(", ")}`
@@ -4725,8 +4725,8 @@ export function createServer(
   const reviewCheckpoints = createReviewCheckpointManager();
   const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
   const codeIntelligence = new CodeIntelligenceManager(config);
-  const localAgentProviders = config.subagents
-    ? getLocalAgentProviderAvailabilitySnapshot()
+  const subagentProviders = config.subagents
+    ? getSubagentProviderAvailabilitySnapshot()
     : [];
 
   const logTransportCloseResults = (
@@ -4939,7 +4939,7 @@ export function createServer(
           workspaces,
           reviewCheckpoints,
           processSessions,
-          localAgentProviders,
+          subagentProviders,
           incomingArtifactAdapters,
           codeIntelligence,
           activityLifecycle,
@@ -4968,7 +4968,7 @@ export function createServer(
   return {
     app,
     config,
-    localAgentProviders,
+    subagentProviders,
     close: () => {
       closePromise ??= (async () => {
         clearInterval(transportCleanupTimer);
@@ -4996,7 +4996,7 @@ async function isMainModule(): Promise<boolean> {
 }
 
 if (await isMainModule()) {
-  const { app, config, close, localAgentProviders } = createServer();
+  const { app, config, close, subagentProviders } = createServer();
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(
       `forgerelay listening on http://${config.host}:${config.port}/mcp`,
@@ -5014,7 +5014,7 @@ if (await isMainModule()) {
         : `unsupported on ${process.platform}`;
     console.log(`native artifact download: ${artifactDownloadStatus}`);
     if (config.subagents) {
-      console.log(`subagent providers: ${formatLocalAgentProviderAvailabilitySummary(localAgentProviders)}`);
+      console.log(`subagent providers: ${formatSubagentProviderAvailabilitySummary(subagentProviders)}`);
     }
   });
 

@@ -4,9 +4,9 @@ import { openDatabase, type DatabaseHandle } from "../db/client.js";
 import type { ServerConfig } from "../config.js";
 import type { HookExecutionReport } from "../hooks.js";
 
-export type LocalAgentStatus = "starting" | "running" | "idle" | "error" | "stopped";
+export type SubagentSessionStatus = "starting" | "running" | "idle" | "error" | "stopped";
 
-export interface LocalAgentRecord {
+export interface SubagentSession {
   id: string;
   workspaceId?: string;
   workspaceRoot: string;
@@ -15,7 +15,7 @@ export interface LocalAgentRecord {
   model?: string;
   thinking?: string;
   providerSessionId?: string;
-  status: LocalAgentStatus;
+  status: SubagentSessionStatus;
   latestResponse?: string;
   error?: string;
   hookReports?: HookExecutionReport[];
@@ -23,7 +23,7 @@ export interface LocalAgentRecord {
   updatedAt: string;
 }
 
-export interface CreateLocalAgentRecordInput {
+export interface CreateSubagentSessionInput {
   workspaceId?: string;
   workspaceRoot: string;
   profileName: string;
@@ -32,12 +32,12 @@ export interface CreateLocalAgentRecordInput {
   thinking?: string;
 }
 
-export interface LocalAgentListScope {
+export interface SubagentSessionScope {
   workspaceId?: string;
   workspaceRoot?: string;
 }
 
-interface LocalAgentRow {
+interface SubagentSessionRow {
   id: string;
   workspace_id: string | null;
   workspace_root: string;
@@ -54,15 +54,15 @@ interface LocalAgentRow {
   updated_at: string;
 }
 
-export class LocalAgentStore {
+export class SubagentSessionStore {
   private readonly database: DatabaseHandle;
 
   constructor(stateDir: string) {
     this.database = openDatabase(stateDir);
   }
 
-  list(scope: LocalAgentListScope = {}): LocalAgentRecord[] {
-    let rows: LocalAgentRow[];
+  list(scope: SubagentSessionScope = {}): SubagentSession[] {
+    let rows: SubagentSessionRow[];
     if (scope.workspaceId) {
       rows = this.database.sqlite
         .prepare(
@@ -70,7 +70,7 @@ export class LocalAgentStore {
            where workspace_id = ?
            order by updated_at desc`,
         )
-        .all(scope.workspaceId) as LocalAgentRow[];
+        .all(scope.workspaceId) as SubagentSessionRow[];
     } else if (scope.workspaceRoot) {
       rows = this.database.sqlite
         .prepare(
@@ -78,19 +78,19 @@ export class LocalAgentStore {
            where workspace_root = ?
            order by updated_at desc`,
         )
-        .all(resolve(scope.workspaceRoot)) as LocalAgentRow[];
+        .all(resolve(scope.workspaceRoot)) as SubagentSessionRow[];
     } else {
       rows = this.database.sqlite
         .prepare("select * from local_agent_sessions order by updated_at desc")
-        .all() as LocalAgentRow[];
+        .all() as SubagentSessionRow[];
     }
 
-    return rows.map(rowToLocalAgentRecord);
+    return rows.map(rowToSubagentSession);
   }
 
-  create(input: CreateLocalAgentRecordInput): LocalAgentRecord {
+  create(input: CreateSubagentSessionInput): SubagentSession {
     const now = new Date().toISOString();
-    const record: LocalAgentRecord = {
+    const record: SubagentSession = {
       id: `agt_${randomUUID().replaceAll("-", "").slice(0, 8)}`,
       workspaceId: input.workspaceId,
       workspaceRoot: resolve(input.workspaceRoot),
@@ -134,15 +134,15 @@ export class LocalAgentStore {
     return record;
   }
 
-  get(idOrPrefix: string): LocalAgentRecord | undefined {
+  get(idOrPrefix: string): SubagentSession | undefined {
     const exact = this.database.sqlite
       .prepare(
         `select * from local_agent_sessions
          where id = ? or provider_session_id = ?
          limit 1`,
       )
-      .get(idOrPrefix, idOrPrefix) as LocalAgentRow | undefined;
-    if (exact) return rowToLocalAgentRecord(exact);
+      .get(idOrPrefix, idOrPrefix) as SubagentSessionRow | undefined;
+    if (exact) return rowToSubagentSession(exact);
 
     const matches = this.database.sqlite
       .prepare(
@@ -150,16 +150,16 @@ export class LocalAgentStore {
          where id like ? escape '\\' or provider_session_id like ? escape '\\'
          order by updated_at desc`,
       )
-      .all(`${escapeLike(idOrPrefix)}%`, `${escapeLike(idOrPrefix)}%`) as LocalAgentRow[];
+      .all(`${escapeLike(idOrPrefix)}%`, `${escapeLike(idOrPrefix)}%`) as SubagentSessionRow[];
 
-    return matches.length === 1 ? rowToLocalAgentRecord(matches[0]!) : undefined;
+    return matches.length === 1 ? rowToSubagentSession(matches[0]!) : undefined;
   }
 
-  update(id: string, patch: Partial<Omit<LocalAgentRecord, "id" | "createdAt">>): LocalAgentRecord {
+  update(id: string, patch: Partial<Omit<SubagentSession, "id" | "createdAt">>): SubagentSession {
     const current = this.getById(id);
     if (!current) throw new Error(`Unknown subagent id: ${id}`);
 
-    const updated: LocalAgentRecord = {
+    const updated: SubagentSession = {
       ...current,
       ...patch,
       updatedAt: new Date().toISOString(),
@@ -205,19 +205,19 @@ export class LocalAgentStore {
     this.database.close();
   }
 
-  private getById(id: string): LocalAgentRecord | undefined {
+  private getById(id: string): SubagentSession | undefined {
     const row = this.database.sqlite
       .prepare("select * from local_agent_sessions where id = ?")
-      .get(id) as LocalAgentRow | undefined;
-    return row ? rowToLocalAgentRecord(row) : undefined;
+      .get(id) as SubagentSessionRow | undefined;
+    return row ? rowToSubagentSession(row) : undefined;
   }
 }
 
-export function createLocalAgentStore(config: ServerConfig): LocalAgentStore {
-  return new LocalAgentStore(config.stateDir);
+export function createSubagentSessionStore(config: ServerConfig): SubagentSessionStore {
+  return new SubagentSessionStore(config.stateDir);
 }
 
-function rowToLocalAgentRecord(row: LocalAgentRow): LocalAgentRecord {
+function rowToSubagentSession(row: SubagentSessionRow): SubagentSession {
   return {
     id: row.id,
     workspaceId: row.workspace_id ?? undefined,
@@ -246,7 +246,7 @@ function parseHookReports(value: string | null): HookExecutionReport[] | undefin
   }
 }
 
-function readStatus(status: string): LocalAgentStatus {
+function readStatus(status: string): SubagentSessionStatus {
   if (
     status === "starting" ||
     status === "running" ||

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
-import { LocalAgentStore } from "./subagents/store.js";
+import { SubagentSessionStore } from "./subagents/session-store.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
   version: string;
@@ -233,7 +233,7 @@ try {
       "",
     ].join("\n"),
   );
-  const store = new LocalAgentStore(stateDir);
+  const store = new SubagentSessionStore(stateDir);
   const current = store.update(
     store.create({
       workspaceId: "ws_current",
@@ -283,7 +283,7 @@ try {
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   }).subagents, true);
 
-  const workerStore = new LocalAgentStore(stateDir);
+  const workerStore = new SubagentSessionStore(stateDir);
   const failing = workerStore.create({
     workspaceId: "ws_hooked",
     workspaceRoot: projectRoot,
@@ -315,7 +315,7 @@ try {
     readFileSync(join(projectRoot, "subagent-hooks.log"), "utf8").replace(/\r\n/g, "\n"),
     "SubagentStart:ws_hooked\nSubagentStop:ws_hooked\n",
   );
-  const completedStore = new LocalAgentStore(stateDir);
+  const completedStore = new SubagentSessionStore(stateDir);
   const failedRecord = completedStore.get(failing.id);
   completedStore.close();
   assert.equal(failedRecord?.status, "error");

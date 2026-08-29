@@ -1,8 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type {
-  LocalAgentAdapter,
-  LocalAgentRunInput,
-  LocalAgentRunResult,
+  SubagentProviderAdapter,
+  SubagentRunInput,
+  SubagentRunResult,
 } from "../contract.js";
 import { removeDevspaceNodeModulesBinFromPath } from "../path.js";
 import {
@@ -17,10 +17,10 @@ import {
 
 const PI_AGENT_TIMEOUT_MS = 120_000;
 
-export class PiRpcLocalAgentAdapter implements LocalAgentAdapter {
+export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "pi" as const;
 
-  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const args = ["--mode", "rpc"];
     if (input.model) args.push("--model", input.model);
     if (input.thinking) args.push("--thinking", input.thinking);

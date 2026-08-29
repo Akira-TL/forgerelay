@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../config.js";
-import { loadLocalAgentProfiles, summarizeLocalAgentProfile } from "./profiles.js";
+import { loadSubagentProfiles, summarizeSubagentProfile } from "./profiles.js";
 
 const root = await mkdtemp(join(tmpdir(), "devspace-agent-profiles-test-"));
 
@@ -79,7 +79,7 @@ try {
     FORGERELAY_SUBAGENTS: "1",
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
-  const profiles = await loadLocalAgentProfiles(enabledConfig, workspaceRoot);
+  const profiles = await loadSubagentProfiles(enabledConfig, workspaceRoot);
 
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0]?.name, "reviewer");
@@ -88,7 +88,7 @@ try {
   assert.equal(profiles[0]?.model, "opus");
   assert.equal(profiles[0]?.thinking, "high");
   assert.equal(profiles[0]?.body, "ForgeRelay project body.");
-  assert.deepEqual(summarizeLocalAgentProfile(profiles[0]!), {
+  assert.deepEqual(summarizeSubagentProfile(profiles[0]!), {
     name: "reviewer",
     description: "ForgeRelay project reviewer.",
     provider: "claude",
@@ -109,7 +109,7 @@ try {
       "",
     ].join("\n"),
   );
-  const profilesWithInvalid = await loadLocalAgentProfiles(enabledConfig, workspaceRoot);
+  const profilesWithInvalid = await loadSubagentProfiles(enabledConfig, workspaceRoot);
   assert.deepEqual(profilesWithInvalid.map((profile) => profile.name), ["reviewer"]);
 
   const disabledConfig = loadConfig({
@@ -118,7 +118,7 @@ try {
     DEVSPACE_SUBAGENTS: "0",
     DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
-  assert.deepEqual(await loadLocalAgentProfiles(disabledConfig, workspaceRoot), []);
+  assert.deepEqual(await loadSubagentProfiles(disabledConfig, workspaceRoot), []);
 } finally {
   await rm(root, { recursive: true, force: true });
 }
