@@ -99,6 +99,7 @@ import {
   type ProcessSnapshot,
 } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { CompositeActivityCoordinator } from "./composite-activity.js";
 import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
 import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
@@ -1342,6 +1343,14 @@ function activityRelationFor(context: CoreOperationContext): ActivityRelationCon
   };
 }
 
+function activityRequestFor(input: unknown, context: CoreOperationContext): unknown {
+  if (!context.activityMember || !input || typeof input !== "object" || Array.isArray(input)) return input;
+  return {
+    ...(input as Record<string, unknown>),
+    member: context.activityMember,
+  };
+}
+
 function runActivityTool<T>(
   lifecycle: ActivityLifecycle,
   workspace: Workspace,
@@ -1591,6 +1600,11 @@ export function createMcpServer(
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
+  const compositeActivity = new CompositeActivityCoordinator(
+    compositeWorkspaces,
+    activityQueries,
+    remoteWorkspaces,
+  );
   const resolveExecutionTarget = (workspaceId: string, memberName?: string) => {
     if (!compositeWorkspaces.has(workspaceId)) {
       if (memberName !== undefined) {
@@ -1629,6 +1643,29 @@ export function createMcpServer(
   };
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
+  const prepareExecutionContext = async (
+    target: ReturnType<typeof resolveExecutionTarget>,
+    requestMeta: unknown,
+    signal: AbortSignal | undefined,
+    sessionId: string | undefined,
+  ): Promise<CoreOperationContext> => {
+    const conversationScopeId = hostScopeIdFor(requestMeta, sessionId);
+    const turnId = target.compositeWorkspaceId && target.memberName
+      ? await compositeActivity.prepareMember(
+          target.compositeWorkspaceId,
+          target.memberName,
+          target.executionWorkspaceId,
+          conversationScopeId,
+        )
+      : undefined;
+    return {
+      requestMeta,
+      signal,
+      sessionId,
+      ...(turnId ? { turnId } : {}),
+      ...(target.memberName ? { activityMember: target.memberName } : {}),
+    };
+  };
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
     config.hooks,
@@ -1806,7 +1843,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        input,
+        activityRequestFor(input, context),
         {
           signal: context.signal,
           tool: toolNames.read,
@@ -1895,7 +1932,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        input,
+        activityRequestFor(input, context),
         {
           signal: context.signal,
           tool: toolNames.write,
@@ -1971,7 +2008,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        input,
+        activityRequestFor(input, context),
         {
           signal: context.signal,
           tool: toolNames.edit,
@@ -2050,7 +2087,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        input,
+        activityRequestFor(input, context),
         {
           signal: context.signal,
           tool: toolNames.rename,
@@ -2120,7 +2157,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        input,
+        activityRequestFor(input, context),
         {
           signal: context.signal,
           tool: toolNames.delete,
@@ -2226,7 +2263,7 @@ export function createMcpServer(
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
         surface,
-        activityRequest,
+        activityRequestFor(activityRequest, context),
         async (activityContext) => {
           try {
             const result = await runToolWithHooks(hooks, {
@@ -2314,7 +2351,7 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        { workspaceId, name, action: "run", arguments: capabilityArguments, file },
+        activityRequestFor({ workspaceId, name, action: "run", arguments: capabilityArguments, file }, context),
         {
           signal: context.signal,
           tool: toolNames.capability,
@@ -3423,16 +3460,34 @@ export function createMcpServer(
     config.logging,
     workspacePanelState,
     {
-      panel: async (workspaceId, conversationScopeId) =>
-        remoteWorkspaces.has(workspaceId)
+      panel: async (workspaceId, conversationScopeId) => {
+        if (compositeWorkspaces.has(workspaceId)) {
+          return compositeActivity.beginPanel(workspaceId, conversationScopeId);
+        }
+        return remoteWorkspaces.has(workspaceId)
           ? remoteWorkspaces.activityPanel(workspaceId, conversationScopeId)
-          : undefined,
-      snapshot: (input, conversationScopeId) =>
-        remoteWorkspaces.activitySnapshot(input, conversationScopeId),
-      detail: (turnId, activityId, conversationScopeId) =>
-        remoteWorkspaces.activityDetail(turnId, activityId, conversationScopeId),
-      output: (turnId, outputId, conversationScopeId) =>
-        remoteWorkspaces.activityOutput(turnId, outputId, conversationScopeId),
+          : undefined;
+      },
+      snapshot: async (input, conversationScopeId) => {
+        const compositeTurnId = input.turnId ?? (
+          input.workspaceId && compositeWorkspaces.has(input.workspaceId)
+            ? compositeActivity.currentTurnId(conversationScopeId, input.workspaceId)
+            : undefined
+        );
+        if (compositeTurnId) {
+          const composite = await compositeActivity.snapshot(compositeTurnId, input.knownRevision);
+          if (composite) return composite;
+        }
+        return remoteWorkspaces.activitySnapshot(input, conversationScopeId);
+      },
+      detail: async (turnId, activityId, conversationScopeId) => {
+        const composite = await compositeActivity.detail(turnId, activityId);
+        return composite ?? remoteWorkspaces.activityDetail(turnId, activityId, conversationScopeId);
+      },
+      output: async (turnId, outputId, conversationScopeId) => {
+        const composite = await compositeActivity.output(turnId, outputId);
+        return composite ?? remoteWorkspaces.activityOutput(turnId, outputId, conversationScopeId);
+      },
     },
   );
 
@@ -3481,6 +3536,12 @@ export function createMcpServer(
     async ({ workspaceId, member, name, action, arguments: capabilityArguments, file }, extra) => {
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(
+        target,
+        extra._meta,
+        extra.signal,
+        extra.sessionId,
+      );
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.capability(executionWorkspaceId, {
           name,
@@ -3547,11 +3608,7 @@ export function createMcpServer(
       if (action === "run") {
         return presentExecutionResult(await coreOperations.capabilityRun(
           { workspaceId: executionWorkspaceId, name, arguments: capabilityArguments, file },
-          {
-            requestMeta: extra._meta,
-            signal: extra.signal,
-            sessionId: extra.sessionId,
-          },
+          executionContext,
         ), target);
       }
 
@@ -3561,7 +3618,10 @@ export function createMcpServer(
         hooks,
         workspace,
         hostScopeIdFor(extra._meta, extra.sessionId),
-        { workspaceId: executionWorkspaceId, name, action, arguments: capabilityArguments, file },
+        activityRequestFor(
+          { workspaceId: executionWorkspaceId, name, action, arguments: capabilityArguments, file },
+          executionContext,
+        ),
         {
           signal: extra.signal,
           tool: toolNames.capability,
@@ -3618,6 +3678,7 @@ export function createMcpServer(
             }
           },
         },
+        activityRelationFor(executionContext),
       ).then((result) => presentExecutionResult(result, target));
     },
   );
@@ -3836,6 +3897,7 @@ export function createMcpServer(
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.read(
           executionWorkspaceId,
@@ -3846,11 +3908,7 @@ export function createMcpServer(
       if (path !== undefined) {
         return presentExecutionResult(await coreOperations.read(
           { workspaceId: executionWorkspaceId, path, offset, limit },
-          {
-            requestMeta: extra._meta,
-            signal: extra.signal,
-            sessionId: extra.sessionId,
-          },
+          executionContext,
         ), target);
       }
 
@@ -3870,7 +3928,7 @@ export function createMcpServer(
         workspace,
         hostScopeIdFor(extra._meta, extra.sessionId),
         toolNames.read,
-        { workspaceId: executionWorkspaceId, paths, offset, limit },
+        activityRequestFor({ workspaceId: executionWorkspaceId, paths, offset, limit }, executionContext),
         async (parentContext) => {
           const execution = await executeBulkRead({
             paths: paths!,
@@ -3878,9 +3936,7 @@ export function createMcpServer(
             run: (childPath) => coreOperations.read(
               { workspaceId: executionWorkspaceId, path: childPath, offset, limit },
               {
-                requestMeta: extra._meta,
-                signal: extra.signal,
-                sessionId: extra.sessionId,
+                ...executionContext,
                 parentActivityId: parentContext.activityId,
                 turnId: parentContext.turnId,
               },
@@ -3925,6 +3981,7 @@ export function createMcpServer(
         (summary) => summary.failed > 0
           ? { type: "failed", error: `${summary.failed} of ${summary.childCount} child Reads failed.` }
           : { type: "succeeded" },
+        activityRelationFor(executionContext),
       );
       if (!response) throw new Error("Bulk Read completed without a response.");
       return presentExecutionResult(response, target);
@@ -3955,6 +4012,7 @@ export function createMcpServer(
     async ({ workspaceId, member, ...input }, extra) => {
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.write(
           executionWorkspaceId,
@@ -3964,11 +4022,7 @@ export function createMcpServer(
       }
       return presentExecutionResult(await coreOperations.write(
         { workspaceId: executionWorkspaceId, ...input },
-        {
-          requestMeta: extra._meta,
-          signal: extra.signal,
-          sessionId: extra.sessionId,
-        },
+        executionContext,
       ), target);
     },
   );
@@ -4028,6 +4082,7 @@ export function createMcpServer(
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.edit(
           executionWorkspaceId,
@@ -4038,21 +4093,13 @@ export function createMcpServer(
       if (path !== undefined) {
         return presentExecutionResult(await coreOperations.edit(
           { workspaceId: executionWorkspaceId, path, edits },
-          {
-            requestMeta: extra._meta,
-            signal: extra.signal,
-            sessionId: extra.sessionId,
-          },
+          executionContext,
         ), target);
       }
 
       return presentExecutionResult(await nativeBulkMutations.edit(
         { workspaceId: executionWorkspaceId, paths: paths!, edits },
-        {
-          requestMeta: extra._meta,
-          signal: extra.signal,
-          sessionId: extra.sessionId,
-        },
+        executionContext,
       ), target);
     },
   );
@@ -4081,6 +4128,7 @@ export function createMcpServer(
     async ({ workspaceId, member, path, newPath }, extra) => {
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.rename(
           executionWorkspaceId,
@@ -4090,11 +4138,7 @@ export function createMcpServer(
       }
       return presentExecutionResult(await coreOperations.rename(
         { workspaceId: executionWorkspaceId, path, newPath },
-        {
-          requestMeta: extra._meta,
-          signal: extra.signal,
-          sessionId: extra.sessionId,
-        },
+        executionContext,
       ), target);
     },
   );
@@ -4140,6 +4184,7 @@ export function createMcpServer(
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
+      const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentExecutionResult(await remoteWorkspaces.delete(
           executionWorkspaceId,
@@ -4150,21 +4195,13 @@ export function createMcpServer(
       if (path !== undefined) {
         return presentExecutionResult(await coreOperations.delete(
           { workspaceId: executionWorkspaceId, path, recursive },
-          {
-            requestMeta: extra._meta,
-            signal: extra.signal,
-            sessionId: extra.sessionId,
-          },
+          executionContext,
         ), target);
       }
 
       return presentExecutionResult(await nativeBulkMutations.delete(
         { workspaceId: executionWorkspaceId, paths: paths!, recursive },
-        {
-          requestMeta: extra._meta,
-          signal: extra.signal,
-          sessionId: extra.sessionId,
-        },
+        executionContext,
       ), target);
     },
   );
@@ -4367,6 +4404,7 @@ export function createMcpServer(
       }, extra) => {
         const target = resolveExecutionTarget(workspaceId, member);
         const executionWorkspaceId = target.executionWorkspaceId;
+        const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
         if (remoteWorkspaces.has(executionWorkspaceId)) {
           return presentExecutionResult(await remoteWorkspaces.bash(executionWorkspaceId, {
             action,
@@ -4403,11 +4441,7 @@ export function createMcpServer(
               timeoutMs,
               maxOutputTokens,
             },
-            {
-              requestMeta: extra._meta,
-              signal: extra.signal,
-              sessionId: extra.sessionId,
-            },
+            executionContext,
           ), target);
         }
 

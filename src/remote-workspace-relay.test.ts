@@ -227,7 +227,15 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   });
   assert.equal(mounted.isError, undefined, resultText(mounted));
   const members = structuredContent(mounted).members as Array<Record<string, unknown>>;
-  assert.match(String(members[0]?.workspaceId), /^rws_/);
+  const memberWorkspaceId = String(members[0]?.workspaceId);
+  assert.match(memberWorkspaceId, /^rws_/);
+
+  const panel = await client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(panel.isError, undefined, resultText(panel));
+  const compositeTurnId = String(structuredContent(panel).turnId);
 
   const read = await client.callTool({
     name: "read",
@@ -239,6 +247,23 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   const card = (read._meta as { card?: Record<string, unknown> } | undefined)?.card;
   assert.equal(card?.workspaceId, compositeId);
   assert.equal(card?.member, "compute");
+
+  const activitySnapshot = await client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId: compositeTurnId },
+  });
+  assert.equal(activitySnapshot.isError, undefined, resultText(activitySnapshot));
+  const activities = structuredContent(activitySnapshot).activities as Array<Record<string, unknown>>;
+  assert.equal(activities.length, 1);
+  assert.equal(activities[0]?.member, "compute");
+  assert.equal(activities[0]?.workspaceId, memberWorkspaceId);
+
+  const detail = await client.callTool({
+    name: "activity_detail",
+    arguments: { turnId: compositeTurnId, activityId: activities[0]?.activityId },
+  });
+  assert.equal(detail.isError, undefined, resultText(detail));
+  assert.equal((structuredContent(detail).activity as Record<string, unknown>).member, "compute");
 
   const bootstrap = await client.callTool({
     name: "open_workspace",

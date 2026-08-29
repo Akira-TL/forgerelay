@@ -533,14 +533,19 @@ function renderActivityRow(
 
   const main = element("span", { className: "activity-main" });
   const titleLine = element("span", { className: "activity-title-line" });
-  titleLine.append(
-    element("span", { className: "activity-title", text: activity.title }),
-    element("span", {
-      className: "activity-target",
-      text: activity.target,
-      title: activity.target,
-    }),
-  );
+  titleLine.append(element("span", { className: "activity-title", text: activity.title }));
+  if (activity.member) {
+    titleLine.append(element("span", {
+      className: "activity-member",
+      text: activity.member,
+      title: `Composite member: ${activity.member}`,
+    }));
+  }
+  titleLine.append(element("span", {
+    className: "activity-target",
+    text: activity.target,
+    title: activity.target,
+  }));
   main.append(titleLine);
 
   if (activity.children) {

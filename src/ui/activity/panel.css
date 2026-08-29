@@ -348,6 +348,14 @@
   line-height: 1.35;
 }
 
+.activity-member {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary, #d4d4d8);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: var(--font-text-xs-size, 10px);
+  line-height: 1.4;
+}
+
 .activity-target {
   min-width: 0;
   overflow: hidden;

@@ -64,6 +64,8 @@ test("Activity Panel routing preserves an active Host Turn when ordinary tool re
 
 test("Activity Panel model recognizes Host Turn snapshots without mistaking tool cards for them", () => {
   assert.equal(isHostTurnSnapshot(snapshot(0, [])), true);
+  assert.equal(isHostTurnSnapshot(snapshot(1, [activity("act_member", { member: "code" })])), true);
+  assert.equal(isHostTurnSnapshot(snapshot(1, [activity("act_member", { member: 42 as unknown as string })])), false);
   assert.equal(isHostTurnSnapshot({ result: "read result", path: "file.txt" }), false);
   assert.equal(isHostTurnSnapshot({ turnId: "turn_ui", revision: 0, changed: true, state: "done" }), false);
 });

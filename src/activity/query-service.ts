@@ -18,6 +18,7 @@ export interface ActivitySummary {
   target: string;
   detailAvailable: boolean;
   workspaceId?: string;
+  member?: string;
   processId?: number;
   outputId?: string;
   commandLength?: number;
@@ -198,6 +199,7 @@ function toSummary(record: ActivityRecord): ActivitySummary {
     target: activityTarget(record, request, result, structured),
     detailAvailable: !bulkGroup && record.tool !== "rename" && record.tool !== "delete" && record.tool !== "batch",
     ...(record.workspace.id ? { workspaceId: record.workspace.id } : {}),
+    ...(stringField(request, "member") ? { member: stringField(request, "member")! } : {}),
     ...(processId !== undefined ? { processId } : {}),
     ...(outputId !== undefined ? { outputId } : {}),
     ...(bashLike && command !== undefined ? { commandLength: command.length } : {}),

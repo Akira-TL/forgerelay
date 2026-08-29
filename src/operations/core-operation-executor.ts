@@ -5,6 +5,7 @@ export interface CoreOperationContext {
   parentActivityId?: string;
   turnId?: string;
   batch?: boolean;
+  activityMember?: string;
 }
 
 export interface ReadOperationInput {

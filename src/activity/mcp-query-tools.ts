@@ -28,6 +28,7 @@ const activitySummarySchema = z.object({
   target: z.string(),
   detailAvailable: z.boolean(),
   workspaceId: z.string().optional(),
+  member: z.string().optional(),
   processId: z.number().int().positive().optional(),
   outputId: z.string().optional(),
   commandLength: z.number().int().nonnegative().optional(),

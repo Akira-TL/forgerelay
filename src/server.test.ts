@@ -1096,6 +1096,66 @@ test("Composite Workspace explicitly routes filesystem, process, and capability 
   assert.equal(deleted.isError, undefined, allResponseText(deleted));
 });
 
+test("Composite Workspace aggregates member Activities into one Host Turn without changing audit ownership", async (t) => {
+  const context = await fixture(t);
+  const secondProject = join(dirname(context.project), "second-project");
+  await mkdir(secondProject, { recursive: true });
+  await writeFile(join(secondProject, "AGENTS.md"), "second project instructions\n");
+  await writeFile(join(context.project, "code.txt"), "code-member\n");
+  await writeFile(join(secondProject, "data.txt"), "data-member\n");
+
+  const codeWorkspace = await callOpen(context.client, context.project, "chat-composite-activity-code");
+  const dataWorkspace = await callOpen(context.client, secondProject, "chat-composite-activity-data");
+  const codeWorkspaceId = String(structuredContent(codeWorkspace).workspaceId);
+  const dataWorkspaceId = String(structuredContent(dataWorkspace).workspaceId);
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "activity-aggregate" },
+  });
+  const compositeId = String(structuredContent(composite).workspaceId);
+  for (const member of [
+    { name: "code", purpose: "Source work", workspaceId: codeWorkspaceId },
+    { name: "data", purpose: "Dataset work", workspaceId: dataWorkspaceId },
+  ]) {
+    const mounted = await context.client.callTool({
+      name: "open_workspace",
+      arguments: { action: "member", workspaceId: compositeId, memberAction: "add", member },
+    });
+    assert.equal(mounted.isError, undefined, allResponseText(mounted));
+  }
+
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(panel.isError, undefined, allResponseText(panel));
+  const turnId = String(structuredContent(panel).turnId);
+
+  for (const [member, path] of [["code", "code.txt"], ["data", "data.txt"]] as const) {
+    const read = await context.client.callTool({
+      name: "read",
+      arguments: { workspaceId: compositeId, member, path },
+    });
+    assert.equal(read.isError, undefined, allResponseText(read));
+  }
+
+  const snapshotResult = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId },
+  });
+  assert.equal(snapshotResult.isError, undefined, allResponseText(snapshotResult));
+  const activities = structuredContent(snapshotResult).activities as Array<Record<string, unknown>>;
+  assert.equal(activities.length, 2);
+  assert.deepEqual(activities.map((activity) => activity.member), ["code", "data"]);
+  assert.deepEqual(activities.map((activity) => activity.workspaceId), [codeWorkspaceId, dataWorkspaceId]);
+
+  const auditRecords = activities.map((activity) => context.auditStore.getActivity(String(activity.activityId)));
+  assert.equal(auditRecords[0]?.turnId, turnId);
+  assert.equal(auditRecords[0]?.workspace.id, codeWorkspaceId);
+  assert.equal(auditRecords[1]?.turnId, turnId);
+  assert.equal(auditRecords[1]?.workspace.id, dataWorkspaceId);
+});
+
 test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-list-1");

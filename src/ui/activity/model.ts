@@ -22,6 +22,7 @@ export interface ActivitySummary {
   target: string;
   detailAvailable: boolean;
   workspaceId?: string;
+  member?: string;
   processId?: number;
   outputId?: string;
   commandLength?: number;
@@ -165,6 +166,7 @@ export function shouldFollowActivityTail(
 
 function isActivitySummary(value: unknown): value is ActivitySummary {
   if (!isRecord(value)) return false;
+  if (value.member !== undefined && typeof value.member !== "string") return false;
   return (
     typeof value.activityId === "string" &&
     typeof value.tool === "string" &&
