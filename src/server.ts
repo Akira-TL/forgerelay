@@ -3689,7 +3689,7 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close one workspace after the user chooses cleanup. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running processes prevent closure; completed background results are delivered with the close response when available.",
+        "Close one workspace after the user chooses cleanup. Composite Workspaces are dissolved through this same lifecycle: their Composite identity/member links are removed while member Workspaces and execution state remain untouched. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running processes prevent ordinary Workspace closure; completed background results are delivered with the close response when available.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close."),
         commitMessage: z
@@ -3700,7 +3700,15 @@ export function createMcpServer(
       },
       outputSchema: resultOutputSchema({
         workspaceId: z.string(),
-        mode: z.enum(["checkout", "worktree"]),
+        kind: z.enum(["workspace", "composite"]).optional(),
+        mode: z.enum(["checkout", "worktree"]).optional(),
+        name: z.string().optional(),
+        members: z.array(z.object({
+          name: z.string(),
+          purpose: z.string(),
+          workspaceId: z.string(),
+        })).optional(),
+        dissolved: z.boolean().optional(),
         sourceRoot: z.string().optional(),
         branch: z.string().optional(),
         targetBranch: z.string().optional(),
@@ -3713,6 +3721,43 @@ export function createMcpServer(
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, commitMessage }, extra) => {
+      if (compositeWorkspaces.has(workspaceId)) {
+        if (commitMessage !== undefined) {
+          throw new Error("close_workspace commitMessage is not valid when dissolving a Composite Workspace.");
+        }
+        const composite = compositeWorkspaces.dissolve(workspaceId);
+        compositeActivity.forgetComposite(workspaceId);
+        workspacePanelStates.delete(workspaceId);
+        const result = [
+          `Dissolved Composite Workspace ${composite.name} (${workspaceId}).`,
+          composite.members.length > 0
+            ? `Preserved member Workspaces: ${composite.members.map((member) => `${member.name} [${member.workspaceId}]`).join(", ")}.`
+            : "The Composite Workspace had no members.",
+          "Member Workspace handles, managed worktrees, processes, files, and Workspace Relay routes were not closed or cleaned up.",
+        ].join("\n");
+        return {
+          content: [textBlock(result)],
+          _meta: {
+            tool: toolNames.closeWorkspace,
+            card: {
+              workspaceId,
+              kind: "composite" as const,
+              name: composite.name,
+              members: composite.members,
+              dissolved: true,
+              payload: { content: [textBlock(result)] },
+            },
+          },
+          structuredContent: {
+            result,
+            workspaceId,
+            kind: "composite" as const,
+            name: composite.name,
+            members: composite.members,
+            dissolved: true,
+          },
+        };
+      }
       if (remoteWorkspaces.has(workspaceId)) {
         const response = await remoteWorkspaces.closeWorkspace(
           workspaceId,

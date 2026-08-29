@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
@@ -1154,6 +1154,145 @@ test("Composite Workspace aggregates member Activities into one Host Turn withou
   assert.equal(auditRecords[0]?.workspace.id, codeWorkspaceId);
   assert.equal(auditRecords[1]?.turnId, turnId);
   assert.equal(auditRecords[1]?.workspace.id, dataWorkspaceId);
+});
+
+test("close_workspace dissolves Composite identity while preserving member Workspace and running process", async (t) => {
+  const context = await fixture(t);
+  await writeFile(join(context.project, "preserved.txt"), "preserved-member\n");
+  const memberWorkspace = await callOpen(context.client, context.project, "chat-composite-close-member");
+  const memberWorkspaceId = String(structuredContent(memberWorkspace).workspaceId);
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "dissolve-process" },
+  });
+  const compositeId = String(structuredContent(composite).workspaceId);
+  const mounted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "code",
+        purpose: "Preserved source workspace",
+        workspaceId: memberWorkspaceId,
+      },
+    },
+  });
+  assert.equal(mounted.isError, undefined, allResponseText(mounted));
+
+  const running = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId: memberWorkspaceId,
+      command: "node -e \"setTimeout(() => console.log('member-finished'), 1200)\"",
+      yieldTimeMs: 0,
+    },
+  });
+  assert.equal(running.isError, undefined, allResponseText(running));
+  const processId = Number(structuredContent(running).processId);
+  assert.ok(processId > 0);
+  assert.equal(structuredContent(running).running, true);
+
+  const invalidCommitMessage = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId, commitMessage: "must not be used" },
+  });
+  assert.equal(invalidCommitMessage.isError, true);
+  assert.match(allResponseText(invalidCommitMessage), /not valid.*Composite/i);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  const closedStructured = structuredContent(closed);
+  assert.equal(closedStructured.kind, "composite");
+  assert.equal(closedStructured.dissolved, true);
+  assert.equal(closedStructured.workspaceId, compositeId);
+  assert.match(allResponseText(closed), /Preserved member Workspaces/);
+
+  const memberRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: memberWorkspaceId, path: "preserved.txt" },
+  });
+  assert.equal(memberRead.isError, undefined, allResponseText(memberRead));
+  assert.match(allResponseText(memberRead), /preserved-member/);
+
+  const processResult = await waitForToolText(
+    context.client,
+    {
+      name: "bash",
+      arguments: { workspaceId: memberWorkspaceId, action: "process", processId, yieldTimeMs: 2_000 },
+    },
+    /member-finished/,
+    4_000,
+  );
+  assert.equal(processResult.isError, undefined, allResponseText(processResult));
+  assert.match(allResponseText(processResult), /member-finished/);
+
+  const reopen = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(reopen.isError, true);
+  assert.match(allResponseText(reopen), /Unknown workspaceId|Unknown Composite Workspace/i);
+
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(panel.isError, true);
+  assert.match(allResponseText(panel), /No Workspace presentation/i);
+});
+
+test("close_workspace dissolves Composite without finalizing a managed-worktree member", async (t) => {
+  const context = await fixture(t, { git: true });
+  const worktree = await callOpen(
+    context.client,
+    context.project,
+    "chat-composite-close-worktree",
+    "worktree",
+  );
+  const worktreeStructured = structuredContent(worktree);
+  const worktreeWorkspaceId = String(worktreeStructured.workspaceId);
+  const worktreeRoot = String(worktreeStructured.root);
+  await writeFile(join(worktreeRoot, "unfinished.txt"), "still in worktree\n");
+
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "dissolve-worktree" },
+  });
+  const compositeId = String(structuredContent(composite).workspaceId);
+  const mounted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "isolated",
+        purpose: "Managed isolated work",
+        workspaceId: worktreeWorkspaceId,
+      },
+    },
+  });
+  assert.equal(mounted.isError, undefined, allResponseText(mounted));
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal((await stat(worktreeRoot)).isDirectory(), true);
+  assert.equal(await readFile(join(worktreeRoot, "unfinished.txt"), "utf8"), "still in worktree\n");
+
+  const stillOpen = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: worktreeWorkspaceId, path: "unfinished.txt" },
+  });
+  assert.equal(stillOpen.isError, undefined, allResponseText(stillOpen));
+  assert.match(allResponseText(stillOpen), /still in worktree/);
 });
 
 test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {

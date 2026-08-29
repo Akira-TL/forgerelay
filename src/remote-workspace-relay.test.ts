@@ -278,6 +278,39 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   assert.ok(Array.isArray(memberContext.agentsFiles));
   assert.doesNotMatch(JSON.stringify(memberContext), /"ws_[0-9a-f]{10}"/);
 
+  const disposableComposite = await client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "remote-route-preservation" },
+  });
+  const disposableCompositeId = String(structuredContent(disposableComposite).workspaceId);
+  const disposableMount = await client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: disposableCompositeId,
+      memberAction: "add",
+      member: {
+        name: "compute",
+        purpose: "Preserved remote route",
+        workspaceId: memberWorkspaceId,
+      },
+    },
+  });
+  assert.equal(disposableMount.isError, undefined, resultText(disposableMount));
+  const dissolved = await client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: disposableCompositeId },
+  });
+  assert.equal(dissolved.isError, undefined, resultText(dissolved));
+  assert.equal(structuredContent(dissolved).dissolved, true);
+
+  const routeStillOpen = await client.callTool({
+    name: "read",
+    arguments: { workspaceId: memberWorkspaceId, path: "sentinel.txt" },
+  });
+  assert.equal(routeStillOpen.isError, undefined, resultText(routeStillOpen));
+  assert.match(resultText(routeStillOpen), /execution-remote-content/);
+
   const remoteInventory = await withRemoteMcpClient(
     remoteRecord,
     remote.endpoint,
