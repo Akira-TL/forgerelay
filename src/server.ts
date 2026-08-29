@@ -3762,7 +3762,7 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close one workspace after the user chooses cleanup. Composite Workspaces are dissolved through this same lifecycle: their Composite identity/member links are removed while member Workspaces and execution state remain untouched. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces finalize the existing safe worktree lifecycle, including hooks, commit/integration, and cleanup; provide commitMessage for that mode. Running processes prevent ordinary Workspace closure; completed background results are delivered with the close response when available.",
+        "Close one workspace after the user chooses cleanup. Composite Workspaces dissolve here: only the Composite identity and member links are removed; member Workspaces, files, processes, worktrees, and relay routes remain intact. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces run the safe finalize lifecycle (hooks, commit, fast-forward integration, cleanup) and require commitMessage. Running processes block ordinary Workspace closure.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close."),
         commitMessage: z
