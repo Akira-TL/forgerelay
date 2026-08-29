@@ -85,7 +85,7 @@ Determine how the user will consume the change and verify that path. Behavior ma
 
 State clearly when only a narrower proxy was verified. For model-facing schemas, inspect what the host receives. For UI and artifacts, inspect the rendered result rather than inferring success from the producing command.
 
-For local server debugging, use the checked-in debug workflow on `127.0.0.1:7677`; do not reuse the normal `7676` product port. `npm run dev` starts the watched debug server, and `npm run debug:accept` performs the real HTTP/OAuth/MCP acceptance path. Keep debug credentials and generated state under the gitignored `.forgerelay-debug/` directory rather than committing secrets or one-off runtime files.
+For local development, debugging, and acceptance, use only dedicated test instances on `127.0.0.1:7677` and `127.0.0.1:7678`. These ports are reserved for the multi-instance / Workspace Relay test topology; use separate temporary config and state directories for each instance. Never connect tests to, restart, reconfigure, or otherwise operate the normal `7676` product instance or any formally installed ForgeRelay instance. `npm run dev` starts the watched debug server, and `npm run debug:accept` performs the real HTTP/OAuth/MCP acceptance path. Keep debug credentials and generated state under the gitignored `.forgerelay-debug/` directory rather than committing secrets or one-off runtime files.
 
 ## Trace affected contracts
 
