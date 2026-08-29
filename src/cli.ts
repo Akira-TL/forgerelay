@@ -11,25 +11,13 @@ import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
-import { formatVisibleHookReports, HookRunner } from "./hooks.js";
+import { formatVisibleHookReports } from "./hooks.js";
 import { runHooksCommand } from "./hook-cli.js";
-import { runSubagentProvider } from "./subagents/providers/registry.js";
-import {
-  isSubagentProvider,
-  loadSubagentProfiles,
-  type SubagentProfile,
-} from "./subagents/profiles.js";
-import {
-  assertSubagentProviderAvailable,
-  formatSubagentProviderAvailabilitySummary,
-} from "./subagents/providers/availability.js";
-import {
-  formatAvailableSubagentTargets,
-  parseSubagentRunArgs,
-  resolveSubagentTarget,
-} from "./subagents/cli-target.js";
-import { createSubagentSessionStore, type SubagentSession } from "./subagents/session-store.js";
-import type { SubagentRunResult } from "./subagents/providers/contract.js";
+import { executeSubagentSession } from "./subagents/sessions/execution.js";
+import { SubagentSessionManager } from "./subagents/sessions/manager.js";
+import { formatSubagentProviderAvailabilitySummary } from "./subagents/providers/availability.js";
+import { parseSubagentRunArgs } from "./subagents/cli-target.js";
+import type { SubagentSession } from "./subagents/sessions/store.js";
 import {
   ensureForgeRelayInstanceId,
   generateInstanceId,
@@ -570,103 +558,80 @@ async function runAgentsCommand(args: string[]): Promise<void> {
 }
 
 async function runAgentsList(): Promise<void> {
-  const config = loadConfig();
-  const store = createSubagentSessionStore(config);
-  const agents = store.list(resolveCurrentWorkspaceScope());
+  const manager = createCliSubagentSessionManager();
+  try {
+    const agents = manager.list(resolveCurrentWorkspaceScope());
+    if (agents.length === 0) {
+      console.log("No subagent sessions found for this workspace.");
+      return;
+    }
 
-  if (agents.length === 0) {
-    console.log("No subagent sessions found for this workspace.");
-    return;
-  }
-
-  for (const agent of agents) {
-    console.log(formatAgentLine(agent));
+    for (const agent of agents) {
+      console.log(formatAgentLine(agent));
+    }
+  } finally {
+    manager.close();
   }
 }
 
 async function runAgentsRun(args: string[]): Promise<void> {
   const parsed = parseSubagentRunArgs(args);
-
-  const config = loadConfig();
   const workspaceRoot = resolveCurrentWorkspaceRoot();
-  const store = createSubagentSessionStore(config);
-  const existing = store.get(parsed.target);
-
-  if (existing) {
-    if (!isSubagentProvider(existing.provider)) {
-      throw new Error(`Unknown subagent provider for existing session: ${existing.provider}`);
-    }
-    assertSubagentProviderAvailable(existing.provider);
-    const promptFile = writeAgentPromptFile(parsed.prompt);
-    store.update(existing.id, {
-      status: "starting",
-      model: parsed.model ?? existing.model,
-      thinking: parsed.thinking ?? existing.thinking,
-      latestResponse: undefined,
-      error: undefined,
-      hookReports: undefined,
-    });
-    spawnAgentWorker(existing.id, promptFile);
-    console.log(formatAgentLine({
-      ...existing,
-      status: "running",
-      model: parsed.model ?? existing.model,
-      thinking: parsed.thinking ?? existing.thinking,
-    }));
-    return;
+  const manager = createCliSubagentSessionManager();
+  try {
+    const existing = manager.get(parsed.target);
+    const session = existing
+      ? manager.resume({
+          sessionId: existing.id,
+          prompt: parsed.prompt,
+          model: parsed.model,
+          thinking: parsed.thinking,
+        })
+      : await manager.start({
+          workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
+          workspaceRoot,
+          target: parsed.target,
+          prompt: parsed.prompt,
+          model: parsed.model,
+          thinking: parsed.thinking,
+        });
+    console.log(formatAgentLine({ ...session, status: "running" }));
+  } finally {
+    manager.close();
   }
-
-  const profiles = await loadSubagentProfiles(config, workspaceRoot);
-  const target = resolveSubagentTarget(parsed.target, profiles, parsed.model, parsed.thinking);
-  if (!target) {
-    throw new Error(
-      `Unknown subagent profile, provider, or id: ${parsed.target}. Available ${formatAvailableSubagentTargets(profiles)}`,
-    );
-  }
-  assertSubagentProviderAvailable(target.provider);
-
-  const promptFile = writeAgentPromptFile(parsed.prompt);
-  const record = store.create({
-    workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
-    workspaceRoot,
-    profileName: target.name,
-    provider: target.provider,
-    model: target.model,
-    thinking: target.thinking,
-  });
-
-  spawnAgentWorker(record.id, promptFile);
-  console.log(formatAgentLine({ ...record, status: "running" }));
 }
 
 async function runAgentsShow(args: string[]): Promise<void> {
   const [id] = args;
   if (!id) throw new Error("Usage: forgerelay agents show <id>");
 
-  const config = loadConfig();
-  const store = createSubagentSessionStore(config);
-  let record = store.get(id);
-  if (!record) throw new Error(`Unknown subagent id: ${id}`);
+  const manager = createCliSubagentSessionManager();
+  try {
+    let record = manager.get(id);
+    if (!record) throw new Error(`Unknown subagent id: ${id}`);
 
-  const deadline = Date.now() + 15_000;
-  while ((record.status === "starting" || record.status === "running") && Date.now() < deadline) {
-    await sleep(500);
-    record = store.get(id) ?? record;
-  }
+    const deadline = Date.now() + 15_000;
+    while ((record.status === "starting" || record.status === "running") && Date.now() < deadline) {
+      await sleep(500);
+      record = manager.get(id) ?? record;
+    }
 
-  console.log(formatAgentLine(record));
-  const hookSummary = formatVisibleHookReports(record.hookReports ?? []);
-  if (hookSummary) console.log(hookSummary);
-  if (record.latestResponse) {
-    console.log(record.latestResponse);
-    return;
-  }
-  if (record.error) {
-    console.log(record.error);
-    return;
-  }
-  if (record.status === "starting" || record.status === "running") {
-    console.log(`No final response yet. Call \`forgerelay agents show ${record.id}\` again later.`);
+    console.log(formatAgentLine(record));
+    const hookSummary = formatVisibleHookReports(record.hookReports ?? []);
+    if (hookSummary) console.log(hookSummary);
+    if (record.latestResponse) {
+      console.log(record.latestResponse);
+      return;
+    }
+    if (record.error) {
+      console.log(record.error);
+      return;
+    }
+    if (record.status === "starting" || record.status === "running") {
+      console.log(`No final response yet. Call \`forgerelay agents show ${record.id}\` again later.`);
+    }
+  } finally {
+    manager.close();
   }
 }
 
@@ -677,106 +642,26 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  const store = createSubagentSessionStore(config);
-  const record = store.get(id);
-  if (!record) throw new Error(`Unknown subagent id: ${id}`);
-  const hooks = new HookRunner(config.hooks, config.logging);
-  const hookInvocation = {
-    workspaceId: record.workspaceId,
-    workspaceRoot: record.workspaceRoot,
-    payload: {
-      agentId: record.id,
-      profile: record.profileName,
-      provider: record.provider,
-      model: record.model,
-      thinking: record.thinking,
+  const prompt = await readFile(promptFile, "utf8");
+  await executeSubagentSession(config, id, prompt);
+}
+
+function createCliSubagentSessionManager(): SubagentSessionManager {
+  return new SubagentSessionManager(loadConfig(), {
+    launch(sessionId, prompt) {
+      const promptFile = writeSubagentPromptFile(prompt);
+      spawnSubagentWorker(sessionId, promptFile);
     },
-  };
-
-  store.update(record.id, { status: "running", error: undefined, hookReports: undefined });
-  const hookReports = await hooks.run("SubagentStart", hookInvocation);
-  store.update(record.id, { hookReports });
-  try {
-    const profiles = await loadSubagentProfiles(config, record.workspaceRoot);
-    const profile = profiles.find((candidate) => candidate.name === record.profileName);
-    const prompt = await readFile(promptFile, "utf8");
-    const result = profile
-      ? await runSubagentProfile(profile, record, prompt)
-      : await runRawSubagentProvider(record, prompt);
-    hookReports.push(...await hooks.run("SubagentStop", {
-      ...hookInvocation,
-      payload: {
-        ...hookInvocation.payload,
-        status: "idle",
-        providerSessionId: result.providerSessionId,
-      },
-    }));
-    store.update(record.id, {
-      providerSessionId: result.providerSessionId ?? undefined,
-      status: "idle",
-      latestResponse: result.finalResponse,
-      error: undefined,
-      hookReports,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    hookReports.push(...await hooks.run("SubagentStop", {
-      ...hookInvocation,
-      payload: {
-        ...hookInvocation.payload,
-        status: "error",
-      },
-    }));
-    store.update(record.id, {
-      status: "error",
-      error: message,
-      hookReports,
-    });
-  }
-}
-
-async function runSubagentProfile(
-  profile: SubagentProfile,
-  record: SubagentSession,
-  prompt: string,
-): Promise<SubagentRunResult> {
-  const body = profile.body.trim();
-  const fullPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
-  return runSubagentProvider(profile.provider, {
-    prompt: fullPrompt,
-    workspace: record.workspaceRoot,
-    providerSessionId: record.providerSessionId,
-    writeMode: "allowed",
-    model: record.model ?? profile.model,
-    thinking: record.thinking ?? profile.thinking,
   });
 }
 
-async function runRawSubagentProvider(
-  record: SubagentSession,
-  prompt: string,
-): Promise<SubagentRunResult> {
-  if (record.profileName !== record.provider || !isSubagentProvider(record.provider)) {
-    throw new Error(`Subagent profile not found: ${record.profileName}`);
-  }
-
-  return runSubagentProvider(record.provider, {
-    prompt,
-    workspace: record.workspaceRoot,
-    providerSessionId: record.providerSessionId,
-    writeMode: "allowed",
-    model: record.model,
-    thinking: record.thinking,
-  });
-}
-
-function spawnAgentWorker(agentId: string, promptFile: string): void {
+function spawnSubagentWorker(sessionId: string, promptFile: string): void {
   const child = spawn(process.execPath, [
     ...process.execArgv,
     fileURLToPath(import.meta.url),
     "agents",
     "__worker",
-    agentId,
+    sessionId,
     "--prompt-file",
     promptFile,
   ], {
@@ -787,7 +672,7 @@ function spawnAgentWorker(agentId: string, promptFile: string): void {
   child.unref();
 }
 
-function writeAgentPromptFile(prompt: string): string {
+function writeSubagentPromptFile(prompt: string): string {
   const directory = mkdtempSync(join(tmpdir(), "forgerelay-agent-prompt-"));
   const filePath = join(directory, "prompt.txt");
   writeFileSync(filePath, prompt, { mode: 0o600 });
