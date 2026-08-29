@@ -44,6 +44,22 @@ A bounded provider-backed local coding worker delegated a task and coordinated b
 the host through ForgeRelay-owned lifecycle state.
 _Avoid_: Host-native subagent, autonomous workflow
 
+**Subagent Session**:
+A persistent ForgeRelay identity for one provider-backed Subagent continuation,
+bound to the actual Workspace and Execution ForgeRelay that own its execution.
+A Subagent Session may receive multiple delegated prompts sequentially, with at
+most one active execution at a time. Its Workspace ownership and effective
+provider/profile configuration remain stable for the Session's lifetime. It is
+not a Host conversation, Activity, Task, or long-term memory record.
+_Avoid_: Provider session, Host Turn, Task, conversation
+
+**Subagent Run**:
+One bounded execution of one delegated prompt within a Subagent Session. A Run
+has its own identity and lifecycle and may succeed, fail, be cancelled, or be
+interrupted without terminating the Session. A Run may be observed by an
+Activity, but the Run and Activity are distinct concepts.
+_Avoid_: Subagent Session, Activity, Task, provider session
+
 **Review checkpoint**:
 Stored Git-backed state representing a coherent review baseline for workspace
 changes.
