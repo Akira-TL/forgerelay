@@ -250,16 +250,51 @@ fake-LSP coverage remains the primary cross-platform protocol/lifecycle gate, wh
 `rust-analyzer`, `gopls`, and `clangd` only when those external executables are
 already present and otherwise reports explicit skips without installing them.
 
-## 0.5 — First-class subagent MCP
+## 0.5 — Durable Activity and batch execution
 
-ForgeRelay already owns provider adapters and resumable local agent sessions.
-The next step is to remove the current `bash -> forgerelay agents ...` indirection
+0.5 established the execution-history substrate used by the later MCP App and
+multi-workspace features:
+
+- immutable local Audit Events and restart-safe Activity Records;
+- durable Bash output plus late `bash_result` delivery;
+- Host Turn snapshots with lazy detail/output queries for MCP Apps;
+- native bulk read/edit/delete and heterogeneous `batch.execute` orchestration;
+- parent/child Activity relationships and bounded capability batch policies;
+- Windows-safe Activity/SQLite cleanup and release-test hardening.
+
+Activity remains an observation of semantic ForgeRelay operations rather than a
+second task/session runtime. Files, processes, Git state, and audit truth continue
+to belong to the Workspace that actually executes the operation.
+
+## 0.6 — Host UI, Workspace Relay, and Composite Workspace
+
+0.6 turned the Activity substrate into a Host-facing multi-environment workflow:
+
+- **0.6.0** — one ForgeRelay Panel per Host Turn, MCP Inspector/debug lifecycle,
+  virtual `skills://` loading, bounded process waits, and release-candidate support;
+- **0.6.1** — Workspace Relay, authenticated direct/SSH-routed remote execution,
+  restart-safe relay identity/routes, and remote Activity/bootstrap forwarding;
+- **0.6.2** — Composite Workspace as a first-class Workspace kind with named local,
+  managed-worktree, and relayed members, explicit member routing, aggregated
+  Composite Activity, and `close_workspace` dissolution that preserves members.
+
+The 0.6 contract keeps execution ownership explicit: Gateway ForgeRelay presents
+and routes; the selected member Workspace and its Execution ForgeRelay own files,
+Git state, processes, Hooks, Skills, Language services, Activity, and Audit facts.
+Workspace Relay is not file synchronization or failover, and Composite Workspace
+never silently chooses a member.
+
+## Later: first-class subagent MCP
+
+ForgeRelay already owns provider adapters and resumable local agent sessions. A
+future release may remove the current `bash -> forgerelay agents ...` indirection
 for MCP hosts.
 
-First-class subagent operations should reuse the Capability Gateway established in 0.3 rather than add another top-level MCP tool. The exact registered names, action semantics and provider/session contract remain 0.5 design work. The parent agent will continue choosing from available provider/profile metadata while ForgeRelay owns provider-backed worker lifecycle state.
-
-This is intentionally provider-backed delegation, not an attempt to emulate a
-host-native subagent implementation.
+First-class subagent operations should reuse the Capability Gateway rather than
+add another top-level MCP tool. The parent agent should continue choosing from
+available provider/profile metadata while ForgeRelay owns provider-backed worker
+lifecycle state. This remains provider-backed delegation, not an attempt to
+emulate a Host-native subagent implementation.
 
 ## Worktree and history refinements
 
