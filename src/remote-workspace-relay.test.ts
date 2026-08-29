@@ -175,7 +175,6 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
 
 void test("Composite Workspace mounts and explicitly routes a Workspace Relay member without fallback", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-relay-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -337,11 +336,11 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   });
   assert.equal(unavailable.isError, true);
   assert.doesNotMatch(resultText(unavailable), /gateway-local-content/);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("Composite Workspace routes Codex patch and process tools through a relayed member", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-codex-relay-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const gatewayRoot = join(root, "gateway-root");
   const remoteRoot = join(root, "remote-root");
@@ -453,6 +452,7 @@ void test("Composite Workspace routes Codex patch and process tools through a re
   assert.ok(activities.some((activity) => activity.tool === "apply_patch" && activity.member === "compute"));
   assert.ok(activities.some((activity) => activity.tool === "exec_command" && activity.member === "compute"));
   assert.doesNotMatch(JSON.stringify(activitySnapshot), /"ws_[0-9a-f]{10}"/);
+  t.after(() => rm(root, { recursive: true, force: true }));
 });
 
 void test("gateway mutates files only on the remote workspace", async (t) => {
