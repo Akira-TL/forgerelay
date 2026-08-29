@@ -305,6 +305,25 @@ switching a logical workspace therefore does not by itself cause unchanged proje
 context to be injected again, while changed context produces a new fingerprint and
 is delivered on the next `auto` open.
 
+Composite Workspaces use the same `open_workspace` entry point with
+`kind="composite"` and a human-readable `name`. They have no filesystem root of
+their own and may contain zero or more named members. Member management also stays
+on `open_workspace` through `action="member"`; an added member either references an
+existing `workspaceId` or reuses the normal local/managed/relay Workspace open
+definition (`path`, optional `relay`, `mode`, and worktree options). Every Composite
+open returns its `kind`, name, and member purposes regardless of
+`context="auto"|"full"|"none"`. To receive one member's heavy project bootstrap,
+reopen the Composite with `memberName=<name>`; this does not create an implicit
+current member. Core work calls against a Composite require an explicit `member`
+and retain the `cws_...` ID as the Host-facing Workspace identity.
+
+Composite member purpose text is descriptive only. ForgeRelay never routes by tool
+type, hardware role, load, or availability, and a missing/offline member never falls
+back to another member or local execution. Member filesystems, Git state, processes,
+Hooks, Skills, language services, and Activity facts remain owned by the underlying
+Workspace. The Composite Activity Panel only aggregates their presentation into one
+Host Turn.
+
 Use `open_workspace(action="list")` only when the Agent needs to continue an older
 logical workspace, choose among multiple handles, or organize workspace state. The
 inventory is paginated (50 records by default, at most 100) and can filter by
@@ -321,6 +340,10 @@ or externally removed managed-worktree root can therefore remain diagnostically
 files. For a managed-worktree-backed workspace, `close_workspace` requires
 `commitMessage` and runs the existing safe worktree finalize lifecycle: close Hooks,
 commit when needed, fast-forward-only integration, cleanup, and alias invalidation.
+For a Composite Workspace, the same tool means dissolve: it removes only the
+Composite identity, membership, and Composite-facing panel/lifecycle state. It does
+not close members, finalize member worktrees, interrupt member processes, delete
+files, or remove remote registrations and relayed Workspace routes.
 
 Hot workspace/session activity timestamps are coalesced in memory and flushed to the
 SQLite state database in a transaction at most every five minutes; normal shutdown

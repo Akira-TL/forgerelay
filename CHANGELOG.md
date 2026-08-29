@@ -4,6 +4,21 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added Composite Workspace as a first-class Workspace kind on the existing `open_workspace` surface. A Composite Workspace has its own persistent `cws_...` identity, may start with zero members, and can mount named local, managed-worktree, or relayed Workspaces with Agent-facing purpose descriptions.
+- Added explicit member routing across filesystem, capability, Bash/process, and Codex-compatible `apply_patch` / `exec_command` / `write_stdin` surfaces. The Composite Workspace ID remains Host-facing while each operation must name its execution member; ForgeRelay never selects or falls back to another member automatically.
+- Added one Composite Host Turn / Activity presentation that aggregates local and remote member activity with member labels while keeping audit, process, filesystem, and remote execution facts owned by the actual member Workspace/Execution ForgeRelay.
+
+### Changed
+
+- `close_workspace` now dissolves a Composite Workspace without closing member Workspaces, finalizing managed worktrees, interrupting member processes, deleting files, or removing Workspace Relay routes.
+- Interactive debug launchers now derive their displayed local endpoints from the selected `FORGERELAY_DEBUG_CONFIG_DIR/config.json`, allowing multiple isolated debug instances to use separate config/state/worktree directories and different ports such as 7677 and 6768.
+
+### Fixed
+
+- Routed Codex-compatible process and patch tools through the same Workspace Relay and Composite member resolution path as the canonical tool surface, including explicit no-fallback behavior for remote members.
+
 ## [0.6.1] - 2026-08-28
 
 ### Added

@@ -101,6 +101,44 @@ Once a workspace is open, the host can:
 Normal work happens in your existing checkout. ForgeRelay does not silently move
 every task into a worktree.
 
+## Composite workspaces across multiple devices
+
+When one task needs more than one execution environment, a Composite Workspace keeps
+one Host-facing working context while preserving each member Workspace as a separate
+execution boundary. For example, `code` can point at a local checkout while
+`compute` points through Workspace Relay at a GPU machine.
+
+Composite Workspaces use the same lifecycle entry points as ordinary Workspaces:
+
+```text
+open_workspace({ kind: "composite", name: "research-project" })
+open_workspace({
+  action: "member",
+  workspaceId: "cws_...",
+  memberAction: "add",
+  member: {
+    name: "compute",
+    purpose: "GPU and high-performance computation",
+    path: "/srv/research",
+    relay: "gpu-server"
+  }
+})
+```
+
+Work still names the member explicitly:
+
+```text
+read({ workspaceId: "cws_...", member: "code", path: "src/model.py" })
+bash({ workspaceId: "cws_...", member: "compute", command: "python train.py" })
+```
+
+ForgeRelay does not merge member filesystems, Git state, Hooks, Skills, processes,
+or audit facts, and it never infers a member from the tool type or purpose text.
+The Composite Activity Panel presents member operations in one Host Turn while the
+actual facts remain owned by the member Workspace. `close_workspace` on a Composite
+Workspace means **dissolve**: the Composite identity and membership are removed, but
+member Workspaces, worktrees, running jobs, files, and relay routes are preserved.
+
 ### Progressive MCP context
 
 ForgeRelay keeps the callable MCP surface and its low-frequency operating manuals
