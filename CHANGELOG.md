@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-08-29
+
 ### Added
 
 - Added Composite Workspace as a first-class Workspace kind on the existing `open_workspace` surface. A Composite Workspace has its own persistent `cws_...` identity, may start with zero members, and can mount named local, managed-worktree, or relayed Workspaces with Agent-facing purpose descriptions.
