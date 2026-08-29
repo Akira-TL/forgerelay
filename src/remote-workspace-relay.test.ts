@@ -173,6 +173,114 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
   t.after(() => rm(root, { recursive: true, force: true }));
 });
 
+void test("Composite Workspace mounts and explicitly routes a Workspace Relay member without fallback", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-relay-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await writeFile(join(gatewayRoot, "sentinel.txt"), "gateway-local-content\n");
+  await writeFile(join(remoteRoot, "sentinel.txt"), "execution-remote-content\n");
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-composite-owner-token-long-enough",
+    instanceId: "forge-relay-composite-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-composite-owner-token-long-enough",
+    instanceId: "forge-relay-composite-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+  });
+
+  const composite = await client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "remote-compute" },
+  });
+  assert.equal(composite.isError, undefined, resultText(composite));
+  const compositeId = String(structuredContent(composite).workspaceId);
+
+  const mounted = await client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "compute",
+        purpose: "Remote computation",
+        path: remoteRoot,
+        relay: "workstation",
+      },
+    },
+  });
+  assert.equal(mounted.isError, undefined, resultText(mounted));
+  const members = structuredContent(mounted).members as Array<Record<string, unknown>>;
+  assert.match(String(members[0]?.workspaceId), /^rws_/);
+
+  const read = await client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "compute", path: "sentinel.txt" },
+  });
+  assert.equal(read.isError, undefined, resultText(read));
+  assert.match(resultText(read), /execution-remote-content/);
+  assert.doesNotMatch(resultText(read), /gateway-local-content/);
+  const card = (read._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(card?.workspaceId, compositeId);
+  assert.equal(card?.member, "compute");
+
+  const bootstrap = await client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "compute", context: "full" },
+  });
+  assert.equal(bootstrap.isError, undefined, resultText(bootstrap));
+  const memberContext = structuredContent(bootstrap).memberContext as Record<string, unknown>;
+  assert.equal(memberContext.member, "compute");
+  assert.equal(memberContext.workspaceId, compositeId);
+  assert.equal(memberContext.root, remoteRoot);
+  assert.equal(typeof memberContext.contextFingerprint, "string");
+  assert.ok(Array.isArray(memberContext.agentsFiles));
+  assert.doesNotMatch(JSON.stringify(memberContext), /"ws_[0-9a-f]{10}"/);
+
+  const remoteInventory = await withRemoteMcpClient(
+    remoteRecord,
+    remote.endpoint,
+    (remoteClient) => remoteClient.callTool({
+      name: "open_workspace",
+      arguments: { action: "list", root: remoteRoot, state: "active" },
+    }),
+  );
+  const remoteWorkspaces = structuredContent(remoteInventory).workspaces as Array<{ workspaceId?: unknown }>;
+  const remoteWorkspaceId = String(remoteWorkspaces[0]?.workspaceId ?? "");
+  assert.match(remoteWorkspaceId, /^ws_[0-9a-f]{10}$/);
+  await withRemoteMcpClient(
+    remoteRecord,
+    remote.endpoint,
+    (remoteClient) => remoteClient.callTool({
+      name: "close_workspace",
+      arguments: { workspaceId: remoteWorkspaceId },
+    }),
+  );
+
+  const unavailable = await client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "compute", path: "sentinel.txt" },
+  });
+  assert.equal(unavailable.isError, true);
+  assert.doesNotMatch(resultText(unavailable), /gateway-local-content/);
+});
+
 void test("gateway mutates files only on the remote workspace", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-mutations-"));
 

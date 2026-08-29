@@ -1220,6 +1220,42 @@ function toolResultContent(result: unknown): ToolContent[] {
   return Array.isArray(content) ? content as ToolContent[] : [];
 }
 
+function remapCompositeToolResult<T>(
+  result: T,
+  executionWorkspaceId: string,
+  compositeWorkspaceId: string,
+  member: string,
+): T {
+  if (typeof result !== "object" || result === null) return result;
+  const record = result as Record<string, unknown>;
+  const remapped = replaceWorkspaceIdentity(record, executionWorkspaceId, compositeWorkspaceId) as Record<string, unknown>;
+  const meta = typeof remapped._meta === "object" && remapped._meta !== null
+    ? { ...(remapped._meta as Record<string, unknown>) }
+    : undefined;
+  if (meta) {
+    const card = typeof meta.card === "object" && meta.card !== null
+      ? { ...(meta.card as Record<string, unknown>), workspaceId: compositeWorkspaceId, member }
+      : undefined;
+    if (card) meta.card = card;
+    remapped._meta = meta;
+  }
+  const structured = typeof remapped.structuredContent === "object" && remapped.structuredContent !== null
+    ? { ...(remapped.structuredContent as Record<string, unknown>), member }
+    : undefined;
+  if (structured) remapped.structuredContent = structured;
+  return remapped as T;
+}
+
+function replaceWorkspaceIdentity(value: unknown, from: string, to: string): unknown {
+  if (typeof value === "string") return value.split(from).join(to);
+  if (Array.isArray(value)) return value.map((entry) => replaceWorkspaceIdentity(entry, from, to));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, entry]) => [key, replaceWorkspaceIdentity(entry, from, to)]),
+  );
+}
+
 function toolResultAgentsFiles(result: unknown): Array<{ path: string; content: string }> {
   if (typeof result !== "object" || result === null) return [];
   const structured = (result as { structuredContent?: unknown }).structuredContent;
@@ -1555,6 +1591,42 @@ export function createMcpServer(
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
+  const resolveExecutionTarget = (workspaceId: string, memberName?: string) => {
+    if (!compositeWorkspaces.has(workspaceId)) {
+      if (memberName !== undefined) {
+        throw new Error(`Workspace ${workspaceId} is not composite and does not accept member.`);
+      }
+      return { executionWorkspaceId: workspaceId };
+    }
+    if (!memberName) {
+      throw new Error(`Composite Workspace ${workspaceId} requires member for this operation.`);
+    }
+    const member = compositeWorkspaces.member(workspaceId, memberName);
+    try {
+      if (!remoteWorkspaces.has(member.workspaceId)) workspaces.getWorkspace(member.workspaceId);
+    } catch (error) {
+      throw new Error(
+        `Composite Workspace ${workspaceId} member ${member.name} is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return {
+      executionWorkspaceId: member.workspaceId,
+      compositeWorkspaceId: workspaceId,
+      memberName: member.name,
+    };
+  };
+  const presentExecutionResult = <T>(
+    result: T,
+    target: ReturnType<typeof resolveExecutionTarget>,
+  ): T => {
+    if (!target.compositeWorkspaceId || !target.memberName) return result;
+    return remapCompositeToolResult(
+      result,
+      target.executionWorkspaceId,
+      target.compositeWorkspaceId,
+      target.memberName,
+    );
+  };
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
   const toolDescriptions = buildToolDescriptions(config);
@@ -1661,6 +1733,70 @@ export function createMcpServer(
       },
     },
   });
+  const loadCompositeMemberContext = async (
+    compositeWorkspaceId: string,
+    memberName: string,
+    contextPolicy: "auto" | "full" | "none",
+    conversationScopeId: string | undefined,
+    protectedWorkspaceIds: ReadonlySet<string>,
+  ): Promise<Record<string, unknown>> => {
+    const target = resolveExecutionTarget(compositeWorkspaceId, memberName);
+    if (remoteWorkspaces.has(target.executionWorkspaceId)) {
+      const resumed = await remoteWorkspaces.resumeWorkspace(
+        target.executionWorkspaceId,
+        contextPolicy,
+        conversationScopeId,
+      );
+      const presented = presentExecutionResult(resumed, target) as {
+        structuredContent?: Record<string, unknown>;
+      };
+      return {
+        member: memberName,
+        ...(presented.structuredContent ?? {}),
+      };
+    }
+
+    const opened = await workspaces.openWorkspace(
+      { workspaceId: target.executionWorkspaceId, context: contextPolicy },
+      { conversationScopeId, protectedWorkspaceIds },
+    );
+    const workspace = opened.workspace;
+    const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION, {
+      artifactDownloadSupported: isArtifactDownloadSupportedPlatform(),
+    });
+    const capabilityCatalog = capabilityRegistry.catalog(capabilityContextFor(workspace));
+    const agentsFiles = opened.agentsFiles.map((file) => ({
+      path: formatAgentsPath(file.path, workspace.root),
+      content: file.content,
+    }));
+    const availableAgentsFiles = opened.availableAgentsFiles.map((file) => ({
+      path: formatAgentsPath(file.path, workspace.root),
+    }));
+    const skills = workspace.skills
+      .filter((skill) => !skill.disableModelInvocation)
+      .map((skill) => ({ name: skill.name, description: skill.description }));
+    return {
+      member: memberName,
+      workspaceId: compositeWorkspaceId,
+      root: workspace.root,
+      mode: workspace.mode,
+      contextFingerprint: opened.contextFingerprint,
+      capabilityFingerprint,
+      capabilityCatalog,
+      includeBootstrapContext: opened.includeBootstrapContext,
+      ...(opened.includeBootstrapContext
+        ? {
+            agentsFiles,
+            availableAgentsFiles,
+            skills,
+            skillDiagnostics: redactSkillDiagnosticPaths(workspace.skillDiagnostics),
+          }
+        : {}),
+      instruction: opened.includeBootstrapContext
+        ? `Bootstrap context for Composite member ${memberName}. Keep using Composite workspaceId ${compositeWorkspaceId} and pass member=${memberName} for work operations.`
+        : `Composite member ${memberName} context was already delivered for this Host context; keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}.`,
+    };
+  };
   const coreOperations = createCoreOperationExecutor({
     read: async (input: ReadOperationInput, context: CoreOperationContext) => {
       const { workspaceId, ...readInput } = input;
@@ -2429,9 +2565,25 @@ export function createMcpServer(
         "Open or resume a ForgeRelay Workspace. Ordinary workspaces default to local execution; relay may name a registered remote ForgeRelay. Composite Workspaces use the same open lifecycle but have kind=\"composite\" and a name instead of a mounted root. Reuse the returned workspaceId for later calls. Bootstrap context is delivered automatically only when needed and can be suppressed or refreshed.",
       inputSchema: {
         action: z
-          .enum(["open", "list"])
+          .enum(["open", "list", "member"])
           .optional()
-          .describe("Defaults to open. Use list only when you need to inspect or choose logical workspaces before resuming or cleaning them up."),
+          .describe("Defaults to open. Use list to inspect logical workspaces. Use member to add/remove a named execution member on an existing Composite Workspace."),
+        memberAction: z
+          .enum(["add", "update", "remove"])
+          .optional()
+          .describe("Required with action=member."),
+        member: z.object({
+          name: z.string().describe("Stable member name such as code or compute. For update/remove this identifies the existing member."),
+          newName: z.string().optional().describe("Optional replacement member name for memberAction=update."),
+          purpose: z.string().optional().describe("Agent-facing purpose. Required when adding a member; optional replacement when updating."),
+          workspaceId: z.string().optional().describe("Existing ordinary or relayed Workspace to mount. Mutually exclusive with path."),
+          path: z.string().optional().describe("Workspace path to open internally and mount. Mutually exclusive with workspaceId."),
+          relay: z.string().optional().describe("Optional registered remote ForgeRelay alias for a path-backed member."),
+          mode: z.enum(["checkout", "worktree"]).optional(),
+          baseRef: z.string().optional(),
+          newWorktree: z.boolean().optional(),
+          newWorkspace: z.boolean().optional(),
+        }).optional().describe("Composite member definition used by action=member."),
         kind: z
           .enum(["workspace", "composite"])
           .optional()
@@ -2440,6 +2592,10 @@ export function createMcpServer(
           .string()
           .optional()
           .describe("Composite Workspace name. Used only with kind=\"composite\" when creating/opening by name."),
+        memberName: z
+          .string()
+          .optional()
+          .describe("For action=open on a Composite Workspace, load bootstrap context for this named member without making it an implicit current member."),
         path: z
           .string()
           .optional()
@@ -2517,8 +2673,9 @@ export function createMcpServer(
           .describe("For action=list, maximum records to return. Defaults to 50; maximum 100."),
       },
       outputSchema: {
-        action: z.enum(["open", "list"]),
+        action: z.enum(["open", "list", "member"]),
         workspaceId: z.string().optional(),
+        memberAction: z.enum(["add", "update", "remove"]).optional(),
         kind: z.enum(["workspace", "composite"]).optional(),
         name: z.string().optional(),
         members: z.array(z.object({
@@ -2526,6 +2683,7 @@ export function createMcpServer(
           purpose: z.string(),
           workspaceId: z.string(),
         })).optional(),
+        memberContext: z.unknown().optional(),
         root: z.string().optional(),
         mode: z.enum(["checkout", "worktree"]).optional(),
         sourceRoot: z.string().optional(),
@@ -2602,8 +2760,11 @@ export function createMcpServer(
     },
     async ({
       action = "open",
+      memberAction,
+      member,
       kind,
       name,
+      memberName,
       path,
       relay,
       workspaceId,
@@ -2623,13 +2784,157 @@ export function createMcpServer(
       const conversationScopeId = openAiConversationScopeId(_meta);
       const protectedWorkspaceIds = processSessions.activeWorkspaceIds();
 
+      if (action === "member") {
+        if (!workspaceId || !compositeWorkspaces.has(workspaceId)) {
+          throw new Error("open_workspace action=member requires an existing Composite Workspace workspaceId.");
+        }
+        if (!memberAction || !member) {
+          throw new Error("open_workspace action=member requires memberAction and member.");
+        }
+        if (
+          kind !== undefined || name !== undefined || memberName !== undefined || path !== undefined || relay !== undefined || mode !== undefined ||
+          baseRef !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
+          root !== undefined || status !== undefined || state !== undefined || staleOnly !== undefined ||
+          offset !== undefined || limit !== undefined
+        ) {
+          throw new Error(
+            "open_workspace action=member accepts workspaceId, memberAction, and member only. Put any Workspace open definition inside member.",
+          );
+        }
+
+        const resolveMemberTargetWorkspaceId = async (): Promise<string> => {
+          const byWorkspaceId = typeof member.workspaceId === "string" && member.workspaceId.length > 0;
+          const byPath = typeof member.path === "string" && member.path.length > 0;
+          if (byWorkspaceId === byPath) {
+            throw new Error("A Composite Workspace member target requires exactly one of member.workspaceId or member.path.");
+          }
+          if (byWorkspaceId) {
+            const targetWorkspaceId = member.workspaceId!;
+            if (compositeWorkspaces.has(targetWorkspaceId)) {
+              throw new Error("A Composite Workspace cannot be mounted as a Composite Workspace member.");
+            }
+            if (
+              member.relay !== undefined || member.mode !== undefined || member.baseRef !== undefined ||
+              member.newWorktree !== undefined || member.newWorkspace !== undefined
+            ) {
+              throw new Error("member.workspaceId cannot be combined with relay/mode/baseRef/newWorktree/newWorkspace.");
+            }
+            if (!remoteWorkspaces.has(targetWorkspaceId)) workspaces.getWorkspace(targetWorkspaceId);
+            return targetWorkspaceId;
+          }
+          if (member.relay !== undefined) {
+            const opened = await remoteWorkspaces.openWorkspace(member.relay, {
+              path: member.path!,
+              ...(member.mode ? { mode: member.mode } : {}),
+              ...(member.baseRef ? { baseRef: member.baseRef } : {}),
+              ...(member.newWorktree !== undefined ? { newWorktree: member.newWorktree } : {}),
+              ...(member.newWorkspace !== undefined ? { newWorkspace: member.newWorkspace } : {}),
+              context: "none",
+            });
+            return opened.workspaceId;
+          }
+          const opened = await workspaces.openWorkspace(
+            {
+              path: member.path,
+              ...(member.mode ? { mode: member.mode } : {}),
+              ...(member.baseRef ? { baseRef: member.baseRef } : {}),
+              ...(member.newWorktree !== undefined ? { newWorktree: member.newWorktree } : {}),
+              ...(member.newWorkspace !== undefined ? { newWorkspace: member.newWorkspace } : {}),
+              context: "none",
+            },
+            { protectedWorkspaceIds },
+          );
+          return opened.workspace.id;
+        };
+
+        let composite;
+        if (memberAction === "add") {
+          if (member.newName !== undefined) {
+            throw new Error("Adding a Composite Workspace member does not accept member.newName.");
+          }
+          const purpose = member.purpose?.trim();
+          if (!purpose) throw new Error("Adding a Composite Workspace member requires member.purpose.");
+          const targetWorkspaceId = await resolveMemberTargetWorkspaceId();
+          composite = compositeWorkspaces.addMember(workspaceId, {
+            name: member.name,
+            purpose,
+            workspaceId: targetWorkspaceId,
+          });
+        } else if (memberAction === "update") {
+          const targetFieldsPresent =
+            member.workspaceId !== undefined || member.path !== undefined || member.relay !== undefined ||
+            member.mode !== undefined || member.baseRef !== undefined || member.newWorktree !== undefined ||
+            member.newWorkspace !== undefined;
+          if (member.newName === undefined && member.purpose === undefined && !targetFieldsPresent) {
+            throw new Error("Updating a Composite Workspace member requires newName, purpose, or a replacement Workspace target.");
+          }
+          const targetWorkspaceId = targetFieldsPresent
+            ? await resolveMemberTargetWorkspaceId()
+            : undefined;
+          composite = compositeWorkspaces.updateMember(workspaceId, member.name, {
+            ...(member.newName !== undefined ? { name: member.newName } : {}),
+            ...(member.purpose !== undefined ? { purpose: member.purpose } : {}),
+            ...(targetWorkspaceId !== undefined ? { workspaceId: targetWorkspaceId } : {}),
+          });
+        } else {
+          if (
+            member.newName !== undefined || member.purpose !== undefined || member.workspaceId !== undefined || member.path !== undefined ||
+            member.relay !== undefined || member.mode !== undefined || member.baseRef !== undefined ||
+            member.newWorktree !== undefined || member.newWorkspace !== undefined
+          ) {
+            throw new Error("Removing a Composite Workspace member accepts only member.name.");
+          }
+          composite = compositeWorkspaces.removeMember(workspaceId, member.name);
+        }
+
+        const memberActionVerb = memberAction === "add"
+          ? "Added"
+          : memberAction === "update"
+            ? "Updated"
+            : "Removed";
+        const memberActionPreposition = memberAction === "remove" ? "from" : "in";
+        const instruction = [
+          `${memberActionVerb} member ${member.name} ${memberActionPreposition} Composite Workspace ${composite.name} (${composite.id}).`,
+          composite.members.length > 0
+            ? `Members: ${composite.members.map((entry) => `${entry.name} — ${entry.purpose}`).join("; ")}.`
+            : "This Composite Workspace currently has no members.",
+          "Use the Composite workspaceId as the top-level handle. Work operations on it require an explicit member name; ForgeRelay never infers a member from tool type or purpose.",
+        ].join("\n");
+        const response = {
+          content: [textBlock(instruction)],
+          _meta: {
+            tool: "open_workspace",
+            card: {
+              workspaceId: composite.id,
+              kind: "composite" as const,
+              name: composite.name,
+              path: composite.name,
+              members: composite.members,
+              instruction,
+              summary: { members: composite.members.length },
+            },
+          },
+          structuredContent: {
+            action: "member" as const,
+            workspaceId: composite.id,
+            memberAction,
+            kind: "composite" as const,
+            name: composite.name,
+            members: composite.members,
+            instruction,
+          },
+        };
+        rememberWorkspacePanelState(composite.id, response);
+        return response;
+      }
+
       if (action === "list") {
         if (
-          path !== undefined || relay !== undefined || name !== undefined || baseRef !== undefined || newWorktree !== undefined ||
+          path !== undefined || relay !== undefined || name !== undefined || memberName !== undefined || baseRef !== undefined || newWorktree !== undefined ||
           newWorkspace !== undefined || context !== undefined
         ) {
           throw new Error(
-            "open_workspace action=list does not accept path, relay, name, baseRef, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
+            "open_workspace action=list does not accept path, relay, name, memberName, baseRef, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
           );
         }
         if (kind === "composite") {
@@ -2747,6 +3052,15 @@ export function createMcpServer(
         const composite = workspaceId !== undefined
           ? compositeWorkspaces.open(workspaceId)
           : compositeWorkspaces.create(name ?? "");
+        const memberContext = memberName
+          ? await loadCompositeMemberContext(
+              composite.id,
+              memberName,
+              context ?? "auto",
+              conversationScopeId,
+              protectedWorkspaceIds,
+            )
+          : undefined;
         const instruction = [
           `This is Composite Workspace ${composite.name} (${composite.id}).`,
           "It has no mounted working directory of its own. Use the Composite workspaceId as the top-level Workspace handle and explicitly select one named member for member-scoped work operations.",
@@ -2754,6 +3068,9 @@ export function createMcpServer(
             ? `Members: ${composite.members.map((member) => `${member.name} — ${member.purpose}`).join("; ")}.`
             : "This Composite Workspace currently has no members.",
           "Member names and purposes are structural context and are always returned when this Composite Workspace is opened. context=auto/full/none controls only heavy member bootstrap context, not this Composite identity.",
+          composite.members.length > 0
+            ? "Before first work on a member, reopen this Composite Workspace with memberName=<member> and context=auto to receive that member's project bootstrap without creating an implicit current member."
+            : undefined,
           "Use close_workspace only when the user chooses to dissolve this Composite Workspace; dissolution does not close or clean up member Workspaces.",
         ].join("\n\n");
         const response = {
@@ -2776,6 +3093,7 @@ export function createMcpServer(
             kind: "composite" as const,
             name: composite.name,
             members: composite.members,
+            ...(memberContext ? { memberContext } : {}),
             instruction,
           },
         };
@@ -2788,8 +3106,8 @@ export function createMcpServer(
         rememberWorkspacePanelState(composite.id, response);
         return response;
       }
-      if (name !== undefined) {
-        throw new Error("open_workspace name is only valid with kind=\"composite\".");
+      if (name !== undefined || memberName !== undefined) {
+        throw new Error("open_workspace name/memberName are only valid for a Composite Workspace.");
       }
       if (relay !== undefined) {
         if (workspaceId !== undefined) {
@@ -3127,6 +3445,7 @@ export function createMcpServer(
         "Describe or run one optional ForgeRelay capability advertised by open_workspace. Use describe when the capability contract is unfamiliar, then read its advertised guide if needed. Run dispatches only explicitly registered capabilities; it cannot invoke arbitrary shell commands, URLs, or methods.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name whose capability surface is used."),
         name: z
           .string()
           .regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)
@@ -3159,17 +3478,19 @@ export function createMcpServer(
         openWorldHint: true,
       },
     },
-    async ({ workspaceId, name, action, arguments: capabilityArguments, file }, extra) => {
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.capability(workspaceId, {
+    async ({ workspaceId, member, name, action, arguments: capabilityArguments, file }, extra) => {
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.capability(executionWorkspaceId, {
           name,
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
-        }, hostScopeIdFor(extra._meta, extra.sessionId));
+        }, hostScopeIdFor(extra._meta, extra.sessionId)), target);
       }
       if (action === "run" && name === "batch.execute") {
-        const workspace = workspaces.getWorkspace(workspaceId);
+        const workspace = workspaces.getWorkspace(executionWorkspaceId);
         const startedAt = performance.now();
         try {
           const execution = await capabilityRegistry.run(
@@ -3195,7 +3516,7 @@ export function createMcpServer(
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
-          return result;
+          return presentExecutionResult(result, target);
         } catch (error) {
           if (extra.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
@@ -3219,28 +3540,28 @@ export function createMcpServer(
             capability: name,
             action,
           }, result.content, startedAt);
-          return result;
+          return presentExecutionResult(result, target);
         }
       }
 
       if (action === "run") {
-        return coreOperations.capabilityRun(
-          { workspaceId, name, arguments: capabilityArguments, file },
+        return presentExecutionResult(await coreOperations.capabilityRun(
+          { workspaceId: executionWorkspaceId, name, arguments: capabilityArguments, file },
           {
             requestMeta: extra._meta,
             signal: extra.signal,
             sessionId: extra.sessionId,
           },
-        );
+        ), target);
       }
 
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = workspaces.getWorkspace(executionWorkspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
         workspace,
         hostScopeIdFor(extra._meta, extra.sessionId),
-        { workspaceId, name, action, arguments: capabilityArguments, file },
+        { workspaceId: executionWorkspaceId, name, action, arguments: capabilityArguments, file },
         {
           signal: extra.signal,
           tool: toolNames.capability,
@@ -3297,7 +3618,7 @@ export function createMcpServer(
             }
           },
         },
-      );
+      ).then((result) => presentExecutionResult(result, target));
     },
   );
 
@@ -3465,6 +3786,10 @@ export function createMcpServer(
         workspaceId: z
           .string()
           .describe("Workspace identifier returned by open_workspace."),
+        member: z
+          .string()
+          .optional()
+          .describe("Required for a Composite Workspace; explicit member name that owns this operation."),
         path: z
           .string()
           .optional()
@@ -3505,29 +3830,31 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "read"),
       annotations: { readOnlyHint: true },
     },
-    async ({ workspaceId, path, paths, offset, limit }, extra) => {
+    async ({ workspaceId, member, path, paths, offset, limit }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("read requires exactly one of path or paths.");
       }
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.read(
-          workspaceId,
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.read(
+          executionWorkspaceId,
           { path, paths, offset, limit },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        );
+        ), target);
       }
       if (path !== undefined) {
-        return coreOperations.read(
-          { workspaceId, path, offset, limit },
+        return presentExecutionResult(await coreOperations.read(
+          { workspaceId: executionWorkspaceId, path, offset, limit },
           {
             requestMeta: extra._meta,
             signal: extra.signal,
             sessionId: extra.sessionId,
           },
-        );
+        ), target);
       }
 
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = workspaces.getWorkspace(executionWorkspaceId);
       let response: {
         content: ToolContent[];
         structuredContent: {
@@ -3543,13 +3870,13 @@ export function createMcpServer(
         workspace,
         hostScopeIdFor(extra._meta, extra.sessionId),
         toolNames.read,
-        { workspaceId, paths, offset, limit },
+        { workspaceId: executionWorkspaceId, paths, offset, limit },
         async (parentContext) => {
           const execution = await executeBulkRead({
             paths: paths!,
             signal: extra.signal,
             run: (childPath) => coreOperations.read(
-              { workspaceId, path: childPath, offset, limit },
+              { workspaceId: executionWorkspaceId, path: childPath, offset, limit },
               {
                 requestMeta: extra._meta,
                 signal: extra.signal,
@@ -3600,7 +3927,7 @@ export function createMcpServer(
           : { type: "succeeded" },
       );
       if (!response) throw new Error("Bulk Read completed without a response.");
-      return response;
+      return presentExecutionResult(response, target);
     },
   );
 
@@ -3615,6 +3942,7 @@ export function createMcpServer(
         workspaceId: z
           .string()
           .describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this operation."),
         path: z
           .string()
           .describe("File path to write, relative to the workspace root or absolute inside the OS temp directory."),
@@ -3624,22 +3952,24 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "write"),
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, ...input }, extra) => {
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.write(
-          workspaceId,
+    async ({ workspaceId, member, ...input }, extra) => {
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.write(
+          executionWorkspaceId,
           input,
           hostScopeIdFor(extra._meta, extra.sessionId),
-        );
+        ), target);
       }
-      return coreOperations.write(
-        { workspaceId, ...input },
+      return presentExecutionResult(await coreOperations.write(
+        { workspaceId: executionWorkspaceId, ...input },
         {
           requestMeta: extra._meta,
           signal: extra.signal,
           sessionId: extra.sessionId,
         },
-      );
+      ), target);
     },
   );
 
@@ -3653,6 +3983,7 @@ export function createMcpServer(
         workspaceId: z
           .string()
           .describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this operation."),
         path: z
           .string()
           .optional()
@@ -3691,36 +4022,38 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, paths, edits }, extra) => {
+    async ({ workspaceId, member, path, paths, edits }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("edit requires exactly one of path or paths.");
       }
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.edit(
-          workspaceId,
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.edit(
+          executionWorkspaceId,
           { path, paths, edits },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        );
+        ), target);
       }
       if (path !== undefined) {
-        return coreOperations.edit(
-          { workspaceId, path, edits },
+        return presentExecutionResult(await coreOperations.edit(
+          { workspaceId: executionWorkspaceId, path, edits },
           {
             requestMeta: extra._meta,
             signal: extra.signal,
             sessionId: extra.sessionId,
           },
-        );
+        ), target);
       }
 
-      return nativeBulkMutations.edit(
-        { workspaceId, paths: paths!, edits },
+      return presentExecutionResult(await nativeBulkMutations.edit(
+        { workspaceId: executionWorkspaceId, paths: paths!, edits },
         {
           requestMeta: extra._meta,
           signal: extra.signal,
           sessionId: extra.sessionId,
         },
-      );
+      ), target);
     },
   );
   }
@@ -3733,6 +4066,7 @@ export function createMcpServer(
       description: toolDescriptions.rename,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this operation."),
         path: z.string().describe("Source file or directory path relative to the workspace root, or absolute inside the OS temp directory."),
         newPath: z.string().describe("Destination path relative to the workspace root, or absolute inside the OS temp directory. The destination must not already exist."),
       },
@@ -3744,22 +4078,24 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, newPath }, extra) => {
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.rename(
-          workspaceId,
+    async ({ workspaceId, member, path, newPath }, extra) => {
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.rename(
+          executionWorkspaceId,
           { path, newPath },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        );
+        ), target);
       }
-      return coreOperations.rename(
-        { workspaceId, path, newPath },
+      return presentExecutionResult(await coreOperations.rename(
+        { workspaceId: executionWorkspaceId, path, newPath },
         {
           requestMeta: extra._meta,
           signal: extra.signal,
           sessionId: extra.sessionId,
         },
-      );
+      ), target);
     },
   );
 
@@ -3771,6 +4107,7 @@ export function createMcpServer(
       description: toolDescriptions.delete,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this operation."),
         path: z.string().optional().describe("One file or directory path to delete. Use exactly one of path or paths."),
         paths: z
           .array(z.string())
@@ -3797,36 +4134,38 @@ export function createMcpServer(
       ...toolWidgetDescriptorMeta(config, "edit"),
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, path, paths, recursive }, extra) => {
+    async ({ workspaceId, member, path, paths, recursive }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("delete requires exactly one of path or paths.");
       }
-      if (remoteWorkspaces.has(workspaceId)) {
-        return remoteWorkspaces.delete(
-          workspaceId,
+      const target = resolveExecutionTarget(workspaceId, member);
+      const executionWorkspaceId = target.executionWorkspaceId;
+      if (remoteWorkspaces.has(executionWorkspaceId)) {
+        return presentExecutionResult(await remoteWorkspaces.delete(
+          executionWorkspaceId,
           { path, paths, recursive },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        );
+        ), target);
       }
       if (path !== undefined) {
-        return coreOperations.delete(
-          { workspaceId, path, recursive },
+        return presentExecutionResult(await coreOperations.delete(
+          { workspaceId: executionWorkspaceId, path, recursive },
           {
             requestMeta: extra._meta,
             signal: extra.signal,
             sessionId: extra.sessionId,
           },
-        );
+        ), target);
       }
 
-      return nativeBulkMutations.delete(
-        { workspaceId, paths: paths!, recursive },
+      return presentExecutionResult(await nativeBulkMutations.delete(
+        { workspaceId: executionWorkspaceId, paths: paths!, recursive },
         {
           requestMeta: extra._meta,
           signal: extra.signal,
           sessionId: extra.sessionId,
         },
-      );
+      ), target);
     },
   );
 
@@ -3934,6 +4273,7 @@ export function createMcpServer(
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this process operation."),
           action: z
             .enum(["run", "process", "output"])
             .optional()
@@ -4010,6 +4350,7 @@ export function createMcpServer(
       },
       async ({
         workspaceId,
+        member,
         action = "run",
         command,
         processId,
@@ -4024,8 +4365,10 @@ export function createMcpServer(
         timeoutMs,
         maxOutputTokens,
       }, extra) => {
-        if (remoteWorkspaces.has(workspaceId)) {
-          return remoteWorkspaces.bash(workspaceId, {
+        const target = resolveExecutionTarget(workspaceId, member);
+        const executionWorkspaceId = target.executionWorkspaceId;
+        if (remoteWorkspaces.has(executionWorkspaceId)) {
+          return presentExecutionResult(await remoteWorkspaces.bash(executionWorkspaceId, {
             action,
             ...(command !== undefined ? { command } : {}),
             ...(processId !== undefined ? { processId } : {}),
@@ -4039,17 +4382,17 @@ export function createMcpServer(
             ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          }, hostScopeIdFor(extra._meta, extra.sessionId));
+          }, hostScopeIdFor(extra._meta, extra.sessionId)), target);
         }
-        const workspace = workspaces.getWorkspace(workspaceId);
+        const workspace = workspaces.getWorkspace(executionWorkspaceId);
         if (action === "run") {
           if (!command) throw new Error("bash action=run requires command.");
           if (processId !== undefined || outputId !== undefined || input !== undefined || interrupt !== undefined) {
             throw new Error("bash action=run does not accept processId, outputId, input, or interrupt.");
           }
-          return coreOperations.shellRun(
+          return presentExecutionResult(await coreOperations.shellRun(
             {
-              workspaceId,
+              workspaceId: executionWorkspaceId,
               command,
               surface: "bash",
               tty,
@@ -4065,7 +4408,7 @@ export function createMcpServer(
               signal: extra.signal,
               sessionId: extra.sessionId,
             },
-          );
+          ), target);
         }
 
         if (action === "output") {
@@ -4084,10 +4427,10 @@ export function createMcpServer(
             payload: { action, outputId },
             operation: async () => durableOutputResponse(
               toolNames.shell,
-              workspaceId,
-              readWorkspaceBashOutput(bashOutputStore, workspaceId, outputId),
+              executionWorkspaceId,
+              readWorkspaceBashOutput(bashOutputStore, executionWorkspaceId, outputId),
             ),
-          });
+          }).then((result) => presentExecutionResult(result, target));
         }
 
         if (outputId !== undefined) throw new Error("bash action=process does not accept outputId.");
@@ -4114,7 +4457,7 @@ export function createMcpServer(
           operation: async () => {
             const startedAt = performance.now();
             const snapshot = await processSessions.write({
-              workspaceId,
+              workspaceId: executionWorkspaceId,
               processId,
               chars: interrupt ? "\u0003" : input,
               columns,
@@ -4132,7 +4475,7 @@ export function createMcpServer(
               success: snapshot.running || snapshot.exitCode === 0,
               durationMs: Math.round(performance.now() - startedAt),
             });
-            const response = processToolResponse(toolNames.shell, workspaceId, snapshot, {
+            const response = processToolResponse(toolNames.shell, executionWorkspaceId, snapshot, {
               action,
               processId,
               inputLength: input?.length ?? 0,
@@ -4144,7 +4487,7 @@ export function createMcpServer(
             if (!snapshot.running) {
               recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId);
             }
-            return response;
+            return presentExecutionResult(response, target);
           },
         });
       },

@@ -77,10 +77,55 @@ export class CompositeWorkspaceRegistry {
     const name = normalizeMemberName(input.name);
     const purpose = input.purpose.trim();
     if (!purpose) throw new Error("Composite Workspace member purpose must not be empty.");
-    if (record.members.some((member) => member.name === name)) {
-      throw new Error(`Composite Workspace ${workspaceId} already has member ${name}.`);
+    const existing = record.members.find((member) => member.name === name);
+    if (existing) {
+      if (existing.purpose === purpose && existing.workspaceId === input.workspaceId) {
+        return cloneRecord(record);
+      }
+      throw new Error(`Composite Workspace ${workspaceId} already has member ${name} with a different definition.`);
     }
     record.members.push({ name, purpose, workspaceId: input.workspaceId });
+    record.lastUsedAt = new Date().toISOString();
+    this.persist();
+    return cloneRecord(record);
+  }
+
+  updateMember(
+    workspaceId: string,
+    memberName: string,
+    input: {
+      name?: string;
+      purpose?: string;
+      workspaceId?: string;
+    },
+  ): CompositeWorkspaceRecord {
+    const record = this.requireRecord(workspaceId);
+    const currentName = normalizeMemberName(memberName);
+    const index = record.members.findIndex((member) => member.name === currentName);
+    if (index < 0) throw new Error(`Composite Workspace ${workspaceId} has no member ${currentName}.`);
+    const current = record.members[index]!;
+    const nextName = input.name === undefined ? current.name : normalizeMemberName(input.name);
+    const nextPurpose = input.purpose === undefined ? current.purpose : input.purpose.trim();
+    if (!nextPurpose) throw new Error("Composite Workspace member purpose must not be empty.");
+    const nextWorkspaceId = input.workspaceId ?? current.workspaceId;
+    if (
+      nextName !== current.name &&
+      record.members.some((member, memberIndex) => memberIndex !== index && member.name === nextName)
+    ) {
+      throw new Error(`Composite Workspace ${workspaceId} already has member ${nextName}.`);
+    }
+    if (
+      nextName === current.name &&
+      nextPurpose === current.purpose &&
+      nextWorkspaceId === current.workspaceId
+    ) {
+      return cloneRecord(record);
+    }
+    record.members[index] = {
+      name: nextName,
+      purpose: nextPurpose,
+      workspaceId: nextWorkspaceId,
+    };
     record.lastUsedAt = new Date().toISOString();
     this.persist();
     return cloneRecord(record);

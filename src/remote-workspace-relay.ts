@@ -165,6 +165,23 @@ export class RemoteWorkspaceRelay {
     };
   }
 
+  async resumeWorkspace(
+    gatewayWorkspaceId: string,
+    context: "auto" | "full" | "none" = "auto",
+    conversationScopeId?: string,
+  ): Promise<ToolCallResult> {
+    const result = await this.callWorkspaceTool(
+      gatewayWorkspaceId,
+      "open_workspace",
+      { context },
+      conversationScopeId,
+    );
+    if (result.isError === true) {
+      throw new Error(`Remote open_workspace failed: ${toolResultText(result)}`);
+    }
+    return result;
+  }
+
   async read(
     gatewayWorkspaceId: string,
     input: {

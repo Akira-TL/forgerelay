@@ -863,6 +863,239 @@ test("open_workspace creates and resumes an empty Composite Workspace through th
   assert.deepEqual(resumedStructured.members, []);
 });
 
+test("Composite Workspace mounts an existing Workspace and requires explicit member routing", async (t) => {
+  const context = await fixture(t);
+  await writeFile(join(context.project, "member.txt"), "member-data\n");
+  const ordinary = await callOpen(context.client, context.project, "chat-member-source");
+  const ordinaryId = String(structuredContent(ordinary).workspaceId);
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "multi-machine" },
+    _meta: { "openai/session": "chat-member-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  const compositeId = String(structuredContent(composite).workspaceId);
+
+  const mounted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "code",
+        purpose: "Source control and code analysis",
+        workspaceId: ordinaryId,
+      },
+    },
+    _meta: { "openai/session": "chat-member-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(mounted.isError, undefined, allResponseText(mounted));
+  const mountedStructured = structuredContent(mounted);
+  assert.equal(mountedStructured.kind, "composite");
+  assert.deepEqual(mountedStructured.members, [{
+    name: "code",
+    purpose: "Source control and code analysis",
+    workspaceId: ordinaryId,
+  }]);
+
+  const missingMember = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, path: "member.txt" },
+  });
+  assert.equal(missingMember.isError, true);
+  assert.match(allResponseText(missingMember), /requires member/i);
+
+  const routed = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "code", path: "member.txt" },
+  });
+  assert.equal(routed.isError, undefined);
+  assert.match(allResponseText(routed), /member-data/);
+  assert.equal((routed._meta as Record<string, unknown> | undefined)?.tool, "read");
+  const routedCard = (routed._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(routedCard?.workspaceId, compositeId);
+  assert.equal(routedCard?.member, "code");
+});
+
+test("Composite Workspace can open a path-backed member and explicitly load that member bootstrap", async (t) => {
+  const context = await fixture(t);
+  await writeFile(join(context.project, "compute.txt"), "compute-data\n");
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "member-definition" },
+    _meta: { "openai/session": "chat-member-definition" },
+  } as Parameters<Client["callTool"]>[0]);
+  const compositeId = String(structuredContent(composite).workspaceId);
+
+  const mounted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "compute",
+        purpose: "High-performance computation",
+        path: context.project,
+      },
+    },
+    _meta: { "openai/session": "chat-member-definition" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(mounted.isError, undefined, allResponseText(mounted));
+  const mountedStructured = structuredContent(mounted);
+  const members = mountedStructured.members as Array<Record<string, unknown>>;
+  assert.equal(members.length, 1);
+  assert.equal(members[0]?.name, "compute");
+  assert.equal(members[0]?.purpose, "High-performance computation");
+  assert.match(String(members[0]?.workspaceId), /^ws_[a-f0-9]{10}$/);
+  const memberWorkspaceId = String(members[0]?.workspaceId);
+
+  const updated = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "update",
+      member: {
+        name: "compute",
+        newName: "gpu",
+        purpose: "Accelerated computation",
+      },
+    },
+  });
+  assert.equal(updated.isError, undefined, allResponseText(updated));
+  assert.deepEqual(structuredContent(updated).members, [{
+    name: "gpu",
+    purpose: "Accelerated computation",
+    workspaceId: memberWorkspaceId,
+  }]);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "gpu", context: "full" },
+    _meta: { "openai/session": "chat-member-bootstrap" },
+  } as Parameters<Client["callTool"]>[0]);
+  const reopenedStructured = structuredContent(reopened);
+  const memberContext = reopenedStructured.memberContext as Record<string, unknown>;
+  assert.equal(reopenedStructured.workspaceId, compositeId);
+  assert.equal(memberContext.member, "gpu");
+  assert.equal(memberContext.workspaceId, compositeId);
+  assert.equal(memberContext.root, context.project);
+  assert.equal(memberContext.includeBootstrapContext, true);
+  assert.ok(Array.isArray(memberContext.agentsFiles));
+  assert.match(JSON.stringify(memberContext.agentsFiles), /project instructions/);
+
+  const routed = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "gpu", path: "compute.txt" },
+  });
+  assert.match(allResponseText(routed), /compute-data/);
+
+  const ordinaryMember = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: memberWorkspaceId, member: "gpu", path: "compute.txt" },
+  });
+  assert.equal(ordinaryMember.isError, true);
+  assert.match(allResponseText(ordinaryMember), /not composite/i);
+
+  const removed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "remove",
+      member: { name: "gpu" },
+    },
+  });
+  assert.equal(removed.isError, undefined, allResponseText(removed));
+  assert.deepEqual(structuredContent(removed).members, []);
+
+  const removedRoute = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "gpu", path: "compute.txt" },
+  });
+  assert.equal(removedRoute.isError, true);
+  assert.match(allResponseText(removedRoute), /has no member gpu/i);
+
+  const memberStillOpen = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: memberWorkspaceId, path: "compute.txt" },
+  });
+  assert.equal(memberStillOpen.isError, undefined, allResponseText(memberStillOpen));
+  assert.match(allResponseText(memberStillOpen), /compute-data/);
+});
+
+test("Composite Workspace explicitly routes filesystem, process, and capability surfaces to one member", async (t) => {
+  const context = await fixture(t);
+  const ordinary = await callOpen(context.client, context.project, "chat-composite-surfaces-member");
+  const ordinaryId = String(structuredContent(ordinary).workspaceId);
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "surface-routing" },
+  });
+  const compositeId = String(structuredContent(composite).workspaceId);
+  const mounted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "code",
+        purpose: "Source mutations and verification",
+        workspaceId: ordinaryId,
+      },
+    },
+  });
+  assert.equal(mounted.isError, undefined, allResponseText(mounted));
+
+  const written = await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId: compositeId, member: "code", path: "routed.txt", content: "before\n" },
+  });
+  assert.equal(written.isError, undefined, allResponseText(written));
+  assert.equal((written._meta as { card?: Record<string, unknown> } | undefined)?.card?.workspaceId, compositeId);
+
+  const edited = await context.client.callTool({
+    name: "edit",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      path: "routed.txt",
+      edits: [{ oldText: "before", newText: "after" }],
+    },
+  });
+  assert.equal(edited.isError, undefined, allResponseText(edited));
+
+  const renamed = await context.client.callTool({
+    name: "rename",
+    arguments: { workspaceId: compositeId, member: "code", path: "routed.txt", newPath: "renamed.txt" },
+  });
+  assert.equal(renamed.isError, undefined, allResponseText(renamed));
+
+  const process = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId: compositeId, member: "code", command: "cat renamed.txt" },
+  });
+  assert.equal(process.isError, undefined, allResponseText(process));
+  assert.match(allResponseText(process), /after/);
+  assert.equal((process._meta as { card?: Record<string, unknown> } | undefined)?.card?.workspaceId, compositeId);
+  assert.equal((process._meta as { card?: Record<string, unknown> } | undefined)?.card?.member, "code");
+
+  const capability = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId: compositeId, member: "code", name: "hooks.check", action: "describe" },
+  });
+  assert.equal(capability.isError, undefined, allResponseText(capability));
+  assert.match(allResponseText(capability), /hooks\.check/);
+
+  const deleted = await context.client.callTool({
+    name: "delete",
+    arguments: { workspaceId: compositeId, member: "code", path: "renamed.txt" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+});
+
 test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-list-1");
@@ -3531,6 +3764,7 @@ async function fixture(
 
   const loadedConfig = loadConfig({
     DEVSPACE_CONFIG_DIR: join(root, ".config"),
+    DEVSPACE_STATE_DIR: stateDir,
     DEVSPACE_ALLOWED_ROOTS: root,
     DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
     DEVSPACE_AGENT_DIR: agentDir,
