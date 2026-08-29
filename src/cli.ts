@@ -13,7 +13,7 @@ import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
 import { formatVisibleHookReports, HookRunner } from "./hooks.js";
 import { runHooksCommand } from "./hook-cli.js";
-import { runLocalAgentProvider } from "./subagents/providers/adapters.js";
+import { runLocalAgentProvider } from "./subagents/providers/registry.js";
 import {
   isLocalAgentProvider,
   loadLocalAgentProfiles,
@@ -29,7 +29,7 @@ import {
   resolveLocalAgentTarget,
 } from "./subagents/targets.js";
 import { createLocalAgentStore, type LocalAgentRecord } from "./subagents/store.js";
-import type { LocalAgentRunResult } from "./subagents/providers/runtime.js";
+import type { LocalAgentRunResult } from "./subagents/providers/contract.js";
 import {
   ensureForgeRelayInstanceId,
   generateInstanceId,

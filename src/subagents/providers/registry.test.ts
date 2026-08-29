@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { delimiter } from "node:path";
 import {
-  claudeCommandEnvironment,
-  createLocalAgentAdapter,
-  extractOpenCodeFinalResponse,
+  resolveAcpModelConfigUpdate,
+  resolveAcpThinkingConfigUpdate,
+} from "./adapters/acp.js";
+import { claudeCommandEnvironment } from "./adapters/claude.js";
+import { extractOpenCodeFinalResponse } from "./adapters/opencode.js";
+import {
   extractPiFinalResponse,
   extractPiProviderError,
   extractPiStreamingText,
   piCommandEnvironment,
-  resolveAcpModelConfigUpdate,
-  resolveAcpThinkingConfigUpdate,
-} from "./adapters.js";
+} from "./adapters/pi.js";
+import { createLocalAgentAdapter } from "./registry.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import type { LocalAgentProvider } from "../profiles.js";
 

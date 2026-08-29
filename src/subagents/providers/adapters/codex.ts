@@ -6,29 +6,12 @@ import type {
   SandboxMode,
   ThreadOptions,
 } from "@openai/codex-sdk";
-
-export type LocalAgentWriteMode = "read_only" | "allowed" | "full_access";
-
-export interface LocalAgentRunInput {
-  prompt: string;
-  workspace: string;
-  providerSessionId?: string;
-  writeMode?: LocalAgentWriteMode;
-  model?: string;
-  thinking?: string;
-}
-
-export interface LocalAgentRunResult {
-  provider: string;
-  providerSessionId: string | null;
-  finalResponse: string;
-  items: unknown[];
-}
-
-export interface LocalAgentRuntime {
-  readonly provider: string;
-  run(input: LocalAgentRunInput): Promise<LocalAgentRunResult>;
-}
+import type {
+  LocalAgentAdapter,
+  LocalAgentRunInput,
+  LocalAgentRunResult,
+  LocalAgentWriteMode,
+} from "../contract.js";
 
 interface CodexThreadLike {
   readonly id: string | null;
@@ -64,7 +47,7 @@ function threadOptionsFor(input: LocalAgentRunInput): ThreadOptions {
   };
 }
 
-export class CodexSdkLocalAgentRuntime implements LocalAgentRuntime {
+export class CodexSdkLocalAgentRuntime {
   readonly provider = "codex" as const;
   private readonly codex: CodexClientLike;
 
@@ -94,6 +77,15 @@ export async function createCodexSdkLocalAgentRuntime(
 ): Promise<CodexSdkLocalAgentRuntime> {
   const factory = codexFactory ?? (await defaultCodexFactory());
   return new CodexSdkLocalAgentRuntime(factory(options));
+}
+
+export class CodexLocalAgentAdapter implements LocalAgentAdapter {
+  readonly provider = "codex" as const;
+
+  async run(input: LocalAgentRunInput): Promise<LocalAgentRunResult> {
+    const runtime = await createCodexSdkLocalAgentRuntime();
+    return runtime.run(input);
+  }
 }
 
 async function defaultCodexFactory(): Promise<CodexFactory> {
