@@ -40,7 +40,7 @@ import {
 import {
   loadLocalAgentProfiles,
   type LocalAgentProfile,
-} from "./local-agent-profiles.js";
+} from "./subagents/profiles.js";
 
 export interface LoadedAgentsFile {
   path: string;

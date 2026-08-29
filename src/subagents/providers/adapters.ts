@@ -2,13 +2,13 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { resolve } from "node:path";
 import { Readable, Writable } from "node:stream";
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
-import type { LocalAgentProvider } from "./local-agent-profiles.js";
-import { removeDevspaceNodeModulesBinFromPath } from "./local-agent-path.js";
+import type { LocalAgentProvider } from "../profiles.js";
+import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import {
   createCodexSdkLocalAgentRuntime,
   type LocalAgentRunInput,
   type LocalAgentRunResult,
-} from "./local-agent-runtime.js";
+} from "./runtime.js";
 
 export interface LocalAgentAdapter {
   readonly provider: LocalAgentProvider;

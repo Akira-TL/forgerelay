@@ -123,12 +123,12 @@ import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
-import { summarizeLocalAgentProfile } from "./local-agent-profiles.js";
+import { summarizeLocalAgentProfile } from "./subagents/profiles.js";
 import {
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
   type LocalAgentProviderAvailability,
-} from "./local-agent-availability.js";
+} from "./subagents/providers/availability.js";
 
 type Transport = StreamableHTTPServerTransport;
 // Legacy MCP Streamable HTTP clients can reconnect without closing the previous

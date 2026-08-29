@@ -13,23 +13,23 @@ import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
 import { formatVisibleHookReports, HookRunner } from "./hooks.js";
 import { runHooksCommand } from "./hook-cli.js";
-import { runLocalAgentProvider } from "./local-agent-adapters.js";
+import { runLocalAgentProvider } from "./subagents/providers/adapters.js";
 import {
   isLocalAgentProvider,
   loadLocalAgentProfiles,
   type LocalAgentProfile,
-} from "./local-agent-profiles.js";
+} from "./subagents/profiles.js";
 import {
   assertLocalAgentProviderAvailable,
   formatLocalAgentProviderAvailabilitySummary,
-} from "./local-agent-availability.js";
+} from "./subagents/providers/availability.js";
 import {
   formatAvailableLocalAgentTargets,
   parseLocalAgentRunArgs,
   resolveLocalAgentTarget,
-} from "./local-agent-targets.js";
-import { createLocalAgentStore, type LocalAgentRecord } from "./local-agent-store.js";
-import type { LocalAgentRunResult } from "./local-agent-runtime.js";
+} from "./subagents/targets.js";
+import { createLocalAgentStore, type LocalAgentRecord } from "./subagents/store.js";
+import type { LocalAgentRunResult } from "./subagents/providers/runtime.js";
 import {
   ensureForgeRelayInstanceId,
   generateInstanceId,

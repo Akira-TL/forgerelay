@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { delimiter, resolve } from "node:path";
-import { removeDevspaceNodeModulesBinFromPath } from "./local-agent-path.js";
+import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import {
   LOCAL_AGENT_PROVIDERS,
   type LocalAgentProvider,
-} from "./local-agent-profiles.js";
+} from "../profiles.js";
 
 export interface LocalAgentProviderAvailability {
   name: LocalAgentProvider;

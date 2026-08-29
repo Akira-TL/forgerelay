@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalAgentStore } from "./local-agent-store.js";
+import { LocalAgentStore } from "./store.js";
 
 const root = mkdtempSync(join(tmpdir(), "devspace-local-agent-store-test-"));
 const stores: LocalAgentStore[] = [];

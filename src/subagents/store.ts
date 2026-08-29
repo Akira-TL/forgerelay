@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { openDatabase, type DatabaseHandle } from "./db/client.js";
-import type { ServerConfig } from "./config.js";
-import type { HookExecutionReport } from "./hooks.js";
+import { openDatabase, type DatabaseHandle } from "../db/client.js";
+import type { ServerConfig } from "../config.js";
+import type { HookExecutionReport } from "../hooks.js";
 
 export type LocalAgentStatus = "starting" | "running" | "idle" | "error" | "stopped";
 

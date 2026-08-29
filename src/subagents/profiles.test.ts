@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "./config.js";
-import { loadLocalAgentProfiles, summarizeLocalAgentProfile } from "./local-agent-profiles.js";
+import { loadConfig } from "../config.js";
+import { loadLocalAgentProfiles, summarizeLocalAgentProfile } from "./profiles.js";
 
 const root = await mkdtemp(join(tmpdir(), "devspace-agent-profiles-test-"));
 

@@ -3,7 +3,7 @@ import {
   checkLocalAgentProviderAvailability,
   formatLocalAgentProviderAvailabilitySummary,
   getLocalAgentProviderAvailabilitySnapshot,
-} from "./local-agent-availability.js";
+} from "./availability.js";
 
 assert.equal(checkLocalAgentProviderAvailability("codex").available, true);
 

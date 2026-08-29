@@ -3,8 +3,8 @@ import {
   formatAvailableLocalAgentTargets,
   parseLocalAgentRunArgs,
   resolveLocalAgentTarget,
-} from "./local-agent-targets.js";
-import type { LocalAgentProfile } from "./local-agent-profiles.js";
+} from "./targets.js";
+import type { LocalAgentProfile } from "./profiles.js";
 
 const profiles: LocalAgentProfile[] = [
   {

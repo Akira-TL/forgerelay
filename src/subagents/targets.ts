@@ -3,7 +3,7 @@ import {
   LOCAL_AGENT_PROVIDERS,
   type LocalAgentProfile,
   type LocalAgentProvider,
-} from "./local-agent-profiles.js";
+} from "./profiles.js";
 
 export interface ParsedLocalAgentRunArgs {
   target: string;

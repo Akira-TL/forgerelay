@@ -3,7 +3,7 @@ import type { RunResult, ThreadOptions } from "@openai/codex-sdk";
 import {
   CodexSdkLocalAgentRuntime,
   createCodexSdkLocalAgentRuntime,
-} from "./local-agent-runtime.js";
+} from "./runtime.js";
 
 const emptyTurn = (finalResponse: string): RunResult => ({
   finalResponse,

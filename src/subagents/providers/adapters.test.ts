@@ -10,9 +10,9 @@ import {
   piCommandEnvironment,
   resolveAcpModelConfigUpdate,
   resolveAcpThinkingConfigUpdate,
-} from "./local-agent-adapters.js";
-import { removeDevspaceNodeModulesBinFromPath } from "./local-agent-path.js";
-import type { LocalAgentProvider } from "./local-agent-profiles.js";
+} from "./adapters.js";
+import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
+import type { LocalAgentProvider } from "../profiles.js";
 
 const providers: LocalAgentProvider[] = [
   "codex",
