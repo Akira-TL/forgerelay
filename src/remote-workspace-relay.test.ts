@@ -339,6 +339,119 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   assert.doesNotMatch(resultText(unavailable), /gateway-local-content/);
 });
 
+void test("Composite Workspace routes Codex patch and process tools through a relayed member", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-codex-relay-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-composite-codex-owner-token-long-enough",
+    instanceId: "forge-relay-composite-codex-remote",
+    toolMode: "codex",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-composite-codex-owner-token-long-enough",
+    instanceId: "forge-relay-composite-codex-gateway",
+    remotes: { compute: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    toolMode: "codex",
+  });
+
+  const composite = await client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "codex-relay" },
+  });
+  assert.equal(composite.isError, undefined, resultText(composite));
+  const compositeId = String(structuredContent(composite).workspaceId);
+  const mounted = await client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "compute",
+        purpose: "Remote Codex execution",
+        path: remoteRoot,
+        relay: "compute",
+      },
+    },
+  });
+  assert.equal(mounted.isError, undefined, resultText(mounted));
+  const memberWorkspaceId = String((structuredContent(mounted).members as Array<Record<string, unknown>>)[0]?.workspaceId);
+  assert.match(memberWorkspaceId, /^rws_/);
+
+  const panel = await client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+  });
+  const turnId = String(structuredContent(panel).turnId);
+
+  const patched = await client.callTool({
+    name: "apply_patch",
+    arguments: {
+      workspaceId: compositeId,
+      member: "compute",
+      patch: "*** Begin Patch\n*** Add File: remote-codex.txt\n+remote patched\n*** End Patch",
+    },
+  });
+  assert.equal(patched.isError, undefined, resultText(patched));
+  assert.equal(await readFile(join(remoteRoot, "remote-codex.txt"), "utf8"), "remote patched\n");
+  await assert.rejects(readFile(join(gatewayRoot, "remote-codex.txt"), "utf8"), /ENOENT/);
+  const patchedCard = (patched._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(patchedCard?.workspaceId, compositeId);
+  assert.equal(patchedCard?.member, "compute");
+
+  const started = await client.callTool({
+    name: "exec_command",
+    arguments: {
+      workspaceId: compositeId,
+      member: "compute",
+      cmd: "node -e \"console.log('remote-codex-process'); setTimeout(() => {}, 150)\"",
+      yieldTimeMs: 0,
+    },
+  });
+  assert.equal(started.isError, undefined, resultText(started));
+  const processId = structuredContent(started).processId;
+  assert.equal(typeof processId, "number");
+  const startedCard = (started._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(startedCard?.workspaceId, compositeId);
+  assert.equal(startedCard?.member, "compute");
+
+  const completed = await client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId: compositeId, member: "compute", processId, yieldTimeMs: 1_000 },
+  });
+  assert.equal(completed.isError, undefined, resultText(completed));
+  assert.match(resultText(completed), /remote-codex-process/);
+  const completedCard = (completed._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(completedCard?.workspaceId, compositeId);
+  assert.equal(completedCard?.member, "compute");
+
+  const activitySnapshot = await client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId },
+  });
+  assert.equal(activitySnapshot.isError, undefined, resultText(activitySnapshot));
+  const activities = structuredContent(activitySnapshot).activities as Array<Record<string, unknown>>;
+  assert.ok(activities.some((activity) => activity.tool === "apply_patch" && activity.member === "compute"));
+  assert.ok(activities.some((activity) => activity.tool === "exec_command" && activity.member === "compute"));
+  assert.doesNotMatch(JSON.stringify(activitySnapshot), /"ws_[0-9a-f]{10}"/);
+});
+
 void test("gateway mutates files only on the remote workspace", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-mutations-"));
 
@@ -958,6 +1071,7 @@ async function startForge(
     instanceId: string;
     existingConfigDir?: string;
     hooks?: unknown;
+    toolMode?: "minimal" | "full" | "codex";
   },
 ): Promise<RunningForge> {
   const configDir = options.existingConfigDir ?? join(options.root, "config");
@@ -982,7 +1096,7 @@ async function startForge(
   const env = {
     ...cleanProductEnv,
     FORGERELAY_CONFIG_DIR: configDir,
-    FORGERELAY_TOOL_MODE: "minimal",
+    FORGERELAY_TOOL_MODE: options.toolMode ?? "minimal",
     FORGERELAY_WIDGETS: "off",
     FORGERELAY_SKILLS: "0",
   };
@@ -1009,7 +1123,14 @@ async function startForge(
 
 async function startGatewayClient(
   t: TestContext,
-  options: { root: string; allowedRoot: string; configDir: string; stateDir?: string; hooks?: unknown },
+  options: {
+    root: string;
+    allowedRoot: string;
+    configDir: string;
+    stateDir?: string;
+    hooks?: unknown;
+    toolMode?: "minimal" | "full" | "codex";
+  },
 ): Promise<Client> {
   const stateDir = options.stateDir ?? join(options.root, "state");
   await mkdir(stateDir, { recursive: true });
@@ -1021,7 +1142,7 @@ async function startGatewayClient(
   const config = loadConfig({
     ...cleanProductEnv,
     FORGERELAY_CONFIG_DIR: options.configDir,
-    FORGERELAY_TOOL_MODE: "minimal",
+    FORGERELAY_TOOL_MODE: options.toolMode ?? "minimal",
     FORGERELAY_WIDGETS: "off",
     FORGERELAY_SKILLS: "0",
   });

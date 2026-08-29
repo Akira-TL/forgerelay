@@ -2720,6 +2720,96 @@ test("codex apply_patch can create a file in the OS temp directory", async (t) =
   assert.equal(context.auditStore.getActivity("act_test_1")?.state, "done");
 });
 
+test("Composite Workspace routes Codex apply_patch and process tools through an explicit member", async (t) => {
+  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const ordinary = await callOpen(context.client, context.project, "chat-codex-composite-member");
+  const ordinaryId = String(structuredContent(ordinary).workspaceId);
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "codex-composite" },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  const compositeId = String(structuredContent(composite).workspaceId);
+  await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "code",
+        purpose: "Codex member",
+        workspaceId: ordinaryId,
+      },
+    },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  const panelOpened = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  const turnId = String(structuredContent(panelOpened).turnId);
+
+  const patched = await context.client.callTool({
+    name: "apply_patch",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      patch: "*** Begin Patch\n*** Add File: composite-codex.txt\n+patched\n*** End Patch",
+    },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(patched.isError, undefined, allResponseText(patched));
+  assert.equal(await readFile(join(context.project, "composite-codex.txt"), "utf8"), "patched\n");
+  const patchedCard = (patched._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(patchedCard?.workspaceId, compositeId);
+  assert.equal(patchedCard?.member, "code");
+
+  const started = await context.client.callTool({
+    name: "exec_command",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      cmd: "node -e \"console.log('composite-codex-process'); setTimeout(() => {}, 150)\"",
+      yieldTimeMs: 0,
+    },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(started.isError, undefined, allResponseText(started));
+  const processId = structuredContent(started).processId;
+  assert.equal(typeof processId, "number");
+  const startedCard = (started._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(startedCard?.workspaceId, compositeId);
+  assert.equal(startedCard?.member, "code");
+
+  const completed = await context.client.callTool({
+    name: "write_stdin",
+    arguments: { workspaceId: compositeId, member: "code", processId, yieldTimeMs: 1_000 },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(completed.isError, undefined, allResponseText(completed));
+  assert.match(allResponseText(completed), /composite-codex-process/);
+  const completedCard = (completed._meta as { card?: Record<string, unknown> } | undefined)?.card;
+  assert.equal(completedCard?.workspaceId, compositeId);
+  assert.equal(completedCard?.member, "code");
+
+  const panel = await context.client.callTool({
+    name: "activity_snapshot",
+    arguments: { turnId },
+    _meta: { "openai/session": "chat-codex-composite" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(panel.isError, undefined);
+  const activities = structuredContent(panel).activities as Array<Record<string, unknown>>;
+  assert.deepEqual(activities.map((activity) => [activity.tool, activity.member]), [
+    ["apply_patch", "code"],
+    ["exec_command", "code"],
+  ]);
+  for (const record of ["act_test_1", "act_test_2"]) {
+    assert.equal(context.auditStore.getActivity(record)?.workspace.id, ordinaryId);
+  }
+});
+
 test("codex exec_command is a top-level Activity while write_stdin remains process control", async (t) => {
   const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
   const opened = await callOpen(context.client, context.project, "chat-codex-activity");

@@ -1398,6 +1398,41 @@ type SharedShellRun = (
   context: CoreOperationContext,
 ) => Promise<ReturnType<typeof processToolResponse> & { isError?: true }>;
 
+type ProcessExecutionTarget =
+  | {
+      executionWorkspaceId: string;
+      compositeWorkspaceId?: undefined;
+      memberName?: undefined;
+    }
+  | {
+      executionWorkspaceId: string;
+      compositeWorkspaceId: string;
+      memberName: string;
+    };
+
+interface ProcessToolRouting {
+  resolve: (workspaceId: string, member?: string) => ProcessExecutionTarget;
+  prepare: (
+    target: ProcessExecutionTarget,
+    requestMeta: unknown,
+    signal: AbortSignal | undefined,
+    sessionId: string | undefined,
+  ) => Promise<CoreOperationContext>;
+  present: <T>(result: T, target: ProcessExecutionTarget) => T;
+  isRemote: (workspaceId: string) => boolean;
+  execCommandRemote: (
+    workspaceId: string,
+    input: Record<string, unknown>,
+    conversationScopeId: string,
+  ) => Promise<Awaited<ReturnType<RemoteWorkspaceRelay["execCommand"]>>>;
+  writeStdinRemote: (
+    workspaceId: string,
+    input: Record<string, unknown>,
+    conversationScopeId: string,
+  ) => Promise<Awaited<ReturnType<RemoteWorkspaceRelay["writeStdin"]>>>;
+  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
+}
+
 function registerProcessTools(
   server: McpServer,
   config: ServerConfig,
@@ -1407,6 +1442,7 @@ function registerProcessTools(
   activityLifecycle: ActivityLifecycle,
   bashOutputStore: BashOutputStore,
   shellRun: SharedShellRun,
+  routing: ProcessToolRouting,
 ): void {
   if (config.toolMode === "codex") {
     registerAppTool(
@@ -1418,6 +1454,7 @@ function registerProcessTools(
         `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a processId for write_stdin. Use this for file inspection, tests, builds, package scripts, generators, formatters, and long-running processes. ${buildShellMutationPolicy()} Call open_workspace first and pass workspaceId.`,
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this process."),
         cmd: z.string().min(1).describe("Shell command to execute."),
         tty: z
           .boolean()
@@ -1455,25 +1492,41 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => shellRun(
-      {
-        workspaceId,
-        command: cmd,
-        surface: "exec_command",
-        tty,
-        columns,
-        rows,
-        workingDirectory,
-        yieldTimeMs,
-        timeoutMs,
-        maxOutputTokens,
-      },
-      {
-        requestMeta: extra._meta,
-        signal: extra.signal,
-        sessionId: extra.sessionId,
-      },
-    ),
+    async ({ workspaceId, member, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
+      const target = routing.resolve(workspaceId, member);
+      const context = await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
+      if (routing.isRemote(target.executionWorkspaceId)) {
+        return routing.present(await routing.execCommandRemote(
+          target.executionWorkspaceId,
+          {
+            cmd,
+            ...(tty !== undefined ? { tty } : {}),
+            ...(columns !== undefined ? { columns } : {}),
+            ...(rows !== undefined ? { rows } : {}),
+            ...(workingDirectory !== undefined ? { workingDirectory } : {}),
+            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+          },
+          routing.hostScopeIdFor(extra._meta, extra.sessionId),
+        ), target);
+      }
+      return routing.present(await shellRun(
+        {
+          workspaceId: target.executionWorkspaceId,
+          command: cmd,
+          surface: "exec_command",
+          tty,
+          columns,
+          rows,
+          workingDirectory,
+          yieldTimeMs,
+          timeoutMs,
+          maxOutputTokens,
+        },
+        context,
+      ), target);
+    },
     );
   }
 
@@ -1488,6 +1541,7 @@ function registerProcessTools(
         "Poll or write characters to a running process returned by exec_command, or retrieve complete durable process output by outputId. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier used to start the process."),
+        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns the process."),
         processId: z.number().int().positive().optional().describe("Canonical process identifier returned by bash or exec_command."),
         sessionId: z.number().int().positive().optional().describe("Deprecated alias for processId. Retained for compatibility."),
         outputId: z.string().optional().describe("Stable output identifier returned by exec_command. When supplied, retrieve the complete durable output instead of controlling a process."),
@@ -1513,8 +1567,27 @@ function registerProcessTools(
       ...toolWidgetDescriptorMeta(config, "shell"),
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
-      const workspace = workspaces.getWorkspace(workspaceId);
+    async ({ workspaceId, member, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
+      const target = routing.resolve(workspaceId, member);
+      await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
+      if (routing.isRemote(target.executionWorkspaceId)) {
+        return routing.present(await routing.writeStdinRemote(
+          target.executionWorkspaceId,
+          {
+            ...(processId !== undefined ? { processId } : {}),
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            ...(outputId !== undefined ? { outputId } : {}),
+            ...(chars !== undefined ? { chars } : {}),
+            ...(columns !== undefined ? { columns } : {}),
+            ...(rows !== undefined ? { rows } : {}),
+            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
+            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+          },
+          routing.hostScopeIdFor(extra._meta, extra.sessionId),
+        ), target);
+      }
+      const executionWorkspaceId = target.executionWorkspaceId;
+      const workspace = workspaces.getWorkspace(executionWorkspaceId);
       if (outputId !== undefined) {
         if (
           processId !== undefined || sessionId !== undefined || chars !== undefined || columns !== undefined ||
@@ -1529,8 +1602,8 @@ function registerProcessTools(
           payload: { outputId },
           operation: async () => durableOutputResponse(
             "write_stdin",
-            workspaceId,
-            readWorkspaceBashOutput(bashOutputStore, workspaceId, outputId),
+            executionWorkspaceId,
+            readWorkspaceBashOutput(bashOutputStore, executionWorkspaceId, outputId),
           ),
         });
       }
@@ -1548,7 +1621,7 @@ function registerProcessTools(
         operation: async () => {
           const startedAt = performance.now();
           const snapshot = await processSessions.write({
-            workspaceId,
+            workspaceId: executionWorkspaceId,
             processId: resolvedProcessId,
             chars,
             columns,
@@ -1568,7 +1641,7 @@ function registerProcessTools(
             durationMs: Math.round(performance.now() - startedAt),
           });
 
-          const response = processToolResponse("write_stdin", workspaceId, snapshot, {
+          const response = processToolResponse("write_stdin", executionWorkspaceId, snapshot, {
             processId: resolvedProcessId,
             charactersWritten: chars?.length ?? 0,
             running: snapshot.running,
@@ -1580,7 +1653,7 @@ function registerProcessTools(
           }
           return response;
         },
-      });
+      }).then((result) => routing.present(result, target));
     },
   );
 }
@@ -4262,6 +4335,7 @@ export function createMcpServer(
           workspaceId: z
             .string()
             .describe("Workspace identifier returned by open_workspace."),
+          member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this patch."),
           patch: z
             .string()
             .describe("Patch text enclosed by *** Begin Patch and *** End Patch markers."),
@@ -4280,14 +4354,24 @@ export function createMcpServer(
         ...toolWidgetDescriptorMeta(config, "edit"),
         annotations: EDIT_TOOL_ANNOTATIONS,
       },
-      async ({ workspaceId, patch }, extra) => {
-        const workspace = workspaces.getWorkspace(workspaceId);
+      async ({ workspaceId, member, patch }, extra) => {
+        const target = resolveExecutionTarget(workspaceId, member);
+        const executionWorkspaceId = target.executionWorkspaceId;
+        const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
+        if (remoteWorkspaces.has(executionWorkspaceId)) {
+          return presentExecutionResult(await remoteWorkspaces.applyPatch(
+            executionWorkspaceId,
+            { patch },
+            hostScopeIdFor(extra._meta, extra.sessionId),
+          ), target);
+        }
+        const workspace = workspaces.getWorkspace(executionWorkspaceId);
         return runActivityToolWithHooks(
           activityLifecycle,
           hooks,
           workspace,
           hostScopeIdFor(extra._meta, extra.sessionId),
-          { workspaceId, patch },
+          activityRequestFor({ workspaceId: executionWorkspaceId, patch }, executionContext),
           {
             signal: extra.signal,
           tool: "apply_patch",
@@ -4320,7 +4404,7 @@ export function createMcpServer(
               _meta: {
                 tool: "apply_patch",
                 card: {
-                  workspaceId,
+                  workspaceId: executionWorkspaceId,
                   path: displayPath,
                   summary: {
                     files: applied.files.length,
@@ -4339,7 +4423,9 @@ export function createMcpServer(
               },
             };
           },
-        });
+        },
+        activityRelationFor(executionContext),
+        ).then((result) => presentExecutionResult(result, target));
       },
     );
   }
@@ -4582,6 +4668,17 @@ export function createMcpServer(
     activityLifecycle,
     bashOutputStore,
     (input, context) => coreOperations.shellRun(input, context),
+    {
+      resolve: resolveExecutionTarget,
+      prepare: prepareExecutionContext,
+      present: presentExecutionResult,
+      isRemote: (workspaceId) => remoteWorkspaces.has(workspaceId),
+      execCommandRemote: (workspaceId, input, conversationScopeId) =>
+        remoteWorkspaces.execCommand(workspaceId, input, conversationScopeId),
+      writeStdinRemote: (workspaceId, input, conversationScopeId) =>
+        remoteWorkspaces.writeStdin(workspaceId, input, conversationScopeId),
+      hostScopeIdFor,
+    },
   );
 
   return server;

@@ -239,6 +239,30 @@ export class RemoteWorkspaceRelay {
     return this.callWorkspaceTool(gatewayWorkspaceId, "bash", input, conversationScopeId);
   }
 
+  async execCommand(
+    gatewayWorkspaceId: string,
+    input: Record<string, unknown>,
+    conversationScopeId?: string,
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "exec_command", input, conversationScopeId);
+  }
+
+  async writeStdin(
+    gatewayWorkspaceId: string,
+    input: Record<string, unknown>,
+    conversationScopeId?: string,
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "write_stdin", input, conversationScopeId);
+  }
+
+  async applyPatch(
+    gatewayWorkspaceId: string,
+    input: { patch: string },
+    conversationScopeId?: string,
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(gatewayWorkspaceId, "apply_patch", input, conversationScopeId);
+  }
+
   async capability(
     gatewayWorkspaceId: string,
     input: {
