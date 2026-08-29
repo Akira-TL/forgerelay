@@ -50,6 +50,13 @@ To relocate the entire interactive debug config explicitly, use:
 FORGERELAY_DEBUG_CONFIG_DIR=/path/to/debug-config npm run dev
 ```
 
+The selected debug config is authoritative for its own `host` and `port`; the
+launcher reports endpoints derived from that file instead of assuming `7677`.
+This makes parallel isolated instances straightforward: give each instance its
+own config, state, and worktree directories and configure different ports (for
+example `7677` for a Gateway and `6768` for an Execution ForgeRelay), then launch
+each with its own `FORGERELAY_DEBUG_CONFIG_DIR`.
+
 ## Run a local MCP Apps Host
 
 Use MCP Inspector as the fast local Host for MCP App/resource iteration:

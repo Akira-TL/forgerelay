@@ -22,6 +22,27 @@ export function interactiveDebugConfigDir({ env = process.env, home = homedir() 
   return resolve(join(home, ".forgerelay", "debug"));
 }
 
+export function interactiveDebugUrls(configDir) {
+  let config = {};
+  try {
+    config = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8"));
+  } catch {
+    // Keep the historical debug defaults when the selected config has not been created yet.
+  }
+  const configuredHost = typeof config.host === "string" && config.host.trim()
+    ? config.host.trim()
+    : "127.0.0.1";
+  const host = configuredHost === "0.0.0.0" || configuredHost === "::"
+    ? "127.0.0.1"
+    : configuredHost;
+  const port = Number.isInteger(config.port) && config.port > 0 && config.port <= 65_535
+    ? config.port
+    : 7677;
+  const displayHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  const baseUrl = `http://${displayHost}:${port}`;
+  return { baseUrl, mcpUrl: `${baseUrl}/mcp` };
+}
+
 function interactiveDebugOwnerToken(configDir) {
   const authPath = join(configDir, "auth.json");
   let auth;
@@ -45,6 +66,7 @@ export function createInteractiveDebugEnvironment({
 } = {}) {
   const configDir = interactiveDebugConfigDir({ env, home });
   const ownerToken = interactiveDebugOwnerToken(configDir);
+  const { baseUrl, mcpUrl } = interactiveDebugUrls(configDir);
   mkdirSync(debugRoot, { recursive: true });
 
   const debugEnv = { ...env };
@@ -67,7 +89,7 @@ export function createInteractiveDebugEnvironment({
   }
   debugEnv.FORGERELAY_CONFIG_DIR = configDir;
 
-  return { ownerToken, configDir, env: debugEnv };
+  return { ownerToken, configDir, baseUrl, mcpUrl, env: debugEnv };
 }
 
 export function createDebugEnvironment({

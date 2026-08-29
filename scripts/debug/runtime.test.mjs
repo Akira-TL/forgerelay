@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createInteractiveDebugEnvironment, interactiveDebugConfigDir } from "./runtime.mjs";
+import {
+  createInteractiveDebugEnvironment,
+  interactiveDebugConfigDir,
+  interactiveDebugUrls,
+} from "./runtime.mjs";
 
 async function withDebugConfig(t) {
   const home = await mkdtemp(join(tmpdir(), "forgerelay-interactive-debug-"));
@@ -45,6 +49,12 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.ownerToken, "debug-owner-password-123456");
   assert.equal(result.configDir, configDir);
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, configDir);
+  assert.equal(result.baseUrl, "http://127.0.0.1:7677");
+  assert.equal(result.mcpUrl, "http://127.0.0.1:7677/mcp");
+  assert.deepEqual(interactiveDebugUrls(configDir), {
+    baseUrl: "http://127.0.0.1:7677",
+    mcpUrl: "http://127.0.0.1:7677/mcp",
+  });
   assert.equal(result.env.HOST, undefined);
   assert.equal(result.env.PORT, undefined);
   assert.equal(result.env.FORGERELAY_PUBLIC_BASE_URL, undefined);
@@ -60,7 +70,7 @@ test("interactive debug config directory may be explicitly relocated without fal
   const { home } = await withDebugConfig(t);
   const customDir = join(home, "custom-debug-config");
   await mkdir(customDir, { recursive: true });
-  await writeFile(join(customDir, "config.json"), "{}\n");
+  await writeFile(join(customDir, "config.json"), JSON.stringify({ host: "127.0.0.1", port: 6768 }) + "\n");
   await writeFile(join(customDir, "auth.json"), JSON.stringify({ ownerToken: "custom-debug-password-123456" }) + "\n");
 
   const result = createInteractiveDebugEnvironment({
@@ -71,4 +81,6 @@ test("interactive debug config directory may be explicitly relocated without fal
   assert.equal(result.configDir, customDir);
   assert.equal(result.ownerToken, "custom-debug-password-123456");
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, customDir);
+  assert.equal(result.baseUrl, "http://127.0.0.1:6768");
+  assert.equal(result.mcpUrl, "http://127.0.0.1:6768/mcp");
 });

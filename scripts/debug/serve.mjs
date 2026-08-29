@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
-import { createInteractiveDebugEnvironment, debugBaseUrl, debugMcpUrl, repoRoot } from "./runtime.mjs";
+import { createInteractiveDebugEnvironment, repoRoot } from "./runtime.mjs";
 
-const { configDir, env } = createInteractiveDebugEnvironment();
+const { configDir, baseUrl, mcpUrl, env } = createInteractiveDebugEnvironment();
 
 console.error("[forgerelay:debug] local debug server");
 console.error(`[forgerelay:debug] debug config: ${configDir}/config.json`);
-console.error(`[forgerelay:debug] health: ${debugBaseUrl}/healthz`);
-console.error(`[forgerelay:debug] MCP: ${debugMcpUrl}`);
+console.error(`[forgerelay:debug] health: ${baseUrl}/healthz`);
+console.error(`[forgerelay:debug] MCP: ${mcpUrl}`);
 console.error(`[forgerelay:debug] Owner password loaded from ${configDir}/auth.json`);
 console.error("[forgerelay:debug] all runtime state is under .forgerelay-debug/");
 
