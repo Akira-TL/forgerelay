@@ -415,12 +415,15 @@ void test("Composite Workspace routes Codex patch and process tools through a re
   assert.equal(patchedCard?.workspaceId, compositeId);
   assert.equal(patchedCard?.member, "compute");
 
+  const node = process.platform === "win32"
+    ? `"${process.execPath}"`
+    : JSON.stringify(process.execPath);
   const started = await client.callTool({
     name: "exec_command",
     arguments: {
       workspaceId: compositeId,
       member: "compute",
-      cmd: "node -e \"console.log('remote-codex-process'); setTimeout(() => {}, 150)\"",
+      cmd: `${node} -e \"console.log('remote-codex-process'); setTimeout(() => {}, 150)\"`,
       yieldTimeMs: 0,
     },
   });

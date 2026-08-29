@@ -1181,11 +1181,14 @@ test("close_workspace dissolves Composite identity while preserving member Works
   });
   assert.equal(mounted.isError, undefined, allResponseText(mounted));
 
+  const node = process.platform === "win32"
+    ? `"${process.execPath}"`
+    : JSON.stringify(process.execPath);
   const running = await context.client.callTool({
     name: "bash",
     arguments: {
       workspaceId: memberWorkspaceId,
-      command: "node -e \"setTimeout(() => console.log('member-finished'), 1200)\"",
+      command: `${node} -e \"setTimeout(() => console.log('member-finished'), 1200)\"`,
       yieldTimeMs: 0,
     },
   });
@@ -2766,12 +2769,15 @@ test("Composite Workspace routes Codex apply_patch and process tools through an 
   assert.equal(patchedCard?.workspaceId, compositeId);
   assert.equal(patchedCard?.member, "code");
 
+  const node = process.platform === "win32"
+    ? `"${process.execPath}"`
+    : JSON.stringify(process.execPath);
   const started = await context.client.callTool({
     name: "exec_command",
     arguments: {
       workspaceId: compositeId,
       member: "code",
-      cmd: "node -e \"console.log('composite-codex-process'); setTimeout(() => {}, 150)\"",
+      cmd: `${node} -e \"console.log('composite-codex-process'); setTimeout(() => {}, 150)\"`,
       yieldTimeMs: 0,
     },
     _meta: { "openai/session": "chat-codex-composite" },
