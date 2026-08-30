@@ -235,16 +235,9 @@ ForgeRelay-owned `subagents` capability guide when delegation is actually needed
 new setups. Existing user-authored or previously seeded Skills remain normal
 user configuration and are not deleted.
 
-The current model-facing delegation workflow is:
+Host 正常委派通过现有 `capability` Gateway 中的 `subagent.session` 完成，不增加新的 Core MCP tool。支持的生命周期操作包括 `start`、`resume`、`status`、`list`、`stop` 和 `delete`；具体参数与 provider continuation 能力以 `subagents` capability guide 为准。
 
-```bash
-forgerelay agents ls
-forgerelay agents run <profile-or-provider-or-id> "<prompt>"
-forgerelay agents show <id>
-```
-
-A first-class MCP subagent interface is planned so this CLI indirection can be
-removed.
+`forgerelay agents` CLI 继续保留给本地诊断和兼容场景，但 first-class MCP 路径不会通过 `bash -> forgerelay agents ...` 间接执行。Subagent Session 绑定实际 Execution Workspace，provider 原生 session/thread 保存 conversation history，ForgeRelay 只持久化必要的 ownership、continuation 和当前执行协调元数据。
 
 ## Tool modes
 

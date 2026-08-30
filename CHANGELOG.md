@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- 新增 first-class `subagent.session` Capability tracer：Host 可通过现有 Capability Gateway 发现并启动 provider-backed Subagent Session、查询 `status`、列出当前 Execution Workspace 拥有的 Session，并通过有界单次 delivery mailbox 接收后台 Run 的最终结果；canonical Core MCP tool 仍保持九个。
+- 为 ForgeRelay Subagent 引入稳定的 Session / Run identity 和 workspace-scoped coordination，使每次 delegated execution 都有明确的 Run 生命周期、Activity 关联和 provider continuation 映射，而无需经由 `bash -> forgerelay agents ...` CLI 间接执行。
+
+### Changed
+
+- 将 Claude Code、Codex、OpenCode、Pi 等 provider 的原生 session store 作为 conversation history 真源；ForgeRelay SQLite 停止写入 delegated prompt、profile body、final response、Hook report history 和 provider event/items，仅保留轻量 ownership、provider/profile/model/thinking 与 active/latest Run 协调元数据。
+- Provider adapter contract 收敛为 continuation identity、final response 与必要执行元数据，provider streaming/messages/events 只瞬时消费；profile body 仅在 Session 首次启动时交给 provider，ForgeRelay 不保存正文副本。
+
 ## [0.6.2] - 2026-08-29
 
 ### Added
