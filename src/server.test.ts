@@ -3401,12 +3401,7 @@ test("completed background results remain deliverable after the full-output rete
   });
   assert.equal(structuredContent(shell).running, true);
 
-  const completionDeadline = performance.now() + 5_000;
-  while (processSessions.stats().completed === 0 && performance.now() < completionDeadline) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  assert.equal(processSessions.stats().completed, 1);
-
+  await waitForCompletedProcess(processSessions);
   await new Promise((resolve) => setTimeout(resolve, 100));
   const read = await context.client.callTool({
     name: "read",
@@ -3462,8 +3457,7 @@ test("close_workspace delivers a completed background result instead of blocking
     },
   });
   assert.equal(structuredContent(shell).running, true);
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
+  await waitForCompletedProcess(processSessions);
   const closed = await context.client.callTool({
     name: "close_workspace",
     arguments: { workspaceId },
@@ -4196,6 +4190,12 @@ function allResponseText(result: Awaited<ReturnType<Client["callTool"]>>): strin
     .join("\n");
 }
 
+async function waitForCompletedProcess(processSessions: ProcessManager): Promise<void> {
+  const deadline = performance.now() + 5_000;
+  while (processSessions.stats().completed === 0 && performance.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(processSessions.stats().completed, 1);
+}
 async function waitForToolText(
   client: Client,
   params: Parameters<Client["callTool"]>[0],
