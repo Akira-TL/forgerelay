@@ -970,6 +970,35 @@ test("Composite Workspace can open a path-backed member and explicitly load that
     workspaceId: memberWorkspaceId,
   }]);
 
+  const suppressed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "gpu", context: "none" },
+    _meta: { "openai/session": "chat-member-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  const suppressedMemberContext = structuredContent(suppressed).memberContext as Record<string, unknown>;
+  assert.equal(suppressedMemberContext.includeBootstrapContext, false);
+  assert.equal(suppressedMemberContext.agentsFiles, undefined);
+  assert.match(String(suppressedMemberContext.instruction), /suppressed.*context=none/i);
+  assert.doesNotMatch(String(suppressedMemberContext.instruction), /already delivered/i);
+
+  const automatic = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "gpu", context: "auto" },
+    _meta: { "openai/session": "chat-member-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  const automaticMemberContext = structuredContent(automatic).memberContext as Record<string, unknown>;
+  assert.equal(automaticMemberContext.includeBootstrapContext, true);
+  assert.ok(Array.isArray(automaticMemberContext.agentsFiles));
+
+  const repeatedAutomatic = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "gpu", context: "auto" },
+    _meta: { "openai/session": "chat-member-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  const repeatedMemberContext = structuredContent(repeatedAutomatic).memberContext as Record<string, unknown>;
+  assert.equal(repeatedMemberContext.includeBootstrapContext, false);
+  assert.match(String(repeatedMemberContext.instruction), /already delivered/i);
+
   const reopened = await context.client.callTool({
     name: "open_workspace",
     arguments: { workspaceId: compositeId, memberName: "gpu", context: "full" },

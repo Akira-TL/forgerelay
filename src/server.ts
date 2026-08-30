@@ -1913,7 +1913,9 @@ export function createMcpServer(
         : {}),
       instruction: opened.includeBootstrapContext
         ? `Bootstrap context for Composite member ${memberName}. Keep using Composite workspaceId ${compositeWorkspaceId} and pass member=${memberName} for work operations.`
-        : `Composite member ${memberName} context was already delivered for this Host context; keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}.`,
+        : contextPolicy === "none"
+          ? `Bootstrap context for Composite member ${memberName} was intentionally suppressed by context=none. Keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}; request context=auto or context=full when member bootstrap is needed.`
+          : `Composite member ${memberName} context was already delivered for this Host context; keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}.`,
     };
   };
   const coreOperations = createCoreOperationExecutor({
