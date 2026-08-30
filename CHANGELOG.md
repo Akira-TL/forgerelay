@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-30
+
 ### Added
 
 - `subagent.session stop/delete` 提供真实 Run 取消和显式 ForgeRelay Session 清理；取消后可继续 resume，active Session 不能直接 delete。
