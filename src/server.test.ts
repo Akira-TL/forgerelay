@@ -1309,6 +1309,37 @@ test("Composite close preserves identity and members while delete dissolves only
   assert.equal(closedMemberMutation.isError, true);
   assert.match(allResponseText(closedMemberMutation), /is closed/i);
 
+  const unopenedMemberProject = join(dirname(context.project), "closed-composite-unopened-member");
+  await mkdir(unopenedMemberProject, { recursive: true });
+  await writeFile(join(unopenedMemberProject, "AGENTS.md"), "unopened member instructions\n");
+  const closedAdd = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: {
+        name: "data",
+        purpose: "Must not be opened while Composite is closed",
+        path: unopenedMemberProject,
+      },
+    },
+  });
+  assert.equal(closedAdd.isError, true);
+  assert.match(allResponseText(closedAdd), /is closed/i);
+  const unopenedInventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", kind: "workspace", root: unopenedMemberProject },
+  });
+  assert.equal((structuredContent(unopenedInventory).workspaces as Array<Record<string, unknown>>).length, 0);
+
+  const closedPanel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(closedPanel.isError, true);
+  assert.match(allResponseText(closedPanel), /No Workspace presentation|closed/i);
+
   const directMemberRead = await context.client.callTool({
     name: "read",
     arguments: { workspaceId: memberWorkspaceId, path: "preserved.txt" },

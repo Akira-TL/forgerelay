@@ -299,19 +299,41 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
     },
   });
   assert.equal(disposableMount.isError, undefined, resultText(disposableMount));
-  const dissolved = await client.callTool({
+  const closed = await client.callTool({
     name: "close_workspace",
     arguments: { workspaceId: disposableCompositeId },
+  });
+  assert.equal(closed.isError, undefined, resultText(closed));
+  assert.equal(structuredContent(closed).status, "closed");
+  assert.equal(structuredContent(closed).dissolved, false);
+
+  const routeStillOpenAfterClose = await client.callTool({
+    name: "read",
+    arguments: { workspaceId: memberWorkspaceId, path: "sentinel.txt" },
+  });
+  assert.equal(routeStillOpenAfterClose.isError, undefined, resultText(routeStillOpenAfterClose));
+  assert.match(resultText(routeStillOpenAfterClose), /execution-remote-content/);
+
+  const reopenedDisposable = await client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: disposableCompositeId, context: "none" },
+  });
+  assert.equal(reopenedDisposable.isError, undefined, resultText(reopenedDisposable));
+  assert.equal(structuredContent(reopenedDisposable).workspaceId, disposableCompositeId);
+
+  const dissolved = await client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: disposableCompositeId, action: "delete" },
   });
   assert.equal(dissolved.isError, undefined, resultText(dissolved));
   assert.equal(structuredContent(dissolved).dissolved, true);
 
-  const routeStillOpen = await client.callTool({
+  const routeStillOpenAfterDelete = await client.callTool({
     name: "read",
     arguments: { workspaceId: memberWorkspaceId, path: "sentinel.txt" },
   });
-  assert.equal(routeStillOpen.isError, undefined, resultText(routeStillOpen));
-  assert.match(resultText(routeStillOpen), /execution-remote-content/);
+  assert.equal(routeStillOpenAfterDelete.isError, undefined, resultText(routeStillOpenAfterDelete));
+  assert.match(resultText(routeStillOpenAfterDelete), /execution-remote-content/);
 
   const remoteInventory = await withRemoteMcpClient(
     remoteRecord,
