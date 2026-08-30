@@ -2691,7 +2691,7 @@ export function createMcpServer(
         action: z
           .enum(["open", "list", "member"])
           .optional()
-          .describe("Defaults to open. Use list to inspect logical workspaces. Use member to add/remove a named execution member on an existing Composite Workspace."),
+          .describe("Defaults to open. Use list to inspect known Workspaces. Use member to add/remove a named execution member on an existing Composite Workspace."),
         memberAction: z
           .enum(["add", "update", "remove"])
           .optional()
@@ -2736,7 +2736,7 @@ export function createMcpServer(
           .string()
           .optional()
           .describe(
-            "For action=open, an existing logical workspace ID to resume in this conversation. For action=list, filters inventory to one workspace ID.",
+            "For action=open, an existing Workspace ID to resume or reuse. Historical duplicate IDs from earlier ForgeRelay versions may resolve to the canonical Workspace ID. For action=list, filters inventory to one Workspace ID.",
           ),
         mode: z
           .enum(["checkout", "worktree"])
@@ -2758,7 +2758,7 @@ export function createMcpServer(
           .boolean()
           .optional()
           .describe(
-            "When true, allocate a fresh logical workspaceId for the same physical checkout or worktree and bind this conversation to it. Use only after the user explicitly requests a new logical workspace.",
+            "Deprecated compatibility flag. It no longer creates another Workspace identity for the same physical checkout or managed worktree; ForgeRelay reuses that target's canonical Workspace. Use newWorktree=true when the user explicitly needs separate Git isolation.",
           ),
         context: z
           .enum(["auto", "full", "none"])
@@ -2781,7 +2781,7 @@ export function createMcpServer(
         staleOnly: z
           .boolean()
           .optional()
-          .describe("For action=list, return only active logical workspaces idle for more than two days."),
+          .describe("For action=list, return only active Workspaces idle for more than two days."),
         offset: z
           .number()
           .int()
@@ -3393,7 +3393,7 @@ export function createMcpServer(
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const workspaceManagementInstruction =
-        "When you need to continue an earlier logical workspace or organize workspace state, use open_workspace(action=\"list\") to inspect candidates, then resume a selected workspaceId or ask the user before close_workspace cleanup.";
+        "When you need to inspect known Workspaces, continue earlier work, or organize Workspace state, use open_workspace(action=\"list\") to inspect candidates, then resume a selected workspaceId or ask the user before close_workspace cleanup.";
       const cardInstruction = config.skillsEnabled
         ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
         : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
@@ -3455,7 +3455,7 @@ export function createMcpServer(
               ? `Known worktrees: ${knownWorktrees.map((worktree) => `${worktree.path} [${worktree.workspaceId}]${worktree.branch ? ` branch=${worktree.branch}` : ""}${worktree.targetBranch ? ` target=${worktree.targetBranch}` : ""}${worktree.current ? " (current)" : ""}`).join(", ")}`
               : undefined,
             staleWorkspaces.length > 0
-              ? `Idle logical workspaces for this same physical workspace (>2 days): ${staleWorkspaces.map((stale) => `${stale.workspaceId} last-used=${stale.lastUsedAt}`).join(", ")}. Tell the user these are available to resume or explicitly close; do not clean them up automatically.`
+              ? `This Workspace has been idle for more than 2 days: ${staleWorkspaces.map((stale) => `${stale.workspaceId} last-used=${stale.lastUsedAt}`).join(", ")}. It remains available to resume or explicitly close; do not clean it up automatically.`
               : undefined,
             `ForgeRelay ${capabilityFingerprint.version} capabilities: ${capabilityFingerprint.capabilities.join(", ")}`,
             instruction,
@@ -3776,7 +3776,7 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close one workspace after the user chooses cleanup. Composite Workspaces dissolve here: only the Composite identity and member links are removed; member Workspaces, files, processes, worktrees, and relay routes remain intact. Checkout-backed workspaces release only the logical handle. Managed-worktree-backed workspaces run the safe finalize lifecycle (hooks, commit, fast-forward integration, cleanup) and require commitMessage. Running processes block ordinary Workspace closure.",
+        "Close one Workspace after the user chooses cleanup. In v0.8.0, Composite close still dissolves only the Composite identity/member links. Checkout close removes ForgeRelay state but never project files. Managed-worktree-backed Workspaces run the safe finalize lifecycle (hooks, commit, fast-forward integration, cleanup) and require commitMessage. Running processes block ordinary Workspace closure.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close."),
         commitMessage: z
@@ -3877,7 +3877,7 @@ export function createMcpServer(
               .filter((id) => processSessions.activeWorkspaceIds().has(id));
             if (busyWorkspaceIds.length > 0) {
               throw new Error(
-                `Cannot close this worktree-backed workspace while logical workspace processes are still running: ${busyWorkspaceIds.join(", ")}.`,
+                `Cannot close this worktree-backed Workspace while Workspace processes are still running: ${busyWorkspaceIds.join(", ")}.`,
               );
             }
             const startedAt = performance.now();

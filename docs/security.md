@@ -144,10 +144,10 @@ process lifetime. When `bash` is still running after that window, ForgeRelay
 returns a canonical `processId` and leaves the process alive. Regular tool modes
 reuse `bash(action="process")` to poll, wait, write input, resize a PTY, or
 explicitly interrupt that process. An asynchronously completed process
-is reported on a later tool result for the same logical workspace ID, including
-error-result paths, and is never broadcast to another workspace ID. Explicitly
-resuming the same workspace ID in another conversation intentionally transfers
-that completion scope as well. Hook handlers keep their separate bounded timeout
+is reported on a later tool result for the same persistent Workspace ID, including
+error-result paths, and is never broadcast to another Workspace ID. Reusing that
+Workspace from another conversation intentionally shares the same completion scope
+as well. Hook handlers keep their separate bounded timeout
 policy because they are lifecycle gates rather than user-command execution.
 
 ## Lifecycle hooks

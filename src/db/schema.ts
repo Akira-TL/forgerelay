@@ -22,6 +22,19 @@ export const workspaceSessions = sqliteTable(
   ],
 );
 
+export const workspaceSessionAliases = sqliteTable(
+  "workspace_session_aliases",
+  {
+    aliasId: text("alias_id").primaryKey(),
+    workspaceSessionId: text("workspace_session_id")
+      .notNull()
+      .references(() => workspaceSessions.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("workspace_session_aliases_workspace_idx").on(table.workspaceSessionId),
+  ],
+);
+
 export const loadedAgentFiles = sqliteTable(
   "loaded_agent_files",
   {

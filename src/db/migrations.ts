@@ -82,6 +82,11 @@ const migrations: Migration[] = [
     name: "subagent-run-ownership",
     up: migrateSubagentRunOwnership,
   },
+  {
+    version: 16,
+    name: "workspace-session-aliases",
+    up: migrateWorkspaceSessionAliases,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -402,6 +407,21 @@ function migrateSubagentRunOwnership(sqlite: Database.Database): void {
   migrateSubagentSessionCoordination(sqlite);
   addColumnIfMissing(sqlite, "local_agent_sessions", "active_owner_id", "text");
   addColumnIfMissing(sqlite, "local_agent_sessions", "active_owner_pid", "integer");
+}
+
+function migrateWorkspaceSessionAliases(sqlite: Database.Database): void {
+  sqlite.exec(`
+    create table if not exists workspace_session_aliases (
+      alias_id text primary key,
+      workspace_session_id text not null,
+      foreign key (workspace_session_id)
+        references workspace_sessions(id)
+        on delete cascade
+    );
+
+    create index if not exists workspace_session_aliases_workspace_idx
+      on workspace_session_aliases(workspace_session_id);
+  `);
 }
 
 function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {

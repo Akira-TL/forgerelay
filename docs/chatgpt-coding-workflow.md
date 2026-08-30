@@ -9,14 +9,17 @@ checkout.
 `open_workspace` returns a `workspaceId`. Continue using that ID for later tools
 in the same directory.
 
-`workspaceId` is a logical conversation handle, not the physical-directory
-identity. Reopening the same checkout in the same conversation keeps that
-logical ID stable. A different conversation normally receives a different
-`workspaceId` even when it points at the same checkout or worktree; pass an
-existing ID explicitly when the user wants to resume that logical workspace.
+`workspaceId` identifies a persistent ForgeRelay Workspace rather than a
+conversation-scoped handle. A canonical checkout path maps to one checkout
+Workspace, and a managed worktree path maps to one managed-worktree Workspace.
+Different Host conversations may bind to and reuse the same `workspaceId`; pass a
+known ID explicitly when the user wants to resume that Workspace. Historical
+duplicate IDs created by older ForgeRelay versions are accepted during migration
+and resolve to the canonical Workspace identity.
 
-A Git worktree directory is a separate physical workspace target from its source
-checkout, and each conversation can still have its own logical handle for it.
+A Git worktree directory is a separate physical Workspace target from its source
+checkout. Separate parallel identities require separate managed worktrees rather
+than multiple logical handles pointing at one physical target.
 
 ### Bootstrap context and workspace inventory
 
@@ -28,12 +31,11 @@ open_workspace(path="~/project")
 
 The default `context="auto"` keeps the first useful bootstrap while avoiding
 replay. ForgeRelay tracks delivered context by conversation plus canonical
-workspace target and a content fingerprint, not by logical `workspaceId`. If the
-same conversation opens or resumes another logical handle for the same physical
-project and the fingerprint is unchanged, the response keeps only lightweight
-workspace metadata. If loaded instruction contents or relevant Skill, Capability
-guide, profile, diagnostic, or nested-instruction metadata changes, the next
-automatic open returns the refreshed bootstrap.
+Workspace target and a content fingerprint, independently from persistent
+Workspace identity. Different conversations may reuse the same `workspaceId` while
+each receives the current bootstrap once. If loaded instruction contents or
+relevant Skill, Capability guide, profile, diagnostic, or nested-instruction
+metadata changes, the next automatic open returns the refreshed bootstrap.
 
 Two explicit controls are available for exceptional cases:
 
@@ -42,15 +44,14 @@ open_workspace(workspaceId="ws_...", context="full")
 open_workspace(workspaceId="ws_...", context="none")
 ```
 
-`full` forces a bootstrap refresh. `none` opens/resumes the workspace without
+`full` forces a bootstrap refresh. `none` opens/resumes the Workspace without
 returning the full project context and does not record the current fingerprint as
-already delivered. Context-delivery state is independent from logical-workspace
-selection, so closing or switching one handle does not make the conversation
-forget unchanged project context it already received.
+already delivered. Context-delivery state remains conversation-scoped and does not
+change the persistent Workspace identity.
 
-Do not enumerate workspace state on every normal open. When the user wants to
-continue an earlier task, choose among logical workspaces, or clean up accumulated
-state, use the same Core tool in inventory mode:
+Do not enumerate Workspace state on every normal open. When the user wants to
+continue earlier work, inspect known Workspaces, or clean up accumulated state, use
+the same Core tool in inventory mode:
 
 ```text
 open_workspace(action="list")
@@ -62,7 +63,7 @@ Inventory is paginated, defaults to 50 entries, and caps each page at 100. It ca
 filter by `workspaceId`, persisted `status`, derived `state`, `mode`, canonical
 root/source root, or stale-only state. Entries include a compact label such as
 `project/ws_...`, checkout/worktree backing metadata, timestamps, idle duration,
-root validity, and whether that logical workspace is currently selected by this
+root validity, and whether that Workspace is currently selected by this
 conversation. Listing is observational and does not refresh `lastUsedAt`.
 
 Treat persisted status and derived state separately. `status="active"` means the
@@ -278,18 +279,20 @@ surface, including direct `rename`/`delete` path mutations alongside `apply_patc
 unified move/rename primitive for both files and directories; ForgeRelay does not
 expose a separate `move` tool.
 
-Workspace IDs are logical conversation handles rather than physical-directory
-identities. The same conversation keeps a stable ID for a project, while another
-conversation normally receives a different ID pointing at the same checkout or
-worktree. `open_workspace` can explicitly resume a known `workspaceId`, and a
-fresh logical ID is created only when the user asks for one. The normal open path
-may still include `staleWorkspaces` as a passive reminder for same-target handles
-idle for more than two days; use `open_workspace(action="list")` for complete,
-filtered inventory when continuation or cleanup actually requires it.
-`close_workspace` is the single public close operation: checkout-backed workspaces
-release the logical handle, while managed-worktree-backed workspaces require
-`commitMessage` and run the safe commit / fast-forward-only integration / cleanup
-lifecycle.
+Workspace IDs are persistent ForgeRelay identities. The same canonical checkout
+or managed worktree is reused across conversations; older duplicate IDs remain
+compatibility aliases that resolve to the canonical Workspace. `newWorkspace` is
+deprecated and no longer allocates a second identity for the same physical target;
+use `newWorktree=true` when genuinely separate Git isolation is required. The
+normal open path may still include `staleWorkspaces` for an idle persistent
+Workspace; use `open_workspace(action="list")` for complete, filtered inventory
+when continuation or cleanup actually requires it.
+
+In v0.8.0, `close_workspace` is still the existing public close operation:
+checkout-backed Workspaces remove their ForgeRelay record without deleting project
+files, while managed-worktree-backed Workspaces require `commitMessage` and run the
+safe commit / fast-forward-only integration / cleanup lifecycle. Persistent
+closed/reopen semantics land in the following lifecycle stage.
 
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply

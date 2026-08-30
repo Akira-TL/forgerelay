@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Stats } from "node:fs";
+import { realpathSync, type Stats } from "node:fs";
 import type {
   WorkspaceMode,
   WorkspaceSession,
@@ -204,6 +204,7 @@ export class WorkspaceRegistry {
     private readonly store?: WorkspaceStore,
   ) {
     this.hooks = new HookRunner(config.hooks, config.logging);
+    this.foldLegacyWorkspaceSessions();
     this.pruneIdleWorkspaceSessions(new Set(), true);
   }
 
@@ -239,7 +240,6 @@ export class WorkspaceRegistry {
     return this.openReusableCheckout(
       workspaceInput.path,
       openOptions.conversationScopeId,
-      workspaceInput.newWorkspace ?? false,
       bootstrapContext,
     );
   }
@@ -421,25 +421,26 @@ export class WorkspaceRegistry {
 
   closeWorkspace(workspaceId: string): void {
     const workspace = this.getWorkspace(workspaceId);
+    const canonicalWorkspaceId = workspace.id;
     if (workspace.mode === "worktree") {
       const aliases = this.activeSessions("worktree")
         .filter((session) => resolve(session.root) === resolve(workspace.root));
       if (aliases.length <= 1) {
         throw new Error(
-          `Workspace ${workspaceId} is the last active handle for a worktree. Use close_worktree to finalize and remove the physical worktree, or keep this handle as its anchor.`,
+          `Workspace ${canonicalWorkspaceId} is backed by a managed worktree. Use close_workspace with its managed-worktree finalize lifecycle instead of releasing the physical target as a separate handle.`,
         );
       }
     }
 
     if (this.store) {
       for (const binding of this.store.listConversationBindings()) {
-        if (binding.workspaceSessionId === workspaceId) {
+        if (binding.workspaceSessionId === canonicalWorkspaceId) {
           this.store.deleteConversationBinding(binding.conversationScopeId, binding.targetKey);
         }
       }
-      this.store.deleteSession(workspaceId);
+      this.store.deleteSession(canonicalWorkspaceId);
     }
-    this.workspaces.delete(workspaceId);
+    this.workspaces.delete(canonicalWorkspaceId);
   }
 
   workspaceIdsForPhysicalWorkspace(workspace: Workspace): string[] {
@@ -559,45 +560,26 @@ export class WorkspaceRegistry {
   private async openReusableCheckout(
     path: string,
     conversationScopeId: string | undefined,
-    newWorkspace: boolean,
     bootstrapContext: WorkspaceBootstrapContextMode,
   ): Promise<WorkspaceContext> {
     const allowedPath = assertAllowedPath(path, this.config.allowedRoots);
     const projectKey = await canonicalPath(allowedPath);
     const targetKey = JSON.stringify(["checkout", projectKey, null]);
 
-    if (!newWorkspace) {
-      const boundContext = await this.boundConversationContext(
-        conversationScopeId,
-        targetKey,
-        "checkout",
-        async (session, root) =>
-          session.mode === "checkout" && await canonicalPath(root) === projectKey,
-        bootstrapContext,
-      );
-      if (boundContext) return boundContext;
-    }
+    const boundContext = await this.boundConversationContext(
+      conversationScopeId,
+      targetKey,
+      "checkout",
+      async (session, root) =>
+        session.mode === "checkout" && await canonicalPath(root) === projectKey,
+      bootstrapContext,
+    );
+    if (boundContext) return boundContext;
 
-    if (newWorkspace) {
-      const reusableWorkspace = await this.findReusableWorkspaceByDirectory(projectKey, "checkout");
-      const freshContext = reusableWorkspace
-        ? await this.cloneWorkspaceContext(reusableWorkspace)
-        : await this.openCheckoutWorkspace(path);
-      return this.withConversationContext(
-        freshContext,
-        conversationScopeId,
-        targetKey,
-        bootstrapContext,
-      );
-    }
-
-    const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
-    const context = await this.openOnce(operationKey, async () => {
+    const context = await this.openOnce(targetKey, async () => {
       const reusableWorkspace = await this.findReusableWorkspaceByDirectory(projectKey, "checkout");
       if (!reusableWorkspace) return this.openCheckoutWorkspace(path);
-      return conversationScopeId && this.store
-        ? this.cloneWorkspaceContext(reusableWorkspace)
-        : this.reusedWorkspaceContext(reusableWorkspace);
+      return this.reusedWorkspaceContext(reusableWorkspace);
     });
     return this.withConversationContext(
       context,
@@ -618,44 +600,24 @@ export class WorkspaceRegistry {
     if (managedPath) {
       const worktreeKey = await canonicalPath(managedPath);
       const targetKey = JSON.stringify(["worktree-path", worktreeKey]);
-      if (!input.newWorkspace) {
-        const boundContext = await this.boundConversationContext(
-          conversationScopeId,
-          targetKey,
-          "worktree",
-          async (session, root) =>
-            session.mode === "worktree" && await canonicalPath(root) === worktreeKey,
-          bootstrapContext,
-        );
-        if (boundContext) return boundContext;
-      }
+      const boundContext = await this.boundConversationContext(
+        conversationScopeId,
+        targetKey,
+        "worktree",
+        async (session, root) =>
+          session.mode === "worktree" && await canonicalPath(root) === worktreeKey,
+        bootstrapContext,
+      );
+      if (boundContext) return boundContext;
 
-      if (input.newWorkspace) {
+      const context = await this.openOnce(targetKey, async () => {
         const reusableWorkspace = await this.findReusableWorkspaceByDirectory(worktreeKey, "worktree");
         if (!reusableWorkspace) {
           throw new Error(
             `Managed worktree is not registered as an active ForgeRelay workspace: ${managedPath}. Open the source project in worktree mode to create or recover a managed worktree first.`,
           );
         }
-        return this.withConversationContext(
-          await this.cloneWorkspaceContext(reusableWorkspace),
-          conversationScopeId,
-          targetKey,
-          bootstrapContext,
-        );
-      }
-
-      const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
-      const context = await this.openOnce(operationKey, async () => {
-        const reusableWorkspace = await this.findReusableWorkspaceByDirectory(worktreeKey, "worktree");
-        if (!reusableWorkspace) {
-          throw new Error(
-            `Managed worktree is not registered as an active ForgeRelay workspace: ${managedPath}. Open the source project in worktree mode to create or recover a managed worktree first.`,
-          );
-        }
-        return conversationScopeId && this.store
-          ? this.cloneWorkspaceContext(reusableWorkspace)
-          : this.reusedWorkspaceContext(reusableWorkspace);
+        return this.reusedWorkspaceContext(reusableWorkspace);
       });
       return this.withConversationContext(
         context,
@@ -683,47 +645,26 @@ export class WorkspaceRegistry {
       );
     }
 
-    if (!input.newWorkspace) {
-      const boundContext = await this.boundConversationContext(
-        conversationScopeId,
-        targetKey,
-        "worktree",
-        async (session) =>
-          session.mode === "worktree" &&
-          session.sourceRoot !== undefined &&
-          await canonicalPath(session.sourceRoot) === sourceKey &&
-          session.targetBranch === resolvedBase.targetBranch,
-        bootstrapContext,
-      );
-      if (boundContext) return boundContext;
-    }
+    const boundContext = await this.boundConversationContext(
+      conversationScopeId,
+      targetKey,
+      "worktree",
+      async (session) =>
+        session.mode === "worktree" &&
+        session.sourceRoot !== undefined &&
+        await canonicalPath(session.sourceRoot) === sourceKey &&
+        session.targetBranch === resolvedBase.targetBranch,
+      bootstrapContext,
+    );
+    if (boundContext) return boundContext;
 
-    if (input.newWorkspace) {
-      const reusableWorkspace = await this.findReusableWorktreeBySource(
-        sourceKey,
-        resolvedBase.targetBranch,
-      );
-      const freshContext = reusableWorkspace
-        ? await this.cloneWorkspaceContext(reusableWorkspace)
-        : await this.openWorktreeWorkspace(path, input.baseRef);
-      return this.withConversationContext(
-        freshContext,
-        conversationScopeId,
-        targetKey,
-        bootstrapContext,
-      );
-    }
-
-    const operationKey = this.conversationOpenKey(targetKey, conversationScopeId);
-    const context = await this.openOnce(operationKey, async () => {
+    const context = await this.openOnce(targetKey, async () => {
       const reusableWorkspace = await this.findReusableWorktreeBySource(
         sourceKey,
         resolvedBase.targetBranch,
       );
       if (!reusableWorkspace) return this.openWorktreeWorkspace(path, input.baseRef);
-      return conversationScopeId && this.store
-        ? this.cloneWorkspaceContext(reusableWorkspace)
-        : this.reusedWorkspaceContext(reusableWorkspace);
+      return this.reusedWorkspaceContext(reusableWorkspace);
     });
     return this.withConversationContext(
       context,
@@ -768,15 +709,6 @@ export class WorkspaceRegistry {
       ]));
     }
     return keys;
-  }
-
-  private conversationOpenKey(
-    targetKey: string,
-    conversationScopeId: string | undefined,
-  ): string {
-    return conversationScopeId && this.store
-      ? JSON.stringify(["conversation", conversationScopeId, targetKey])
-      : targetKey;
   }
 
   private async boundConversationContext(
@@ -903,8 +835,46 @@ export class WorkspaceRegistry {
       ) {
         continue;
       }
-      this.store.deleteSession(session.id);
       this.workspaces.delete(session.id);
+    }
+  }
+
+  private foldLegacyWorkspaceSessions(): void {
+    if (!this.store) return;
+    const groups = new Map<string, WorkspaceSession[]>();
+    for (const session of this.store.listSessions()) {
+      const targetPath = canonicalPersistedWorkspacePath(session.root);
+      const key = JSON.stringify([session.mode, targetPath]);
+      const group = groups.get(key) ?? [];
+      group.push(session);
+      groups.set(key, group);
+    }
+
+    for (const sessions of groups.values()) {
+      if (sessions.length < 2) continue;
+      const ordered = [...sessions].sort((left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+      );
+      const canonical = ordered[0];
+      if (!canonical) continue;
+      const createdAt = ordered.reduce(
+        (earliest, session) => session.createdAt < earliest ? session.createdAt : earliest,
+        canonical.createdAt,
+      );
+      const lastUsedAt = ordered.reduce(
+        (latest, session) => session.lastUsedAt > latest ? session.lastUsedAt : latest,
+        canonical.lastUsedAt,
+      );
+      const status = ordered.some((session) => session.status === "active")
+        ? "active"
+        : canonical.status;
+      this.store.foldSessions({
+        canonicalId: canonical.id,
+        aliasIds: ordered.slice(1).map((session) => session.id),
+        createdAt,
+        lastUsedAt,
+        status,
+      });
     }
   }
 
@@ -981,15 +951,6 @@ export class WorkspaceRegistry {
       if (error instanceof AccessDeniedError) return undefined;
       throw error;
     }
-  }
-
-  private async cloneWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
-    return this.createWorkspaceContext({
-      root: workspace.root,
-      mode: workspace.mode,
-      sourceRoot: workspace.sourceRoot,
-      worktree: workspace.worktree ? { ...workspace.worktree } : undefined,
-    });
   }
 
   private async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
@@ -1491,6 +1452,26 @@ function bootstrapContextFingerprint(
   };
 
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function canonicalPersistedWorkspacePath(path: string): string {
+  const missingSegments: string[] = [];
+  let candidate = path;
+
+  while (true) {
+    try {
+      return resolve(realpathSync(candidate), ...missingSegments.slice().reverse());
+    } catch (error) {
+      if (!isErrnoException(error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) {
+        return resolve(path);
+      }
+
+      const parent = dirname(candidate);
+      if (parent === candidate) return resolve(path);
+      missingSegments.push(basename(candidate));
+      candidate = parent;
+    }
+  }
 }
 
 async function canonicalPath(path: string): Promise<string> {

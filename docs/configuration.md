@@ -286,24 +286,27 @@ is no separate `move` MCP tool.
 Codex-mode commands run without a PTY by default. `tty: true` enables interactive
 programs when the optional `node-pty` dependency is available.
 
-Logical workspace IDs are conversation-scoped handles. Reopening the same project
-from the same conversation keeps its ID stable; a different conversation normally
-receives a different ID for the same physical checkout/worktree. Pass
-`workspaceId` to `open_workspace` to explicitly resume an existing handle in the
-current conversation. `newWorkspace: true` allocates a new logical handle without
-creating another checkout or Git worktree and should be used only on explicit user
-request.
+Workspace IDs identify persistent ForgeRelay Workspaces rather than individual
+conversation handles. A canonical checkout path maps to one checkout Workspace, and
+a managed worktree path maps to one managed-worktree Workspace; different Host
+conversations can bind to and reuse the same `workspaceId`. Pass `workspaceId` to
+`open_workspace` to resume that known Workspace explicitly. Historical duplicate
+IDs created by older ForgeRelay versions remain accepted during migration and
+resolve to the canonical Workspace. `newWorkspace: true` is retained only as a
+deprecated compatibility input and no longer allocates another identity for the
+same physical target; use `newWorktree: true` for genuinely separate Git isolation.
 
-Bootstrap delivery is tracked separately from the selected logical workspace.
+Bootstrap delivery is tracked separately from Workspace identity.
 `open_workspace` defaults to `context="auto"`: ForgeRelay fingerprints the current
 project context and returns the full AGENTS/Skills/Capability-guide/profile bootstrap
 only when that conversation has not already received the current fingerprint for
 the canonical workspace target. `context="full"` forces a refresh;
-`context="none"` opens or resumes the logical workspace without returning the full
-bootstrap and does not mark the current fingerprint as delivered. Closing or
-switching a logical workspace therefore does not by itself cause unchanged project
-context to be injected again, while changed context produces a new fingerprint and
-is delivered on the next `auto` open.
+`context="none"` opens or resumes the Workspace without returning the full bootstrap
+and does not mark the current fingerprint as delivered. Conversation-scoped
+bootstrap delivery therefore remains independent from the persistent Workspace
+identity: another conversation may reuse the same Workspace while independently
+receiving the current bootstrap once, and changed context produces a new fingerprint
+for the next `auto` open.
 
 Composite Workspaces use the same `open_workspace` entry point with
 `kind="composite"` and a human-readable `name`. They have no filesystem root of
@@ -324,20 +327,21 @@ Hooks, Skills, language services, and Activity facts remain owned by the underly
 Workspace. The Composite Activity Panel only aggregates their presentation into one
 Host Turn.
 
-Use `open_workspace(action="list")` only when the Agent needs to continue an older
-logical workspace, choose among multiple handles, or organize workspace state. The
-inventory is paginated (50 records by default, at most 100) and can filter by
-workspace ID, persisted status, derived state, mode, canonical root/source root, or
-stale-only state. Reading inventory does not refresh `lastUsedAt`. Persisted
+Use `open_workspace(action="list")` only when the Agent needs to inspect known
+Workspaces, continue earlier work, or organize Workspace state. The inventory is
+paginated (50 records by default, at most 100) and can filter by Workspace ID,
+persisted status, derived state, mode, canonical root/source root, or stale-only
+state. Reading inventory does not refresh `lastUsedAt`. Persisted
 `status="active"` means the record has not been explicitly closed; the derived
 `state` distinguishes `active`, `stale`, `invalid`, and `closed`. A missing checkout
 or externally removed managed-worktree root can therefore remain diagnostically
-`status="active"` while appearing as `state="invalid"`. The existing
-`staleWorkspaces` field remains a passive same-workspace reminder for old handles;
-`action="list"` is the formal on-demand inventory path.
+`status="active"` while appearing as `state="invalid"`. Canonical identity means
+ordinary same-target opens no longer accumulate duplicate inventory rows;
+`action="list"` remains the formal on-demand inventory path.
 
-`close_workspace` removes a checkout-backed logical handle without deleting checkout
-files. For a managed-worktree-backed workspace, `close_workspace` requires
+In v0.8.0, `close_workspace` still removes a checkout-backed Workspace record without
+deleting checkout files; the persistent closed/reopen lifecycle is introduced by
+the next lifecycle stage. For a managed-worktree-backed Workspace, `close_workspace` requires
 `commitMessage` and runs the existing safe worktree finalize lifecycle: close Hooks,
 commit when needed, fast-forward-only integration, cleanup, and alias invalidation.
 For a Composite Workspace, the same tool means dissolve: it removes only the
@@ -366,7 +370,7 @@ the initial run request terminates a not-yet-handed-off process so ForgeRelay do
 not leave an orphan process whose `processId` the Agent never received.
 
 Completed background processes are delivered once with a later tool result for the
-same logical workspace ID. Full buffered completion output is retained for five
+same Workspace ID. Full buffered completion output is retained for five
 minutes; after that ForgeRelay compacts the completion to a bounded head/tail record
 and keeps it deliverable for up to 24 hours, still subject to the global completed
 process count bound. Completed processes no longer prevent `close_workspace`; the

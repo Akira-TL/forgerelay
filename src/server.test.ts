@@ -303,9 +303,12 @@ test("activity_panel carries the selected Workspace presentation and changes it 
   assert.equal(firstStructuredWorkspace?.root, context.project);
   assert.equal(firstStructuredWorkspace?.mode, "checkout");
 
+  const otherProject = join(dirname(context.project), "other-panel-project");
+  await mkdir(otherProject, { recursive: true });
+  await writeFile(join(otherProject, "package.json"), "{}\n");
   const secondOpen = await context.client.callTool({
     name: "open_workspace",
-    arguments: { path: context.project, newWorkspace: true },
+    arguments: { path: otherProject },
     _meta: { "openai/session": conversationScopeId },
   } as Parameters<Client["callTool"]>[0]);
   const secondWorkspaceId = structuredContent(secondOpen).workspaceId as string;
@@ -324,9 +327,9 @@ test("activity_panel carries the selected Workspace presentation and changes it 
     "forgerelay/activityPanelWorkspace"
   ] as { workspaceId?: string; root?: string } | undefined;
   assert.equal(secondWorkspace?.workspaceId, secondWorkspaceId);
-  assert.equal(secondWorkspace?.root, context.project);
+  assert.equal(secondWorkspace?.root, otherProject);
   assert.equal(secondStructuredWorkspace?.workspaceId, secondWorkspaceId);
-  assert.equal(secondStructuredWorkspace?.root, context.project);
+  assert.equal(secondStructuredWorkspace?.root, otherProject);
   assert.notEqual(secondTurnId, firstTurnId);
 
   await context.client.callTool({
@@ -1340,12 +1343,13 @@ test("close_workspace dissolves Composite without finalizing a managed-worktree 
   assert.match(allResponseText(stillOpen), /still in worktree/);
 });
 
-test("open_workspace list action exposes logical workspace inventory through the MCP surface", async (t) => {
+test("open_workspace list action exposes canonical Workspace inventory through the MCP surface", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-list-1");
   const second = await callOpen(context.client, context.project, "chat-list-2");
   const firstId = String(structuredContent(first).workspaceId);
   const secondId = String(structuredContent(second).workspaceId);
+  assert.equal(secondId, firstId);
 
   const listed = await context.client.callTool({
     name: "open_workspace",
@@ -1356,16 +1360,15 @@ test("open_workspace list action exposes logical workspace inventory through the
   const inventory = structured.workspaces as Array<Record<string, unknown>>;
 
   assert.equal(structured.action, "list");
-  assert.equal(inventory.length, 2);
-  assert.deepEqual(new Set(inventory.map((entry) => entry.workspaceId)), new Set([firstId, secondId]));
+  assert.equal(inventory.length, 1);
+  assert.deepEqual(new Set(inventory.map((entry) => entry.workspaceId)), new Set([firstId]));
   assert.equal(inventory.find((entry) => entry.workspaceId === firstId)?.current, true);
-  assert.equal(inventory.find((entry) => entry.workspaceId === secondId)?.current, false);
   assert.equal(inventory.every((entry) => entry.mode === "checkout"), true);
   assert.equal(inventory.every((entry) => entry.status === "active"), true);
   assert.equal(inventory.every((entry) => entry.state === "active"), true);
   assert.equal(inventory.every((entry) => entry.rootValid === true), true);
   assert.equal(inventory.every((entry) => String(entry.label).startsWith("project/ws_")), true);
-  assert.equal((structured.summary as Record<string, unknown>).matching, 2);
+  assert.equal((structured.summary as Record<string, unknown>).matching, 1);
   assert.equal((structured.page as Record<string, unknown>).hasMore, false);
   assert.match(allResponseText(listed), /resume.*workspaceId/i);
   assert.match(allResponseText(listed), /close_workspace/);
@@ -1703,13 +1706,13 @@ test("open_workspace hides skill filesystem paths and read loads skills through 
   assert.match(allResponseText(reference), /skill reference body/);
 });
 
-test("different MCP conversations get different stable workspace ids and can explicitly resume one", async (t) => {
+test("different MCP conversations share one canonical checkout Workspace id and can explicitly resume it", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
   const second = await callOpen(context.client, context.project, "chat-2");
   const firstId = String(structuredContent(first).workspaceId);
   const secondId = String(structuredContent(second).workspaceId);
-  assert.notEqual(secondId, firstId);
+  assert.equal(secondId, firstId);
 
   const resumed = await context.client.callTool({
     name: "open_workspace",
@@ -1722,7 +1725,32 @@ test("different MCP conversations get different stable workspace ids and can exp
   assert.equal(structuredContent(repeated).workspaceId, firstId);
 });
 
-test("open_workspace reports all logical workspaces idle for more than two days", async (t) => {
+test("open_workspace resolves a historical Workspace alias to the canonical Workspace id", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-canonical");
+  const canonicalId = String(structuredContent(opened).workspaceId);
+  const legacyAliasId = "ws_bbbbbbbbbb";
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite.prepare(`
+      insert into workspace_session_aliases (alias_id, workspace_session_id)
+      values (?, ?)
+    `).run(legacyAliasId, canonicalId);
+  } finally {
+    database.close();
+  }
+
+  const resumed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: legacyAliasId, context: "none" },
+    _meta: { "openai/session": "chat-legacy-alias" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(resumed.isError, undefined, allResponseText(resumed));
+  assert.equal(structuredContent(resumed).workspaceId, canonicalId);
+  assert.doesNotMatch(allResponseText(resumed), new RegExp(legacyAliasId));
+});
+
+test("open_workspace reuses a stale checkout instead of reporting a duplicate logical Workspace", async (t) => {
   const context = await fixture(t);
   const old = await callOpen(context.client, context.project, "chat-old");
   const oldId = String(structuredContent(old).workspaceId);
@@ -1737,19 +1765,18 @@ test("open_workspace reports all logical workspaces idle for more than two days"
 
   const current = await callOpen(context.client, context.project, "chat-current");
   const stale = structuredContent(current).staleWorkspaces as Array<Record<string, unknown>>;
-  assert.equal(stale.length, 1);
-  assert.equal(stale[0]?.workspaceId, oldId);
-  assert.match(allResponseText(current), /Idle logical workspaces.*>2 days/);
-  assert.match(allResponseText(current), new RegExp(oldId));
-  assert.match(allResponseText(current), /do not clean them up automatically/i);
+  assert.equal(structuredContent(current).workspaceId, oldId);
+  assert.deepEqual(stale, []);
+  assert.doesNotMatch(allResponseText(current), /Idle logical workspaces.*>2 days/);
 });
 
-test("close_workspace releases one logical checkout handle without touching another", async (t) => {
+test("close_workspace closes the canonical checkout shared by MCP conversations", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
   const second = await callOpen(context.client, context.project, "chat-2");
   const firstId = String(structuredContent(first).workspaceId);
   const secondId = String(structuredContent(second).workspaceId);
+  assert.equal(secondId, firstId);
 
   const closed = await context.client.callTool({
     name: "close_workspace",
@@ -1765,11 +1792,12 @@ test("close_workspace releases one logical checkout handle without touching anot
   assert.equal(closedRead.isError, true);
   assert.match(allResponseText(closedRead), /Unknown workspaceId/);
 
-  const liveRead = await context.client.callTool({
+  const secondConversationRead = await context.client.callTool({
     name: "read",
     arguments: { workspaceId: secondId, path: "AGENTS.md" },
   });
-  assert.equal(liveRead.isError, undefined);
+  assert.equal(secondConversationRead.isError, true);
+  assert.match(allResponseText(secondConversationRead), /Unknown workspaceId/);
 });
 
 test("concurrent checkout opens return one full context and one reuse instruction", async (t) => {
@@ -3567,9 +3595,11 @@ test("bash action=process can explicitly keep waiting for a running process", as
   const processId = Number(structuredContent(shell).processId);
   assert.ok(processId > 0);
 
+  const otherProject = join(dirname(context.project), "other-process-project");
+  await mkdir(otherProject, { recursive: true });
   const secondWorkspace = await context.client.callTool({
     name: "open_workspace",
-    arguments: { path: context.project, newWorkspace: true },
+    arguments: { path: otherProject },
   });
   const secondWorkspaceId = String(structuredContent(secondWorkspace).workspaceId);
   assert.notEqual(secondWorkspaceId, workspaceId);

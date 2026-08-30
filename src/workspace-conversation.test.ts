@@ -26,7 +26,7 @@ test("a conversation reuses its checkout context", async (t) => {
   assert.deepEqual(second.workspace.agentProfiles, first.workspace.agentProfiles);
 });
 
-test("different conversations get stable workspace ids for the same checkout", async (t) => {
+test("different conversations share one canonical workspace id for the same checkout", async (t) => {
   const { project, registry } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
@@ -34,10 +34,10 @@ test("different conversations get stable workspace ids for the same checkout", a
   const firstAgain = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const secondAgain = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
 
-  assert.notEqual(second.workspace.id, first.workspace.id);
+  assert.equal(second.workspace.id, first.workspace.id);
   assert.equal(second.workspace.root, first.workspace.root);
   assert.equal(firstAgain.workspace.id, first.workspace.id);
-  assert.equal(secondAgain.workspace.id, second.workspace.id);
+  assert.equal(secondAgain.workspace.id, first.workspace.id);
   assert.equal(first.includeBootstrapContext, true);
   assert.equal(second.includeBootstrapContext, true);
   assert.equal(firstAgain.includeBootstrapContext, false);
@@ -49,7 +49,7 @@ test("an explicit workspace id can be resumed by another conversation", async (t
 
   const original = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const automatic = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
-  assert.notEqual(automatic.workspace.id, original.workspace.id);
+  assert.equal(automatic.workspace.id, original.workspace.id);
 
   const resumed = await registry.openWorkspace(
     { workspaceId: original.workspace.id },
@@ -62,22 +62,22 @@ test("an explicit workspace id can be resumed by another conversation", async (t
   assert.equal(resumed.includeBootstrapContext, false);
 });
 
-test("newWorkspace explicitly replaces the current conversation handle", async (t) => {
+test("newWorkspace compatibility no longer creates a duplicate checkout identity", async (t) => {
   const { project, registry } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const fresh = await registry.openWorkspace(
+  const compatible = await registry.openWorkspace(
     { path: project, newWorkspace: true },
     { conversationScopeId: "chat-1" },
   );
   const repeated = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
-  assert.notEqual(fresh.workspace.id, first.workspace.id);
-  assert.equal(fresh.workspace.root, first.workspace.root);
-  assert.equal(repeated.workspace.id, fresh.workspace.id);
+  assert.equal(compatible.workspace.id, first.workspace.id);
+  assert.equal(compatible.workspace.root, first.workspace.root);
+  assert.equal(repeated.workspace.id, first.workspace.id);
 });
 
-test("a new logical workspace suppresses unchanged bootstrap already delivered to the conversation", async (t) => {
+test("newWorkspace compatibility suppresses unchanged bootstrap already delivered to the conversation", async (t) => {
   const { project, registry } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
@@ -86,28 +86,27 @@ test("a new logical workspace suppresses unchanged bootstrap already delivered t
     { conversationScopeId: "chat-1" },
   );
 
-  assert.notEqual(fresh.workspace.id, first.workspace.id);
+  assert.equal(fresh.workspace.id, first.workspace.id);
   assert.equal(first.includeBootstrapContext, true);
   assert.equal(fresh.includeBootstrapContext, false);
 });
 
-test("closing one logical workspace does not forget delivered project context", async (t) => {
+test("closing the current checkout does not forget delivered project context", async (t) => {
   const { project, registry } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const fresh = await registry.openWorkspace(
+  const compatible = await registry.openWorkspace(
     { path: project, newWorkspace: true },
     { conversationScopeId: "chat-1" },
   );
-  assert.equal(fresh.includeBootstrapContext, false);
+  assert.equal(compatible.workspace.id, first.workspace.id);
+  assert.equal(compatible.includeBootstrapContext, false);
 
-  registry.closeWorkspace(fresh.workspace.id);
-  const resumed = await registry.openWorkspace(
-    { workspaceId: first.workspace.id },
-    { conversationScopeId: "chat-1" },
-  );
+  registry.closeWorkspace(compatible.workspace.id);
+  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
 
-  assert.equal(resumed.includeBootstrapContext, false);
+  assert.notEqual(reopened.workspace.id, first.workspace.id);
+  assert.equal(reopened.includeBootstrapContext, false);
 });
 
 test("changed project instructions invalidate the delivered bootstrap fingerprint", async (t) => {
@@ -118,6 +117,7 @@ test("changed project instructions invalidate the delivered bootstrap fingerprin
     { path: project, newWorkspace: true },
     { conversationScopeId: "chat-1" },
   );
+  assert.equal(fresh.workspace.id, first.workspace.id);
   assert.equal(fresh.includeBootstrapContext, false);
 
   await writeFile(join(project, "AGENTS.md"), "updated project instructions\n");
@@ -154,7 +154,7 @@ test("bootstrap context policy can skip automatic delivery and force a refresh",
   assert.equal(forced.includeBootstrapContext, true);
 });
 
-test("opening a project exposes every session idle for more than two days", async (t) => {
+test("reopening a stale checkout reuses its canonical Workspace instead of exposing a duplicate handle", async (t) => {
   const context = await fixture(t);
   const old = await context.registry.openWorkspace(context.project, { conversationScopeId: "chat-old" });
   const database = openDatabase(context.stateDir);
@@ -171,9 +171,8 @@ test("opening a project exposes every session idle for more than two days", asyn
   });
   const stale = await context.registry.listStaleWorkspaces(current.workspace);
 
-  assert.equal(stale.length, 1);
-  assert.equal(stale[0]?.workspaceId, old.workspace.id);
-  assert.ok((stale[0]?.idleMs ?? 0) >= 2 * 24 * 60 * 60 * 1_000);
+  assert.equal(current.workspace.id, old.workspace.id);
+  assert.deepEqual(stale, []);
 });
 
 test("a bound workspace stays recoverable after thirty idle days", async (t) => {
@@ -197,11 +196,12 @@ test("a bound workspace stays recoverable after thirty idle days", async (t) => 
   });
   const stale = await restoredRegistry.listStaleWorkspaces(current.workspace);
 
+  assert.equal(current.workspace.id, old.workspace.id);
   assert.ok(restoredStore.getSession(old.workspace.id));
-  assert.ok(stale.some((entry) => entry.workspaceId === old.workspace.id));
+  assert.deepEqual(stale, []);
 });
 
-test("an unbound checkout handle is garbage-collected after thirty idle days", async (t) => {
+test("an unbound checkout Workspace identity survives thirty idle days", async (t) => {
   const context = await fixture(t);
   const orphan = await context.registry.openWorkspace(context.project);
   context.closeStore(context.store);
@@ -216,19 +216,23 @@ test("an unbound checkout handle is garbage-collected after thirty idle days", a
   }
 
   const restoredStore = context.openStore();
-  new WorkspaceRegistry(context.config, restoredStore);
-  assert.equal(restoredStore.getSession(orphan.workspace.id), undefined);
+  const restoredRegistry = new WorkspaceRegistry(context.config, restoredStore);
+  const reopened = await restoredRegistry.openWorkspace(context.project);
+  assert.equal(reopened.workspace.id, orphan.workspace.id);
+  assert.ok(restoredStore.getSession(orphan.workspace.id));
 });
 
-test("closing a checkout workspace removes only that logical handle", async (t) => {
+test("closing the canonical checkout removes that identity until the project is opened again", async (t) => {
   const { project, registry } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const second = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
+  assert.equal(second.workspace.id, first.workspace.id);
 
   registry.closeWorkspace(first.workspace.id);
 
   assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
-  assert.equal(registry.getWorkspace(second.workspace.id).root, second.workspace.root);
+  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
+  assert.notEqual(reopened.workspace.id, first.workspace.id);
 });
 
 test("conversation bindings distinguish canonical projects", async (t) => {
@@ -255,17 +259,18 @@ test("conversation bindings distinguish canonical projects", async (t) => {
   assert.notEqual(otherProjectOpen.workspace.id, firstProjectOpen.workspace.id);
 });
 
-test("concurrent checkout opens reuse one workspace and return matching context", async (t) => {
+test("concurrent checkout opens across conversations coalesce to one Workspace identity", async (t) => {
   const { project, registry } = await fixture(t);
 
   const opens = await Promise.all([
     registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
-    registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
+    registry.openWorkspace(project, { conversationScopeId: "chat-2" }),
   ]);
 
   assert.equal(new Set(opens.map((open) => open.workspace.id)).size, 1);
   assert.deepEqual(opens[0].agentsFiles, opens[1].agentsFiles);
   assert.deepEqual(opens[0].availableAgentsFiles, opens[1].availableAgentsFiles);
+  assert.deepEqual(opens.map((open) => open.includeBootstrapContext), [true, true]);
 });
 
 test("a checkout without a conversation scope still reuses the directory workspace", async (t) => {
@@ -279,7 +284,7 @@ test("a checkout without a conversation scope still reuses the directory workspa
   assert.equal(second.includeBootstrapContext, true);
 });
 
-test("the last logical handle for a worktree cannot be released without close_worktree", async (t) => {
+test("a physical worktree has one canonical Workspace identity and cannot be released without close_worktree", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const first = await registry.openWorkspace(
     { path: project, mode: "worktree" },
@@ -288,22 +293,23 @@ test("the last logical handle for a worktree cannot be released without close_wo
 
   assert.throws(
     () => registry.closeWorkspace(first.workspace.id),
-    /last active handle for a worktree/,
+    /backed by a managed worktree/,
   );
 
   const alias = await registry.openWorkspace(
     { path: first.workspace.root, mode: "worktree" },
     { conversationScopeId: "chat-2" },
   );
-  assert.notEqual(alias.workspace.id, first.workspace.id);
+  assert.equal(alias.workspace.id, first.workspace.id);
   assert.equal(alias.workspace.root, first.workspace.root);
 
-  registry.closeWorkspace(first.workspace.id);
-  assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
-  assert.equal(registry.getWorkspace(alias.workspace.id).root, first.workspace.root);
+  assert.throws(
+    () => registry.closeWorkspace(alias.workspace.id),
+    /backed by a managed worktree/,
+  );
 });
 
-test("closing a physical worktree invalidates every logical handle for it", async (t) => {
+test("closing a physical worktree invalidates its canonical Workspace identity", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const first = await registry.openWorkspace(
     { path: project, mode: "worktree" },
@@ -313,12 +319,11 @@ test("closing a physical worktree invalidates every logical handle for it", asyn
     { path: first.workspace.root, mode: "worktree" },
     { conversationScopeId: "chat-2" },
   );
-  assert.notEqual(alias.workspace.id, first.workspace.id);
+  assert.equal(alias.workspace.id, first.workspace.id);
 
-  await registry.closeWorktree(first.workspace.id, "test: close aliased worktree");
+  await registry.closeWorktree(first.workspace.id, "test: close canonical worktree");
 
   assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
-  assert.throws(() => registry.getWorkspace(alias.workspace.id), /Unknown workspaceId/);
   await assert.rejects(stat(first.workspace.root), /ENOENT/);
 });
 
@@ -381,7 +386,7 @@ test("newWorktree explicitly creates another isolated worktree", async (t) => {
   assert.notEqual(second.workspace.id, first.workspace.id);
   assert.notEqual(second.workspace.root, first.workspace.root);
   assert.equal(repeated.workspace.id, second.workspace.id);
-  assert.notEqual(reopenedFirst.workspace.id, first.workspace.id);
+  assert.equal(reopenedFirst.workspace.id, first.workspace.id);
   assert.equal(reopenedFirst.workspace.root, first.workspace.root);
   assert.equal(knownWorktrees.length, 2);
   assert.deepEqual(
@@ -405,20 +410,20 @@ test("a worktree-first conversation creates and then reuses its checkout", async
   assert.equal(checkoutAgain.workspace.id, checkout.workspace.id);
 });
 
-test("concurrent worktree opens coalesce to one worktree and one workspace", async (t) => {
+test("concurrent worktree opens across conversations coalesce to one worktree and one Workspace", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const worktreeInput = { path: project, mode: "worktree" as const };
 
   const [first, second] = await Promise.all([
     registry.openWorkspace(worktreeInput, { conversationScopeId: "chat-1" }),
-    registry.openWorkspace(worktreeInput, { conversationScopeId: "chat-1" }),
+    registry.openWorkspace(worktreeInput, { conversationScopeId: "chat-2" }),
   ]);
 
   assert.equal(first.workspace.id, second.workspace.id);
   assert.equal(first.workspace.root, second.workspace.root);
   assert.deepEqual(
-    [first.includeBootstrapContext, second.includeBootstrapContext].sort(),
-    [false, true],
+    [first.includeBootstrapContext, second.includeBootstrapContext],
+    [true, true],
   );
   assert.deepEqual(
     first.agentsFiles.map((file) => file.content),
@@ -440,6 +445,72 @@ test("checkout reuse survives a registry restart", async (t) => {
   });
 
   assert.equal(restored.workspace.id, first.workspace.id);
+});
+
+test("legacy duplicate checkout records fold to one canonical Workspace with alias compatibility", async (t) => {
+  const context = await fixture(t);
+  const original = await context.registry.openWorkspace(context.project);
+  const canonicalId = original.workspace.id;
+  const legacyAliasId = "ws_aaaaaaaaaa";
+  const targetKey = checkoutTargetKey(await realpath(context.project));
+  context.closeStore(context.store);
+
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite.prepare(`
+      update workspace_sessions
+         set status = 'inactive', created_at = ?, last_used_at = ?
+       where id = ?
+    `).run("2026-08-20T00:00:00.000Z", "2026-08-21T00:00:00.000Z", canonicalId);
+    database.sqlite.prepare(`
+      insert into workspace_sessions (
+        id, root, status, mode, managed, created_at, last_used_at
+      ) values (?, ?, 'active', 'checkout', 'false', ?, ?)
+    `).run(
+      legacyAliasId,
+      context.project,
+      "2026-08-22T00:00:00.000Z",
+      "2026-08-25T00:00:00.000Z",
+    );
+    database.sqlite.prepare(`
+      insert into workspace_conversation_bindings (
+        conversation_scope_id, target_key, workspace_session_id, created_at, last_used_at
+      ) values (?, ?, ?, ?, ?)
+    `).run(
+      "chat-legacy-alias",
+      targetKey,
+      legacyAliasId,
+      "2026-08-22T00:00:00.000Z",
+      "2026-08-25T00:00:00.000Z",
+    );
+  } finally {
+    database.close();
+  }
+
+  const restoredStore = context.openStore();
+  const restoredRegistry = new WorkspaceRegistry(context.config, restoredStore);
+  const sessions = restoredStore.listSessions({ mode: "checkout" })
+    .filter((session) => session.root === context.project);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.id, canonicalId);
+  assert.equal(sessions[0]?.createdAt, "2026-08-20T00:00:00.000Z");
+  assert.equal(sessions[0]?.lastUsedAt, "2026-08-25T00:00:00.000Z");
+  assert.equal(sessions[0]?.status, "active");
+  assert.equal(restoredStore.getSession(legacyAliasId)?.id, canonicalId);
+  assert.equal(
+    restoredStore.getConversationBinding("chat-legacy-alias", targetKey)?.workspaceSessionId,
+    canonicalId,
+  );
+
+  const reopenedAlias = await restoredRegistry.openWorkspace(
+    { workspaceId: legacyAliasId },
+    { conversationScopeId: "chat-reopen-legacy-alias" },
+  );
+  assert.equal(reopenedAlias.workspace.id, canonicalId);
+
+  restoredRegistry.closeWorkspace(legacyAliasId);
+  assert.throws(() => restoredRegistry.getWorkspace(canonicalId), /Unknown workspaceId/);
+  assert.throws(() => restoredRegistry.getWorkspace(legacyAliasId), /Unknown workspaceId/);
 });
 
 test("a failed first context load does not consume bootstrap", async (t) => {

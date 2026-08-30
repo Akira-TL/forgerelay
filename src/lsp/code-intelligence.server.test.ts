@@ -204,7 +204,7 @@ test("code.intelligence reports unsupported hover without destabilizing the shar
   assert.ok(fakeLog.includes('\"method\":\"textDocument/definition\"'));
 });
 
-test("code.intelligence shares one Language service across logical workspaces for the same project", async (t) => {
+test("code.intelligence reuses one Language service when the same persistent Workspace is opened across conversations", async (t) => {
   const context = await fixture(t);
   const sourceDir = join(context.project, "src");
   const fakeServerPath = fileURLToPath(new URL("./test-fixtures/fake-lsp-server.mjs", import.meta.url));
@@ -231,7 +231,7 @@ test("code.intelligence shares one Language service across logical workspaces fo
   const first = await callOpen(context.client, context.project, "code-intelligence-shared-a");
   const second = await callOpen(context.client, context.project, "code-intelligence-shared-b");
   const workspaceIds = [structuredContent(first).workspaceId, structuredContent(second).workspaceId] as string[];
-  assert.notEqual(workspaceIds[0], workspaceIds[1]);
+  assert.equal(workspaceIds[0], workspaceIds[1]);
 
   const results = await Promise.all(workspaceIds.map((workspaceId) => context.client.callTool({
     name: "capability",

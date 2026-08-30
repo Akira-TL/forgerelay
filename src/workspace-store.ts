@@ -3,6 +3,7 @@ import { openDatabase, type DatabaseHandle } from "./db/client.js";
 import {
   workspaceContextDeliveries,
   workspaceConversationBindings,
+  workspaceSessionAliases,
   workspaceSessions,
   type WorkspaceContextDeliveryRow,
   type WorkspaceConversationBindingRow,
@@ -64,6 +65,13 @@ export interface WorkspaceStore {
   touchSession(id: string): void;
   setSessionStatus(id: string, status: string): void;
   listSessions(input?: { status?: string; mode?: WorkspaceMode }): WorkspaceSession[];
+  foldSessions(input: {
+    canonicalId: string;
+    aliasIds: string[];
+    createdAt: string;
+    lastUsedAt: string;
+    status: string;
+  }): void;
   deleteSession(id: string): void;
   listConversationBindings(): WorkspaceConversationBinding[];
   getConversationBinding(
@@ -168,26 +176,32 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   }
 
   getSession(id: string): WorkspaceSession | undefined {
+    const sessionId = this.resolveSessionId(id);
+    if (!sessionId) return undefined;
     const row = this.database.db
       .select()
       .from(workspaceSessions)
-      .where(eq(workspaceSessions.id, id))
+      .where(eq(workspaceSessions.id, sessionId))
       .get();
 
     if (!row) return undefined;
-    return applySessionTouch(rowToWorkspaceSession(row), this.pendingSessionTouches.get(id));
+    return applySessionTouch(rowToWorkspaceSession(row), this.pendingSessionTouches.get(sessionId));
   }
 
   touchSession(id: string): void {
-    this.pendingSessionTouches.set(id, this.now().toISOString());
+    const sessionId = this.resolveSessionId(id);
+    if (!sessionId) return;
+    this.pendingSessionTouches.set(sessionId, this.now().toISOString());
   }
 
   setSessionStatus(id: string, status: string): void {
-    this.pendingSessionTouches.delete(id);
+    const sessionId = this.resolveSessionId(id);
+    if (!sessionId) return;
+    this.pendingSessionTouches.delete(sessionId);
     this.database.db
       .update(workspaceSessions)
       .set({ status, lastUsedAt: this.now().toISOString() })
-      .where(eq(workspaceSessions.id, id))
+      .where(eq(workspaceSessions.id, sessionId))
       .run();
   }
 
@@ -213,11 +227,64 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .sort((left, right) => right.lastUsedAt.localeCompare(left.lastUsedAt));
   }
 
+  foldSessions(input: {
+    canonicalId: string;
+    aliasIds: string[];
+    createdAt: string;
+    lastUsedAt: string;
+    status: string;
+  }): void {
+    const aliases = input.aliasIds.filter((id) => id !== input.canonicalId);
+    if (aliases.length === 0) return;
+    const fold = this.database.sqlite.transaction(() => {
+      this.database.sqlite.prepare(`
+        update workspace_sessions
+           set created_at = ?, last_used_at = ?, status = ?
+         where id = ?
+      `).run(input.createdAt, input.lastUsedAt, input.status, input.canonicalId);
+      const rebindConversation = this.database.sqlite.prepare(`
+        update workspace_conversation_bindings
+           set workspace_session_id = ?
+         where workspace_session_id = ?
+      `);
+      const rebindSubagents = this.database.sqlite.prepare(`
+        update local_agent_sessions
+           set workspace_id = ?
+         where workspace_id = ?
+      `);
+      const rebindAliases = this.database.sqlite.prepare(`
+        update workspace_session_aliases
+           set workspace_session_id = ?
+         where workspace_session_id = ?
+      `);
+      const deleteSession = this.database.sqlite.prepare(
+        "delete from workspace_sessions where id = ?",
+      );
+      const rememberAlias = this.database.sqlite.prepare(`
+        insert into workspace_session_aliases (alias_id, workspace_session_id)
+        values (?, ?)
+        on conflict(alias_id) do update set workspace_session_id = excluded.workspace_session_id
+      `);
+
+      for (const aliasId of aliases) {
+        rebindConversation.run(input.canonicalId, aliasId);
+        rebindSubagents.run(input.canonicalId, aliasId);
+        rebindAliases.run(input.canonicalId, aliasId);
+        deleteSession.run(aliasId);
+        rememberAlias.run(aliasId, input.canonicalId);
+        this.pendingSessionTouches.delete(aliasId);
+      }
+    });
+    fold.immediate();
+  }
+
   deleteSession(id: string): void {
-    this.pendingSessionTouches.delete(id);
+    const sessionId = this.resolveSessionId(id);
+    if (!sessionId) return;
+    this.pendingSessionTouches.delete(sessionId);
     this.database.db
       .delete(workspaceSessions)
-      .where(eq(workspaceSessions.id, id))
+      .where(eq(workspaceSessions.id, sessionId))
       .run();
   }
 
@@ -383,6 +450,22 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         ),
       )
       .run();
+  }
+
+  private resolveSessionId(id: string): string | undefined {
+    const direct = this.database.db
+      .select({ id: workspaceSessions.id })
+      .from(workspaceSessions)
+      .where(eq(workspaceSessions.id, id))
+      .get();
+    if (direct) return direct.id;
+
+    return this.database.db
+      .select({ workspaceSessionId: workspaceSessionAliases.workspaceSessionId })
+      .from(workspaceSessionAliases)
+      .where(eq(workspaceSessionAliases.aliasId, id))
+      .get()
+      ?.workspaceSessionId;
   }
 
   get pendingTouchCount(): number {

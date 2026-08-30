@@ -58,6 +58,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 13, name: "activity-host-turn-workspace" },
       { version: 14, name: "subagent-session-coordination" },
       { version: 15, name: "subagent-run-ownership" },
+      { version: 16, name: "workspace-session-aliases" },
     ]);
   } finally {
     database.close();

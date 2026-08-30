@@ -124,7 +124,7 @@ function git(project: string, args: string[]): void {
   execFileSync("git", args, { cwd: project, stdio: "ignore" });
 }
 
-test("logical workspaces share one Language service and idle cleanup releases retained state", async (t) => {
+test("one persistent Workspace reused across conversations shares one Language service and idle cleanup releases retained state", async (t) => {
   const context = await createCodeIntelligenceServerFixture(t, {
     codeIntelligenceOptions: {
       idleMs: 1_000,
@@ -142,7 +142,7 @@ test("logical workspaces share one Language service and idle cleanup releases re
   const openedB = await callOpen(context.client, context.project, "lifecycle-logical-b");
   const workspaceA = structuredContent(openedA).workspaceId as string;
   const workspaceB = structuredContent(openedB).workspaceId as string;
-  assert.notEqual(workspaceA, workspaceB);
+  assert.equal(workspaceA, workspaceB);
 
   const diagnostics = await context.client.callTool(capabilityCall(workspaceA, {
     operation: "diagnostics",

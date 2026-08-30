@@ -6,6 +6,7 @@ import test from "node:test";
 import Database from "better-sqlite3";
 import { BashOutputStore } from "../activity/bash-output-store.js";
 import { HostTurnStore } from "../activity/host-turn-store.js";
+import { openDatabase } from "./client.js";
 
 test("database migration backfills Host Turn workspace identity when historical Activity data is available", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-host-turn-workspace-test-"));
@@ -57,6 +58,56 @@ test("database migration backfills Host Turn workspace identity when historical 
     "turn_backfilled",
   );
   assert.equal(turns.get("turn_unknown")?.workspaceId, undefined);
+});
+
+test("database migration adds persistent Workspace alias storage after the v0.7.4 schema", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-workspace-alias-test-"));
+  const databasePath = join(stateDir, "devspace.sqlite");
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    create table devspace_schema_migrations (
+      version integer primary key,
+      name text not null,
+      applied_at text not null
+    );
+
+    create table workspace_sessions (
+      id text primary key,
+      root text not null,
+      status text not null default 'active',
+      mode text not null default 'checkout',
+      source_root text,
+      base_ref text,
+      base_sha text,
+      branch text,
+      target_branch text,
+      managed text not null default 'false',
+      created_at text not null,
+      last_used_at text not null
+    );
+  `);
+  const recordMigration = legacy.prepare(
+    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+  );
+  for (let version = 1; version <= 15; version += 1) {
+    recordMigration.run(version, `legacy-${version}`, "2026-08-30T00:00:00.000Z");
+  }
+  legacy.close();
+
+  const migrated = openDatabase(stateDir);
+  t.after(async () => {
+    migrated.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const table = migrated.sqlite.prepare(
+    "select name from sqlite_master where type = 'table' and name = 'workspace_session_aliases'",
+  ).get() as { name?: string } | undefined;
+  assert.equal(table?.name, "workspace_session_aliases");
+  const migration = migrated.sqlite.prepare(
+    "select name from devspace_schema_migrations where version = 16",
+  ).get() as { name?: string } | undefined;
+  assert.equal(migration?.name, "workspace-session-aliases");
 });
 
 test("database migration repairs a partial historical Bash output schema before completion writes", async (t) => {
