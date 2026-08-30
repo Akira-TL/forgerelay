@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -340,8 +340,8 @@ test("a physical worktree has one canonical Workspace identity and cannot be rel
   );
 });
 
-test("closing a physical worktree invalidates its canonical Workspace identity", async (t) => {
-  const { project, registry } = await fixture(t, { git: true });
+test("closing a managed worktree preserves identity and reopen recreates physical backing", async (t) => {
+  const { project, registry, store } = await fixture(t, { git: true });
   const first = await registry.openWorkspace(
     { path: project, mode: "worktree" },
     { conversationScopeId: "chat-1" },
@@ -351,11 +351,98 @@ test("closing a physical worktree invalidates its canonical Workspace identity",
     { conversationScopeId: "chat-2" },
   );
   assert.equal(alias.workspace.id, first.workspace.id);
+  const originalRoot = first.workspace.root;
+  const originalBranch = first.workspace.worktree?.branch;
 
   await registry.closeWorktree(first.workspace.id, "test: close canonical worktree");
 
+  assert.equal(store.getSession(first.workspace.id)?.status, "closed");
   assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
-  await assert.rejects(stat(first.workspace.root), /ENOENT/);
+  await assert.rejects(stat(originalRoot), /ENOENT/);
+
+  const reopenedById = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-2" },
+  );
+  assert.equal(reopenedById.workspace.id, first.workspace.id);
+  assert.notEqual(reopenedById.workspace.root, originalRoot);
+  assert.notEqual(reopenedById.workspace.worktree?.branch, originalBranch);
+  assert.equal(reopenedById.workspace.worktree?.targetBranch, first.workspace.worktree?.targetBranch);
+  assert.equal((await stat(reopenedById.workspace.root)).isDirectory(), true);
+  assert.equal(store.getSession(first.workspace.id)?.status, "active");
+
+  await registry.closeWorktree(first.workspace.id, "test: close reopened worktree");
+  const reopenedBySource = await registry.openWorkspace(
+    { path: project, mode: "worktree" },
+    { conversationScopeId: "chat-1" },
+  );
+  assert.equal(reopenedBySource.workspace.id, first.workspace.id);
+  assert.notEqual(reopenedBySource.workspace.root, reopenedById.workspace.root);
+  await registry.closeWorktree(first.workspace.id, "test: final worktree cleanup");
+});
+
+test("concurrent managed-worktree reopen paths share one fresh backing", async (t) => {
+  const { project, registry } = await fixture(t, { git: true });
+  const opened = await registry.openWorkspace({ path: project, mode: "worktree" });
+  const workspaceId = opened.workspace.id;
+
+  await registry.closeWorktree(workspaceId, "test: close before concurrent reopen");
+  const [byId, bySource] = await Promise.all([
+    registry.openWorkspace(
+      { workspaceId },
+      { conversationScopeId: "chat-reopen-id" },
+    ),
+    registry.openWorkspace(
+      { path: project, mode: "worktree" },
+      { conversationScopeId: "chat-reopen-source" },
+    ),
+  ]);
+
+  assert.equal(byId.workspace.id, workspaceId);
+  assert.equal(bySource.workspace.id, workspaceId);
+  assert.equal(bySource.workspace.root, byId.workspace.root);
+  await registry.closeWorktree(workspaceId, "test: cleanup concurrent reopen");
+});
+
+test("failed managed-worktree reopen leaves the persistent Workspace closed", async (t) => {
+  const { project, registry, store } = await fixture(t, { git: true });
+  const opened = await registry.openWorkspace({ path: project, mode: "worktree" });
+  const workspaceId = opened.workspace.id;
+  const targetBranch = opened.workspace.worktree?.targetBranch;
+  assert.ok(targetBranch);
+
+  await registry.closeWorktree(workspaceId, "test: close before failed reopen");
+  await git(project, ["switch", "-c", "replacement-target"]);
+  await git(project, ["branch", "-D", targetBranch]);
+
+  await assert.rejects(
+    registry.openWorkspace({ workspaceId }),
+    /baseRef|local branch|managed worktree/i,
+  );
+  assert.equal(store.getSession(workspaceId)?.status, "closed");
+  assert.throws(() => registry.getWorkspace(workspaceId), /Unknown workspaceId/);
+});
+
+test("managed-worktree reopen stays closed when context bootstrap fails after backing creation", async (t) => {
+  const { project, config, registry, store } = await fixture(t, { git: true });
+  const opened = await registry.openWorkspace({ path: project, mode: "worktree" });
+  const workspaceId = opened.workspace.id;
+  const closedRoot = opened.workspace.root;
+
+  await registry.closeWorktree(workspaceId, "test: close before bootstrap failure");
+  await rm(join(project, ".devspace", "agents"), { recursive: true, force: true });
+  await writeFile(join(project, ".devspace", "agents"), "not a directory\n");
+  await git(project, ["add", ".devspace/agents"]);
+  await git(project, ["commit", "-m", "test: break agent profile directory"]);
+
+  await assert.rejects(
+    registry.openWorkspace({ workspaceId }),
+    /directory|ENOTDIR/i,
+  );
+  assert.equal(store.getSession(workspaceId)?.status, "closed");
+  assert.equal(store.getSession(workspaceId)?.root, closedRoot);
+  assert.throws(() => registry.getWorkspace(workspaceId), /Unknown workspaceId/);
+  assert.deepEqual(await readdir(config.worktreeRoot), []);
 });
 
 test("worktree requests reuse the same worktree without replacing the checkout", async (t) => {

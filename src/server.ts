@@ -3776,13 +3776,13 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout identity for later reopen. action=delete permanently removes ForgeRelay-owned checkout state but never project files. Managed-worktree-backed Workspaces still use the safe finalize lifecycle and require commitMessage; Composite and relayed delete semantics are not available in this stage.",
+        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout and managed-worktree identity for later reopen. action=delete permanently removes ForgeRelay-owned Workspace state. Managed-worktree-backed Workspaces must first complete the same safe finalize lifecycle when active and require commitMessage. Checkout project files are never deleted. Composite and relayed delete semantics are not available in this stage.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close or delete."),
         action: z
           .enum(["close", "delete"])
           .optional()
-          .describe("Defaults to close. close preserves checkout identity for later reopen; delete permanently removes ForgeRelay-owned checkout state without deleting project files."),
+          .describe("Defaults to close. close preserves checkout identity and managed-worktree identity for later reopen; delete permanently removes ForgeRelay-owned state. Active managed worktrees still require safe finalization and commitMessage; checkout project files are never deleted."),
         commitMessage: z
           .string()
           .min(1)
@@ -3867,13 +3867,10 @@ export function createMcpServer(
         workspacePanelStates.delete(workspaceId);
         return response;
       }
-      if (action === "delete") {
+      const session = workspaces.getWorkspaceSession(workspaceId);
+      if (action === "delete" && session.mode === "checkout") {
         if (commitMessage !== undefined) {
           throw new Error("close_workspace commitMessage is not valid with action=delete for a checkout Workspace.");
-        }
-        const session = workspaces.getWorkspaceSession(workspaceId);
-        if (session.mode !== "checkout") {
-          throw new Error("close_workspace action=delete is not available for managed-worktree-backed Workspaces until their persistent lifecycle stage.");
         }
         if (processSessions.activeWorkspaceIds().has(session.id)) {
           throw new Error(
@@ -3917,12 +3914,58 @@ export function createMcpServer(
         workspacePanelStates.delete(session.id);
         return response;
       }
-      const workspace = workspaces.getWorkspace(workspaceId);
+      if (action === "delete" && session.mode === "worktree" && session.status === "closed") {
+        if (commitMessage !== undefined) {
+          throw new Error("close_workspace commitMessage is not needed when deleting an already-closed managed-worktree Workspace.");
+        }
+        const hookRoot = session.sourceRoot ?? session.root;
+        const response = await runToolWithHooks(hooks, {
+          signal: extra.signal,
+          tool: toolNames.closeWorkspace,
+          invocation: {
+            workspaceId: session.id,
+            workspaceRoot: hookRoot,
+            workspaceMode: session.mode,
+            sourceRoot: session.sourceRoot,
+          },
+          payload: { workspaceId: session.id, action: "delete", mode: session.mode },
+          operation: async () => {
+            workspaces.deleteWorkspace(session.id);
+            await reviewCheckpoints.releaseWorkspace(session.id);
+            const result = `Deleted closed managed-worktree Workspace ${session.id}. Its already-removed worktree backing was not recreated.`;
+            return {
+              content: [textBlock(result)],
+              _meta: {
+                tool: toolNames.closeWorkspace,
+                card: {
+                  workspaceId: session.id,
+                  action: "delete" as const,
+                  mode: "worktree",
+                  sourceRoot: session.sourceRoot,
+                  targetBranch: session.targetBranch,
+                  payload: { content: [textBlock(result)] },
+                },
+              },
+              structuredContent: {
+                result,
+                workspaceId: session.id,
+                action: "delete" as const,
+                mode: "worktree" as const,
+                sourceRoot: session.sourceRoot,
+                targetBranch: session.targetBranch,
+              },
+            };
+          },
+        });
+        workspacePanelStates.delete(session.id);
+        return response;
+      }
+      const workspace = workspaces.getWorkspace(session.id);
       const response = await runToolWithHooks(hooks, {
         signal: extra.signal,
         tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
-        payload: { workspaceId, action: "close", commitMessage, mode: workspace.mode },
+        payload: { workspaceId: workspace.id, action, commitMessage, mode: workspace.mode },
         afterCwd: (response) =>
           "sourceRoot" in response.structuredContent &&
           typeof response.structuredContent.sourceRoot === "string"
@@ -3932,7 +3975,7 @@ export function createMcpServer(
           if (workspace.mode === "worktree") {
             if (!commitMessage) {
               throw new Error(
-                `Managed-worktree-backed workspace ${workspaceId} requires commitMessage when closing.`,
+                `Managed-worktree-backed Workspace ${workspace.id} requires commitMessage when ${action === "delete" ? "deleting active work" : "closing"}.`,
               );
             }
             const physicalWorkspaceIds = workspaces.workspaceIdsForPhysicalWorkspace(workspace);
@@ -3947,15 +3990,20 @@ export function createMcpServer(
             const retirement = await codeIntelligence.retireWorkspaceRoot(workspace.root);
             let closed: Awaited<ReturnType<WorkspaceRegistry["closeWorktree"]>>;
             try {
-              closed = await workspaces.closeWorktree(workspaceId, commitMessage);
+              closed = await workspaces.closeWorktree(workspace.id, commitMessage);
             } finally {
               codeIntelligence.restoreWorkspaceRoot(retirement.root);
             }
             await Promise.all(
               physicalWorkspaceIds.map((id) => reviewCheckpoints.releaseWorkspace(id)),
             );
+            if (action === "delete") {
+              workspaces.deleteWorkspace(workspace.id);
+            }
             const result = [
-              `Closed managed-worktree-backed workspace ${workspaceId}.`,
+              action === "delete"
+                ? `Safely finalized and deleted managed-worktree Workspace ${workspace.id}.`
+                : `Closed managed-worktree-backed Workspace ${workspace.id}; its identity was preserved for later reopen.`,
               `Merged ${closed.branch} into ${closed.targetBranch} by fast-forward.`,
               `Source checkout: ${closed.sourceRoot}`,
               `Commit: ${closed.commitSha}`,
@@ -3975,8 +4023,8 @@ export function createMcpServer(
               _meta: {
                 tool: toolNames.closeWorkspace,
                 card: {
-                  workspaceId,
-                  action: "close" as const,
+                  workspaceId: workspace.id,
+                  action,
                   mode: "worktree",
                   sourceRoot: closed.sourceRoot,
                   branch: closed.branch,
@@ -3990,8 +4038,8 @@ export function createMcpServer(
               },
               structuredContent: {
                 result,
-                workspaceId,
-                action: "close" as const,
+                workspaceId: workspace.id,
+                action,
                 mode: "worktree" as const,
                 sourceRoot: closed.sourceRoot,
                 branch: closed.branch,

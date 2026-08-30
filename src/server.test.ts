@@ -3918,9 +3918,144 @@ test("close_workspace finalizes a managed-worktree-backed workspace and supports
     (await readFile(join(context.project, "feature.txt"), "utf8")).replace(/\r\n/g, "\n"),
     "finished\n",
   );
+  assert.equal(structured.action, "close");
   assert.match(responseText(closed), /fast-forward/);
+  const originalWorktreePath = String(worktree.path);
+  await assert.rejects(stat(originalWorktreePath), /ENOENT/);
+
+  const closedInventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  const closedEntry = (structuredContent(closedInventory).workspaces as Array<Record<string, unknown>>)[0];
+  assert.equal(closedEntry?.workspaceId, workspaceId);
+  assert.equal(closedEntry?.state, "closed");
+
+  const closedRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "feature.txt" },
+  });
+  assert.equal(closedRead.isError, true);
+  assert.match(allResponseText(closedRead), /Unknown workspaceId/);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-1" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, workspaceId);
+  const reopenedWorktree = structuredContent(reopened).worktree as Record<string, unknown>;
+  assert.notEqual(reopenedWorktree.path, originalWorktreePath);
+  assert.notEqual(reopenedWorktree.branch, worktree.branch);
+  assert.equal(reopenedWorktree.targetBranch, worktree.targetBranch);
+  assert.equal((await stat(String(reopenedWorktree.path))).isDirectory(), true);
+
+  const reclosed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: close reopened managed worktree" },
+  });
+  assert.equal(reclosed.isError, undefined, allResponseText(reclosed));
+
+  const deletedClosed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, action: "delete" },
+  });
+  assert.equal(deletedClosed.isError, undefined, allResponseText(deletedClosed));
+  assert.equal(structuredContent(deletedClosed).workspaceId, workspaceId);
+  assert.equal(structuredContent(deletedClosed).action, "delete");
+  assert.match(allResponseText(deletedClosed), /already-removed worktree backing was not recreated/);
+
+  const deletedInventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  assert.equal(
+    (structuredContent(deletedInventory).workspaces as Array<Record<string, unknown>>).length,
+    0,
+  );
+
   const tools = await context.client.listTools();
   assert.equal(tools.tools.some((tool) => tool.name === "close_worktree"), false);
+});
+
+test("close_workspace delete safely finalizes an active managed-worktree Workspace before deleting identity", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-delete-worktree", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  await context.client.callTool({
+    name: "write",
+    arguments: { workspaceId, path: "delete-feature.txt", content: "preserve through finalize\n" },
+  });
+
+  const unsafeDelete = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, action: "delete" },
+  });
+  assert.equal(unsafeDelete.isError, true);
+  assert.match(allResponseText(unsafeDelete), /requires commitMessage/);
+  assert.equal(
+    await readFile(join(String(worktree.path), "delete-feature.txt"), "utf8"),
+    "preserve through finalize\n",
+  );
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: {
+      workspaceId,
+      action: "delete",
+      commitMessage: "test: safely finalize deleted worktree",
+    },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  assert.equal(structuredContent(deleted).workspaceId, workspaceId);
+  assert.equal(structuredContent(deleted).action, "delete");
+  assert.equal(structuredContent(deleted).mode, "worktree");
+  assert.match(allResponseText(deleted), /Safely finalized and deleted/);
+  assert.equal(
+    (await readFile(join(context.project, "delete-feature.txt"), "utf8")).replace(/\r\n/g, "\n"),
+    "preserve through finalize\n",
+  );
+  await assert.rejects(stat(String(worktree.path)), /ENOENT/);
+
+  const inventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  assert.equal((structuredContent(inventory).workspaces as Array<Record<string, unknown>>).length, 0);
+});
+
+test("failed managed-worktree reopen leaves the Workspace closed through MCP", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-failed-reopen", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const targetBranch = String(worktree.targetBranch);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: close before failed reopen" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  await git(context.project, ["switch", "-c", "replacement-target"]);
+  await git(context.project, ["branch", "-D", targetBranch]);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-failed-reopen" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(reopened.isError, true);
+  assert.match(allResponseText(reopened), /baseRef|local branch|managed worktree/i);
+
+  const inventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  const entry = (structuredContent(inventory).workspaces as Array<Record<string, unknown>>)[0];
+  assert.equal(entry?.workspaceId, workspaceId);
+  assert.equal(entry?.state, "closed");
 });
 
 test("worktree lifecycle hook reports are visible on close_workspace", async (t) => {

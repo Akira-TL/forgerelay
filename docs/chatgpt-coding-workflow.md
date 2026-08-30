@@ -139,6 +139,19 @@ If histories diverge, close is refused and the worktree is preserved. Rebase and
 verify inside the worktree, then retry. The source checkout is not intentionally
 placed into a merge-conflict state.
 
+A successful managed close now preserves the Workspace identity as `closed` even
+though the physical worktree and managed branch are removed. Reopen that Workspace
+with `open_workspace(workspaceId="ws_...")`; ForgeRelay creates fresh worktree
+backing from the recorded source/target relationship and returns the same Workspace
+ID. If the source checkout or target branch can no longer provide valid backing, the
+open fails and the durable Workspace record remains closed.
+
+`close_workspace(action="delete")` is never an implicit discard for active isolated
+work. An active managed worktree still requires `commitMessage` and completes the
+same safe finalize/integrate/cleanup lifecycle before ForgeRelay deletes its identity.
+For an already-closed managed-worktree Workspace, delete removes only ForgeRelay-owned
+state and does not recreate the physical backing.
+
 Legacy `devspace/*` managed branches remain closable when they are already stored
 in workspace metadata; only new managed branches use `forgerelay/*`.
 

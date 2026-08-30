@@ -339,17 +339,29 @@ or externally removed managed-worktree root can therefore remain diagnostically
 ordinary same-target opens no longer accumulate duplicate inventory rows;
 `action="list"` remains the formal on-demand inventory path.
 
-For checkout-backed Workspaces, `close_workspace` now defaults to `action="close"`:
+For checkout-backed Workspaces, `close_workspace` defaults to `action="close"`:
 it marks the persistent Workspace closed, removes current conversation bindings, and
 keeps the same Workspace identity available for later `open_workspace` by path or ID.
 Closed Workspaces remain visible in inventory but ordinary execution tools reject them
 until reopened. `action="delete"` permanently removes ForgeRelay-owned checkout
 identity/state while never deleting or mutating the user's checkout directory.
-Managed-worktree close still requires `commitMessage` and runs the existing safe
-finalize lifecycle; managed-worktree delete semantics land in the next lifecycle
-stage. Composite close still dissolves in this stage, and Composite delete remains
-unavailable until its persistent lifecycle stage. Relayed delete is likewise deferred
-to Workspace Relay lifecycle parity.
+
+Managed-worktree close also preserves the Workspace identity. It still requires
+`commitMessage` and runs the existing BeforeWorktreeClose / commit / fast-forward-only
+integration / physical cleanup / AfterWorktreeClose lifecycle, then leaves the
+Workspace closed after its old worktree path and managed branch are removed. Reopening
+the closed Workspace by ID recreates fresh managed-worktree backing from its recorded
+source/target branch relationship while keeping the same `workspaceId`; an
+unambiguous repeated source/target open can reuse the same closed identity as well.
+If backing recreation fails, the record remains closed and unchanged.
+
+`action="delete"` on an active managed-worktree Workspace is not a discard operation:
+it requires `commitMessage`, completes the same safe finalize lifecycle, and only then
+removes the persistent ForgeRelay identity. Deleting an already-closed worktree
+Workspace removes only ForgeRelay-owned state and does not recreate backing.
+Composite close still dissolves in this stage, and Composite delete remains unavailable
+until its persistent lifecycle stage. Relayed delete is likewise deferred to Workspace
+Relay lifecycle parity.
 
 Hot workspace/session activity timestamps are coalesced in memory and flushed to the
 SQLite state database in a transaction at most every five minutes; normal shutdown

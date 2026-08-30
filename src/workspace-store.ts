@@ -64,6 +64,15 @@ export interface WorkspaceStore {
   getSession(id: string): WorkspaceSession | undefined;
   touchSession(id: string): void;
   setSessionStatus(id: string, status: string): void;
+  replaceWorktreeBacking(input: {
+    id: string;
+    root: string;
+    sourceRoot: string;
+    baseRef: string;
+    baseSha: string;
+    branch: string;
+    targetBranch: string;
+  }): WorkspaceSession;
   listSessions(input?: { status?: string; mode?: WorkspaceMode }): WorkspaceSession[];
   foldSessions(input: {
     canonicalId: string;
@@ -203,6 +212,38 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
       .set({ status, lastUsedAt: this.now().toISOString() })
       .where(eq(workspaceSessions.id, sessionId))
       .run();
+  }
+
+  replaceWorktreeBacking(input: {
+    id: string;
+    root: string;
+    sourceRoot: string;
+    baseRef: string;
+    baseSha: string;
+    branch: string;
+    targetBranch: string;
+  }): WorkspaceSession {
+    const sessionId = this.resolveSessionId(input.id);
+    if (!sessionId) throw new Error(`Unknown workspace session: ${input.id}`);
+    this.pendingSessionTouches.delete(sessionId);
+    const row = this.database.db
+      .update(workspaceSessions)
+      .set({
+        root: input.root,
+        status: "active",
+        sourceRoot: input.sourceRoot,
+        baseRef: input.baseRef,
+        baseSha: input.baseSha,
+        branch: input.branch,
+        targetBranch: input.targetBranch,
+        managed: "true",
+        lastUsedAt: this.now().toISOString(),
+      })
+      .where(eq(workspaceSessions.id, sessionId))
+      .returning()
+      .get();
+    if (!row) throw new Error(`Unknown workspace session: ${input.id}`);
+    return rowToWorkspaceSession(row);
   }
 
   listSessions(input: { status?: string; mode?: WorkspaceMode } = {}): WorkspaceSession[] {

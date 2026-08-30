@@ -111,6 +111,44 @@ export async function createManagedWorktree(input: {
   };
 }
 
+export async function discardFreshManagedWorktree(input: {
+  worktree: ManagedWorktree;
+  config: ServerConfig;
+}): Promise<void> {
+  const sourceRoot = assertAllowedPath(input.worktree.sourceRoot, input.config.allowedRoots);
+  const worktreePath = assertAllowedPath(input.worktree.path, [input.config.worktreeRoot]);
+  const worktreeBranch = await currentBranch(worktreePath);
+  if (worktreeBranch !== input.worktree.branch) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      `Cannot roll back reopened worktree because it is on branch ${JSON.stringify(worktreeBranch)} instead of ${JSON.stringify(input.worktree.branch)}.`,
+    );
+  }
+  if ((await git(["status", "--porcelain=v1"], worktreePath)).trim().length > 0) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      "Cannot roll back reopened worktree because it acquired uncommitted changes during reopen.",
+    );
+  }
+  const worktreeHead = (await git(["rev-parse", "HEAD"], worktreePath)).trim();
+  if (worktreeHead !== input.worktree.baseSha) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      "Cannot roll back reopened worktree because its branch advanced during reopen.",
+    );
+  }
+
+  try {
+    await git(["worktree", "remove", worktreePath], sourceRoot);
+    await git(["branch", "-D", input.worktree.branch], sourceRoot);
+  } catch (error) {
+    throw new GitWorktreeError(
+      "GIT_WORKTREE_CLOSE_FAILED",
+      `Git failed to remove the temporary managed worktree created for a failed reopen. ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export async function closeManagedWorktree(input: {
   worktree: ManagedWorktree;
   commitMessage: string;

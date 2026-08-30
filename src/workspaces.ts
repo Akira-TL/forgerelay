@@ -20,6 +20,7 @@ import { HookRunner, type HookReportContainer } from "./hooks.js";
 import {
   closeManagedWorktree,
   createManagedWorktree,
+  discardFreshManagedWorktree,
   resolveManagedWorktreeBase,
   type ClosedManagedWorktree,
   type ManagedWorktree,
@@ -360,8 +361,11 @@ export class WorkspaceRegistry {
     conversationScopeId: string | undefined,
     bootstrapContext: WorkspaceBootstrapContextMode = "auto",
   ): Promise<WorkspaceContext> {
-    const workspace = this.workspaceForOpen(workspaceId);
-    const context = await this.reusedWorkspaceContext(workspace);
+    const session = this.store?.getSession(workspaceId);
+    const context = session?.status === "closed" && session.mode === "worktree"
+      ? await this.reopenClosedManagedWorktreeContext(session)
+      : await this.reusedWorkspaceContext(await this.workspaceForOpen(workspaceId));
+    const workspace = context.workspace;
     if (!conversationScopeId || !this.store) {
       return {
         ...context,
@@ -440,9 +444,9 @@ export class WorkspaceRegistry {
 
   deleteWorkspace(workspaceId: string): void {
     const session = this.getWorkspaceSession(workspaceId);
-    if (session.mode !== "checkout") {
+    if (session.mode === "worktree" && session.status === "active") {
       throw new Error(
-        `Workspace ${session.id} is not a checkout Workspace. Delete semantics for ${session.mode} Workspaces are handled by their own lifecycle.`,
+        `Workspace ${session.id} is an active managed-worktree Workspace. Finalize it safely before deleting its persistent identity.`,
       );
     }
 
@@ -559,6 +563,7 @@ export class WorkspaceRegistry {
     }));
 
     for (const aliasedWorkspaceId of aliasedWorkspaceIds) {
+      this.deleteConversationBindingsForWorkspace(aliasedWorkspaceId);
       this.store?.setSessionStatus(aliasedWorkspaceId, "closed");
       this.workspaces.delete(aliasedWorkspaceId);
     }
@@ -671,12 +676,11 @@ export class WorkspaceRegistry {
     if (boundContext) return boundContext;
 
     const context = await this.openOnce(targetKey, async () => {
-      const reusableWorkspace = await this.findReusableWorktreeBySource(
+      const reusableContext = await this.findReusableWorktreeContextBySource(
         sourceKey,
         resolvedBase.targetBranch,
       );
-      if (!reusableWorkspace) return this.openWorktreeWorkspace(path, input.baseRef);
-      return this.reusedWorkspaceContext(reusableWorkspace);
+      return reusableContext ?? this.openWorktreeWorkspace(path, input.baseRef);
     });
     return this.withConversationContext(
       context,
@@ -916,16 +920,28 @@ export class WorkspaceRegistry {
     return undefined;
   }
 
-  private async findReusableWorktreeBySource(
+  private async findReusableWorktreeContextBySource(
     sourceKey: string,
     targetBranch: string,
-  ): Promise<Workspace | undefined> {
-    for (const session of this.activeSessions("worktree")) {
+  ): Promise<WorkspaceContext | undefined> {
+    const sessions = this.store
+      ? this.store.listSessions({ mode: "worktree" })
+      : this.activeSessions("worktree");
+    const closedMatches: WorkspaceSession[] = [];
+    for (const session of sessions) {
       if (!session.sourceRoot || session.targetBranch !== targetBranch) continue;
       if (await canonicalPath(session.sourceRoot) !== sourceKey) continue;
+      if (session.status === "closed") {
+        if (session.managed) closedMatches.push(session);
+        continue;
+      }
+      if (session.status !== "active") continue;
       const root = await this.validSessionRoot(session);
       if (!root) continue;
-      return this.workspaceFromSession(session, false);
+      return this.reusedWorkspaceContext(this.workspaceFromSession(session, false));
+    }
+    if (closedMatches.length === 1) {
+      return this.reopenClosedManagedWorktreeContext(closedMatches[0]!);
     }
     return undefined;
   }
@@ -1004,7 +1020,7 @@ export class WorkspaceRegistry {
     };
   }
 
-  private workspaceForOpen(workspaceId: string): Workspace {
+  private async workspaceForOpen(workspaceId: string): Promise<Workspace> {
     const session = this.store?.getSession(workspaceId);
     if (session?.status === "closed" && session.mode === "checkout") {
       this.store?.setSessionStatus(session.id, "active");
@@ -1015,6 +1031,80 @@ export class WorkspaceRegistry {
       return this.workspaceFromSession(reopened, true);
     }
     return this.getWorkspace(workspaceId);
+  }
+
+  private async reopenClosedManagedWorktreeContext(
+    session: WorkspaceSession,
+  ): Promise<WorkspaceContext> {
+    const operationKey = JSON.stringify(["worktree-reopen", session.id]);
+    return this.openOnce(operationKey, async () => {
+      const current = this.store?.getSession(session.id);
+      if (!current) {
+        throw new Error(`Unknown workspaceId: ${session.id}. Call open_workspace first.`);
+      }
+      if (current.status === "active") {
+        return this.reusedWorkspaceContext(this.getWorkspace(current.id));
+      }
+      if (current.status !== "closed" || current.mode !== "worktree") {
+        throw new Error(`Workspace ${current.id} is not a closed managed-worktree Workspace.`);
+      }
+      return this.reopenClosedManagedWorktreeContextUnlocked(current);
+    });
+  }
+
+  private async reopenClosedManagedWorktreeContextUnlocked(
+    session: WorkspaceSession,
+  ): Promise<WorkspaceContext> {
+    if (!this.store) {
+      throw new Error(`Workspace ${session.id} cannot be reopened without persistent Workspace state.`);
+    }
+    if (!session.managed || !session.sourceRoot || !session.targetBranch) {
+      throw new Error(
+        `Workspace ${session.id} does not have enough managed-worktree metadata to recreate its execution backing.`,
+      );
+    }
+
+    const worktree = await createManagedWorktree({
+      sourcePath: session.sourceRoot,
+      baseRef: session.targetBranch,
+      config: this.config,
+    });
+    const candidateSession: WorkspaceSession = {
+      ...session,
+      root: worktree.path,
+      status: "active",
+      sourceRoot: worktree.sourceRoot,
+      baseRef: worktree.baseRef,
+      baseSha: worktree.baseSha,
+      branch: worktree.branch,
+      targetBranch: worktree.targetBranch,
+      managed: true,
+    };
+    const workspace = this.workspaceFromSession(candidateSession, false);
+
+    try {
+      const context = await this.reusedWorkspaceContext(workspace);
+      this.store.replaceWorktreeBacking({
+        id: session.id,
+        root: worktree.path,
+        sourceRoot: worktree.sourceRoot,
+        baseRef: worktree.baseRef,
+        baseSha: worktree.baseSha,
+        branch: worktree.branch,
+        targetBranch: worktree.targetBranch,
+      });
+      return context;
+    } catch (error) {
+      this.workspaces.delete(session.id);
+      try {
+        await discardFreshManagedWorktree({ worktree, config: this.config });
+      } catch (cleanupError) {
+        const original = error instanceof Error ? error.message : String(error);
+        const cleanup = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+        throw new Error(`${original} Reopen rollback also failed: ${cleanup}`);
+      }
+      throw error;
+    }
   }
 
   getWorkspaceSession(workspaceId: string): WorkspaceSession {
