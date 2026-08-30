@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-08-30
+
 ### Added
 
 - Subagent Run restart reconciliation now preserves live owners and marks stale active Runs `interrupted` without replaying the old prompt.
