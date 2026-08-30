@@ -390,9 +390,9 @@ const workspaceLocalAgentOutputSchema = z.object({
 const workspaceSubagentProviderOutputSchema = z.object({
   name: z.string(),
   available: z.boolean(),
+  continuationSupported: z.boolean(),
   reason: z.string().optional(),
 });
-
 const workspaceAvailableAgentsFileOutputSchema = z.object({
   path: z.string(),
 });

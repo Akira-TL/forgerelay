@@ -9,6 +9,7 @@ import {
   loadSubagentProfiles,
 } from "../profiles.js";
 import { assertSubagentProviderAvailable } from "../providers/availability.js";
+import { subagentProviderContinuationSupported } from "../providers/continuation.js";
 import {
   createSubagentSessionStore,
   type SubagentRunSummary,
@@ -41,9 +42,23 @@ export interface StartSubagentSessionInput {
 export interface ResumeSubagentSessionInput {
   sessionId: string;
   prompt: string;
-  model?: string;
-  thinking?: string;
   activityId?: string;
+}
+
+export type SubagentSessionErrorCode =
+  | "subagent.session_not_found"
+  | "subagent.busy"
+  | "subagent.continuation_unsupported"
+  | "subagent.continuation_unavailable";
+
+export class SubagentSessionError extends Error {
+  constructor(
+    readonly code: SubagentSessionErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SubagentSessionError";
+  }
 }
 
 export interface SubagentSessionStart {
@@ -105,11 +120,37 @@ export class SubagentSessionManager {
     return { session, run };
   }
 
-  resume(input: ResumeSubagentSessionInput): SubagentSessionStart {
-    const existing = this.store.get(input.sessionId);
-    if (!existing) throw new Error(`Unknown subagent id: ${input.sessionId}`);
+  resume(
+    input: ResumeSubagentSessionInput,
+    scope: SubagentSessionScope = {},
+  ): SubagentSessionStart {
+    const existing = this.store.getInScope(input.sessionId, scope);
+    if (!existing) {
+      throw new SubagentSessionError(
+        "subagent.session_not_found",
+        `Unknown Subagent Session in this Workspace: ${input.sessionId}`,
+      );
+    }
+    if (existing.activeRun) {
+      throw new SubagentSessionError(
+        "subagent.busy",
+        `Subagent Session ${existing.id} already has active Run ${existing.activeRun.id}.`,
+      );
+    }
     if (!isSubagentProvider(existing.provider)) {
       throw new Error(`Unknown subagent provider for existing session: ${existing.provider}`);
+    }
+    if (!subagentProviderContinuationSupported(existing.provider)) {
+      throw new SubagentSessionError(
+        "subagent.continuation_unsupported",
+        `${existing.provider} does not support true Subagent Session continuation.`,
+      );
+    }
+    if (!existing.providerSessionId) {
+      throw new SubagentSessionError(
+        "subagent.continuation_unavailable",
+        `Subagent Session ${existing.id} has no provider continuation identity.`,
+      );
     }
     assertSubagentProviderAvailable(existing.provider);
 
@@ -123,8 +164,6 @@ export class SubagentSessionManager {
     };
     const session = this.store.update(existing.id, {
       status: "running",
-      model: input.model ?? existing.model,
-      thinking: input.thinking ?? existing.thinking,
       activeRun: run,
     });
     this.launcher.launch({

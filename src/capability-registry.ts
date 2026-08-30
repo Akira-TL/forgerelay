@@ -115,6 +115,11 @@ export type SubagentSessionCapabilityInput =
       thinking?: string;
     }
   | {
+      operation: "resume";
+      sessionId: string;
+      prompt: string;
+    }
+  | {
       operation: "status";
       sessionId: string;
     }
@@ -332,6 +337,11 @@ export function createCapabilityRegistry(
       prompt: z.string().min(1),
       model: z.string().min(1).optional(),
       thinking: z.string().min(1).optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("resume"),
+      sessionId: z.string().min(1),
+      prompt: z.string().min(1),
     }).strict(),
     z.object({
       operation: z.literal("status"),

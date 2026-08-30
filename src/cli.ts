@@ -580,13 +580,9 @@ async function runAgentsRun(args: string[]): Promise<void> {
   const manager = createCliSubagentSessionManager();
   try {
     const existing = manager.get(parsed.target);
+    if (existing && (parsed.model || parsed.thinking)) throw new Error("Existing Subagent Sessions cannot override model or thinking.");
     const started = existing
-      ? manager.resume({
-          sessionId: existing.id,
-          prompt: parsed.prompt,
-          model: parsed.model,
-          thinking: parsed.thinking,
-        })
+      ? manager.resume({ sessionId: existing.id, prompt: parsed.prompt })
       : await manager.start({
           workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
           workspaceRoot,

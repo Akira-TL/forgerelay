@@ -168,20 +168,29 @@ async function runSessionProvider(
   if (!isSubagentProvider(session.provider)) {
     throw new Error(`Unknown subagent provider for Session ${session.id}: ${session.provider}`);
   }
+  if (session.providerSessionId) {
+    return providerRunner(session.provider, {
+      prompt,
+      workspace: session.workspaceRoot,
+      providerSessionId: session.providerSessionId,
+      writeMode: "allowed",
+      model: session.model,
+      thinking: session.thinking,
+    });
+  }
+  if (session.profileName === session.provider) {
+    return providerRunner(session.provider, {
+      prompt,
+      workspace: session.workspaceRoot,
+      writeMode: "allowed",
+      model: session.model,
+      thinking: session.thinking,
+    });
+  }
   const profiles = await loadSubagentProfiles(config, session.workspaceRoot);
   const profile = profiles.find((candidate) => candidate.name === session.profileName);
-  if (profile) return runSubagentProfile(profile, session, prompt, providerRunner);
-  if (session.profileName !== session.provider) {
-    throw new Error(`Subagent profile not found: ${session.profileName}`);
-  }
-  return providerRunner(session.provider, {
-    prompt,
-    workspace: session.workspaceRoot,
-    providerSessionId: session.providerSessionId,
-    writeMode: "allowed",
-    model: session.model,
-    thinking: session.thinking,
-  });
+  if (!profile) throw new Error(`Subagent profile not found: ${session.profileName}`);
+  return runSubagentProfile(profile, session, prompt, providerRunner);
 }
 
 async function runSubagentProfile(
@@ -192,13 +201,12 @@ async function runSubagentProfile(
 ): Promise<SubagentRunResult> {
   const body = profile.body.trim();
   const firstPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
-  return providerRunner(profile.provider, {
-    prompt: session.providerSessionId ? prompt : firstPrompt,
+  return providerRunner(session.provider as SubagentProvider, {
+    prompt: firstPrompt,
     workspace: session.workspaceRoot,
-    providerSessionId: session.providerSessionId,
     writeMode: "allowed",
-    model: session.model ?? profile.model,
-    thinking: session.thinking ?? profile.thinking,
+    model: session.model,
+    thinking: session.thinking,
   });
 }
 

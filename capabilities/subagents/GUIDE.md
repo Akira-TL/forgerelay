@@ -13,9 +13,10 @@ name = subagent.session
 action = run
 ```
 
-0.7.0 tracer 支持三个 operation：
+当前支持四个 operation：
 
 - `start`：创建 Subagent Session，并立即启动第一个 Subagent Run；
+- `resume`：在支持真实 continuation 的 provider 上继续现有 Session；
 - `status`：读取当前 Workspace 中一个 Session 的协调状态；
 - `list`：列出当前 Workspace 拥有的 Session 摘要。
 
@@ -44,6 +45,22 @@ action = run
 
 首次 `start` 使用当时有效的 profile body 作为 provider-native conversation 的初始 instructions。ForgeRelay 不把 profile body 复制进自己的 Session SQLite。
 
+## resume
+
+已有 Session 完成一次 Run 后，可发送新的 delegated prompt：
+
+```json
+{
+  "operation": "resume",
+  "sessionId": "agt_...",
+  "prompt": "继续检查测试覆盖。"
+}
+```
+
+`resume` 只接受 `sessionId + prompt`，不能改变 model/thinking。Session 创建时确定的 provider/profile/model/thinking 在整个 Session 生命周期中保持固定；resume 不重新读取或注入当前 profile body，而是使用 provider-native continuation history。
+
+同一个 Session 最多只有一个 active Run；Session 正在执行时再次 resume 会返回 `subagent.busy`，不会排队或并发执行。Codex、Claude、OpenCode、Pi 支持真实 continuation；Cursor/Copilot 当前明确标记为 start-only，resume 返回 `subagent.continuation_unsupported`，不会伪装成新 provider session。
+
 ## status / list
 
 查询一个 Session：
@@ -63,9 +80,9 @@ action = run
 }
 ```
 
-Session 受实际 Execution Workspace 所有权约束；Session ID 不是跨 Workspace 的访问凭证。`list` 只返回当前 Workspace 的紧凑摘要。
+Session 受实际 Execution Workspace 所有权约束；Session ID 不是跨 Workspace 的访问凭证。`status` / `resume` 都只能访问当前实际 Execution Workspace 拥有的 Session，`list` 也只返回当前 Workspace 的紧凑摘要。
 
-0.7.0 尚未通过 first-class Capability 开放 `resume`、`stop` 或 `delete`。不要伪造这些 operation，也不要用新的 Core MCP tool 绕过 Capability Gateway。
+Session 返回中会给出 `continuationSupported` 与 `resumable`；`open_workspace` 的 provider metadata 也会明确给出 `continuationSupported`。当前尚未通过 first-class Capability 开放 `stop` 或 `delete`，不要伪造这些 operation，也不要用新的 Core MCP tool 绕过 Capability Gateway。
 
 ## 后台完成与结果交付
 

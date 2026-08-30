@@ -12,6 +12,7 @@ import {
   extractPiStreamingText,
   piCommandEnvironment,
 } from "./adapters/pi.js";
+import { subagentProviderContinuationSupported } from "./continuation.js";
 import { createSubagentProviderAdapter } from "./registry.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import type { SubagentProvider } from "../profiles.js";
@@ -30,6 +31,17 @@ for (const provider of providers) {
   assert.equal(adapter.provider, provider);
   assert.equal(typeof adapter.run, "function");
 }
+assert.deepEqual(
+  providers.map((provider) => [provider, subagentProviderContinuationSupported(provider)]),
+  [
+    ["codex", true],
+    ["claude", true],
+    ["opencode", true],
+    ["pi", true],
+    ["cursor", false],
+    ["copilot", false],
+  ],
+);
 
 assert.deepEqual(
   resolveAcpModelConfigUpdate({

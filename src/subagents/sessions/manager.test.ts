@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../config.js";
 import { SubagentSessionManager, type SubagentLaunchRequest } from "./manager.js";
+import { SubagentSessionStore } from "./store.js";
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-subagent-manager-test-"));
 try {
@@ -66,7 +67,41 @@ try {
   assert.equal(manager.get(started.session.id)?.id, started.session.id);
   assert.equal(manager.get(started.session.id, { workspaceId: "ws_other" }), undefined);
   assert.equal(manager.list({ workspaceId: "ws_test" }).length, 1);
+  assert.throws(
+    () => manager.resume({ sessionId: started.session.id, prompt: "busy" }, { workspaceId: "ws_test" }),
+    (error: unknown) => (error as { code?: string }).code === "subagent.busy",
+  );
   manager.close();
+
+  const store = new SubagentSessionStore(stateDir);
+  store.update(started.session.id, {
+    status: "idle",
+    activeRun: undefined,
+    providerSessionId: "thread_test",
+  });
+  store.close();
+  const resumedLaunches: SubagentLaunchRequest[] = [];
+  const resumedManager = new SubagentSessionManager(config, {
+    launch(request) {
+      resumedLaunches.push(request);
+    },
+  });
+  const resumed = resumedManager.resume(
+    { sessionId: started.session.id, prompt: "Continue." },
+    { workspaceId: "ws_test" },
+  );
+  assert.equal(resumed.session.model, "gpt-5.4");
+  assert.equal(resumed.session.thinking, "high");
+  assert.deepEqual(resumedLaunches.at(-1), {
+    sessionId: started.session.id,
+    runId: resumed.run.id,
+    prompt: "Continue.",
+  });
+  assert.throws(
+    () => resumedManager.resume({ sessionId: started.session.id, prompt: "wrong workspace" }, { workspaceId: "ws_other" }),
+    (error: unknown) => (error as { code?: string }).code === "subagent.session_not_found",
+  );
+  resumedManager.close();
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

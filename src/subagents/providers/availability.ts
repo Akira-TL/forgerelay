@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { delimiter, resolve } from "node:path";
+import { subagentProviderContinuationSupported } from "./continuation.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
 import {
   SUBAGENT_PROVIDERS,
@@ -9,6 +10,7 @@ import {
 export interface SubagentProviderAvailability {
   name: SubagentProvider;
   available: boolean;
+  continuationSupported: boolean;
   reason?: string;
 }
 
@@ -76,11 +78,16 @@ function packageAvailability(
 ): SubagentProviderAvailability {
   try {
     import.meta.resolve(packageName);
-    return { name: provider, available: true };
+    return {
+      name: provider,
+      available: true,
+      continuationSupported: subagentProviderContinuationSupported(provider),
+    };
   } catch {
     return {
       name: provider,
       available: false,
+      continuationSupported: subagentProviderContinuationSupported(provider),
       reason: `${packageName} package not found`,
     };
   }
@@ -96,11 +103,16 @@ function commandAvailability(
     return {
       name: provider,
       available: false,
+      continuationSupported: subagentProviderContinuationSupported(provider),
       reason: `${command} executable not found`,
     };
   }
 
-  return { name: provider, available: true };
+  return {
+    name: provider,
+    available: true,
+    continuationSupported: subagentProviderContinuationSupported(provider),
+  };
 }
 
 function resolveCommand(command: string, env: NodeJS.ProcessEnv = process.env): string | undefined {

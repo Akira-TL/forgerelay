@@ -1,13 +1,15 @@
 import type { ActivityLifecycle } from "../../activity/lifecycle.js";
-import type {
-  CapabilityContext,
-  CapabilityExecution,
-  CapabilityRunOptions,
-  SubagentSessionCapabilityInput,
+import {
+  CapabilityError,
+  type CapabilityContext,
+  type CapabilityExecution,
+  type CapabilityRunOptions,
+  type SubagentSessionCapabilityInput,
 } from "../../capability-registry.js";
 import type { ServerConfig } from "../../config.js";
-import type { SubagentProvider } from "../profiles.js";
+import { isSubagentProvider, type SubagentProvider } from "../profiles.js";
 import type { SubagentRunInput, SubagentRunResult } from "../providers/contract.js";
+import { subagentProviderContinuationSupported } from "../providers/continuation.js";
 import { SubagentDeliveryMailbox, type SubagentDelivery } from "./delivery-mailbox.js";
 import {
   executeSubagentRun,
@@ -15,6 +17,7 @@ import {
   type SubagentRunCompletion,
 } from "./execution.js";
 import {
+  SubagentSessionError,
   SubagentSessionManager,
   type SubagentLaunchRequest,
 } from "./manager.js";
@@ -65,10 +68,27 @@ export class SubagentSessionCapability {
             },
           };
         }
+        case "resume": {
+          const resumed = manager.resume({
+            sessionId: input.sessionId,
+            prompt: input.prompt,
+            activityId: options.activityId,
+          }, { workspaceId: context.workspaceId });
+          return {
+            value: {
+              operation: "resume",
+              session: publicSession(resumed.session),
+              run: publicRun(resumed.run),
+            },
+          };
+        }
         case "status": {
           const session = manager.get(input.sessionId, { workspaceId: context.workspaceId });
           if (!session) {
-            throw new Error(`Unknown Subagent Session in this Workspace: ${input.sessionId}`);
+            throw new SubagentSessionError(
+              "subagent.session_not_found",
+              `Unknown Subagent Session in this Workspace: ${input.sessionId}`,
+            );
           }
           return {
             value: {
@@ -87,6 +107,11 @@ export class SubagentSessionCapability {
             },
           };
       }
+    } catch (error) {
+      if (error instanceof SubagentSessionError) {
+        throw new CapabilityError(error.code, error.message);
+      }
+      throw error;
     } finally {
       manager.close();
     }
@@ -140,11 +165,14 @@ export class SubagentSessionCapability {
 }
 
 function publicSession(session: SubagentSession): Record<string, unknown> {
+  const continuationSupported = sessionContinuationSupported(session);
   return {
     id: session.id,
     status: session.status,
     profileName: session.profileName,
     provider: session.provider,
+    continuationSupported,
+    resumable: continuationSupported && session.status === "idle" && Boolean(session.providerSessionId),
     ...(session.model ? { model: session.model } : {}),
     ...(session.thinking ? { thinking: session.thinking } : {}),
     ...(session.activeRun ? { activeRun: publicRun(session.activeRun) } : {}),
@@ -155,11 +183,14 @@ function publicSession(session: SubagentSession): Record<string, unknown> {
 }
 
 function publicSessionSummary(session: SubagentSession): Record<string, unknown> {
+  const continuationSupported = sessionContinuationSupported(session);
   return {
     id: session.id,
     status: session.status,
     profileName: session.profileName,
     provider: session.provider,
+    continuationSupported,
+    resumable: continuationSupported && session.status === "idle" && Boolean(session.providerSessionId),
     ...(session.model ? { model: session.model } : {}),
     ...(session.thinking ? { thinking: session.thinking } : {}),
     ...(session.activeRun ? { activeRunId: session.activeRun.id } : {}),
@@ -171,6 +202,12 @@ function publicSessionSummary(session: SubagentSession): Record<string, unknown>
       } : {}),
     updatedAt: session.updatedAt,
   };
+}
+
+function sessionContinuationSupported(session: SubagentSession): boolean {
+  return isSubagentProvider(session.provider)
+    ? subagentProviderContinuationSupported(session.provider)
+    : false;
 }
 
 function publicRun(run: SubagentRunSummary): Record<string, unknown> {
