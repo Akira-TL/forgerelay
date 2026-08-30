@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-30
+
 ### Added
 
 - 新增 first-class `subagent.session` Capability tracer：Host 可通过现有 Capability Gateway 发现并启动 provider-backed Subagent Session、查询 `status`、列出当前 Execution Workspace 拥有的 Session，并通过有界单次 delivery mailbox 接收后台 Run 的最终结果；canonical Core MCP tool 仍保持九个。
