@@ -308,8 +308,10 @@ until `open_workspace` reactivates the same ID by path or by `workspaceId`.
 `close_workspace(action="delete")` is the explicit permanent checkout cleanup path:
 it removes ForgeRelay-owned Workspace state but never deletes or mutates project
 files. Managed-worktree close still requires `commitMessage` and runs the safe commit /
-fast-forward-only integration / cleanup lifecycle; managed-worktree, Composite, and
-relayed delete semantics are completed by their later lifecycle stages.
+fast-forward-only integration / cleanup lifecycle. Composite close preserves the same
+`cws_...` identity and member topology; Composite `action="delete"` dissolves only
+Composite-owned state without touching member Workspaces. Relayed delete remains a later
+lifecycle stage.
 
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply

@@ -1008,6 +1008,13 @@ test("Composite Workspace can open a path-backed member and explicitly load that
   assert.equal(repeatedMemberContext.includeBootstrapContext, false);
   assert.match(String(repeatedMemberContext.instruction), /already delivered/i);
 
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal(structuredContent(closed).status, "closed");
+
   const reopened = await context.client.callTool({
     name: "open_workspace",
     arguments: { workspaceId: compositeId, memberName: "gpu", context: "full" },
@@ -1207,14 +1214,14 @@ test("Composite Workspace aggregates member Activities into one Host Turn withou
   assert.equal(auditRecords[1]?.workspace.id, dataWorkspaceId);
 });
 
-test("close_workspace dissolves Composite identity while preserving member Workspace and running process", async (t) => {
+test("Composite close preserves identity and members while delete dissolves only Composite state", async (t) => {
   const context = await fixture(t);
   await writeFile(join(context.project, "preserved.txt"), "preserved-member\n");
   const memberWorkspace = await callOpen(context.client, context.project, "chat-composite-close-member");
   const memberWorkspaceId = String(structuredContent(memberWorkspace).workspaceId);
   const composite = await context.client.callTool({
     name: "open_workspace",
-    arguments: { kind: "composite", name: "dissolve-process" },
+    arguments: { kind: "composite", name: "persistent-process" },
   });
   const compositeId = String(structuredContent(composite).workspaceId);
   const mounted = await context.client.callTool({
@@ -1262,16 +1269,77 @@ test("close_workspace dissolves Composite identity while preserving member Works
   assert.equal(closed.isError, undefined, allResponseText(closed));
   const closedStructured = structuredContent(closed);
   assert.equal(closedStructured.kind, "composite");
-  assert.equal(closedStructured.dissolved, true);
+  assert.equal(closedStructured.action, "close");
+  assert.equal(closedStructured.status, "closed");
+  assert.equal(closedStructured.dissolved, false);
   assert.equal(closedStructured.workspaceId, compositeId);
-  assert.match(allResponseText(closed), /Preserved member Workspaces/);
+  assert.deepEqual(closedStructured.members, [{
+    name: "code",
+    purpose: "Preserved source workspace",
+    workspaceId: memberWorkspaceId,
+  }]);
+  assert.match(allResponseText(closed), /identity and member topology were preserved/i);
 
-  const memberRead = await context.client.callTool({
+  const listed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", kind: "composite", workspaceId: compositeId, status: "closed" },
+  });
+  const listedComposite = (structuredContent(listed).compositeWorkspaces as Array<Record<string, unknown>>)[0];
+  assert.equal(listedComposite?.workspaceId, compositeId);
+  assert.equal(listedComposite?.status, "closed");
+  assert.equal(listedComposite?.state, "closed");
+  assert.deepEqual(listedComposite?.members, closedStructured.members);
+
+  const closedRoute = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "code", path: "preserved.txt" },
+  });
+  assert.equal(closedRoute.isError, true);
+  assert.match(allResponseText(closedRoute), /Composite Workspace .* is closed/i);
+
+  const closedMemberMutation = await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "remove",
+      member: { name: "code" },
+    },
+  });
+  assert.equal(closedMemberMutation.isError, true);
+  assert.match(allResponseText(closedMemberMutation), /is closed/i);
+
+  const directMemberRead = await context.client.callTool({
     name: "read",
     arguments: { workspaceId: memberWorkspaceId, path: "preserved.txt" },
   });
-  assert.equal(memberRead.isError, undefined, allResponseText(memberRead));
-  assert.match(allResponseText(memberRead), /preserved-member/);
+  assert.equal(directMemberRead.isError, undefined, allResponseText(directMemberRead));
+  assert.match(allResponseText(directMemberRead), /preserved-member/);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, context: "none" },
+  });
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, compositeId);
+  assert.equal(structuredContent(reopened).status, "active");
+  assert.deepEqual(structuredContent(reopened).members, closedStructured.members);
+
+  const reopenedRoute = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "code", path: "preserved.txt" },
+  });
+  assert.equal(reopenedRoute.isError, undefined, allResponseText(reopenedRoute));
+  assert.match(allResponseText(reopenedRoute), /preserved-member/);
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId, action: "delete" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  assert.equal(structuredContent(deleted).action, "delete");
+  assert.equal(structuredContent(deleted).dissolved, true);
+  assert.match(allResponseText(deleted), /Composite relationship.*dissolved/i);
 
   const processResult = await waitForToolText(
     context.client,
@@ -1285,22 +1353,15 @@ test("close_workspace dissolves Composite identity while preserving member Works
   assert.equal(processResult.isError, undefined, allResponseText(processResult));
   assert.match(allResponseText(processResult), /member-finished/);
 
-  const reopen = await context.client.callTool({
+  const deletedOpen = await context.client.callTool({
     name: "open_workspace",
     arguments: { workspaceId: compositeId },
   });
-  assert.equal(reopen.isError, true);
-  assert.match(allResponseText(reopen), /Unknown workspaceId|Unknown Composite Workspace/i);
-
-  const panel = await context.client.callTool({
-    name: "activity_panel",
-    arguments: { workspaceId: compositeId },
-  });
-  assert.equal(panel.isError, true);
-  assert.match(allResponseText(panel), /No Workspace presentation/i);
+  assert.equal(deletedOpen.isError, true);
+  assert.match(allResponseText(deletedOpen), /Unknown workspaceId|Unknown Composite Workspace/i);
 });
 
-test("close_workspace dissolves Composite without finalizing a managed-worktree member", async (t) => {
+test("Composite close and delete never finalize a managed-worktree member", async (t) => {
   const context = await fixture(t, { git: true });
   const worktree = await callOpen(
     context.client,
@@ -1338,6 +1399,23 @@ test("close_workspace dissolves Composite without finalizing a managed-worktree 
     arguments: { workspaceId: compositeId },
   });
   assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal(structuredContent(closed).status, "closed");
+  assert.equal((await stat(worktreeRoot)).isDirectory(), true);
+  assert.equal(await readFile(join(worktreeRoot, "unfinished.txt"), "utf8"), "still in worktree\n");
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, context: "none" },
+  });
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, compositeId);
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId, action: "delete" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  assert.equal(structuredContent(deleted).dissolved, true);
   assert.equal((await stat(worktreeRoot)).isDirectory(), true);
   assert.equal(await readFile(join(worktreeRoot, "unfinished.txt"), "utf8"), "still in worktree\n");
 

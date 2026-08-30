@@ -2802,6 +2802,8 @@ export function createMcpServer(
         memberAction: z.enum(["add", "update", "remove"]).optional(),
         kind: z.enum(["workspace", "composite"]).optional(),
         name: z.string().optional(),
+        status: z.string().optional(),
+        state: z.enum(["active", "stale", "invalid", "closed"]).optional(),
         members: z.array(z.object({
           name: z.string(),
           purpose: z.string(),
@@ -2862,6 +2864,8 @@ export function createMcpServer(
           workspaceId: z.string(),
           kind: z.literal("composite"),
           name: z.string(),
+          status: z.enum(["active", "closed"]),
+          state: z.enum(["active", "closed"]),
           members: z.array(z.object({
             name: z.string(),
             purpose: z.string(),
@@ -2911,6 +2915,9 @@ export function createMcpServer(
       if (action === "member") {
         if (!workspaceId || !compositeWorkspaces.has(workspaceId)) {
           throw new Error("open_workspace action=member requires an existing Composite Workspace workspaceId.");
+        }
+        if (!compositeWorkspaces.isActive(workspaceId)) {
+          throw new Error(`Composite Workspace ${workspaceId} is closed. Reopen it with open_workspace before changing members.`);
         }
         if (!memberAction || !member) {
           throw new Error("open_workspace action=member requires memberAction and member.");
@@ -3061,30 +3068,35 @@ export function createMcpServer(
             "open_workspace action=list does not accept path, relay, name, memberName, baseRef, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
           );
         }
+        const compositeInventory = () => compositeWorkspaces.list()
+          .filter((entry) => workspaceId === undefined || entry.id === workspaceId)
+          .filter((entry) => status === undefined || entry.status === status)
+          .filter((entry) => state === undefined || entry.status === state)
+          .map((entry) => ({
+            workspaceId: entry.id,
+            kind: entry.kind,
+            name: entry.name,
+            status: entry.status,
+            state: entry.status,
+            members: entry.members,
+            createdAt: entry.createdAt,
+            lastUsedAt: entry.lastUsedAt,
+          }));
         if (kind === "composite") {
           if (
-            root !== undefined || mode !== undefined || status !== undefined || state !== undefined ||
-            staleOnly !== undefined || offset !== undefined || limit !== undefined
+            root !== undefined || mode !== undefined || staleOnly !== undefined ||
+            offset !== undefined || limit !== undefined
           ) {
             throw new Error(
-              "Composite Workspace inventory does not accept root/mode/status/state/staleOnly/offset/limit filters; use workspaceId when selecting one Composite Workspace.",
+              "Composite Workspace inventory does not accept root/mode/staleOnly/offset/limit filters; use workspaceId/status/state when selecting Composite Workspaces.",
             );
           }
-          const composites = compositeWorkspaces.list()
-            .filter((entry) => workspaceId === undefined || entry.id === workspaceId)
-            .map((entry) => ({
-              workspaceId: entry.id,
-              kind: entry.kind,
-              name: entry.name,
-              members: entry.members,
-              createdAt: entry.createdAt,
-              lastUsedAt: entry.lastUsedAt,
-            }));
+          const composites = compositeInventory();
           const instruction =
-            "Resume a Composite Workspace with open_workspace(action=\"open\", workspaceId=...). Use close_workspace only when the user chooses to dissolve it.";
+            "Open a Composite Workspace by workspaceId to resume or reopen it. close_workspace preserves its identity; action=delete permanently dissolves only Composite-owned state.";
           const result = [
             `Composite Workspace inventory: ${composites.length} matching record${composites.length === 1 ? "" : "s"}.`,
-            ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] members=${entry.members.length} last-used=${entry.lastUsedAt}`),
+            ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] state=${entry.state} members=${entry.members.length} last-used=${entry.lastUsedAt}`),
             instruction,
           ].join("\n");
           return {
@@ -3100,20 +3112,13 @@ export function createMcpServer(
           { workspaceId, mode, root, status, state, staleOnly, offset, limit },
           { conversationScopeId, protectedWorkspaceIds },
         );
-        const composites = kind === "workspace"
+        const composites = kind === "workspace" || root !== undefined || mode !== undefined || staleOnly
           ? []
-          : compositeWorkspaces.list().map((entry) => ({
-              workspaceId: entry.id,
-              kind: entry.kind,
-              name: entry.name,
-              members: entry.members,
-              createdAt: entry.createdAt,
-              lastUsedAt: entry.lastUsedAt,
-            }));
+          : compositeInventory();
         const nextOffset = inventory.page.offset + inventory.page.limit;
         const instruction = [
           "Resume a selected workspaceId with open_workspace(action=\"open\", workspaceId=...).",
-          "Use close_workspace only after the user chooses cleanup or Composite dissolution; never close inventory entries automatically.",
+          "Use close_workspace only after the user chooses cleanup; Composite close preserves identity, while action=delete dissolves only Composite-owned state. Never close inventory entries automatically.",
           inventory.page.hasMore
             ? `More matching workspaces are available; continue with offset=${nextOffset}.`
             : undefined,
@@ -3131,7 +3136,7 @@ export function createMcpServer(
             `root=${entry.root}`,
             `last-used=${entry.lastUsedAt}`,
           ].filter(Boolean).join(" ")),
-          ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] kind=composite members=${entry.members.length}`),
+          ...composites.map((entry) => `${entry.name} [${entry.workspaceId}] kind=composite state=${entry.state} members=${entry.members.length}`),
           instruction,
         ].join("\n");
         logToolCall(config, {
@@ -3195,7 +3200,7 @@ export function createMcpServer(
           composite.members.length > 0
             ? "Before first work on a member, reopen this Composite Workspace with memberName=<member> and context=auto to receive that member's project bootstrap without creating an implicit current member."
             : undefined,
-          "Use close_workspace only when the user chooses to dissolve this Composite Workspace; dissolution does not close or clean up member Workspaces.",
+          "close_workspace preserves this Composite identity for later reopen. Use action=delete only when the user explicitly wants to dissolve the Composite relationship; neither operation closes or cleans up member Workspaces.",
         ].join("\n\n");
         const response = {
           content: [textBlock(instruction)],
@@ -3208,7 +3213,7 @@ export function createMcpServer(
               path: composite.name,
               members: composite.members,
               instruction,
-              summary: { members: composite.members.length },
+              summary: { members: composite.members.length, status: composite.status },
             },
           },
           structuredContent: {
@@ -3216,6 +3221,8 @@ export function createMcpServer(
             workspaceId: composite.id,
             kind: "composite" as const,
             name: composite.name,
+            status: composite.status,
+            state: composite.status,
             members: composite.members,
             ...(memberContext ? { memberContext } : {}),
             instruction,
@@ -3776,13 +3783,13 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout and managed-worktree identity for later reopen. action=delete permanently removes ForgeRelay-owned Workspace state. Managed-worktree-backed Workspaces must first complete the same safe finalize lifecycle when active and require commitMessage. Checkout project files are never deleted. Composite and relayed delete semantics are not available in this stage.",
+        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout, managed-worktree, and Composite identity for later reopen. action=delete permanently removes ForgeRelay-owned state. Managed-worktree-backed Workspaces still finalize safely when active and require commitMessage. Composite delete dissolves only Composite-owned state and never closes member Workspaces. Checkout project files are never deleted; relayed delete remains unavailable.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close or delete."),
         action: z
           .enum(["close", "delete"])
           .optional()
-          .describe("Defaults to close. close preserves checkout identity and managed-worktree identity for later reopen; delete permanently removes ForgeRelay-owned state. Active managed worktrees still require safe finalization and commitMessage; checkout project files are never deleted."),
+          .describe("Defaults to close. close preserves checkout identity, managed-worktree identity, and Composite identity for later reopen; delete removes ForgeRelay-owned state. Composite delete dissolves only the Composite relationship. Active managed worktrees still require safe finalization and commitMessage; checkout project files are never deleted."),
         commitMessage: z
           .string()
           .min(1)
@@ -3800,6 +3807,7 @@ export function createMcpServer(
           purpose: z.string(),
           workspaceId: z.string(),
         })).optional(),
+        status: z.enum(["active", "closed"]).optional(),
         dissolved: z.boolean().optional(),
         sourceRoot: z.string().optional(),
         branch: z.string().optional(),
@@ -3814,21 +3822,22 @@ export function createMcpServer(
     },
     async ({ workspaceId, action = "close", commitMessage }, extra) => {
       if (compositeWorkspaces.has(workspaceId)) {
-        if (action === "delete") {
-          throw new Error("close_workspace action=delete is not available for Composite Workspaces until the Composite persistent lifecycle stage.");
-        }
         if (commitMessage !== undefined) {
-          throw new Error("close_workspace commitMessage is not valid when dissolving a Composite Workspace.");
+          throw new Error("close_workspace commitMessage is not valid for a Composite Workspace.");
         }
-        const composite = compositeWorkspaces.dissolve(workspaceId);
+        const composite = action === "delete"
+          ? compositeWorkspaces.dissolve(workspaceId)
+          : compositeWorkspaces.close(workspaceId);
         compositeActivity.forgetComposite(workspaceId);
         workspacePanelStates.delete(workspaceId);
         const result = [
-          `Dissolved Composite Workspace ${composite.name} (${workspaceId}).`,
+          action === "delete"
+            ? `Deleted Composite Workspace ${composite.name} (${workspaceId}); its Composite relationship and ForgeRelay-owned Composite state were dissolved.`
+            : `Closed Composite Workspace ${composite.name} (${workspaceId}); its identity and member topology were preserved for later reopen.`,
           composite.members.length > 0
             ? `Preserved member Workspaces: ${composite.members.map((member) => `${member.name} [${member.workspaceId}]`).join(", ")}.`
             : "The Composite Workspace had no members.",
-          "Member Workspace handles, managed worktrees, processes, files, and Workspace Relay routes were not closed or cleaned up.",
+          "Member Workspace handles, managed worktrees, processes, files, and Workspace Relay routes were not closed, finalized, deleted, or otherwise mutated.",
         ].join("\n");
         return {
           content: [textBlock(result)],
@@ -3836,22 +3845,24 @@ export function createMcpServer(
             tool: toolNames.closeWorkspace,
             card: {
               workspaceId,
-              action: "close" as const,
+              action,
               kind: "composite" as const,
               name: composite.name,
               members: composite.members,
-              dissolved: true,
+              ...(action === "close" ? { status: "closed" as const } : {}),
+              dissolved: action === "delete",
               payload: { content: [textBlock(result)] },
             },
           },
           structuredContent: {
             result,
             workspaceId,
-            action: "close" as const,
+            action,
             kind: "composite" as const,
             name: composite.name,
             members: composite.members,
-            dissolved: true,
+            ...(action === "close" ? { status: "closed" as const } : {}),
+            dissolved: action === "delete",
           },
         };
       }

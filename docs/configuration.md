@@ -359,9 +359,12 @@ If backing recreation fails, the record remains closed and unchanged.
 it requires `commitMessage`, completes the same safe finalize lifecycle, and only then
 removes the persistent ForgeRelay identity. Deleting an already-closed worktree
 Workspace removes only ForgeRelay-owned state and does not recreate backing.
-Composite close still dissolves in this stage, and Composite delete remains unavailable
-until its persistent lifecycle stage. Relayed delete is likewise deferred to Workspace
-Relay lifecycle parity.
+Composite close now marks only the Composite record closed while preserving its identity,
+name, members, and coordination metadata. Closed Composites remain inspectable and reject
+member routing or mutation until reopened with the same `cws_...` ID. Composite
+`action="delete"` permanently dissolves only Composite-owned state; it never closes,
+finalizes, deletes, or otherwise mutates member Workspaces. Relayed delete remains
+deferred to Workspace Relay lifecycle parity.
 
 Hot workspace/session activity timestamps are coalesced in memory and flushed to the
 SQLite state database in a transaction at most every five minutes; normal shutdown

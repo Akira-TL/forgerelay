@@ -136,8 +136,10 @@ ForgeRelay does not merge member filesystems, Git state, Hooks, Skills, processe
 or audit facts, and it never infers a member from the tool type or purpose text.
 The Composite Activity Panel presents member operations in one Host Turn while the
 actual facts remain owned by the member Workspace. `close_workspace` on a Composite
-Workspace means **dissolve**: the Composite identity and membership are removed, but
-member Workspaces, worktrees, running jobs, files, and relay routes are preserved.
+Workspace now preserves the Composite identity and member topology as `closed`; a
+later `open_workspace` restores the same `cws_...` identity. `action="delete"` is the
+explicit dissolve operation. Neither close nor delete closes member Workspaces,
+finalizes their worktrees, stops their jobs, changes their files, or removes relay routes.
 
 ### Progressive MCP context
 
