@@ -275,6 +275,9 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   assert.equal(memberContext.root, remoteRoot);
   assert.equal(typeof memberContext.contextFingerprint, "string");
   assert.ok(Array.isArray(memberContext.agentsFiles));
+  assert.ok(Array.isArray(memberContext.capabilityGuides));
+  assert.ok(Array.isArray(memberContext.agentProviders));
+  assert.ok(Array.isArray(memberContext.agents));
   assert.doesNotMatch(JSON.stringify(memberContext), /"ws_[0-9a-f]{10}"/);
 
   const disposableComposite = await client.callTool({

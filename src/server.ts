@@ -1875,6 +1875,22 @@ export function createMcpServer(
     const skills = workspace.skills
       .filter((skill) => !skill.disableModelInvocation)
       .map((skill) => ({ name: skill.name, description: skill.description }));
+    const capabilityGuides = workspace.capabilityGuides.map((guide) => ({
+      name: guide.name,
+      description: guide.description,
+      whenToRead: guide.whenToRead,
+      path: formatPathForPrompt(guide.filePath),
+    }));
+    const agentProviders = config.subagents ? subagentProviders : [];
+    const agents = workspace.agentProfiles.map((profile) => {
+      const summary = summarizeSubagentProfile(profile);
+      const availability = agentProviders.find((provider) => provider.name === summary.provider);
+      return {
+        ...summary,
+        providerAvailable: availability?.available,
+        providerUnavailableReason: availability?.reason,
+      };
+    });
     return {
       member: memberName,
       workspaceId: compositeWorkspaceId,
@@ -1886,9 +1902,12 @@ export function createMcpServer(
       includeBootstrapContext: opened.includeBootstrapContext,
       ...(opened.includeBootstrapContext
         ? {
+            capabilityGuides,
             agentsFiles,
             availableAgentsFiles,
             skills,
+            agentProviders,
+            agents,
             skillDiagnostics: redactSkillDiagnosticPaths(workspace.skillDiagnostics),
           }
         : {}),

@@ -984,6 +984,19 @@ test("Composite Workspace can open a path-backed member and explicitly load that
   assert.equal(memberContext.includeBootstrapContext, true);
   assert.ok(Array.isArray(memberContext.agentsFiles));
   assert.match(JSON.stringify(memberContext.agentsFiles), /project instructions/);
+  assert.ok(Array.isArray(memberContext.capabilityGuides));
+  assert.ok(Array.isArray(memberContext.agentProviders));
+  assert.ok(Array.isArray(memberContext.agents));
+
+  const ordinaryBootstrap = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: memberWorkspaceId, context: "full" },
+    _meta: { "openai/session": "chat-member-bootstrap-ordinary" },
+  } as Parameters<Client["callTool"]>[0]);
+  const ordinaryBootstrapStructured = structuredContent(ordinaryBootstrap);
+  assert.deepEqual(memberContext.capabilityGuides, ordinaryBootstrapStructured.capabilityGuides);
+  assert.deepEqual(memberContext.agentProviders, ordinaryBootstrapStructured.agentProviders);
+  assert.deepEqual(memberContext.agents, ordinaryBootstrapStructured.agents);
 
   const routed = await context.client.callTool({
     name: "read",
