@@ -284,6 +284,34 @@ Git state, processes, Hooks, Skills, Language services, Activity, and Audit fact
 Workspace Relay is not file synchronization or failover, and Composite Workspace
 never silently chooses a member.
 
+## 0.8 — Persistent Workspace lifecycle and Task Lists
+
+0.8 turns Workspace identity from a disposable logical handle into a persistent
+ForgeRelay work boundary, then layers lightweight Workspace-owned Task Lists and
+safe cross-Workspace inspection on top. Development is release-gated: each stage
+must be published successfully before work begins on the next stage.
+
+- **0.8.0** — fix Composite bootstrap correctness and establish one canonical,
+  persistent Workspace identity per physical checkout/worktree target, including
+  migration compatibility for legacy aliases;
+- **0.8.1** — make checkout close non-destructive and reversible, add explicit
+  Workspace deletion, and prevent GC from deleting persistent Workspace identity;
+- **0.8.2** — carry the persistent lifecycle through managed worktrees and Composite
+  Workspaces, preserving state across close/reopen while keeping safe worktree
+  finalize semantics;
+- **0.8.3** — add versioned file-backed Task Lists in ForgeRelay-owned Workspace
+  state, with mutations scoped to the current Workspace;
+- **0.8.4** — add progressive Task disclosure, forgotten-update reminders, and
+  allowlist-based read-only inspection of other Workspaces and their safe Task
+  projections;
+- **0.8.5** — verify the complete contract across Workspace Relay and publish the
+  accepted 0.8 lifecycle/Task model.
+
+The release boundary is part of the dependency graph, not just a documentation
+milestone: the next stage remains blocked until the previous version's tag-triggered
+release workflow has completed successfully. Runtime acceptance uses only the
+reserved 7677/7678 debug instances and never touches the normal 7676 installation.
+
 ## Later: first-class subagent MCP
 
 ForgeRelay already owns provider adapters and resumable local agent sessions. A
@@ -311,20 +339,20 @@ are ready:
 Checkpoint restore must protect concurrent/external user edits rather than
 blindly overwriting a working tree.
 
-## Later: task orchestration
+## Workspace Task Lists
 
-After first-class subagents are stable, ForgeRelay may add a small persistent
-task graph for parent/worker coordination:
+ForgeRelay may provide persistent, lightweight Task Lists owned by a Workspace for
+work that should survive Host Turns, conversation changes, and Workspace close.
+Task is a checklist/continuation primitive rather than an execution scheduler:
 
-- task identity/title/status;
-- dependencies;
-- assigned local-agent session;
-- workspace/worktree association;
-- structured result/error state.
+- one Workspace may own multiple named Task Lists;
+- a Task records a work requirement, lightweight progress state, and Agent-managed continuation text;
+- Task does not imply a Queue, Goal object, dependency graph, Subagent assignment, Run binding, or autonomous execution policy;
+- current-Workspace Task state may be mutated through a Capability, while information about another Workspace, including Task projections, is exposed only through the read-only Workspace inspection path;
+- Task state is durable Workspace-owned local state and is not deleted by ordinary Workspace close or GC.
 
-Start with DAG-style parent/child orchestration. Peer-to-peer agent-team messaging
-should only be added if real workflows demonstrate that the simpler task model is
-insufficient.
+Subagent coordination can reference Task content when useful, but ForgeRelay does
+not bind Tasks to Subagent Sessions or infer Task completion from execution facts.
 
 ## Compatibility policy
 

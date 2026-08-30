@@ -10,14 +10,39 @@ The MCP client that owns the conversation, reasoning, and top-level orchestratio
 _Avoid_: Agent runtime, ForgeRelay agent, local plugin runtime
 
 **Workspace**:
-An opened local checkout or managed worktree together with the execution context
-ForgeRelay associates with that directory.
-_Avoid_: Allowed root, repository
+A persistent ForgeRelay work identity for one checkout, one managed-worktree work
+unit, or one Composite Workspace. Host conversations bind to and reuse a Workspace;
+they do not create alternate Workspace identities for the same physical checkout.
+A Workspace can be active or closed without losing its identity or durable local
+coordination state.
+_Avoid_: Allowed root, repository, conversation handle, disposable session
+
+**Closed Workspace**:
+A persistent Workspace that is not currently available for ordinary execution but
+can be reopened through the normal Workspace open lifecycle. Closing preserves the
+Workspace identity and durable coordination state; deletion is the distinct action
+that permanently removes ForgeRelay-owned Workspace state.
+_Avoid_: Deleted Workspace, stale Workspace, invalid Workspace
 
 **Managed worktree**:
 A branch-backed Git worktree created and lifecycle-managed by ForgeRelay for
-isolated or parallel work.
-_Avoid_: Sandbox, temporary checkout
+isolated or parallel work. The physical Git worktree is execution backing for a
+persistent Workspace and may be finalized and removed while the Workspace remains
+closed and reopenable.
+_Avoid_: Sandbox, temporary checkout, Workspace identity
+
+**Task List**:
+A persistent, lightweight checklist owned by one Workspace. A Workspace may have
+multiple Task Lists for different bodies of work. Task Lists survive Host Turns,
+conversation changes, and Workspace close; they are not execution queues, agent
+sessions, or Activity history.
+_Avoid_: Queue, Goal, Subagent Session, Activity
+
+**Task**:
+One work requirement inside a Task List. A Task records the work the Agent needs to
+remember and its lightweight progress state; it is not pre-bound by ForgeRelay to
+a Subagent, Run, process, worktree, or execution schedule.
+_Avoid_: Subagent Run, queue item, Activity, autonomous job
 
 **Hook event**：
 ForgeRelay 生命周期中的命名触发点。规则在对应事件发生前后自动求值。
