@@ -19,15 +19,19 @@ import {
 import {
   SubagentSessionError,
   SubagentSessionManager,
+  type ReconciledSubagentRun,
   type SubagentLaunchRequest,
+  type SubagentRunOwner,
 } from "./manager.js";
 import type { SubagentRunSummary, SubagentSession } from "./store.js";
 
 export interface SubagentSessionCapabilityOptions {
   providerRunner?: (provider: SubagentProvider, input: SubagentRunInput) => Promise<SubagentRunResult>;
+  ownerAlive?: (run: SubagentRunSummary) => boolean;
 }
 
 interface ActiveSubagentRun {
+  ownerId: string;
   controller: AbortController;
   completion: Promise<SubagentRunCompletion>;
 }
@@ -35,6 +39,7 @@ interface ActiveSubagentRun {
 export class SubagentSessionCapability {
   private readonly mailbox: SubagentDeliveryMailbox;
   private readonly providerRunner: SubagentProviderRunner;
+  private readonly ownerAliveOverride?: (run: SubagentRunSummary) => boolean;
   private readonly activeRuns = new Map<string, ActiveSubagentRun>();
 
   constructor(
@@ -44,6 +49,7 @@ export class SubagentSessionCapability {
   ) {
     this.mailbox = new SubagentDeliveryMailbox(config.stateDir);
     this.providerRunner = options.providerRunner ?? defaultProviderRunner;
+    this.ownerAliveOverride = options.ownerAlive;
   }
 
   async run(
@@ -55,6 +61,11 @@ export class SubagentSessionCapability {
       launch: (request) => this.launch(request),
     });
     try {
+      const reconciled = manager.reconcile(
+        { workspaceId: context.workspaceId },
+        (run) => this.ownerAlive(run),
+      );
+      for (const entry of reconciled) this.recordInterruption(entry, options.activityId);
       switch (input.operation) {
         case "start": {
           const started = await manager.start({
@@ -151,7 +162,8 @@ export class SubagentSessionCapability {
     } as T;
   }
 
-  private launch(request: SubagentLaunchRequest): void {
+  private launch(request: SubagentLaunchRequest): SubagentRunOwner {
+    const ownerId = `subagent-owner-${process.pid}-${request.runId}`;
     const controller = new AbortController();
     const completion = executeSubagentRun(
       this.config,
@@ -161,12 +173,13 @@ export class SubagentSessionCapability {
       this.recordCompletion(result);
       return result;
     });
-    this.activeRuns.set(request.runId, { controller, completion });
+    this.activeRuns.set(request.runId, { ownerId, controller, completion });
     void completion.finally(() => {
       this.activeRuns.delete(request.runId);
     }).catch(() => {
       // Unexpected orchestration failures surface through later reconciliation.
     });
+    return { id: ownerId, pid: process.pid };
   }
 
   private async stop(
@@ -210,6 +223,53 @@ export class SubagentSessionCapability {
       session: publicSession(session),
       ...(session.latestRun?.id === activeRun.id ? { run: publicRun(session.latestRun) } : {}),
     };
+  }
+
+  private ownerAlive(run: SubagentRunSummary): boolean {
+    if (this.ownerAliveOverride) return this.ownerAliveOverride(run);
+    if (!run.ownerId || run.ownerPid === undefined) return false;
+    const active = this.activeRuns.get(run.id);
+    if (run.ownerPid === process.pid) return active?.ownerId === run.ownerId;
+    try {
+      process.kill(run.ownerPid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+  }
+
+  private recordInterruption(entry: ReconciledSubagentRun, fallbackActivityId?: string): void {
+    const sourceActivityId = entry.run.activityId ?? fallbackActivityId;
+    if (!sourceActivityId) return;
+    const record = () => this.activityLifecycle.recordLinked({
+      sourceActivityId,
+      tool: "subagent_result",
+      request: { sessionId: entry.session.id, runId: entry.run.id },
+      result: {
+        sessionId: entry.session.id,
+        runId: entry.run.id,
+        provider: entry.session.provider,
+        status: "interrupted",
+      },
+      outcome: { type: "failed", error: "Subagent Run interrupted." },
+    });
+    try {
+      record();
+    } catch {
+      if (!fallbackActivityId || fallbackActivityId === sourceActivityId) return;
+      this.activityLifecycle.recordLinked({
+        sourceActivityId: fallbackActivityId,
+        tool: "subagent_result",
+        request: { sessionId: entry.session.id, runId: entry.run.id },
+        result: {
+          sessionId: entry.session.id,
+          runId: entry.run.id,
+          provider: entry.session.provider,
+          status: "interrupted",
+        },
+        outcome: { type: "failed", error: "Subagent Run interrupted." },
+      });
+    }
   }
 
   private recordCompletion(completion: SubagentRunCompletion): void {

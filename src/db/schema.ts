@@ -214,6 +214,8 @@ export const localAgentSessions = sqliteTable(
     activeRunId: text("active_run_id"),
     activeActivityId: text("active_activity_id"),
     activeRunStartedAt: text("active_run_started_at"),
+    activeOwnerId: text("active_owner_id"),
+    activeOwnerPid: integer("active_owner_pid"),
     latestRunId: text("latest_run_id"),
     latestRunOutcome: text("latest_run_outcome"),
     latestRunFinishedAt: text("latest_run_finished_at"),

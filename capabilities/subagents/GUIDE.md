@@ -103,6 +103,8 @@ Run 完成后：
 - 成功领取后 mailbox 条目立即删除，同一个 completion 不重复交付；
 - 未领取 completion 可以跨正常 ForgeRelay 进程重启保留。
 
+ForgeRelay 只为 active Run 持久化最小 execution-owner 元数据（owner identity / PID），不保存 delegated prompt。后续 Session 操作会先做 restart reconciliation：能够证明 owner 仍存活的 Run 保持 `running`；无法证明仍有执行 owner 的 Run 一次性转为 `interrupted`，Session 回到 `idle`。ForgeRelay 绝不自动 replay 被中断 Run 的旧 prompt；如果 provider continuation 仍有效，由 Host 显式 `resume` 新 prompt。
+
 如果需要等待结果，使用 `status` 进行有节制的后续查询；不要高频短轮询。
 
 ## 数据所有权

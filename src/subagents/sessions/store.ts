@@ -12,6 +12,8 @@ export interface SubagentRunSummary {
   activityId?: string;
   startedAt?: string;
   finishedAt?: string;
+  ownerId?: string;
+  ownerPid?: number;
 }
 
 export interface SubagentSession {
@@ -41,6 +43,8 @@ export interface CreateSubagentSessionInput {
     id: string;
     activityId?: string;
     startedAt: string;
+    ownerId?: string;
+    ownerPid?: number;
   };
 }
 
@@ -62,6 +66,8 @@ interface SubagentSessionRow {
   active_run_id: string | null;
   active_activity_id: string | null;
   active_run_started_at: string | null;
+  active_owner_id: string | null;
+  active_owner_pid: number | null;
   latest_run_id: string | null;
   latest_run_outcome: string | null;
   latest_run_finished_at: string | null;
@@ -121,6 +127,8 @@ export class SubagentSessionStore {
               status: "running" as const,
               ...(input.activeRun.activityId ? { activityId: input.activeRun.activityId } : {}),
               startedAt: input.activeRun.startedAt,
+              ...(input.activeRun.ownerId ? { ownerId: input.activeRun.ownerId } : {}),
+              ...(input.activeRun.ownerPid !== undefined ? { ownerPid: input.activeRun.ownerPid } : {}),
             },
           }
         : {}),
@@ -143,6 +151,8 @@ export class SubagentSessionStore {
           active_run_id,
           active_activity_id,
           active_run_started_at,
+          active_owner_id,
+          active_owner_pid,
           latest_run_id,
           latest_run_outcome,
           latest_run_finished_at,
@@ -151,7 +161,7 @@ export class SubagentSessionStore {
           hook_reports_json,
           created_at,
           updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)`,
       )
       .run(
         record.id,
@@ -166,6 +176,8 @@ export class SubagentSessionStore {
         record.activeRun?.id ?? null,
         record.activeRun?.activityId ?? null,
         record.activeRun?.startedAt ?? null,
+        record.activeRun?.ownerId ?? null,
+        record.activeRun?.ownerPid ?? null,
         null,
         null,
         null,
@@ -229,6 +241,8 @@ export class SubagentSessionStore {
           active_run_id = ?,
           active_activity_id = ?,
           active_run_started_at = ?,
+          active_owner_id = ?,
+          active_owner_pid = ?,
           latest_run_id = ?,
           latest_run_outcome = ?,
           latest_run_finished_at = ?,
@@ -250,6 +264,8 @@ export class SubagentSessionStore {
         updated.activeRun?.id ?? null,
         updated.activeRun?.activityId ?? null,
         updated.activeRun?.startedAt ?? null,
+        updated.activeRun?.ownerId ?? null,
+        updated.activeRun?.ownerPid ?? null,
         updated.latestRun?.id ?? null,
         updated.latestRun && updated.latestRun.status !== "running" ? updated.latestRun.status : null,
         updated.latestRun?.finishedAt ?? null,
@@ -258,6 +274,21 @@ export class SubagentSessionStore {
       );
 
     return updated;
+  }
+
+  assignActiveRunOwner(
+    id: string,
+    runId: string,
+    owner: { id: string; pid?: number },
+  ): SubagentSession {
+    this.database.sqlite.prepare(
+      `update local_agent_sessions
+          set active_owner_id = ?, active_owner_pid = ?, updated_at = ?
+        where id = ? and active_run_id = ?`,
+    ).run(owner.id, owner.pid ?? null, new Date().toISOString(), id, runId);
+    const current = this.getById(id);
+    if (!current) throw new Error(`Unknown subagent id: ${id}`);
+    return current;
   }
 
   delete(id: string): void {
@@ -287,6 +318,8 @@ function rowToSubagentSession(row: SubagentSessionRow): SubagentSession {
         status: "running" as const,
         ...(row.active_activity_id ? { activityId: row.active_activity_id } : {}),
         ...(row.active_run_started_at ? { startedAt: row.active_run_started_at } : {}),
+        ...(row.active_owner_id ? { ownerId: row.active_owner_id } : {}),
+        ...(row.active_owner_pid !== null ? { ownerPid: row.active_owner_pid } : {}),
       }
     : undefined;
   const latestOutcome = readOutcome(row.latest_run_outcome);

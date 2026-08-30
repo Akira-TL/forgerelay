@@ -77,6 +77,11 @@ const migrations: Migration[] = [
     name: "subagent-session-coordination",
     up: migrateSubagentSessionCoordination,
   },
+  {
+    version: 15,
+    name: "subagent-run-ownership",
+    up: migrateSubagentRunOwnership,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -391,6 +396,12 @@ function migrateSubagentSessionCoordination(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_id", "text");
   addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_outcome", "text");
   addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_finished_at", "text");
+}
+
+function migrateSubagentRunOwnership(sqlite: Database.Database): void {
+  migrateSubagentSessionCoordination(sqlite);
+  addColumnIfMissing(sqlite, "local_agent_sessions", "active_owner_id", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "active_owner_pid", "integer");
 }
 
 function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {

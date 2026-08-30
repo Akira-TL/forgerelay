@@ -641,17 +641,16 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   await rm(promptFile, { force: true });
   await executeSubagentSession(config, id, prompt);
 }
-
 function createCliSubagentSessionManager(config = loadConfig()): SubagentSessionManager {
   return new SubagentSessionManager(config, {
     launch(request) {
       const promptFile = writeSubagentPromptFile(request.prompt);
-      spawnSubagentWorker(request.sessionId, promptFile);
+      const pid = spawnSubagentWorker(request.sessionId, promptFile);
+      return pid === undefined ? undefined : { id: `subagent-worker-${request.runId}`, pid };
     },
   });
 }
-
-function spawnSubagentWorker(sessionId: string, promptFile: string): void {
+function spawnSubagentWorker(sessionId: string, promptFile: string): number | undefined {
   const child = spawn(process.execPath, [
     ...process.execArgv,
     fileURLToPath(import.meta.url),
@@ -666,6 +665,7 @@ function spawnSubagentWorker(sessionId: string, promptFile: string): void {
     env: process.env,
   });
   child.unref();
+  return child.pid;
 }
 
 function writeSubagentPromptFile(prompt: string): string {

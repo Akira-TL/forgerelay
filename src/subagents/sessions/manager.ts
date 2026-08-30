@@ -25,8 +25,13 @@ export interface SubagentLaunchRequest {
   prompt: string;
 }
 
+export interface SubagentRunOwner {
+  id: string;
+  pid?: number;
+}
+
 export interface SubagentLauncher {
-  launch(request: SubagentLaunchRequest): void;
+  launch(request: SubagentLaunchRequest): SubagentRunOwner | void;
 }
 
 export interface StartSubagentSessionInput {
@@ -63,6 +68,11 @@ export class SubagentSessionError extends Error {
 }
 
 export interface SubagentSessionStart {
+  session: SubagentSession;
+  run: SubagentRunSummary;
+}
+
+export interface ReconciledSubagentRun {
   session: SubagentSession;
   run: SubagentRunSummary;
 }
@@ -112,13 +122,16 @@ export class SubagentSessionManager {
     });
     const run = session.activeRun;
     if (!run) throw new Error(`Subagent Session ${session.id} did not create an active Run.`);
-    this.launcher.launch({
+    const owned = this.assignOwner(session, run, this.launcher.launch({
       sessionId: session.id,
       runId,
       ...(input.activityId ? { activityId: input.activityId } : {}),
       prompt: input.prompt,
-    });
-    return { session, run };
+    }));
+    return {
+      session: owned,
+      run: owned.activeRun ?? (owned.latestRun?.id === run.id ? owned.latestRun : run),
+    };
   }
 
   resume(
@@ -167,13 +180,41 @@ export class SubagentSessionManager {
       status: "running",
       activeRun: run,
     });
-    this.launcher.launch({
+    const owned = this.assignOwner(session, run, this.launcher.launch({
       sessionId: session.id,
       runId,
       ...(input.activityId ? { activityId: input.activityId } : {}),
       prompt: input.prompt,
-    });
-    return { session, run };
+    }));
+    return {
+      session: owned,
+      run: owned.activeRun ?? (owned.latestRun?.id === run.id ? owned.latestRun : run),
+    };
+  }
+
+  reconcile(
+    scope: SubagentSessionScope,
+    ownerAlive: (run: SubagentRunSummary) => boolean,
+  ): ReconciledSubagentRun[] {
+    const reconciled: ReconciledSubagentRun[] = [];
+    for (const session of this.store.list(scope)) {
+      const run = session.activeRun;
+      if (!run || ownerAlive(run)) continue;
+      const interrupted: SubagentRunSummary = {
+        id: run.id,
+        status: "interrupted",
+        ...(run.activityId ? { activityId: run.activityId } : {}),
+        ...(run.startedAt ? { startedAt: run.startedAt } : {}),
+        finishedAt: new Date().toISOString(),
+      };
+      const updated = this.store.update(session.id, {
+        status: "idle",
+        activeRun: undefined,
+        latestRun: interrupted,
+      });
+      reconciled.push({ session: updated, run: interrupted });
+    }
+    return reconciled;
   }
 
   delete(sessionId: string, scope: SubagentSessionScope = {}): SubagentSession {
@@ -196,6 +237,15 @@ export class SubagentSessionManager {
 
   close(): void {
     this.store.close();
+  }
+
+  private assignOwner(
+    session: SubagentSession,
+    run: SubagentRunSummary,
+    owner: SubagentRunOwner | void,
+  ): SubagentSession {
+    if (!owner) return session;
+    return this.store.assignActiveRunOwner(session.id, run.id, owner);
   }
 }
 

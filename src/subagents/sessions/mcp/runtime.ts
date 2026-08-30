@@ -3,9 +3,11 @@ import type { CapabilityRegistryDependencies } from "../../../capability-registr
 import type { ServerConfig } from "../../../config.js";
 import { SubagentSessionCapability } from "../capability.js";
 import type { SubagentProviderRunner } from "../execution.js";
+import type { SubagentRunSummary } from "../store.js";
 
 export interface SubagentMcpRuntimeOptions {
   subagentProviderRunner?: SubagentProviderRunner;
+  subagentOwnerAlive?: (run: SubagentRunSummary) => boolean;
 }
 
 export interface SubagentMcpRuntime {
@@ -21,6 +23,7 @@ export function createSubagentMcpRuntime(
   const capability = config.subagents
     ? new SubagentSessionCapability(config, activityLifecycle, {
         providerRunner: options.subagentProviderRunner,
+        ownerAlive: options.subagentOwnerAlive,
       })
     : undefined;
   return {
