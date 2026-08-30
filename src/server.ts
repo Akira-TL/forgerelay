@@ -3776,9 +3776,13 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close one Workspace after the user chooses cleanup. In v0.8.0, Composite close still dissolves only the Composite identity/member links. Checkout close removes ForgeRelay state but never project files. Managed-worktree-backed Workspaces run the safe finalize lifecycle (hooks, commit, fast-forward integration, cleanup) and require commitMessage. Running processes block ordinary Workspace closure.",
+        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout identity for later reopen. action=delete permanently removes ForgeRelay-owned checkout state but never project files. Managed-worktree-backed Workspaces still use the safe finalize lifecycle and require commitMessage; Composite and relayed delete semantics are not available in this stage.",
       inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier to close."),
+        workspaceId: z.string().describe("Workspace identifier to close or delete."),
+        action: z
+          .enum(["close", "delete"])
+          .optional()
+          .describe("Defaults to close. close preserves checkout identity for later reopen; delete permanently removes ForgeRelay-owned checkout state without deleting project files."),
         commitMessage: z
           .string()
           .min(1)
@@ -3787,6 +3791,7 @@ export function createMcpServer(
       },
       outputSchema: resultOutputSchema({
         workspaceId: z.string(),
+        action: z.enum(["close", "delete"]).optional(),
         kind: z.enum(["workspace", "composite"]).optional(),
         mode: z.enum(["checkout", "worktree"]).optional(),
         name: z.string().optional(),
@@ -3807,8 +3812,11 @@ export function createMcpServer(
       _meta: {},
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
-    async ({ workspaceId, commitMessage }, extra) => {
+    async ({ workspaceId, action = "close", commitMessage }, extra) => {
       if (compositeWorkspaces.has(workspaceId)) {
+        if (action === "delete") {
+          throw new Error("close_workspace action=delete is not available for Composite Workspaces until the Composite persistent lifecycle stage.");
+        }
         if (commitMessage !== undefined) {
           throw new Error("close_workspace commitMessage is not valid when dissolving a Composite Workspace.");
         }
@@ -3828,6 +3836,7 @@ export function createMcpServer(
             tool: toolNames.closeWorkspace,
             card: {
               workspaceId,
+              action: "close" as const,
               kind: "composite" as const,
               name: composite.name,
               members: composite.members,
@@ -3838,6 +3847,7 @@ export function createMcpServer(
           structuredContent: {
             result,
             workspaceId,
+            action: "close" as const,
             kind: "composite" as const,
             name: composite.name,
             members: composite.members,
@@ -3846,6 +3856,9 @@ export function createMcpServer(
         };
       }
       if (remoteWorkspaces.has(workspaceId)) {
+        if (action === "delete") {
+          throw new Error("close_workspace action=delete is not available for relayed Workspaces until Workspace Relay lifecycle parity is implemented.");
+        }
         const response = await remoteWorkspaces.closeWorkspace(
           workspaceId,
           commitMessage,
@@ -3854,12 +3867,62 @@ export function createMcpServer(
         workspacePanelStates.delete(workspaceId);
         return response;
       }
+      if (action === "delete") {
+        if (commitMessage !== undefined) {
+          throw new Error("close_workspace commitMessage is not valid with action=delete for a checkout Workspace.");
+        }
+        const session = workspaces.getWorkspaceSession(workspaceId);
+        if (session.mode !== "checkout") {
+          throw new Error("close_workspace action=delete is not available for managed-worktree-backed Workspaces until their persistent lifecycle stage.");
+        }
+        if (processSessions.activeWorkspaceIds().has(session.id)) {
+          throw new Error(
+            `Workspace ${session.id} still owns a running process. Poll, interrupt, or wait for it before deleting this Workspace.`,
+          );
+        }
+        const response = await runToolWithHooks(hooks, {
+          signal: extra.signal,
+          tool: toolNames.closeWorkspace,
+          invocation: {
+            workspaceId: session.id,
+            workspaceRoot: session.root,
+            workspaceMode: session.mode,
+            sourceRoot: session.sourceRoot,
+          },
+          payload: { workspaceId: session.id, action: "delete", mode: session.mode },
+          operation: async () => {
+            workspaces.deleteWorkspace(session.id);
+            await reviewCheckpoints.releaseWorkspace(session.id);
+            const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
+            return {
+              content: [textBlock(result)],
+              _meta: {
+                tool: toolNames.closeWorkspace,
+                card: {
+                  workspaceId: session.id,
+                  action: "delete" as const,
+                  mode: "checkout",
+                  payload: { content: [textBlock(result)] },
+                },
+              },
+              structuredContent: {
+                result,
+                workspaceId: session.id,
+                action: "delete" as const,
+                mode: "checkout" as const,
+              },
+            };
+          },
+        });
+        workspacePanelStates.delete(session.id);
+        return response;
+      }
       const workspace = workspaces.getWorkspace(workspaceId);
       const response = await runToolWithHooks(hooks, {
         signal: extra.signal,
         tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
-        payload: { workspaceId, commitMessage, mode: workspace.mode },
+        payload: { workspaceId, action: "close", commitMessage, mode: workspace.mode },
         afterCwd: (response) =>
           "sourceRoot" in response.structuredContent &&
           typeof response.structuredContent.sourceRoot === "string"
@@ -3913,6 +3976,7 @@ export function createMcpServer(
                 tool: toolNames.closeWorkspace,
                 card: {
                   workspaceId,
+                  action: "close" as const,
                   mode: "worktree",
                   sourceRoot: closed.sourceRoot,
                   branch: closed.branch,
@@ -3927,6 +3991,7 @@ export function createMcpServer(
               structuredContent: {
                 result,
                 workspaceId,
+                action: "close" as const,
                 mode: "worktree" as const,
                 sourceRoot: closed.sourceRoot,
                 branch: closed.branch,
@@ -3942,29 +4007,36 @@ export function createMcpServer(
           if (commitMessage !== undefined) {
             throw new Error("close_workspace commitMessage is only valid for managed-worktree-backed workspaces.");
           }
-          if (processSessions.activeWorkspaceIds().has(workspaceId)) {
+          const checkoutWorkspaceId = workspace.id;
+          if (processSessions.activeWorkspaceIds().has(checkoutWorkspaceId)) {
             throw new Error(
-              `Workspace ${workspaceId} still owns a running process. Poll, interrupt, or wait for it before closing this workspace.`,
+              `Workspace ${checkoutWorkspaceId} still owns a running process. Poll, interrupt, or wait for it before closing this workspace.`,
             );
           }
-          workspaces.closeWorkspace(workspaceId);
-          await reviewCheckpoints.releaseWorkspace(workspaceId);
-          const result = `Closed checkout-backed workspace ${workspaceId}. Physical project files were not removed.`;
+          workspaces.closeWorkspace(checkoutWorkspaceId);
+          await reviewCheckpoints.releaseWorkspace(checkoutWorkspaceId);
+          const result = `Closed checkout-backed Workspace ${checkoutWorkspaceId}; its ForgeRelay identity was preserved for later reopen. Physical project files were not removed.`;
           return {
             content: [textBlock(result)],
             _meta: {
               tool: toolNames.closeWorkspace,
               card: {
-                workspaceId,
+                workspaceId: checkoutWorkspaceId,
+                action: "close" as const,
                 mode: "checkout",
                 payload: { content: [textBlock(result)] },
               },
             },
-            structuredContent: { result, workspaceId, mode: "checkout" as const },
+            structuredContent: {
+              result,
+              workspaceId: checkoutWorkspaceId,
+              action: "close" as const,
+              mode: "checkout" as const,
+            },
           };
         },
       });
-      workspacePanelStates.delete(workspaceId);
+      workspacePanelStates.delete(workspace.id);
       return response;
     },
   );

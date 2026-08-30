@@ -288,11 +288,15 @@ normal open path may still include `staleWorkspaces` for an idle persistent
 Workspace; use `open_workspace(action="list")` for complete, filtered inventory
 when continuation or cleanup actually requires it.
 
-In v0.8.0, `close_workspace` is still the existing public close operation:
-checkout-backed Workspaces remove their ForgeRelay record without deleting project
-files, while managed-worktree-backed Workspaces require `commitMessage` and run the
-safe commit / fast-forward-only integration / cleanup lifecycle. Persistent
-closed/reopen semantics land in the following lifecycle stage.
+For checkout-backed Workspaces, `close_workspace` defaults to `action="close"` and
+preserves the Workspace identity for later reopen. A closed Workspace stays visible
+through `open_workspace(action="list")`, while ordinary execution tools reject it
+until `open_workspace` reactivates the same ID by path or by `workspaceId`.
+`close_workspace(action="delete")` is the explicit permanent checkout cleanup path:
+it removes ForgeRelay-owned Workspace state but never deletes or mutates project
+files. Managed-worktree close still requires `commitMessage` and runs the safe commit /
+fast-forward-only integration / cleanup lifecycle; managed-worktree, Composite, and
+relayed delete semantics are completed by their later lifecycle stages.
 
 Shell commands are allowed to modify ordinary project files when that is a
 natural part of the user's requested development task; ForgeRelay does not apply

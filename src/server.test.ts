@@ -86,6 +86,9 @@ test("MCP instructions separate capability contract from configurable workflow p
       };
     };
   } | undefined;
+  const closeWorkspaceInputProperties = (closeWorkspaceTool?.inputSchema as {
+    properties?: Record<string, { description?: string; enum?: string[] }>;
+  } | undefined)?.properties;
   const shellInputProperties = (shellTool?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   } | undefined)?.properties;
@@ -146,6 +149,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.ok((closeWorkspaceTool?.description?.length ?? Infinity) < 500);
   assert.match(closeWorkspaceTool?.description ?? "", /Managed-worktree-backed/);
   assert.match(closeWorkspaceTool?.description ?? "", /commitMessage/);
+  assert.deepEqual(closeWorkspaceInputProperties?.action?.enum, ["close", "delete"]);
+  assert.match(closeWorkspaceInputProperties?.action?.description ?? "", /preserves checkout identity/i);
+  assert.match(closeWorkspaceInputProperties?.action?.description ?? "", /project files/i);
 
   const overrideContext = await fixture(t, {
     env: {
@@ -1770,20 +1776,72 @@ test("open_workspace reuses a stale checkout instead of reporting a duplicate lo
   assert.doesNotMatch(allResponseText(current), /Idle logical workspaces.*>2 days/);
 });
 
-test("close_workspace closes the canonical checkout shared by MCP conversations", async (t) => {
+test("idle GC keeps an unbound checkout Workspace identity reachable through MCP", async (t) => {
   const context = await fixture(t);
+  const first = await callOpen(context.client, context.project);
+  const workspaceId = String(structuredContent(first).workspaceId);
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite
+      .prepare("update workspace_sessions set last_used_at = ? where id = ?")
+      .run(new Date(Date.now() - 31 * 24 * 60 * 60 * 1_000).toISOString(), workspaceId);
+  } finally {
+    database.close();
+  }
+
+  const reopened = await callOpen(context.client, context.project);
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, workspaceId);
+
+  const listed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  const inventory = structuredContent(listed).workspaces as Array<Record<string, unknown>>;
+  assert.equal(inventory.length, 1);
+  assert.equal(inventory[0]?.workspaceId, workspaceId);
+});
+
+test("close_workspace preserves, reopens, and explicitly deletes a checkout Workspace", async (t) => {
+  const context = await fixture(t);
+  const sentinel = join(context.project, "workspace-delete-sentinel.txt");
+  await writeFile(sentinel, "preserve checkout\n");
   const first = await callOpen(context.client, context.project, "chat-1");
   const second = await callOpen(context.client, context.project, "chat-2");
   const firstId = String(structuredContent(first).workspaceId);
   const secondId = String(structuredContent(second).workspaceId);
   assert.equal(secondId, firstId);
+  const legacyAliasId = "ws_cccccccccc";
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite.prepare(`
+      insert into workspace_session_aliases (alias_id, workspace_session_id)
+      values (?, ?)
+    `).run(legacyAliasId, firstId);
+  } finally {
+    database.close();
+  }
 
   const closed = await context.client.callTool({
     name: "close_workspace",
-    arguments: { workspaceId: firstId },
+    arguments: { workspaceId: legacyAliasId },
   });
-  assert.equal(closed.isError, undefined);
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal(structuredContent(closed).workspaceId, firstId);
+  assert.equal(structuredContent(closed).action, "close");
+  assert.doesNotMatch(allResponseText(closed), new RegExp(legacyAliasId));
+  assert.match(allResponseText(closed), /preserved/i);
   assert.match(allResponseText(closed), /Physical project files were not removed/);
+
+  const listedClosed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId: legacyAliasId },
+  });
+  const closedInventory = structuredContent(listedClosed).workspaces as Array<Record<string, unknown>>;
+  assert.equal(closedInventory.length, 1);
+  assert.equal(closedInventory[0]?.workspaceId, firstId);
+  assert.equal(closedInventory[0]?.state, "closed");
+  assert.equal(closedInventory[0]?.status, "closed");
 
   const closedRead = await context.client.callTool({
     name: "read",
@@ -1792,12 +1850,43 @@ test("close_workspace closes the canonical checkout shared by MCP conversations"
   assert.equal(closedRead.isError, true);
   assert.match(allResponseText(closedRead), /Unknown workspaceId/);
 
-  const secondConversationRead = await context.client.callTool({
-    name: "read",
-    arguments: { workspaceId: secondId, path: "AGENTS.md" },
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: firstId, context: "none" },
+    _meta: { "openai/session": "chat-2" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, firstId);
+
+  const reclosed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: firstId, action: "close" },
   });
-  assert.equal(secondConversationRead.isError, true);
-  assert.match(allResponseText(secondConversationRead), /Unknown workspaceId/);
+  assert.equal(reclosed.isError, undefined, allResponseText(reclosed));
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: legacyAliasId, action: "delete" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  assert.equal(structuredContent(deleted).workspaceId, firstId);
+  assert.equal(structuredContent(deleted).action, "delete");
+  assert.doesNotMatch(allResponseText(deleted), new RegExp(legacyAliasId));
+  assert.match(allResponseText(deleted), /deleted ForgeRelay Workspace/i);
+  assert.equal((await stat(context.project)).isDirectory(), true);
+  assert.equal(await readFile(sentinel, "utf8"), "preserve checkout\n");
+
+  const listedDeleted = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId: firstId },
+  });
+  assert.equal(
+    (structuredContent(listedDeleted).workspaces as Array<Record<string, unknown>>).length,
+    0,
+  );
+
+  const replacement = await callOpen(context.client, context.project, "chat-1");
+  assert.notEqual(structuredContent(replacement).workspaceId, firstId);
 });
 
 test("concurrent checkout opens return one full context and one reuse instruction", async (t) => {

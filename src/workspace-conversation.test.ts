@@ -91,8 +91,8 @@ test("newWorkspace compatibility suppresses unchanged bootstrap already delivere
   assert.equal(fresh.includeBootstrapContext, false);
 });
 
-test("closing the current checkout does not forget delivered project context", async (t) => {
-  const { project, registry } = await fixture(t);
+test("closing the current checkout preserves identity and delivered project context", async (t) => {
+  const { project, registry, store } = await fixture(t);
 
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const compatible = await registry.openWorkspace(
@@ -103,10 +103,13 @@ test("closing the current checkout does not forget delivered project context", a
   assert.equal(compatible.includeBootstrapContext, false);
 
   registry.closeWorkspace(compatible.workspace.id);
-  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(store.getSession(first.workspace.id)?.status, "closed");
+  assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
 
-  assert.notEqual(reopened.workspace.id, first.workspace.id);
+  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(reopened.workspace.id, first.workspace.id);
   assert.equal(reopened.includeBootstrapContext, false);
+  assert.equal(store.getSession(first.workspace.id)?.status, "active");
 });
 
 test("changed project instructions invalidate the delivered bootstrap fingerprint", async (t) => {
@@ -222,17 +225,45 @@ test("an unbound checkout Workspace identity survives thirty idle days", async (
   assert.ok(restoredStore.getSession(orphan.workspace.id));
 });
 
-test("closing the canonical checkout removes that identity until the project is opened again", async (t) => {
-  const { project, registry } = await fixture(t);
+test("closing the canonical checkout keeps one closed Workspace that can reopen by id or path", async (t) => {
+  const { project, registry, store } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   const second = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
   assert.equal(second.workspace.id, first.workspace.id);
 
   registry.closeWorkspace(first.workspace.id);
 
+  assert.equal(store.getSession(first.workspace.id)?.status, "closed");
   assert.throws(() => registry.getWorkspace(first.workspace.id), /Unknown workspaceId/);
-  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-2" });
-  assert.notEqual(reopened.workspace.id, first.workspace.id);
+  const closedInventory = await registry.listWorkspaces({ workspaceId: first.workspace.id });
+  assert.equal(closedInventory.workspaces[0]?.state, "closed");
+  assert.equal(closedInventory.workspaces[0]?.workspaceId, first.workspace.id);
+
+  const reopenedById = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-2" },
+  );
+  assert.equal(reopenedById.workspace.id, first.workspace.id);
+  registry.closeWorkspace(first.workspace.id);
+
+  const reopenedByPath = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(reopenedByPath.workspace.id, first.workspace.id);
+});
+
+test("deleting a closed checkout removes ForgeRelay identity without touching project files", async (t) => {
+  const { project, registry, store } = await fixture(t);
+  const sentinel = join(project, "keep-me.txt");
+  await writeFile(sentinel, "preserve checkout\n");
+  const opened = await registry.openWorkspace(project, { conversationScopeId: "chat-delete" });
+
+  registry.closeWorkspace(opened.workspace.id);
+  registry.deleteWorkspace(opened.workspace.id);
+
+  assert.equal(store.getSession(opened.workspace.id), undefined);
+  assert.equal((await stat(project)).isDirectory(), true);
+  assert.equal((await stat(sentinel)).isFile(), true);
+  const reopened = await registry.openWorkspace(project, { conversationScopeId: "chat-delete" });
+  assert.notEqual(reopened.workspace.id, opened.workspace.id);
 });
 
 test("conversation bindings distinguish canonical projects", async (t) => {
