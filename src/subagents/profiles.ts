@@ -34,6 +34,11 @@ export interface SubagentProfileSummary {
   thinking?: string;
 }
 
+export interface AvailableSubagentProfileSummary extends SubagentProfileSummary {
+  providerAvailable?: boolean;
+  providerUnavailableReason?: string;
+}
+
 interface ParsedFrontmatter {
   frontmatter: Record<string, unknown>;
   body: string;
@@ -76,6 +81,15 @@ export function summarizeSubagentProfile(
     model: profile.model,
     thinking: profile.thinking,
   };
+}
+
+export function formatAvailableSubagentProfile(profile: AvailableSubagentProfileSummary): string {
+  const model = profile.model ? `, model ${profile.model}` : "";
+  const thinking = profile.thinking ? `, thinking ${profile.thinking}` : "";
+  const availability = profile.providerAvailable === false
+    ? `, unavailable: ${profile.providerUnavailableReason ?? "provider unavailable"}`
+    : "";
+  return `${profile.name} (${profile.provider}${model}${thinking}${availability})`;
 }
 
 async function loadProfilesFromDirectory(directory: string): Promise<SubagentProfile[]> {

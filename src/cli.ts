@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { stdin as input, stdout as output } from "node:process";
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,9 +11,9 @@ import * as prompts from "@clack/prompts";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
-import { formatVisibleHookReports } from "./hooks.js";
 import { runHooksCommand } from "./hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
+import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
 import { SubagentSessionManager } from "./subagents/sessions/manager.js";
 import { formatSubagentProviderAvailabilitySummary } from "./subagents/providers/availability.js";
 import { parseSubagentRunArgs } from "./subagents/cli-target.js";
@@ -580,7 +580,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
   const manager = createCliSubagentSessionManager();
   try {
     const existing = manager.get(parsed.target);
-    const session = existing
+    const started = existing
       ? manager.resume({
           sessionId: existing.id,
           prompt: parsed.prompt,
@@ -595,7 +595,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
           model: parsed.model,
           thinking: parsed.thinking,
         });
-    console.log(formatAgentLine({ ...session, status: "running" }));
+    console.log(formatAgentLine(started.session));
   } finally {
     manager.close();
   }
@@ -605,29 +605,29 @@ async function runAgentsShow(args: string[]): Promise<void> {
   const [id] = args;
   if (!id) throw new Error("Usage: forgerelay agents show <id>");
 
-  const manager = createCliSubagentSessionManager();
+  const config = loadConfig();
+  const manager = createCliSubagentSessionManager(config);
   try {
     let record = manager.get(id);
     if (!record) throw new Error(`Unknown subagent id: ${id}`);
 
     const deadline = Date.now() + 15_000;
-    while ((record.status === "starting" || record.status === "running") && Date.now() < deadline) {
+    while (record.status === "running" && Date.now() < deadline) {
       await sleep(500);
       record = manager.get(id) ?? record;
     }
 
     console.log(formatAgentLine(record));
-    const hookSummary = formatVisibleHookReports(record.hookReports ?? []);
-    if (hookSummary) console.log(hookSummary);
-    if (record.latestResponse) {
-      console.log(record.latestResponse);
-      return;
+    if (record.workspaceId) {
+      const deliveries = new SubagentDeliveryMailbox(config.stateDir).claimSession(record.workspaceId, record.id);
+      for (const delivery of deliveries) {
+        const text = delivery.outcome === "succeeded" ? delivery.finalResponse : delivery.error;
+        if (text) console.log(text);
+      }
+      if (deliveries.length > 0) return;
     }
-    if (record.error) {
-      console.log(record.error);
-      return;
-    }
-    if (record.status === "starting" || record.status === "running") {
+    if (record.latestRun) console.log(`Latest run ${record.latestRun.id}: ${record.latestRun.status}`);
+    if (record.status === "running") {
       console.log(`No final response yet. Call \`forgerelay agents show ${record.id}\` again later.`);
     }
   } finally {
@@ -640,17 +640,17 @@ async function runAgentsWorker(args: string[]): Promise<void> {
   if (!id || promptFileFlag !== "--prompt-file" || !promptFile) {
     throw new Error("Usage: forgerelay agents __worker <id> --prompt-file <path>");
   }
-
   const config = loadConfig();
   const prompt = await readFile(promptFile, "utf8");
+  await rm(promptFile, { force: true });
   await executeSubagentSession(config, id, prompt);
 }
 
-function createCliSubagentSessionManager(): SubagentSessionManager {
-  return new SubagentSessionManager(loadConfig(), {
-    launch(sessionId, prompt) {
-      const promptFile = writeSubagentPromptFile(prompt);
-      spawnSubagentWorker(sessionId, promptFile);
+function createCliSubagentSessionManager(config = loadConfig()): SubagentSessionManager {
+  return new SubagentSessionManager(config, {
+    launch(request) {
+      const promptFile = writeSubagentPromptFile(request.prompt);
+      spawnSubagentWorker(request.sessionId, promptFile);
     },
   });
 }

@@ -148,7 +148,7 @@ export function buildCapabilityFingerprint(
   }
 
   if (config.subagents) {
-    capabilities.push("subagent.profiles");
+    capabilities.push("subagent.session");
   }
   if (config.artifactsEnabled && context.artifactDownloadSupported) {
     capabilities.push("artifact.native-download");

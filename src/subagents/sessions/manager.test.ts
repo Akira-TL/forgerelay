@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../config.js";
-import { SubagentSessionManager } from "./manager.js";
+import { SubagentSessionManager, type SubagentLaunchRequest } from "./manager.js";
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-subagent-manager-test-"));
 try {
@@ -35,10 +35,10 @@ try {
     FORGERELAY_SUBAGENTS: "1",
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
-  const launches: Array<{ sessionId: string; prompt: string }> = [];
+  const launches: SubagentLaunchRequest[] = [];
   const manager = new SubagentSessionManager(config, {
-    launch(sessionId, prompt) {
-      launches.push({ sessionId, prompt });
+    launch(request) {
+      launches.push(request);
     },
   });
 
@@ -47,27 +47,24 @@ try {
     workspaceRoot: projectRoot,
     target: "reviewer",
     prompt: "Review this change.",
+    activityId: "act_test",
   });
-  assert.equal(started.status, "starting");
-  assert.equal(started.profileName, "reviewer");
-  assert.equal(started.provider, "codex");
-  assert.equal(started.model, "gpt-5.4");
-  assert.equal(started.thinking, "high");
-  assert.deepEqual(launches, [{ sessionId: started.id, prompt: "Review this change." }]);
+  assert.equal(started.session.status, "running");
+  assert.equal(started.session.profileName, "reviewer");
+  assert.equal(started.session.provider, "codex");
+  assert.equal(started.session.model, "gpt-5.4");
+  assert.equal(started.session.thinking, "high");
+  assert.equal(started.run.id, started.session.activeRun?.id);
+  assert.equal(started.run.activityId, "act_test");
+  assert.deepEqual(launches, [{
+    sessionId: started.session.id,
+    runId: started.run.id,
+    activityId: "act_test",
+    prompt: "Review this change.",
+  }]);
 
-  const resumed = manager.resume({
-    sessionId: started.id,
-    prompt: "Now focus on tests.",
-    model: "gpt-5.6",
-  });
-  assert.equal(resumed.id, started.id);
-  assert.equal(resumed.status, "starting");
-  assert.equal(resumed.model, "gpt-5.6");
-  assert.equal(resumed.thinking, "high");
-  assert.equal(resumed.latestResponse, undefined);
-  assert.deepEqual(launches[1], { sessionId: started.id, prompt: "Now focus on tests." });
-
-  assert.equal(manager.get(started.id)?.id, started.id);
+  assert.equal(manager.get(started.session.id)?.id, started.session.id);
+  assert.equal(manager.get(started.session.id, { workspaceId: "ws_other" }), undefined);
   assert.equal(manager.list({ workspaceId: "ws_test" }).length, 1);
   manager.close();
 } finally {

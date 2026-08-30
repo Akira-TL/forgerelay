@@ -123,12 +123,15 @@ import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
-import { summarizeSubagentProfile } from "./subagents/profiles.js";
+import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
   formatSubagentProviderAvailabilitySummary,
+  formatUnavailableSubagentProvider,
   getSubagentProviderAvailabilitySnapshot,
   type SubagentProviderAvailability,
 } from "./subagents/providers/availability.js";
+import { capabilityActivityAuditRequest, capabilityActivityAuditResult } from "./subagents/sessions/mcp/audit.js";
+import { createSubagentMcpRuntime, type SubagentMcpRuntimeOptions } from "./subagents/sessions/mcp/runtime.js";
 
 type Transport = StreamableHTTPServerTransport;
 // Legacy MCP Streamable HTTP clients can reconnect without closing the previous
@@ -280,26 +283,6 @@ async function assertWorkspaceInstructionsLoadedBeforeSideEffect(
     formatDiscoveredWorkspaceInstructions([...discovered.values()], workspace.root),
     "Apply these instructions, then retry this tool call. No mutation or command was executed.",
   ].join("\n"));
-}
-
-function formatVisibleAgent(agent: {
-  name: string;
-  provider: string;
-  model?: string;
-  thinking?: string;
-  providerAvailable?: boolean;
-  providerUnavailableReason?: string;
-}): string {
-  const model = agent.model ? `, model ${agent.model}` : "";
-  const thinking = agent.thinking ? `, thinking ${agent.thinking}` : "";
-  const availability = agent.providerAvailable === false
-    ? `, unavailable: ${agent.providerUnavailableReason ?? "provider unavailable"}`
-    : "";
-  return `${agent.name} (${agent.provider}${model}${thinking}${availability})`;
-}
-
-function formatUnavailableSubagentProvider(provider: SubagentProviderAvailability): string {
-  return `${provider.name} (${provider.reason ?? "unavailable"})`;
 }
 
 function resultOutputSchema(extra: z.ZodRawShape = {}): z.ZodRawShape {
@@ -1360,6 +1343,7 @@ function runActivityTool<T>(
   operation: (context: ActivityExecutionContext) => Promise<T>,
   outcome: (result: T) => ActivityOutcome = standardActivityOutcome,
   relation: ActivityRelationContext = {},
+  auditResult?: (result: T) => unknown,
 ): Promise<T> {
   return lifecycle.run({
     tool,
@@ -1368,6 +1352,7 @@ function runActivityTool<T>(
     request,
     operation,
     outcome,
+    ...(auditResult ? { auditResult } : {}),
     ...relation,
   });
 }
@@ -1669,6 +1654,7 @@ export function createMcpServer(
   activityLifecycle: ActivityLifecycle,
   bashOutputStore: BashOutputStore,
   activityQueries: ActivityQueryService,
+  options: SubagentMcpRuntimeOptions = {},
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
@@ -1702,17 +1688,20 @@ export function createMcpServer(
       memberName: member.name,
     };
   };
+  const subagentMcp = createSubagentMcpRuntime(config, activityLifecycle, options);
   const presentExecutionResult = <T>(
     result: T,
     target: ReturnType<typeof resolveExecutionTarget>,
   ): T => {
-    if (!target.compositeWorkspaceId || !target.memberName) return result;
-    return remapCompositeToolResult(
-      result,
-      target.executionWorkspaceId,
-      target.compositeWorkspaceId,
-      target.memberName,
-    );
+    const presented = !target.compositeWorkspaceId || !target.memberName
+      ? result
+      : remapCompositeToolResult(
+          result,
+          target.executionWorkspaceId,
+          target.compositeWorkspaceId,
+          target.memberName,
+        );
+    return subagentMcp.decorateResult(target.executionWorkspaceId, presented);
   };
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
@@ -1758,6 +1747,7 @@ export function createMcpServer(
   const batchExecuteAvailable = config.toolMode !== "codex";
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+    ...subagentMcp.registryDependencies,
     batchExecute: {
       available: batchExecuteAvailable,
       unavailableReason: batchExecuteAvailable
@@ -2419,13 +2409,13 @@ export function createMcpServer(
       const { workspaceId, name, arguments: capabilityArguments, file } = input;
       const workspace = workspaces.getWorkspace(workspaceId);
       let changedPaths: string[] = [];
-      return runActivityToolWithHooks(
+      return runActivityTool(
         activityLifecycle,
-        hooks,
         workspace,
         hostScopeIdFor(context.requestMeta, context.sessionId),
-        activityRequestFor({ workspaceId, name, action: "run", arguments: capabilityArguments, file }, context),
-        {
+        toolNames.capability,
+        activityRequestFor(capabilityActivityAuditRequest(input), context),
+        (activityContext) => runToolWithHooks(hooks, {
           signal: context.signal,
           tool: toolNames.capability,
           invocation: workspaceHookInvocation(workspace),
@@ -2445,6 +2435,7 @@ export function createMcpServer(
                   requestMeta: context.requestMeta,
                   sessionId: context.sessionId,
                   batch: context.batch,
+                  activityId: activityContext.activityId,
                 },
               );
               changedPaths = execution.changedPaths ?? [];
@@ -2500,8 +2491,10 @@ export function createMcpServer(
               return result;
             }
           },
-        },
+        }),
+        standardActivityOutcome,
         activityRelationFor(context),
+        (result) => capabilityActivityAuditResult(name, result),
       );
     },
   });
@@ -3435,7 +3428,7 @@ export function createMcpServer(
               ? `Unavailable subagent providers: ${visibleAgentProviders.filter((provider) => !provider.available).map(formatUnavailableSubagentProvider).join(", ")}`
               : undefined,
             visibleAgents.length > 0
-              ? `Available subagent profiles: ${visibleAgents.map(formatVisibleAgent).join(", ")}`
+              ? `Available subagent profiles: ${visibleAgents.map(formatAvailableSubagentProfile).join(", ")}`
               : undefined,
             knownWorktrees.length > 0
               ? `Known worktrees: ${knownWorktrees.map((worktree) => `${worktree.path} [${worktree.workspaceId}]${worktree.branch ? ` branch=${worktree.branch}` : ""}${worktree.targetBranch ? ` target=${worktree.targetBranch}` : ""}${worktree.current ? " (current)" : ""}`).join(", ")}`

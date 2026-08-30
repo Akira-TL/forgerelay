@@ -66,7 +66,6 @@ export class CodexSdkSubagentRuntime {
       provider: this.provider,
       providerSessionId: thread.id,
       finalResponse: turn.finalResponse,
-      items: turn.items,
     };
   }
 }

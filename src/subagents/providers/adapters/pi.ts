@@ -33,8 +33,14 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
     });
     assertPipedChild(child);
     const rpc = new JsonLineRpc(child);
-    const events: unknown[] = [];
-    rpc.onEvent((event) => events.push(event));
+    let streamingText = "";
+    let streamingProviderError = "";
+    rpc.onEvent((event) => {
+      const text = extractPiStreamingText([event]);
+      if (text) streamingText += text;
+      const providerError = extractPiProviderError(event);
+      if (providerError) streamingProviderError = providerError;
+    });
     try {
       const state = await rpc.request({ type: "get_state" });
       const providerSessionId = readNestedString(state, ["sessionId"]) ?? input.providerSessionId ?? null;
@@ -45,12 +51,12 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
       const finalResponse =
         extractPiFinalResponse(agentEnd) ||
         extractPiFinalResponse(sessionMessages) ||
-        extractPiStreamingText(events);
+        streamingText.trim();
       if (!finalResponse) {
         const providerError =
           extractPiProviderError(agentEnd) ||
           extractPiProviderError(sessionMessages) ||
-          extractPiProviderError(events);
+          streamingProviderError;
         if (providerError) throw new Error(`Pi returned an error: ${providerError}`);
       }
       requireFinalResponse("Pi", finalResponse);
@@ -58,7 +64,6 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
         provider: this.provider,
         providerSessionId,
         finalResponse,
-        items: [...events, sessionMessages],
       };
     } finally {
       child.kill();

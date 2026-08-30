@@ -1,10 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { openDatabase, type DatabaseHandle } from "../../db/client.js";
 import type { ServerConfig } from "../../config.js";
-import type { HookExecutionReport } from "../../hooks.js";
+import { openDatabase, type DatabaseHandle } from "../../db/client.js";
+import type { SubagentRunOutcome } from "./delivery-mailbox.js";
 
-export type SubagentSessionStatus = "starting" | "running" | "idle" | "error" | "stopped";
+export type SubagentSessionStatus = "idle" | "running";
+
+export interface SubagentRunSummary {
+  id: string;
+  status: "running" | SubagentRunOutcome;
+  activityId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
 
 export interface SubagentSession {
   id: string;
@@ -16,9 +24,8 @@ export interface SubagentSession {
   thinking?: string;
   providerSessionId?: string;
   status: SubagentSessionStatus;
-  latestResponse?: string;
-  error?: string;
-  hookReports?: HookExecutionReport[];
+  activeRun?: SubagentRunSummary;
+  latestRun?: SubagentRunSummary;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +37,11 @@ export interface CreateSubagentSessionInput {
   provider: string;
   model?: string;
   thinking?: string;
+  activeRun?: {
+    id: string;
+    activityId?: string;
+    startedAt: string;
+  };
 }
 
 export interface SubagentSessionScope {
@@ -47,9 +59,12 @@ interface SubagentSessionRow {
   thinking: string | null;
   provider_session_id: string | null;
   status: string;
-  latest_response: string | null;
-  error: string | null;
-  hook_reports_json: string | null;
+  active_run_id: string | null;
+  active_activity_id: string | null;
+  active_run_started_at: string | null;
+  latest_run_id: string | null;
+  latest_run_outcome: string | null;
+  latest_run_finished_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -98,7 +113,17 @@ export class SubagentSessionStore {
       provider: input.provider,
       model: input.model,
       thinking: input.thinking,
-      status: "starting",
+      status: input.activeRun ? "running" : "idle",
+      ...(input.activeRun
+        ? {
+            activeRun: {
+              id: input.activeRun.id,
+              status: "running" as const,
+              ...(input.activeRun.activityId ? { activityId: input.activeRun.activityId } : {}),
+              startedAt: input.activeRun.startedAt,
+            },
+          }
+        : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -113,10 +138,20 @@ export class SubagentSessionStore {
           provider,
           model,
           thinking,
+          provider_session_id,
           status,
+          active_run_id,
+          active_activity_id,
+          active_run_started_at,
+          latest_run_id,
+          latest_run_outcome,
+          latest_run_finished_at,
+          latest_response,
+          error,
+          hook_reports_json,
           created_at,
           updated_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, null, null, ?, ?)`,
       )
       .run(
         record.id,
@@ -126,7 +161,14 @@ export class SubagentSessionStore {
         record.provider,
         record.model ?? null,
         record.thinking ?? null,
+        null,
         record.status,
+        record.activeRun?.id ?? null,
+        record.activeRun?.activityId ?? null,
+        record.activeRun?.startedAt ?? null,
+        null,
+        null,
+        null,
         record.createdAt,
         record.updatedAt,
       );
@@ -155,6 +197,14 @@ export class SubagentSessionStore {
     return matches.length === 1 ? rowToSubagentSession(matches[0]!) : undefined;
   }
 
+  getInScope(idOrPrefix: string, scope: SubagentSessionScope): SubagentSession | undefined {
+    const session = this.get(idOrPrefix);
+    if (!session) return undefined;
+    if (scope.workspaceId && session.workspaceId !== scope.workspaceId) return undefined;
+    if (scope.workspaceRoot && session.workspaceRoot !== resolve(scope.workspaceRoot)) return undefined;
+    return session;
+  }
+
   update(id: string, patch: Partial<Omit<SubagentSession, "id" | "createdAt">>): SubagentSession {
     const current = this.getById(id);
     if (!current) throw new Error(`Unknown subagent id: ${id}`);
@@ -176,9 +226,15 @@ export class SubagentSessionStore {
           thinking = ?,
           provider_session_id = ?,
           status = ?,
-          latest_response = ?,
-          error = ?,
-          hook_reports_json = ?,
+          active_run_id = ?,
+          active_activity_id = ?,
+          active_run_started_at = ?,
+          latest_run_id = ?,
+          latest_run_outcome = ?,
+          latest_run_finished_at = ?,
+          latest_response = null,
+          error = null,
+          hook_reports_json = null,
           updated_at = ?
          where id = ?`,
       )
@@ -191,9 +247,12 @@ export class SubagentSessionStore {
         updated.thinking ?? null,
         updated.providerSessionId ?? null,
         updated.status,
-        updated.latestResponse ?? null,
-        updated.error ?? null,
-        updated.hookReports ? JSON.stringify(updated.hookReports) : null,
+        updated.activeRun?.id ?? null,
+        updated.activeRun?.activityId ?? null,
+        updated.activeRun?.startedAt ?? null,
+        updated.latestRun?.id ?? null,
+        updated.latestRun && updated.latestRun.status !== "running" ? updated.latestRun.status : null,
+        updated.latestRun?.finishedAt ?? null,
         updated.updatedAt,
         updated.id,
       );
@@ -218,6 +277,22 @@ export function createSubagentSessionStore(config: ServerConfig): SubagentSessio
 }
 
 function rowToSubagentSession(row: SubagentSessionRow): SubagentSession {
+  const activeRun = row.active_run_id
+    ? {
+        id: row.active_run_id,
+        status: "running" as const,
+        ...(row.active_activity_id ? { activityId: row.active_activity_id } : {}),
+        ...(row.active_run_started_at ? { startedAt: row.active_run_started_at } : {}),
+      }
+    : undefined;
+  const latestOutcome = readOutcome(row.latest_run_outcome);
+  const latestRun = row.latest_run_id && latestOutcome
+    ? {
+        id: row.latest_run_id,
+        status: latestOutcome,
+        ...(row.latest_run_finished_at ? { finishedAt: row.latest_run_finished_at } : {}),
+      }
+    : undefined;
   return {
     id: row.id,
     workspaceId: row.workspace_id ?? undefined,
@@ -227,36 +302,19 @@ function rowToSubagentSession(row: SubagentSessionRow): SubagentSession {
     model: row.model ?? undefined,
     thinking: row.thinking ?? undefined,
     providerSessionId: row.provider_session_id ?? undefined,
-    status: readStatus(row.status),
-    latestResponse: row.latest_response ?? undefined,
-    error: row.error ?? undefined,
-    hookReports: parseHookReports(row.hook_reports_json),
+    status: activeRun || row.status === "starting" || row.status === "running" ? "running" : "idle",
+    ...(activeRun ? { activeRun } : {}),
+    ...(latestRun ? { latestRun } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function parseHookReports(value: string | null): HookExecutionReport[] | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed as HookExecutionReport[] : undefined;
-  } catch {
-    return undefined;
+function readOutcome(value: string | null): SubagentRunOutcome | undefined {
+  if (value === "succeeded" || value === "failed" || value === "cancelled" || value === "interrupted") {
+    return value;
   }
-}
-
-function readStatus(status: string): SubagentSessionStatus {
-  if (
-    status === "starting" ||
-    status === "running" ||
-    status === "idle" ||
-    status === "error" ||
-    status === "stopped"
-  ) {
-    return status;
-  }
-  return "error";
+  return undefined;
 }
 
 function escapeLike(value: string): string {

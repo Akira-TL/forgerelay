@@ -72,6 +72,11 @@ const migrations: Migration[] = [
     name: "activity-host-turn-workspace",
     up: migrateActivityHostTurnWorkspace,
   },
+  {
+    version: 14,
+    name: "subagent-session-coordination",
+    up: migrateSubagentSessionCoordination,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -376,6 +381,16 @@ function migrateBashOutputAuditColumns(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "bash_output_streams", "error", "text");
   addColumnIfMissing(sqlite, "bash_output_streams", "returned", "integer not null default 0");
   addColumnIfMissing(sqlite, "bash_output_streams", "completion_claimed_at", "text");
+}
+
+function migrateSubagentSessionCoordination(sqlite: Database.Database): void {
+  migrateLocalAgentSessions(sqlite);
+  addColumnIfMissing(sqlite, "local_agent_sessions", "active_run_id", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "active_activity_id", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "active_run_started_at", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_id", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_outcome", "text");
+  addColumnIfMissing(sqlite, "local_agent_sessions", "latest_run_finished_at", "text");
 }
 
 function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {

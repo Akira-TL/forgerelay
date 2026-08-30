@@ -88,7 +88,6 @@ export class AcpSubagentAdapter implements SubagentProviderAdapter {
         provider: this.provider,
         providerSessionId,
         finalResponse: finalResponse.trim(),
-        items: [],
       };
     } catch (error) {
       throw new Error(`${this.provider} ACP run failed: ${errorMessage(error)}${stderr ? `\n${stderr.trim()}` : ""}`);

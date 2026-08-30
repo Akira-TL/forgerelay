@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
@@ -289,6 +289,10 @@ try {
     workspaceRoot: projectRoot,
     profileName: "missing-profile",
     provider: "codex",
+    activeRun: {
+      id: "run_hookfailure",
+      startedAt: new Date().toISOString(),
+    },
   });
   workerStore.close();
   const promptFile = join(root, "worker-prompt.txt");
@@ -310,6 +314,7 @@ try {
       },
     },
   );
+  assert.equal(existsSync(promptFile), false);
 
   assert.equal(
     readFileSync(join(projectRoot, "subagent-hooks.log"), "utf8").replace(/\r\n/g, "\n"),
@@ -318,15 +323,9 @@ try {
   const completedStore = new SubagentSessionStore(stateDir);
   const failedRecord = completedStore.get(failing.id);
   completedStore.close();
-  assert.equal(failedRecord?.status, "error");
-  assert.match(failedRecord?.error ?? "", /Subagent profile not found: missing-profile/);
-  assert.deepEqual(
-    failedRecord?.hookReports?.map((report) => [report.event, report.name, report.status]),
-    [
-      ["SubagentStart", "Subagent started", "passed"],
-      ["SubagentStop", "Subagent stopped", "passed"],
-    ],
-  );
+  assert.equal(failedRecord?.status, "idle");
+  assert.equal(failedRecord?.latestRun?.id, "run_hookfailure");
+  assert.equal(failedRecord?.latestRun?.status, "failed");
 
   const shown = execFileSync(
     "node",
@@ -344,9 +343,8 @@ try {
       },
     },
   );
-  assert.match(shown, /Hook results:/);
-  assert.match(shown, /Subagent started \(SubagentStart, global\) passed/);
-  assert.match(shown, /Subagent stopped \(SubagentStop, global\) passed/);
+  assert.match(shown, /Subagent profile not found: missing-profile/);
+  assert.doesNotMatch(shown, /Hook results:/);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

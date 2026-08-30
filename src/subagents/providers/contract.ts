@@ -15,7 +15,6 @@ export interface SubagentRunResult {
   provider: string;
   providerSessionId: string | null;
   finalResponse: string;
-  items: unknown[];
 }
 
 export interface SubagentProviderAdapter {

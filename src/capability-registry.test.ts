@@ -169,6 +169,52 @@ test("capability registry advertises only available optional capabilities and ro
   );
 });
 
+test("subagent.session is a deep batch-unsupported capability when explicitly enabled", async () => {
+  const subagentContext: CapabilityContext = {
+    ...context,
+    guides: [
+      ...context.guides,
+      {
+        name: "subagents",
+        description: "Local Subagent delegation.",
+        whenToRead: "Read before delegating.",
+        path: "~/capabilities/subagents/GUIDE.md",
+      },
+    ],
+  };
+  const registry = createCapabilityRegistry({
+    inspectHooks: async () => ({ globalHooks: 0, projectHooks: 0 }),
+    subagentSession: {
+      available: true,
+      run: async (input) => ({ value: { operation: input.operation } }),
+    },
+  });
+
+  const catalog = registry.catalog(subagentContext);
+  const subagent = catalog.find((entry) => entry.name === "subagent.session");
+  assert.equal(subagent?.batchPolicy, "unsupported");
+  assert.equal(subagent?.guide.name, "subagents");
+  assert.ok(Object.keys(registry.describe("subagent.session", subagentContext).inputSchema).length > 0);
+  assert.deepEqual(
+    await registry.run(
+      "subagent.session",
+      { operation: "list" },
+      subagentContext,
+    ),
+    { value: { operation: "list" } },
+  );
+  await assert.rejects(
+    () => registry.run(
+      "subagent.session",
+      { operation: "list" },
+      subagentContext,
+      { batch: true },
+    ),
+    (error: unknown) =>
+      error instanceof CapabilityError && error.code === "capability_batch_unsupported",
+  );
+});
+
 test("capability registry converts handler failures into stable execution errors", async () => {
   const registry = createCapabilityRegistry({
     inspectHooks: async () => {

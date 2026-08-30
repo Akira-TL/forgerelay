@@ -29,9 +29,7 @@ export class ClaudeSubagentAdapter implements SubagentProviderAdapter {
 
     let providerSessionId = input.providerSessionId ?? null;
     let finalResponse = "";
-    const items: unknown[] = [];
     for await (const message of messages) {
-      items.push(message);
       const record = message as Record<string, unknown>;
       if (typeof record.session_id === "string") providerSessionId = record.session_id;
       if (record.type === "result" && typeof record.result === "string") {
@@ -46,7 +44,6 @@ export class ClaudeSubagentAdapter implements SubagentProviderAdapter {
       provider: this.provider,
       providerSessionId,
       finalResponse,
-      items,
     };
   }
 }

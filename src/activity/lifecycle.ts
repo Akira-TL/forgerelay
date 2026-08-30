@@ -28,6 +28,7 @@ export interface ActivityRunOptions<T> {
   request?: unknown;
   operation: (context: ActivityExecutionContext) => Promise<T>;
   outcome?: (result: T) => ActivityOutcome;
+  auditResult?: (result: T) => unknown;
 }
 
 export interface ActivityRecordOptions {
@@ -97,7 +98,7 @@ export class ActivityLifecycle {
       const result = await options.operation(executionContext);
       this.finish(
         activityId,
-        result,
+        options.auditResult?.(result) ?? result,
         options.outcome?.(result) ?? { type: "succeeded" as const },
       );
       return result;

@@ -1,69 +1,112 @@
-# ForgeRelay Subagents
+# ForgeRelay Subagent
 
-当任务涉及委派给另一个本地 coding agent、获取第二意见、并行调查，或用户明确点名 subagent 时读取本指南。
+当任务需要委派给另一个本地 coding agent、获取第二意见、并行调查，或用户明确点名 Subagent/provider 时读取本指南。
 
-## 当前接口边界
+## 当前接口
 
-0.3 仍然使用 ForgeRelay CLI 协调 provider-backed local subagent；当前没有 first-class MCP subagent tool。不要把 Host 自己的 subagent 功能与 ForgeRelay subagent 混为一谈。
+启用 Subagent 后，`open_workspace` 会在 `capabilityCatalog` 中公开 `subagent.session`，同时返回紧凑的 provider/profile 元数据。不要为 Subagent 寻找或假设额外的 Core MCP tool；长期可见 Core tool surface 保持不变。
 
-启用方式：
-
-```bash
-FORGERELAY_SUBAGENTS=1 forgerelay serve
-```
-
-启用后，`open_workspace` 会返回紧凑的 `agentProviders` 和 `agents` 元数据。配置 profile 通常来自全局 ForgeRelay 配置目录以及项目内：
+通过统一 `capability` gateway 调用：
 
 ```text
-.forgerelay/agents/*.md
-.devspace/agents/*.md
+name = subagent.session
+action = run
 ```
 
-旧 `.devspace` 路径仅用于迁移兼容。
+0.7.0 tracer 支持三个 operation：
 
-## 何时使用
+- `start`：创建 Subagent Session，并立即启动第一个 Subagent Run；
+- `status`：读取当前 Workspace 中一个 Session 的协调状态；
+- `list`：列出当前 Workspace 拥有的 Session 摘要。
 
-不要因为存在 profile 就自动委派普通开发工作。只有在用户要求委派、第二意见、并行工作或指定 subagent/provider 时才使用，并明确告诉用户正在使用另一个 subagent。
+`subagent.session` 不支持 `batch.execute`。
 
-选择 profile 时以 `open_workspace` 返回的 compact profile catalog 为准。`forgerelay agents ls` 显示的是当前 workspace 的已有 subagent sessions，不是 profile 定义列表。
+## start
 
-## 常用命令
+使用 profile：
 
-正常委派只需要：
-
-```bash
-forgerelay agents ls
-forgerelay agents run <profile-or-provider-or-id> "<prompt>"
-forgerelay agents show <id>
+```json
+{
+  "operation": "start",
+  "target": "reviewer",
+  "prompt": "检查当前改动的并发与错误处理。"
+}
 ```
 
-语义：
+也可以把 ForgeRelay 支持的 provider 名直接作为 `target`。创建新 Session 时可以显式给出 `model` / `thinking`；profile 已有默认值时通常无需重复覆盖。
 
-- `run <profile>`：启动配置好的 profile；
-- `run <provider>`：没有合适 profile 时直接启动 ForgeRelay 内建 provider；
-- `run <id>`：向现有 agent session 发送 follow-up；
-- `show <id>`：查看状态和最新响应；仍在运行时可稍后再次调用；
-- shell workspace 环境会把 CLI 操作自动限定到当前 ForgeRelay workspace。
+返回值包含：
 
-如确实需要覆盖 profile/provider 默认值，可使用：
+- `session.id`：ForgeRelay 的 Subagent Session identity；
+- `session.status`：`running` 或 `idle`；
+- `run.id`：本次 delegated execution 的 Subagent Run identity；
+- provider/profile/model 等紧凑协调元数据。
 
-```bash
-forgerelay agents run <profile-or-provider> --model <model> "<prompt>"
-forgerelay agents run <profile-or-provider> --thinking <level> "<prompt>"
+首次 `start` 使用当时有效的 profile body 作为 provider-native conversation 的初始 instructions。ForgeRelay 不把 profile body 复制进自己的 Session SQLite。
+
+## status / list
+
+查询一个 Session：
+
+```json
+{
+  "operation": "status",
+  "sessionId": "agt_..."
+}
 ```
 
-`thinking` 是 provider-specific passthrough；ForgeRelay 不在 provider 之间翻译 reasoning level。
+列出当前 Workspace 的 Session：
 
-除非正在明确调试 ForgeRelay provider integration，不要绕过 ForgeRelay 直接运行 `codex`、`claude`、`opencode`、`pi`、`cursor-agent`、`copilot` 等 provider CLI。
+```json
+{
+  "operation": "list"
+}
+```
 
-## Prompt 与验证
+Session 受实际 Execution Workspace 所有权约束；Session ID 不是跨 Workspace 的访问凭证。`list` 只返回当前 Workspace 的紧凑摘要。
 
-Subagent 只收到你发送的 prompt 和它自己的 profile instructions，因此 prompt 必须自包含：目标、相关模块/文件、约束、验收标准，以及它能否修改文件。
+0.7.0 尚未通过 first-class Capability 开放 `resume`、`stop` 或 `delete`。不要伪造这些 operation，也不要用新的 Core MCP tool 绕过 Capability Gateway。
 
-Subagent 的结果不是自动验证过的最终答案。收到响应后：
+## 后台完成与结果交付
 
-- 写入型任务：检查实际改动并运行相关测试；
-- 只读调查：核对关键结论是否有仓库证据；
-- 向用户说明使用了哪个 profile/provider、它给出的结论、你做了哪些验证，以及剩余风险。
+`start` 接受执行后会尽快把 Session/Run identity 返回给 Host，Subagent Run 在后台继续执行。
 
-`SubagentStart` / `SubagentStop` lifecycle Hooks 会在 worker 生命周期中触发；异步报告会随 ForgeRelay session 持久化并可由 `forgerelay agents show` 查看。
+Run 完成后：
+
+- ForgeRelay 创建一个 linked `subagent_result` Activity，只记录 Session/Run/provider/status 等有界元数据；
+- final response 放入有界 delivery mailbox，等待同一 Workspace 的后续 ForgeRelay 调用领取；
+- 成功领取后 mailbox 条目立即删除，同一个 completion 不重复交付；
+- 未领取 completion 可以跨正常 ForgeRelay 进程重启保留。
+
+如果需要等待结果，使用 `status` 进行有节制的后续查询；不要高频短轮询。
+
+## 数据所有权
+
+Claude Code、Codex、OpenCode、Pi 等 provider 自己的 session store 是 conversation history 的真源。ForgeRelay 只保存恢复、Workspace ownership 和执行协调所需的小型元数据。
+
+ForgeRelay 不把以下内容保存进 Subagent Session SQLite 或 Activity Audit：
+
+- delegated prompt；
+- profile body；
+- provider transcript/messages/events/items；
+- final response 正文；
+- 完整 Hook report 历史；
+- 完整 Subagent Run 历史。
+
+Activity 只保留操作摘要；delivery mailbox 只用于尚未交付的 bounded completion，不是 conversation/history store。
+
+## Hooks
+
+`SubagentStart` / `SubagentStop` 在每一次 Subagent Run 生命周期中触发。Hook payload 使用 Session/Run/profile/provider/model/thinking/status 等协调元数据，不包含 delegated prompt 或 final response。
+
+## CLI 兼容
+
+`forgerelay agents` 仍可用于本地诊断和兼容性操作，但 Host 正常委派优先使用 `subagent.session` Capability，不要通过 `bash -> forgerelay agents ...` 实现 first-class Subagent。
+
+## 验证责任
+
+Subagent 返回不是自动验证过的最终结论。收到结果后仍应按照任务类型验证：
+
+- 写入型任务检查真实 diff，并运行相关测试；
+- 只读调查核对关键结论对应的仓库事实；
+- 向用户说明使用的 profile/provider、核心结论、已做验证与剩余风险。

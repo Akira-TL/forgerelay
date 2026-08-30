@@ -30,7 +30,6 @@ export class OpencodeSubagentAdapter implements SubagentProviderAdapter {
         provider: this.provider,
         providerSessionId: sessionId,
         finalResponse,
-        items: [promptResult, messages],
       };
     } finally {
       server.close();

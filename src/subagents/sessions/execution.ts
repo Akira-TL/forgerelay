@@ -4,29 +4,62 @@ import {
   isSubagentProvider,
   loadSubagentProfiles,
   type SubagentProfile,
+  type SubagentProvider,
 } from "../profiles.js";
-import type { SubagentRunResult } from "../providers/contract.js";
+import type {
+  SubagentRunInput,
+  SubagentRunResult,
+} from "../providers/contract.js";
 import { runSubagentProvider } from "../providers/registry.js";
+import { SubagentDeliveryMailbox, type SubagentRunOutcome } from "./delivery-mailbox.js";
 import {
   createSubagentSessionStore,
   type SubagentSession,
 } from "./store.js";
 
-export async function executeSubagentSession(
+export type SubagentProviderRunner = (
+  provider: SubagentProvider,
+  input: SubagentRunInput,
+) => Promise<SubagentRunResult>;
+
+export interface ExecuteSubagentRunInput {
+  sessionId: string;
+  runId: string;
+  activityId?: string;
+  prompt: string;
+}
+
+export interface SubagentRunCompletion {
+  sessionId: string;
+  runId: string;
+  workspaceId?: string;
+  activityId?: string;
+  provider: string;
+  outcome: Extract<SubagentRunOutcome, "succeeded" | "failed">;
+  error?: string;
+}
+
+export async function executeSubagentRun(
   config: ServerConfig,
-  sessionId: string,
-  prompt: string,
-): Promise<SubagentSession> {
+  input: ExecuteSubagentRunInput,
+  providerRunner: SubagentProviderRunner = runSubagentProvider,
+): Promise<SubagentRunCompletion> {
   const store = createSubagentSessionStore(config);
+  const mailbox = new SubagentDeliveryMailbox(config.stateDir);
   try {
-    const record = store.get(sessionId);
-    if (!record) throw new Error(`Unknown subagent id: ${sessionId}`);
+    const record = store.get(input.sessionId);
+    if (!record) throw new Error(`Unknown subagent id: ${input.sessionId}`);
+    if (record.activeRun?.id !== input.runId) {
+      throw new Error(`Subagent Run ${input.runId} is not active for Session ${record.id}.`);
+    }
     const hooks = new HookRunner(config.hooks, config.logging);
     const hookInvocation = {
       workspaceId: record.workspaceId,
       workspaceRoot: record.workspaceRoot,
       payload: {
         agentId: record.id,
+        sessionId: record.id,
+        runId: input.runId,
         profile: record.profileName,
         provider: record.provider,
         model: record.model,
@@ -34,59 +67,133 @@ export async function executeSubagentSession(
       },
     };
 
-    store.update(record.id, { status: "running", error: undefined, hookReports: undefined });
-    const hookReports = await hooks.run("SubagentStart", hookInvocation);
-    store.update(record.id, { hookReports });
+    await hooks.run("SubagentStart", hookInvocation);
     try {
-      const profiles = await loadSubagentProfiles(config, record.workspaceRoot);
-      const profile = profiles.find((candidate) => candidate.name === record.profileName);
-      const result = profile
-        ? await runSubagentProfile(profile, record, prompt)
-        : await runRawSubagentProvider(record, prompt);
-      hookReports.push(...await hooks.run("SubagentStop", {
+      const result = await runSessionProvider(config, record, input.prompt, providerRunner);
+      await hooks.run("SubagentStop", {
         ...hookInvocation,
         payload: {
           ...hookInvocation.payload,
-          status: "idle",
+          status: "succeeded",
           providerSessionId: result.providerSessionId,
         },
-      }));
-      return store.update(record.id, {
+      });
+      const finishedAt = new Date().toISOString();
+      store.update(record.id, {
         providerSessionId: result.providerSessionId ?? undefined,
         status: "idle",
-        latestResponse: result.finalResponse,
-        error: undefined,
-        hookReports,
+        activeRun: undefined,
+        latestRun: {
+          id: input.runId,
+          status: "succeeded",
+          finishedAt,
+        },
       });
+      if (record.workspaceId) {
+        mailbox.write({
+          sessionId: record.id,
+          runId: input.runId,
+          workspaceId: record.workspaceId,
+          ...(input.activityId ? { activityId: input.activityId } : {}),
+          provider: record.provider,
+          outcome: "succeeded",
+          finalResponse: result.finalResponse,
+        });
+      }
+      return completion(record, input, "succeeded");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      hookReports.push(...await hooks.run("SubagentStop", {
+      await hooks.run("SubagentStop", {
         ...hookInvocation,
         payload: {
           ...hookInvocation.payload,
-          status: "error",
+          status: "failed",
         },
-      }));
-      return store.update(record.id, {
-        status: "error",
-        error: message,
-        hookReports,
       });
+      const finishedAt = new Date().toISOString();
+      store.update(record.id, {
+        status: "idle",
+        activeRun: undefined,
+        latestRun: {
+          id: input.runId,
+          status: "failed",
+          finishedAt,
+        },
+      });
+      if (record.workspaceId) {
+        mailbox.write({
+          sessionId: record.id,
+          runId: input.runId,
+          workspaceId: record.workspaceId,
+          ...(input.activityId ? { activityId: input.activityId } : {}),
+          provider: record.provider,
+          outcome: "failed",
+          error: message,
+        });
+      }
+      return completion(record, input, "failed", message);
     }
   } finally {
     store.close();
   }
 }
 
+export async function executeSubagentSession(
+  config: ServerConfig,
+  sessionId: string,
+  prompt: string,
+): Promise<SubagentRunCompletion> {
+  const store = createSubagentSessionStore(config);
+  try {
+    const record = store.get(sessionId);
+    if (!record) throw new Error(`Unknown subagent id: ${sessionId}`);
+    if (!record.activeRun) throw new Error(`Subagent Session ${sessionId} has no active Run.`);
+    return executeSubagentRun(config, {
+      sessionId,
+      runId: record.activeRun.id,
+      ...(record.activeRun.activityId ? { activityId: record.activeRun.activityId } : {}),
+      prompt,
+    });
+  } finally {
+    store.close();
+  }
+}
+
+async function runSessionProvider(
+  config: ServerConfig,
+  session: SubagentSession,
+  prompt: string,
+  providerRunner: SubagentProviderRunner,
+): Promise<SubagentRunResult> {
+  if (!isSubagentProvider(session.provider)) {
+    throw new Error(`Unknown subagent provider for Session ${session.id}: ${session.provider}`);
+  }
+  const profiles = await loadSubagentProfiles(config, session.workspaceRoot);
+  const profile = profiles.find((candidate) => candidate.name === session.profileName);
+  if (profile) return runSubagentProfile(profile, session, prompt, providerRunner);
+  if (session.profileName !== session.provider) {
+    throw new Error(`Subagent profile not found: ${session.profileName}`);
+  }
+  return providerRunner(session.provider, {
+    prompt,
+    workspace: session.workspaceRoot,
+    providerSessionId: session.providerSessionId,
+    writeMode: "allowed",
+    model: session.model,
+    thinking: session.thinking,
+  });
+}
+
 async function runSubagentProfile(
   profile: SubagentProfile,
   session: SubagentSession,
   prompt: string,
+  providerRunner: SubagentProviderRunner,
 ): Promise<SubagentRunResult> {
   const body = profile.body.trim();
-  const fullPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
-  return runSubagentProvider(profile.provider, {
-    prompt: fullPrompt,
+  const firstPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
+  return providerRunner(profile.provider, {
+    prompt: session.providerSessionId ? prompt : firstPrompt,
     workspace: session.workspaceRoot,
     providerSessionId: session.providerSessionId,
     writeMode: "allowed",
@@ -95,20 +202,19 @@ async function runSubagentProfile(
   });
 }
 
-async function runRawSubagentProvider(
+function completion(
   session: SubagentSession,
-  prompt: string,
-): Promise<SubagentRunResult> {
-  if (session.profileName !== session.provider || !isSubagentProvider(session.provider)) {
-    throw new Error(`Subagent profile not found: ${session.profileName}`);
-  }
-
-  return runSubagentProvider(session.provider, {
-    prompt,
-    workspace: session.workspaceRoot,
-    providerSessionId: session.providerSessionId,
-    writeMode: "allowed",
-    model: session.model,
-    thinking: session.thinking,
-  });
+  input: ExecuteSubagentRunInput,
+  outcome: "succeeded" | "failed",
+  error?: string,
+): SubagentRunCompletion {
+  return {
+    sessionId: session.id,
+    runId: input.runId,
+    workspaceId: session.workspaceId,
+    activityId: input.activityId,
+    provider: session.provider,
+    outcome,
+    ...(error ? { error } : {}),
+  };
 }

@@ -51,6 +51,10 @@ export function assertSubagentProviderAvailable(
   );
 }
 
+export function formatUnavailableSubagentProvider(provider: SubagentProviderAvailability): string {
+  return `${provider.name} (${provider.reason ?? "unavailable"})`;
+}
+
 export function formatSubagentProviderAvailabilitySummary(
   providers: SubagentProviderAvailability[],
 ): string {

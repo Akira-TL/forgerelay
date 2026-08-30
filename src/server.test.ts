@@ -1506,7 +1506,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "capability-guides.read",
         "code.intelligence",
         "batch.execute",
-        "subagent.profiles",
+        "subagent.session",
         "artifact.native-download",
         "ui.mcp-app",
         "review.changes",
@@ -1537,7 +1537,7 @@ test("capability fingerprint reports optional feature availability without copyi
   ]);
 
   for (const [name, firstPattern, secondPattern] of [
-    ["subagents", /forgerelay agents run/, /first-class MCP subagent/],
+    ["subagents", /subagent\.session/, /first-class Subagent/],
     ["artifacts-review", /artifact\.download/, /review\.changes/],
     ["code-intelligence", /definition/, /Language server/],
   ] as const) {

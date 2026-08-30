@@ -15,7 +15,8 @@ export type CapabilityErrorCode =
   | "invalid_arguments"
   | "execution_failed"
   | `artifact.${string}`
-  | `code.${string}`;
+  | `code.${string}`
+  | `subagent.${string}`;
 
 export class CapabilityError extends Error {
   constructor(
@@ -83,6 +84,7 @@ export interface CapabilityRunOptions {
   requestMeta?: unknown;
   sessionId?: string;
   batch?: boolean;
+  activityId?: string;
 }
 
 interface CapabilityDefinition {
@@ -103,6 +105,22 @@ interface CapabilityDefinition {
     options: CapabilityRunOptions,
   ) => Promise<CapabilityExecution>;
 }
+
+export type SubagentSessionCapabilityInput =
+  | {
+      operation: "start";
+      target: string;
+      prompt: string;
+      model?: string;
+      thinking?: string;
+    }
+  | {
+      operation: "status";
+      sessionId: string;
+    }
+  | {
+      operation: "list";
+    };
 
 export interface CapabilityRegistryDependencies {
   inspectHooks: (workspaceRoot: string) => Promise<{
@@ -136,6 +154,15 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: BatchExecuteInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution>;
+  };
+  subagentSession?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: SubagentSessionCapabilityInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -298,6 +325,20 @@ export function createCapabilityRegistry(
     line: z.number().int(),
     column: z.number().int(),
   };
+  const subagentSessionInput = z.discriminatedUnion("operation", [
+    z.object({
+      operation: z.literal("start"),
+      target: z.string().min(1),
+      prompt: z.string().min(1),
+      model: z.string().min(1).optional(),
+      thinking: z.string().min(1).optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("status"),
+      sessionId: z.string().min(1),
+    }).strict(),
+    z.object({ operation: z.literal("list") }).strict(),
+  ]);
   const codeIntelligenceInput = z.discriminatedUnion("operation", [
     z.object({ operation: z.literal("definition"), ...positionInput }).strict(),
     z.object({ operation: z.literal("hover"), ...positionInput }).strict(),
@@ -370,6 +411,26 @@ export function createCapabilityRegistry(
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.codeIntelligence!.run(
               input as CodeIntelligenceInput,
+              context,
+              options,
+            ),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.subagentSession
+      ? [{
+          name: "subagent.session",
+          description: "Coordinate provider-backed Subagent Sessions in the current Execution Workspace.",
+          guideName: "subagents",
+          readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
+          inputSchema: subagentSessionInput,
+          availability: () => ({
+            available: dependencies.subagentSession?.available ?? false,
+            reason: dependencies.subagentSession?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.subagentSession!.run(
+              input as SubagentSessionCapabilityInput,
               context,
               options,
             ),
