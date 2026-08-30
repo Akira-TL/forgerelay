@@ -15,6 +15,7 @@ import {
 import { subagentProviderContinuationSupported } from "./continuation.js";
 import { createSubagentProviderAdapter } from "./registry.js";
 import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
+import { linkedAbortController, terminateChildOnAbort } from "./shared.js";
 import type { SubagentProvider } from "../profiles.js";
 
 const providers: SubagentProvider[] = [
@@ -30,6 +31,22 @@ for (const provider of providers) {
   const adapter = createSubagentProviderAdapter(provider);
   assert.equal(adapter.provider, provider);
   assert.equal(typeof adapter.run, "function");
+}
+
+{
+  const source = new AbortController();
+  const linked = linkedAbortController(source.signal);
+  source.abort(new Error("cancel provider"));
+  assert.equal(linked.controller?.signal.aborted, true);
+  linked.dispose();
+
+  let killed = 0;
+  const child = { kill: () => { killed += 1; return true; } };
+  const childController = new AbortController();
+  const detach = terminateChildOnAbort(child, childController.signal);
+  childController.abort();
+  assert.equal(killed, 1);
+  detach();
 }
 assert.deepEqual(
   providers.map((provider) => [provider, subagentProviderContinuationSupported(provider)]),

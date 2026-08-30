@@ -84,6 +84,10 @@ export class SubagentDeliveryMailbox {
     return this.files().includes(`${sessionId}.json`);
   }
 
+  discardSession(sessionId: string): void {
+    rmSync(this.pathFor(sessionId), { force: true });
+  }
+
   private claim(predicate: (delivery: SubagentDelivery) => boolean): SubagentDelivery[] {
     const deliveries: SubagentDelivery[] = [];
     for (const file of this.files()) {

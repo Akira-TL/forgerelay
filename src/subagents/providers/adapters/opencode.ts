@@ -19,18 +19,30 @@ export class OpencodeSubagentAdapter implements SubagentProviderAdapter {
     const { client, server } = await createOpencode();
     try {
       const sessionId = input.providerSessionId ?? await createOpencodeSession(client, input);
-      const promptResult = await promptOpencodeSession(client, sessionId, input);
-      await waitForOpencodeSession(client, sessionId);
-      const messages = await readOpencodeMessages(client, sessionId);
-      const finalResponse = requireFinalResponse(
-        "OpenCode",
-        extractOpenCodeFinalResponse(messages) || extractOpenCodeFinalResponse(promptResult),
-      );
-      return {
-        provider: this.provider,
-        providerSessionId: sessionId,
-        finalResponse,
+      let abortPromise: Promise<void> | undefined;
+      const abort = () => {
+        abortPromise ??= abortOpencodeSession(client, sessionId, input.workspace);
       };
+      if (input.signal?.aborted) abort();
+      else input.signal?.addEventListener("abort", abort, { once: true });
+      try {
+        input.signal?.throwIfAborted();
+        const promptResult = await promptOpencodeSession(client, sessionId, input);
+        await waitForOpencodeSession(client, sessionId, input.signal);
+        const messages = await readOpencodeMessages(client, sessionId, input.signal);
+        const finalResponse = requireFinalResponse(
+          "OpenCode",
+          extractOpenCodeFinalResponse(messages) || extractOpenCodeFinalResponse(promptResult),
+        );
+        return {
+          provider: this.provider,
+          providerSessionId: sessionId,
+          finalResponse,
+        };
+      } finally {
+        input.signal?.removeEventListener("abort", abort);
+        if (abortPromise) await abortPromise;
+      }
     } finally {
       server.close();
     }
@@ -47,7 +59,7 @@ async function createOpencodeSession(client: unknown, input: SubagentRunInput): 
     directory: input.workspace,
     location: { directory: input.workspace },
     ...(input.model ? { model: parseOpencodeModel(input.model) } : {}),
-  }, { throwOnError: true });
+  }, { throwOnError: true, signal: input.signal });
   const id =
     readNestedString(result, ["id"]) ??
     readNestedString(result, ["data", "id"]) ??
@@ -78,25 +90,51 @@ async function promptOpencodeSession(
     ...(input.model ? { model: parseOpencodeModel(input.model) } : {}),
     ...(input.thinking ? { variant: input.thinking } : {}),
   };
-  return session.prompt(promptInput, { throwOnError: true });
+  return session.prompt(promptInput, { throwOnError: true, signal: input.signal });
 }
 
-async function waitForOpencodeSession(client: unknown, sessionId: string): Promise<void> {
+async function waitForOpencodeSession(
+  client: unknown,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const session = (client as {
     session?: { wait?: (parameters?: unknown, options?: unknown) => Promise<unknown> };
   }).session;
   if (!session?.wait) return;
-  await session.wait({ sessionID: sessionId }, { throwOnError: true });
+  await session.wait({ sessionID: sessionId }, { throwOnError: true, signal });
 }
 
-async function readOpencodeMessages(client: unknown, sessionId: string): Promise<unknown> {
+async function readOpencodeMessages(
+  client: unknown,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const session = (client as {
     session?: {
       messages?: (parameters?: unknown, options?: unknown) => Promise<unknown>;
     };
   }).session;
   if (!session?.messages) return undefined;
-  return session.messages({ sessionID: sessionId, order: "asc", limit: 100 }, { throwOnError: true });
+  return session.messages(
+    { sessionID: sessionId, order: "asc", limit: 100 },
+    { throwOnError: true, signal },
+  );
+}
+
+async function abortOpencodeSession(client: unknown, sessionId: string, workspace: string): Promise<void> {
+  const session = (client as {
+    session?: { abort?: (parameters?: unknown, options?: unknown) => Promise<unknown> };
+  }).session;
+  if (!session?.abort) return;
+  try {
+    await session.abort(
+      { sessionID: sessionId, directory: workspace },
+      { throwOnError: true },
+    );
+  } catch {
+    // The prompt request may already have observed the AbortSignal and closed the local server.
+  }
 }
 
 function parseOpencodeModel(model: string): { providerID: string; modelID: string } {

@@ -11,6 +11,7 @@ import {
   directString,
   errorMessage,
   readArray,
+  terminateChildOnAbort,
 } from "../shared.js";
 
 const ACP_COMMANDS: Record<"cursor" | "copilot", [string, ...string[]]> = {
@@ -36,6 +37,7 @@ export class AcpSubagentAdapter implements SubagentProviderAdapter {
       windowsHide: true,
     });
     assertPipedChild(child);
+    const detachAbort = terminateChildOnAbort(child, input.signal);
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
@@ -92,6 +94,7 @@ export class AcpSubagentAdapter implements SubagentProviderAdapter {
     } catch (error) {
       throw new Error(`${this.provider} ACP run failed: ${errorMessage(error)}${stderr ? `\n${stderr.trim()}` : ""}`);
     } finally {
+      detachAbort();
       child.kill();
     }
   }

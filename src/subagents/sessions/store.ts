@@ -260,6 +260,10 @@ export class SubagentSessionStore {
     return updated;
   }
 
+  delete(id: string): void {
+    this.database.sqlite.prepare("delete from local_agent_sessions where id = ?").run(id);
+  }
+
   close(): void {
     this.database.close();
   }

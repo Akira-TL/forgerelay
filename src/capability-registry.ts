@@ -124,6 +124,14 @@ export type SubagentSessionCapabilityInput =
       sessionId: string;
     }
   | {
+      operation: "stop";
+      sessionId: string;
+    }
+  | {
+      operation: "delete";
+      sessionId: string;
+    }
+  | {
       operation: "list";
     };
 
@@ -345,6 +353,14 @@ export function createCapabilityRegistry(
     }).strict(),
     z.object({
       operation: z.literal("status"),
+      sessionId: z.string().min(1),
+    }).strict(),
+    z.object({
+      operation: z.literal("stop"),
+      sessionId: z.string().min(1),
+    }).strict(),
+    z.object({
+      operation: z.literal("delete"),
       sessionId: z.string().min(1),
     }).strict(),
     z.object({ operation: z.literal("list") }).strict(),

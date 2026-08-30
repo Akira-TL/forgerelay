@@ -9,6 +9,7 @@ export interface SubagentRunInput {
   writeMode?: SubagentWriteMode;
   model?: string;
   thinking?: string;
+  signal?: AbortSignal;
 }
 
 export interface SubagentRunResult {

@@ -48,6 +48,7 @@ export interface ResumeSubagentSessionInput {
 export type SubagentSessionErrorCode =
   | "subagent.session_not_found"
   | "subagent.busy"
+  | "subagent.cancel_unavailable"
   | "subagent.continuation_unsupported"
   | "subagent.continuation_unavailable";
 
@@ -173,6 +174,24 @@ export class SubagentSessionManager {
       prompt: input.prompt,
     });
     return { session, run };
+  }
+
+  delete(sessionId: string, scope: SubagentSessionScope = {}): SubagentSession {
+    const session = this.store.getInScope(sessionId, scope);
+    if (!session) {
+      throw new SubagentSessionError(
+        "subagent.session_not_found",
+        `Unknown Subagent Session in this Workspace: ${sessionId}`,
+      );
+    }
+    if (session.activeRun) {
+      throw new SubagentSessionError(
+        "subagent.busy",
+        `Subagent Session ${session.id} already has active Run ${session.activeRun.id}.`,
+      );
+    }
+    this.store.delete(session.id);
+    return session;
   }
 
   close(): void {

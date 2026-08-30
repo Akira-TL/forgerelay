@@ -47,3 +47,31 @@ export function requireFinalResponse(provider: string, response: string): string
   }
   return trimmed;
 }
+
+export function linkedAbortController(signal: AbortSignal | undefined): {
+  controller?: AbortController;
+  dispose(): void;
+} {
+  if (!signal) return { dispose() {} };
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  return {
+    controller,
+    dispose() {
+      signal.removeEventListener("abort", abort);
+    },
+  };
+}
+
+export function terminateChildOnAbort(
+  child: { kill(signal?: NodeJS.Signals | number): boolean },
+  signal: AbortSignal | undefined,
+): () => void {
+  if (!signal) return () => {};
+  const abort = () => child.kill();
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  return () => signal.removeEventListener("abort", abort);
+}

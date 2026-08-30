@@ -13,12 +13,14 @@ name = subagent.session
 action = run
 ```
 
-当前支持四个 operation：
+当前支持六个 operation：
 
 - `start`：创建 Subagent Session，并立即启动第一个 Subagent Run；
 - `resume`：在支持真实 continuation 的 provider 上继续现有 Session；
 - `status`：读取当前 Workspace 中一个 Session 的协调状态；
-- `list`：列出当前 Workspace 拥有的 Session 摘要。
+- `list`：列出当前 Workspace 拥有的 Session 摘要；
+- `stop`：取消当前 active Run，但保留 Session；
+- `delete`：显式删除 idle Session 的 ForgeRelay coordination state。
 
 `subagent.session` 不支持 `batch.execute`。
 
@@ -82,7 +84,13 @@ action = run
 
 Session 受实际 Execution Workspace 所有权约束；Session ID 不是跨 Workspace 的访问凭证。`status` / `resume` 都只能访问当前实际 Execution Workspace 拥有的 Session，`list` 也只返回当前 Workspace 的紧凑摘要。
 
-Session 返回中会给出 `continuationSupported` 与 `resumable`；`open_workspace` 的 provider metadata 也会明确给出 `continuationSupported`。当前尚未通过 first-class Capability 开放 `stop` 或 `delete`，不要伪造这些 operation，也不要用新的 Core MCP tool 绕过 Capability Gateway。
+Session 返回中会给出 `continuationSupported` 与 `resumable`；`open_workspace` 的 provider metadata 也会明确给出 `continuationSupported`。不要用新的 Core MCP tool 绕过 Capability Gateway。
+
+## stop / delete
+
+`stop` 只取消当前 active Run，并等待 provider execution 真正观察取消后才返回。取消完成后 Run 状态为 `cancelled`，Session 回到 `idle`；如果已有 provider continuation identity，之后仍可 `resume`。对 idle Session 调用 `stop` 是幂等的。
+
+`delete` 只允许 idle Session。它只删除 ForgeRelay 的 Session mapping 和尚未领取的 delivery mailbox，不删除或修改 Claude Code、Codex、OpenCode、Pi、Cursor/Copilot 等 provider-native conversation/session history。ForgeRelay 不自动清理 Subagent Session；只有显式 `delete` 才删除协调状态。
 
 ## 后台完成与结果交付
 

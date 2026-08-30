@@ -12,6 +12,7 @@ import {
   readArray,
   readNestedString,
   requireFinalResponse,
+  terminateChildOnAbort,
   unwrapProviderPayload,
 } from "../shared.js";
 
@@ -32,6 +33,7 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
       windowsHide: true,
     });
     assertPipedChild(child);
+    const detachAbort = terminateChildOnAbort(child, input.signal);
     const rpc = new JsonLineRpc(child);
     let streamingText = "";
     let streamingProviderError = "";
@@ -44,7 +46,11 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
     try {
       const state = await rpc.request({ type: "get_state" });
       const providerSessionId = readNestedString(state, ["sessionId"]) ?? input.providerSessionId ?? null;
-      const done = rpc.waitForEvent((event) => asRecord(event)?.type === "agent_end", PI_AGENT_TIMEOUT_MS);
+      const done = rpc.waitForEvent(
+        (event) => asRecord(event)?.type === "agent_end",
+        PI_AGENT_TIMEOUT_MS,
+        input.signal,
+      );
       await rpc.request({ type: "prompt", message: input.prompt });
       const agentEnd = await done;
       const sessionMessages = await rpc.request({ type: "get_messages" });
@@ -66,6 +72,7 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
         finalResponse,
       };
     } finally {
+      detachAbort();
       child.kill();
     }
   }
@@ -120,18 +127,32 @@ class JsonLineRpc {
     return () => this.eventSubscribers.delete(callback);
   }
 
-  waitForEvent(predicate: (event: unknown) => boolean, timeoutMs: number): Promise<unknown> {
+  waitForEvent(
+    predicate: (event: unknown) => boolean,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        unsubscribe();
-        reject(new Error(`Pi RPC timed out waiting for agent completion\n${this.stderr}`.trim()));
-      }, timeoutMs);
-      const unsubscribe = this.onEvent((event) => {
-        if (!predicate(event)) return;
+      const finish = (callback: () => void) => {
         clearTimeout(timer);
         unsubscribe();
-        resolve(event);
+        signal?.removeEventListener("abort", abort);
+        callback();
+      };
+      const abort = () => finish(() => {
+        const error = new Error("Pi RPC cancelled.");
+        error.name = "AbortError";
+        reject(error);
       });
+      const timer = setTimeout(() => finish(() => {
+        reject(new Error(`Pi RPC timed out waiting for agent completion\n${this.stderr}`.trim()));
+      }), timeoutMs);
+      const unsubscribe = this.onEvent((event) => {
+        if (!predicate(event)) return;
+        finish(() => resolve(event));
+      });
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
     });
   }
 

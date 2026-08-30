@@ -13,11 +13,13 @@ const emptyTurn = (finalResponse: string): RunResult => ({
 
 class FakeThread {
   prompts: string[] = [];
+  signals: Array<AbortSignal | undefined> = [];
 
   constructor(readonly id: string | null) {}
 
-  async run(prompt: string): Promise<RunResult> {
+  async run(prompt: string, options?: { signal?: AbortSignal }): Promise<RunResult> {
     this.prompts.push(prompt);
+    this.signals.push(options?.signal);
     return emptyTurn(`response:${prompt}`);
   }
 }
@@ -74,15 +76,18 @@ assert.deepEqual(codex.started[1], {
   modelReasoningEffort: "high",
 });
 
+const controller = new AbortController();
 const resumed = await runtime.run({
   prompt: "continue",
   workspace: "/tmp/project",
   providerSessionId: "existing-thread",
   writeMode: "full_access",
+  signal: controller.signal,
 });
 
 assert.equal(resumed.providerSessionId, "resumed-thread");
 assert.deepEqual(codex.resumeThreadInstance.prompts, ["continue"]);
+assert.equal(codex.resumeThreadInstance.signals[0], controller.signal);
 assert.deepEqual(codex.resumed, [
   {
     id: "existing-thread",

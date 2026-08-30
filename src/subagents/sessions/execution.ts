@@ -27,6 +27,7 @@ export interface ExecuteSubagentRunInput {
   runId: string;
   activityId?: string;
   prompt: string;
+  signal?: AbortSignal;
 }
 
 export interface SubagentRunCompletion {
@@ -35,7 +36,7 @@ export interface SubagentRunCompletion {
   workspaceId?: string;
   activityId?: string;
   provider: string;
-  outcome: Extract<SubagentRunOutcome, "succeeded" | "failed">;
+  outcome: Extract<SubagentRunOutcome, "succeeded" | "failed" | "cancelled">;
   error?: string;
 }
 
@@ -67,72 +68,63 @@ export async function executeSubagentRun(
       },
     };
 
-    await hooks.run("SubagentStart", hookInvocation);
+    let outcome: "succeeded" | "failed" | "cancelled" = "succeeded";
+    let result: SubagentRunResult | undefined;
+    let errorMessage: string | undefined;
     try {
-      const result = await runSessionProvider(config, record, input.prompt, providerRunner);
-      await hooks.run("SubagentStop", {
-        ...hookInvocation,
-        payload: {
-          ...hookInvocation.payload,
-          status: "succeeded",
-          providerSessionId: result.providerSessionId,
-        },
-      });
-      const finishedAt = new Date().toISOString();
-      store.update(record.id, {
-        providerSessionId: result.providerSessionId ?? undefined,
-        status: "idle",
-        activeRun: undefined,
-        latestRun: {
-          id: input.runId,
-          status: "succeeded",
-          finishedAt,
-        },
-      });
-      if (record.workspaceId) {
-        mailbox.write({
-          sessionId: record.id,
-          runId: input.runId,
-          workspaceId: record.workspaceId,
-          ...(input.activityId ? { activityId: input.activityId } : {}),
-          provider: record.provider,
-          outcome: "succeeded",
-          finalResponse: result.finalResponse,
-        });
-      }
-      return completion(record, input, "succeeded");
+      await hooks.run("SubagentStart", hookInvocation);
+      input.signal?.throwIfAborted();
+      result = await runSessionProvider(config, record, input.prompt, providerRunner, input.signal);
+      input.signal?.throwIfAborted();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      if (isCancelled(error, input.signal)) {
+        outcome = "cancelled";
+        errorMessage = "Subagent Run cancelled.";
+      } else {
+        outcome = "failed";
+        errorMessage = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    try {
       await hooks.run("SubagentStop", {
         ...hookInvocation,
         payload: {
           ...hookInvocation.payload,
-          status: "failed",
+          status: outcome,
         },
       });
-      const finishedAt = new Date().toISOString();
-      store.update(record.id, {
-        status: "idle",
-        activeRun: undefined,
-        latestRun: {
-          id: input.runId,
-          status: "failed",
-          finishedAt,
-        },
-      });
-      if (record.workspaceId) {
-        mailbox.write({
-          sessionId: record.id,
-          runId: input.runId,
-          workspaceId: record.workspaceId,
-          ...(input.activityId ? { activityId: input.activityId } : {}),
-          provider: record.provider,
-          outcome: "failed",
-          error: message,
-        });
+    } catch (error) {
+      if (outcome === "succeeded") {
+        outcome = "failed";
+        errorMessage = error instanceof Error ? error.message : String(error);
       }
-      return completion(record, input, "failed", message);
     }
+
+    const finishedAt = new Date().toISOString();
+    store.update(record.id, {
+      ...(result?.providerSessionId ? { providerSessionId: result.providerSessionId } : {}),
+      status: "idle",
+      activeRun: undefined,
+      latestRun: {
+        id: input.runId,
+        status: outcome,
+        finishedAt,
+      },
+    });
+    if (record.workspaceId) {
+      mailbox.write({
+        sessionId: record.id,
+        runId: input.runId,
+        workspaceId: record.workspaceId,
+        ...(input.activityId ? { activityId: input.activityId } : {}),
+        provider: record.provider,
+        outcome,
+        ...(outcome === "succeeded" && result ? { finalResponse: result.finalResponse } : {}),
+        ...(outcome !== "succeeded" && errorMessage ? { error: errorMessage } : {}),
+      });
+    }
+    return completion(record, input, outcome, errorMessage);
   } finally {
     store.close();
   }
@@ -164,6 +156,7 @@ async function runSessionProvider(
   session: SubagentSession,
   prompt: string,
   providerRunner: SubagentProviderRunner,
+  signal?: AbortSignal,
 ): Promise<SubagentRunResult> {
   if (!isSubagentProvider(session.provider)) {
     throw new Error(`Unknown subagent provider for Session ${session.id}: ${session.provider}`);
@@ -176,6 +169,7 @@ async function runSessionProvider(
       writeMode: "allowed",
       model: session.model,
       thinking: session.thinking,
+      signal,
     });
   }
   if (session.profileName === session.provider) {
@@ -185,12 +179,13 @@ async function runSessionProvider(
       writeMode: "allowed",
       model: session.model,
       thinking: session.thinking,
+      signal,
     });
   }
   const profiles = await loadSubagentProfiles(config, session.workspaceRoot);
   const profile = profiles.find((candidate) => candidate.name === session.profileName);
   if (!profile) throw new Error(`Subagent profile not found: ${session.profileName}`);
-  return runSubagentProfile(profile, session, prompt, providerRunner);
+  return runSubagentProfile(profile, session, prompt, providerRunner, signal);
 }
 
 async function runSubagentProfile(
@@ -198,6 +193,7 @@ async function runSubagentProfile(
   session: SubagentSession,
   prompt: string,
   providerRunner: SubagentProviderRunner,
+  signal?: AbortSignal,
 ): Promise<SubagentRunResult> {
   const body = profile.body.trim();
   const firstPrompt = body ? `${body}\n\nTask:\n${prompt}` : prompt;
@@ -207,13 +203,18 @@ async function runSubagentProfile(
     writeMode: "allowed",
     model: session.model,
     thinking: session.thinking,
+    signal,
   });
+}
+
+function isCancelled(error: unknown, signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true || (error instanceof Error && error.name === "AbortError");
 }
 
 function completion(
   session: SubagentSession,
   input: ExecuteSubagentRunInput,
-  outcome: "succeeded" | "failed",
+  outcome: "succeeded" | "failed" | "cancelled",
   error?: string,
 ): SubagentRunCompletion {
   return {

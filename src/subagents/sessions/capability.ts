@@ -27,9 +27,15 @@ export interface SubagentSessionCapabilityOptions {
   providerRunner?: (provider: SubagentProvider, input: SubagentRunInput) => Promise<SubagentRunResult>;
 }
 
+interface ActiveSubagentRun {
+  controller: AbortController;
+  completion: Promise<SubagentRunCompletion>;
+}
+
 export class SubagentSessionCapability {
   private readonly mailbox: SubagentDeliveryMailbox;
   private readonly providerRunner: SubagentProviderRunner;
+  private readonly activeRuns = new Map<string, ActiveSubagentRun>();
 
   constructor(
     private readonly config: ServerConfig,
@@ -99,6 +105,18 @@ export class SubagentSessionCapability {
             },
           };
         }
+        case "stop":
+          return { value: await this.stop(manager, input.sessionId, context.workspaceId) };
+        case "delete": {
+          const deleted = manager.delete(input.sessionId, { workspaceId: context.workspaceId });
+          this.mailbox.discardSession(deleted.id);
+          return {
+            value: {
+              operation: "delete",
+              deletedSessionId: deleted.id,
+            },
+          };
+        }
         case "list":
           return {
             value: {
@@ -134,12 +152,64 @@ export class SubagentSessionCapability {
   }
 
   private launch(request: SubagentLaunchRequest): void {
-    void executeSubagentRun(this.config, request, this.providerRunner)
-      .then((completion) => this.recordCompletion(completion))
-      .catch(() => {
-        // The worker writes durable Session/mailbox state for provider failures.
-        // An unexpected orchestration failure must not become an unhandled rejection.
-      });
+    const controller = new AbortController();
+    const completion = executeSubagentRun(
+      this.config,
+      { ...request, signal: controller.signal },
+      this.providerRunner,
+    ).then((result) => {
+      this.recordCompletion(result);
+      return result;
+    });
+    this.activeRuns.set(request.runId, { controller, completion });
+    void completion.finally(() => {
+      this.activeRuns.delete(request.runId);
+    }).catch(() => {
+      // Unexpected orchestration failures surface through later reconciliation.
+    });
+  }
+
+  private async stop(
+    manager: SubagentSessionManager,
+    sessionId: string,
+    workspaceId: string,
+  ): Promise<Record<string, unknown>> {
+    let session = manager.get(sessionId, { workspaceId });
+    if (!session) {
+      throw new SubagentSessionError(
+        "subagent.session_not_found",
+        `Unknown Subagent Session in this Workspace: ${sessionId}`,
+      );
+    }
+    const activeRun = session.activeRun;
+    if (!activeRun) {
+      return { operation: "stop", session: publicSession(session) };
+    }
+
+    const handle = this.activeRuns.get(activeRun.id);
+    if (!handle) {
+      session = manager.get(session.id, { workspaceId }) ?? session;
+      if (!session.activeRun) return { operation: "stop", session: publicSession(session) };
+      throw new SubagentSessionError(
+        "subagent.cancel_unavailable",
+        `Subagent Run ${activeRun.id} has no live cancellation owner.`,
+      );
+    }
+
+    handle.controller.abort(new Error(`Subagent Run ${activeRun.id} cancelled by stop.`));
+    await handle.completion;
+    session = manager.get(session.id, { workspaceId });
+    if (!session) {
+      throw new SubagentSessionError(
+        "subagent.session_not_found",
+        `Unknown Subagent Session in this Workspace: ${sessionId}`,
+      );
+    }
+    return {
+      operation: "stop",
+      session: publicSession(session),
+      ...(session.latestRun?.id === activeRun.id ? { run: publicRun(session.latestRun) } : {}),
+    };
   }
 
   private recordCompletion(completion: SubagentRunCompletion): void {

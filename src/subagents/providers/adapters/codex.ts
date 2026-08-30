@@ -15,7 +15,7 @@ import type {
 
 interface CodexThreadLike {
   readonly id: string | null;
-  run(prompt: string): Promise<RunResult>;
+  run(prompt: string, options?: { signal?: AbortSignal }): Promise<RunResult>;
 }
 
 interface CodexClientLike {
@@ -60,7 +60,7 @@ export class CodexSdkSubagentRuntime {
     const thread = input.providerSessionId
       ? this.codex.resumeThread(input.providerSessionId, options)
       : this.codex.startThread(options);
-    const turn = await thread.run(input.prompt);
+    const turn = await thread.run(input.prompt, { signal: input.signal });
 
     return {
       provider: this.provider,

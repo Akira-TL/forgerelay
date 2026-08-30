@@ -5,7 +5,7 @@ import type {
   SubagentRunInput,
   SubagentRunResult,
 } from "../contract.js";
-import { directString, requireFinalResponse } from "../shared.js";
+import { directString, linkedAbortController, requireFinalResponse } from "../shared.js";
 
 export class ClaudeSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "claude" as const;
@@ -13,38 +13,44 @@ export class ClaudeSubagentAdapter implements SubagentProviderAdapter {
   async run(input: SubagentRunInput): Promise<SubagentRunResult> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
     const claudeExecutable = process.env.CLAUDE_COMMAND ?? resolveExecutable("claude");
-    const messages = query({
-      prompt: input.prompt,
-      options: {
-        cwd: input.workspace,
-        model: input.model,
-        ...(input.thinking ? { thinking: { type: "adaptive" } as const, effort: input.thinking as EffortLevel } : {}),
-        resume: input.providerSessionId,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        env: claudeCommandEnvironment(process.env),
-        ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
-      },
-    });
+    const linkedAbort = linkedAbortController(input.signal);
+    try {
+      const messages = query({
+        prompt: input.prompt,
+        options: {
+          cwd: input.workspace,
+          model: input.model,
+          ...(input.thinking ? { thinking: { type: "adaptive" } as const, effort: input.thinking as EffortLevel } : {}),
+          resume: input.providerSessionId,
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          env: claudeCommandEnvironment(process.env),
+          ...(linkedAbort.controller ? { abortController: linkedAbort.controller } : {}),
+          ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
+        },
+      });
 
-    let providerSessionId = input.providerSessionId ?? null;
-    let finalResponse = "";
-    for await (const message of messages) {
-      const record = message as Record<string, unknown>;
-      if (typeof record.session_id === "string") providerSessionId = record.session_id;
-      if (record.type === "result" && typeof record.result === "string") {
-        const resultError = claudeResultError(record);
-        if (resultError) throw new Error(resultError);
-        finalResponse = record.result;
+      let providerSessionId = input.providerSessionId ?? null;
+      let finalResponse = "";
+      for await (const message of messages) {
+        const record = message as Record<string, unknown>;
+        if (typeof record.session_id === "string") providerSessionId = record.session_id;
+        if (record.type === "result" && typeof record.result === "string") {
+          const resultError = claudeResultError(record);
+          if (resultError) throw new Error(resultError);
+          finalResponse = record.result;
+        }
       }
-    }
 
-    finalResponse = requireFinalResponse("Claude", finalResponse);
-    return {
-      provider: this.provider,
-      providerSessionId,
-      finalResponse,
-    };
+      finalResponse = requireFinalResponse("Claude", finalResponse);
+      return {
+        provider: this.provider,
+        providerSessionId,
+        finalResponse,
+      };
+    } finally {
+      linkedAbort.dispose();
+    }
   }
 }
 
