@@ -32,6 +32,7 @@ const stateDir = resolve(acceptanceRoot, "state");
 const worktreeRoot = resolve(acceptanceRoot, "worktrees");
 const hookLog = resolve(acceptanceRoot, "hooks.jsonl");
 const checkoutWorkspace = resolve(acceptanceRoot, "workspace");
+const lifecycleDeleteWorkspace = resolve(acceptanceRoot, "delete-workspace");
 const codeIntelligenceLog = resolve(acceptanceRoot, "code-intelligence-lsp.jsonl");
 const fakeLanguageServer = resolve(repoRoot, "src", "lsp", "test-fixtures", "fake-lsp-server.mjs");
 const gitProject = resolve(acceptanceRoot, "git-project");
@@ -45,6 +46,8 @@ await assertDebugPortFree();
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(acceptanceRoot, { recursive: true });
 setupGitProject(checkoutWorkspace);
+setupGitProject(lifecycleDeleteWorkspace);
+writeFileSync(join(lifecycleDeleteWorkspace, "keep.txt"), "keep checkout files\n");
 setupCodeIntelligenceAcceptanceProject({
   root: checkoutWorkspace,
   fakeLanguageServer,
@@ -279,42 +282,52 @@ try {
   assert.equal(capabilityCatalog[0].available, true);
   assert.equal(capabilityCatalog[0].guide.name, "lifecycle-hooks");
 
-  const freshLogical = callTool(oauth.accessToken, sessionId, 84, "open_workspace", {
+  const repeatedOpen = callTool(oauth.accessToken, sessionId, 84, "open_workspace", {
     path: checkoutWorkspace,
     newWorkspace: true,
   }, workspaceConversationMeta);
-  const freshLogicalId = freshLogical.structuredContent.workspaceId;
-  assert.notEqual(freshLogicalId, workspaceId);
-  assert.equal(freshLogical.structuredContent.action, "open");
+  assert.equal(repeatedOpen.structuredContent.workspaceId, workspaceId);
+  assert.equal(repeatedOpen.structuredContent.action, "open");
   assert.equal(
-    freshLogical.structuredContent.contextFingerprint,
+    repeatedOpen.structuredContent.contextFingerprint,
     opened.structuredContent.contextFingerprint,
   );
-  assert.equal(freshLogical.structuredContent.agentsFiles, undefined);
-  assert.equal(freshLogical.structuredContent.capabilityGuides, undefined);
+  assert.equal(repeatedOpen.structuredContent.agentsFiles, undefined);
+  assert.equal(repeatedOpen.structuredContent.capabilityGuides, undefined);
 
   const workspaceInventory = callTool(oauth.accessToken, sessionId, 85, "open_workspace", {
     action: "list",
     root: checkoutWorkspace,
   }, workspaceConversationMeta);
   assert.equal(workspaceInventory.structuredContent.action, "list");
-  assert.equal(workspaceInventory.structuredContent.summary.matching, 2);
+  assert.equal(workspaceInventory.structuredContent.summary.matching, 1);
   const inventoryEntries = workspaceInventory.structuredContent.workspaces;
-  assert.equal(inventoryEntries.length, 2);
-  assert.equal(
-    inventoryEntries.find((entry) => entry.workspaceId === freshLogicalId)?.current,
-    true,
-  );
-  assert.equal(
-    inventoryEntries.find((entry) => entry.workspaceId === workspaceId)?.current,
-    false,
-  );
+  assert.equal(inventoryEntries.length, 1);
+  assert.equal(inventoryEntries[0].workspaceId, workspaceId);
+  assert.equal(inventoryEntries[0].current, true);
 
-  const closedFreshLogical = callTool(oauth.accessToken, sessionId, 86, "close_workspace", {
-    workspaceId: freshLogicalId,
+  const closedWorkspace = callTool(oauth.accessToken, sessionId, 86, "close_workspace", {
+    workspaceId,
   });
-  assert.equal(closedFreshLogical.isError, undefined);
-  const resumedOriginal = callTool(oauth.accessToken, sessionId, 87, "open_workspace", {
+  assert.equal(closedWorkspace.isError, undefined);
+  assert.equal(closedWorkspace.structuredContent.workspaceId, workspaceId);
+  assert.equal(closedWorkspace.structuredContent.action, "close");
+
+  const closedInventory = callTool(oauth.accessToken, sessionId, 87, "open_workspace", {
+    action: "list",
+    workspaceId,
+  }, workspaceConversationMeta);
+  assert.equal(closedInventory.structuredContent.workspaces.length, 1);
+  assert.equal(closedInventory.structuredContent.workspaces[0].state, "closed");
+  assert.equal(closedInventory.structuredContent.workspaces[0].current, false);
+
+  const closedRead = callTool(oauth.accessToken, sessionId, 89, "read", {
+    workspaceId,
+    path: "AGENTS.md",
+  });
+  assert.equal(closedRead.isError, true);
+
+  const resumedOriginal = callTool(oauth.accessToken, sessionId, 90, "open_workspace", {
     workspaceId,
   }, workspaceConversationMeta);
   assert.equal(resumedOriginal.structuredContent.workspaceId, workspaceId);
@@ -323,9 +336,33 @@ try {
     resumedOriginal.structuredContent.contextFingerprint,
     opened.structuredContent.contextFingerprint,
   );
+
+  const deleteOpened = callTool(oauth.accessToken, sessionId, 91, "open_workspace", {
+    path: lifecycleDeleteWorkspace,
+    context: "none",
+  }, { "openai/session": "acceptance-workspace-delete" });
+  const deleteWorkspaceId = deleteOpened.structuredContent.workspaceId;
+  const deleteClosed = callTool(oauth.accessToken, sessionId, 92, "close_workspace", {
+    workspaceId: deleteWorkspaceId,
+  });
+  assert.equal(deleteClosed.structuredContent.action, "close");
+  const deletedWorkspace = callTool(oauth.accessToken, sessionId, 93, "close_workspace", {
+    workspaceId: deleteWorkspaceId,
+    action: "delete",
+  });
+  assert.equal(deletedWorkspace.isError, undefined);
+  assert.equal(deletedWorkspace.structuredContent.workspaceId, deleteWorkspaceId);
+  assert.equal(deletedWorkspace.structuredContent.action, "delete");
+  assert.equal(readFileSync(join(lifecycleDeleteWorkspace, "keep.txt"), "utf8"), "keep checkout files\n");
+  const deletedInventory = callTool(oauth.accessToken, sessionId, 94, "open_workspace", {
+    action: "list",
+    workspaceId: deleteWorkspaceId,
+  });
+  assert.equal(deletedInventory.structuredContent.workspaces.length, 0);
+
   pass(
-    "workspace context + inventory",
-    `${workspaceId} -> ${freshLogicalId} -> list -> close -> resume without bootstrap replay`,
+    "workspace lifecycle + inventory",
+    `${workspaceId} canonical reuse -> close -> list -> reopen; explicit delete preserves checkout files`,
   );
 
   const directCapability = callTool(oauth.accessToken, sessionId, 79, "capability", {
@@ -972,13 +1009,14 @@ function exerciseReleaseTagHooks(accessToken, sessionId) {
 
 function exerciseSubagentHooks(runtimeEnv, debugStateDir, workspaceId, workspaceRoot) {
   const seedScript = [
-    'import { LocalAgentStore } from "./src/local-agent-store.js";',
-    'const store = new LocalAgentStore(process.env.FORGERELAY_STATE_DIR);',
+    'import { SubagentSessionStore } from "./src/subagents/sessions/store.js";',
+    'const store = new SubagentSessionStore(process.env.FORGERELAY_STATE_DIR);',
     'const record = store.create({',
     `  workspaceId: ${JSON.stringify(workspaceId)},`,
     `  workspaceRoot: ${JSON.stringify(workspaceRoot)},`,
     '  profileName: "debug-missing-profile",',
     '  provider: "codex",',
+    '  activeRun: { id: "run_debug_acceptance", startedAt: new Date().toISOString() },',
     '});',
     'store.close();',
     'process.stdout.write(record.id);',
@@ -1006,11 +1044,13 @@ function exerciseSubagentHooks(runtimeEnv, debugStateDir, workspaceId, workspace
   }
 
   const inspectScript = [
-    'import { LocalAgentStore } from "./src/local-agent-store.js";',
-    'const store = new LocalAgentStore(process.env.FORGERELAY_STATE_DIR);',
+    'import { SubagentSessionStore } from "./src/subagents/sessions/store.js";',
+    'import { SubagentDeliveryMailbox } from "./src/subagents/sessions/delivery-mailbox.js";',
+    'const store = new SubagentSessionStore(process.env.FORGERELAY_STATE_DIR);',
     `const record = store.get(${JSON.stringify(agentId)});`,
+    `const deliveries = new SubagentDeliveryMailbox(process.env.FORGERELAY_STATE_DIR).claimSession(${JSON.stringify(workspaceId)}, ${JSON.stringify(agentId)});`,
     'store.close();',
-    'process.stdout.write(JSON.stringify({ status: record?.status, error: record?.error }));',
+    'process.stdout.write(JSON.stringify({ status: record?.status, latestRun: record?.latestRun, delivery: deliveries[0] }));',
   ].join("\n");
   const inspected = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", inspectScript], {
     cwd: repoRoot,
@@ -1021,9 +1061,11 @@ function exerciseSubagentHooks(runtimeEnv, debugStateDir, workspaceId, workspace
     throw new Error(`unable to inspect debug subagent: ${inspected.stderr.trim()}`);
   }
   const record = JSON.parse(inspected.stdout);
-  assert.equal(record.status, "error");
-  assert.match(record.error, /Subagent profile not found/);
-  pass("subagent hook path", `${agentId} stopped in deterministic error path without calling a provider`);
+  assert.equal(record.status, "idle");
+  assert.equal(record.latestRun?.status, "failed");
+  assert.equal(record.delivery?.outcome, "failed");
+  assert.match(record.delivery?.error ?? "", /Subagent profile not found/);
+  pass("subagent hook path", `${agentId} stopped in deterministic failed Run without calling a provider`);
 }
 
 function toolText(result) {
