@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-30
+
+### Added
+
+- `close_workspace(action="delete")` explicitly removes ForgeRelay-owned checkout Workspace state without deleting or mutating project files.
+
+### Changed
+
+- Checkout Workspace close is now reversible: it preserves the canonical identity for reopen by path or ID, closed Workspaces remain listable but non-executable, legacy aliases resolve canonically, and idle GC no longer deletes persistent identity.
+
 ## [0.8.0] - 2026-08-30
 
 ### Changed
