@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-30
+
+### Changed
+
+- Workspace identity is now canonical per physical checkout or managed worktree, so different Host conversations reuse one persistent `workspaceId`; legacy duplicate IDs remain compatible aliases, and `newWorkspace` no longer creates same-target duplicates.
+
+### Fixed
+
+- Composite member bootstrap now preserves capability guides and subagent provider/profile context exposed by the underlying Workspace.
+- Composite member `context="none"` now truthfully reports suppressed bootstrap instead of claiming it was already delivered.
+
 ## [0.7.4] - 2026-08-30
 
 ### Added
