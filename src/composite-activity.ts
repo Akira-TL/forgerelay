@@ -32,7 +32,7 @@ export class CompositeActivityCoordinator {
   }
 
   beginPanel(workspaceId: string, conversationScopeId: string): CallToolResult {
-    this.composites.open(workspaceId);
+    this.composites.touchActive(workspaceId);
     const snapshot = this.queries.beginTurn(conversationScopeId, workspaceId);
     this.turns.set(snapshot.turnId, {
       compositeWorkspaceId: workspaceId,

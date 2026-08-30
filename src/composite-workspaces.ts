@@ -8,18 +8,25 @@ export interface CompositeWorkspaceMember {
   workspaceId: string;
 }
 
+export type CompositeWorkspaceStatus = "active" | "closed";
+
 export interface CompositeWorkspaceRecord {
   id: string;
   kind: "composite";
   name: string;
+  status: CompositeWorkspaceStatus;
   members: CompositeWorkspaceMember[];
   createdAt: string;
   lastUsedAt: string;
 }
 
+interface PersistedCompositeWorkspaceRecord extends Omit<CompositeWorkspaceRecord, "status"> {
+  status?: CompositeWorkspaceStatus;
+}
+
 interface CompositeWorkspaceState {
-  version: 1;
-  workspaces: CompositeWorkspaceRecord[];
+  version: 1 | 2;
+  workspaces: PersistedCompositeWorkspaceRecord[];
 }
 
 export class CompositeWorkspaceRegistry {
@@ -35,15 +42,20 @@ export class CompositeWorkspaceRegistry {
     return this.records.has(workspaceId);
   }
 
+  isActive(workspaceId: string): boolean {
+    return this.records.get(workspaceId)?.status === "active";
+  }
+
   create(name: string): CompositeWorkspaceRecord {
     const normalized = normalizeName(name);
     const existing = [...this.records.values()].find((record) => record.name === normalized);
-    if (existing) return this.touch(existing.id);
+    if (existing) return this.open(existing.id);
     const now = new Date().toISOString();
     const record: CompositeWorkspaceRecord = {
       id: `cws_${randomBytes(5).toString("hex")}`,
       kind: "composite",
       name: normalized,
+      status: "active",
       members: [],
       createdAt: now,
       lastUsedAt: now,
@@ -60,7 +72,19 @@ export class CompositeWorkspaceRegistry {
   }
 
   open(workspaceId: string): CompositeWorkspaceRecord {
-    return this.touch(workspaceId);
+    const record = this.requireRecord(workspaceId);
+    record.status = "active";
+    return this.touchRecord(record);
+  }
+
+  close(workspaceId: string): CompositeWorkspaceRecord {
+    const record = this.requireActive(workspaceId);
+    record.status = "closed";
+    return this.touchRecord(record);
+  }
+
+  touchActive(workspaceId: string): CompositeWorkspaceRecord {
+    return this.touchRecord(this.requireActive(workspaceId));
   }
 
   list(): CompositeWorkspaceRecord[] {
@@ -73,7 +97,7 @@ export class CompositeWorkspaceRegistry {
     workspaceId: string,
     input: CompositeWorkspaceMember,
   ): CompositeWorkspaceRecord {
-    const record = this.requireRecord(workspaceId);
+    const record = this.requireActive(workspaceId);
     const name = normalizeMemberName(input.name);
     const purpose = input.purpose.trim();
     if (!purpose) throw new Error("Composite Workspace member purpose must not be empty.");
@@ -99,7 +123,7 @@ export class CompositeWorkspaceRegistry {
       workspaceId?: string;
     },
   ): CompositeWorkspaceRecord {
-    const record = this.requireRecord(workspaceId);
+    const record = this.requireActive(workspaceId);
     const currentName = normalizeMemberName(memberName);
     const index = record.members.findIndex((member) => member.name === currentName);
     if (index < 0) throw new Error(`Composite Workspace ${workspaceId} has no member ${currentName}.`);
@@ -132,7 +156,7 @@ export class CompositeWorkspaceRegistry {
   }
 
   removeMember(workspaceId: string, memberName: string): CompositeWorkspaceRecord {
-    const record = this.requireRecord(workspaceId);
+    const record = this.requireActive(workspaceId);
     const name = normalizeMemberName(memberName);
     const index = record.members.findIndex((member) => member.name === name);
     if (index < 0) throw new Error(`Composite Workspace ${workspaceId} has no member ${name}.`);
@@ -143,7 +167,7 @@ export class CompositeWorkspaceRegistry {
   }
 
   member(workspaceId: string, memberName: string): CompositeWorkspaceMember {
-    const record = this.requireRecord(workspaceId);
+    const record = this.requireActive(workspaceId);
     const name = normalizeMemberName(memberName);
     const member = record.members.find((entry) => entry.name === name);
     if (!member) throw new Error(`Composite Workspace ${workspaceId} has no member ${name}.`);
@@ -157,11 +181,18 @@ export class CompositeWorkspaceRegistry {
     return cloneRecord(record);
   }
 
-  private touch(workspaceId: string): CompositeWorkspaceRecord {
-    const record = this.requireRecord(workspaceId);
+  private touchRecord(record: CompositeWorkspaceRecord): CompositeWorkspaceRecord {
     record.lastUsedAt = new Date().toISOString();
     this.persist();
     return cloneRecord(record);
+  }
+
+  private requireActive(workspaceId: string): CompositeWorkspaceRecord {
+    const record = this.requireRecord(workspaceId);
+    if (record.status !== "active") {
+      throw new Error(`Composite Workspace ${workspaceId} is closed. Reopen it with open_workspace before use.`);
+    }
+    return record;
   }
 
   private requireRecord(workspaceId: string): CompositeWorkspaceRecord {
@@ -178,13 +209,14 @@ export class CompositeWorkspaceRegistry {
       if (isMissingFile(error)) return;
       throw new Error(`Failed to load Composite Workspace state: ${errorMessage(error)}`);
     }
-    if (parsed?.version !== 1 || !Array.isArray(parsed.workspaces)) {
+    if ((parsed?.version !== 1 && parsed?.version !== 2) || !Array.isArray(parsed.workspaces)) {
       throw new Error("Composite Workspace state has an unsupported format.");
     }
     for (const record of parsed.workspaces) {
       if (!record?.id?.startsWith("cws_") || record.kind !== "composite") continue;
       this.records.set(record.id, {
         ...record,
+        status: record.status === "closed" ? "closed" : "active",
         members: Array.isArray(record.members) ? record.members.map((member) => ({ ...member })) : [],
       });
     }
@@ -193,7 +225,7 @@ export class CompositeWorkspaceRegistry {
   private persist(): void {
     mkdirSync(this.stateDir, { recursive: true });
     const state: CompositeWorkspaceState = {
-      version: 1,
+      version: 2,
       workspaces: [...this.records.values()].map(cloneRecord),
     };
     const tempPath = `${this.statePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
