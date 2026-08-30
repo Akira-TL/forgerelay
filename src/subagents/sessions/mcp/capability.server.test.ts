@@ -300,6 +300,10 @@ test("subagent completion mailbox survives server restart and is delivered once"
   assert.doesNotMatch(allResponseText(listed), new RegExp(secretFinalResponse));
   const sessions = (structuredContent(listed).result as { sessions: Array<{ id: string }> }).sessions;
   assert.deepEqual(sessions.map((session) => session.id), [startedValue.session.id]);
+
+  // Close the restarted server before the fixture-level temp-directory cleanup.
+  // Windows refuses to unlink SQLite files while the restored handles remain open.
+  await restored.close();
 });
 
 interface SubagentServerFixture {
