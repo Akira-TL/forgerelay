@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- `subagent.session resume` 现在基于 provider-native continuation 继续已有 Session；Codex、Claude、OpenCode、Pi 支持真实 continuation，Cursor/Copilot 明确保持 start-only。
+
+### Changed
+
+- Session 固定创建时的 provider/profile/model/thinking，并严格限制在所属 Execution Workspace；busy resume、跨 Workspace 访问和不受支持的 continuation 都返回明确错误。
+
+### Fixed
+
+- Windows restart mailbox 测试在清理临时 SQLite state 前显式关闭 restored server，避免 `EBUSY`。
+
 ## [0.7.0] - 2026-08-30
 
 ### Added
