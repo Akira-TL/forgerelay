@@ -4,6 +4,15 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Subagent Run restart reconciliation now preserves live owners and marks stale active Runs `interrupted` without replaying the old prompt.
+- First-class Subagent Sessions now work through Workspace Relay and Composite explicit-member routing while keeping Session state on the Execution ForgeRelay.
+
+### Fixed
+
+- Composite Capability result remapping now preserves the declared output schema during relayed Subagent operations.
+
 ## [0.7.2] - 2026-08-30
 
 ### Added
