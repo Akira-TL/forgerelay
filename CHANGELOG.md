@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-30
+
 ### Added
 
 - `subagent.session resume` 现在基于 provider-native continuation 继续已有 Session；Codex、Claude、OpenCode、Pi 支持真实 continuation，Cursor/Copilot 明确保持 start-only。
