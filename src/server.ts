@@ -3556,7 +3556,6 @@ export function createMcpServer(
       },
     },
   );
-
   registerAppTool(
     server,
     toolNames.capability,
@@ -3584,6 +3583,7 @@ export function createMcpServer(
       outputSchema: {
         name: z.string(),
         action: z.enum(["describe", "run"]),
+        member: z.string().optional(),
         capability: z.unknown().optional(),
         result: z.unknown().optional(),
         error: capabilityErrorOutputSchema.optional(),
