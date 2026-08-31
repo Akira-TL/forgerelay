@@ -4,6 +4,20 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-08-31
+
+### Added
+
+- Added source-controlled GitHub Wiki pages with validation and publishing tooling.
+
+### Changed
+
+- Relayed checkout and managed-worktree Workspaces now preserve stable Gateway identity and Execution-owned Task/lifecycle semantics across close, reopen, delete, inspection, and Composite member routing.
+
+### Fixed
+
+- Task reminders and relayed/Composite runtime state now survive independent MCP transport sessions instead of resetting or presenting stale session-local state.
+
 ## [0.8.4] - 2026-08-31
 
 ### Added
