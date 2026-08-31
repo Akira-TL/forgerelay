@@ -37,7 +37,8 @@ export interface CapabilityGuideContext {
 
 export interface CapabilityContext {
   workspaceId: string;
-  workspaceRoot: string;
+  workspaceKind: "workspace" | "composite";
+  workspaceRoot?: string;
   guides: CapabilityGuideContext[];
 }
 
@@ -504,11 +505,11 @@ export function createCapabilityRegistry(
       readGuideBeforeFirstUse: true,
       batchPolicy: "parallel",
       inputSchema: hooksCheckInput,
-      availability: () => ({ available: true }),
+      availability: (context) => filesystemWorkspaceAvailability(context),
       run: async (_input, context) => ({
         value: {
           ok: true,
-          ...await dependencies.inspectHooks(context.workspaceRoot),
+          ...await dependencies.inspectHooks(requireWorkspaceRoot(context)),
         },
       }),
     },
@@ -520,10 +521,11 @@ export function createCapabilityRegistry(
           readGuideBeforeFirstUse: true,
           batchPolicy: "serial",
           inputSchema: z.object({}).strict(),
-          availability: () => ({
-            available: dependencies.reviewChanges?.available ?? false,
-            reason: dependencies.reviewChanges?.unavailableReason,
-          }),
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.reviewChanges?.available ?? false,
+            dependencies.reviewChanges?.unavailableReason,
+          ),
           run: async (_input: unknown, context: CapabilityContext) => dependencies.reviewChanges!.run(context),
         } satisfies CapabilityDefinition]
       : []),
@@ -535,10 +537,11 @@ export function createCapabilityRegistry(
           readGuideBeforeFirstUse: true,
           batchPolicy: "parallel",
           inputSchema: codeIntelligenceInput,
-          availability: () => ({
-            available: dependencies.codeIntelligence?.available ?? false,
-            reason: dependencies.codeIntelligence?.unavailableReason,
-          }),
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.codeIntelligence?.available ?? false,
+            dependencies.codeIntelligence?.unavailableReason,
+          ),
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.codeIntelligence!.run(
               input as CodeIntelligenceInput,
@@ -575,10 +578,11 @@ export function createCapabilityRegistry(
           readGuideBeforeFirstUse: true,
           batchPolicy: "unsupported",
           inputSchema: subagentSessionInput,
-          availability: () => ({
-            available: dependencies.subagentSession?.available ?? false,
-            reason: dependencies.subagentSession?.unavailableReason,
-          }),
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.subagentSession?.available ?? false,
+            dependencies.subagentSession?.unavailableReason,
+          ),
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.subagentSession!.run(
               input as SubagentSessionCapabilityInput,
@@ -595,10 +599,11 @@ export function createCapabilityRegistry(
           readGuideBeforeFirstUse: true,
           batchPolicy: "unsupported",
           inputSchema: batchExecuteInputSchema,
-          availability: () => ({
-            available: dependencies.batchExecute?.available ?? false,
-            reason: dependencies.batchExecute?.unavailableReason,
-          }),
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.batchExecute?.available ?? false,
+            dependencies.batchExecute?.unavailableReason,
+          ),
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.batchExecute!.run(input as BatchExecuteInput, context, options),
         } satisfies CapabilityDefinition]
@@ -622,15 +627,40 @@ export function createCapabilityRegistry(
             path: z.string().min(1),
           }).strict(),
           nativeFileArgument: "file",
-          availability: () => ({
-            available: dependencies.downloadArtifact?.available ?? false,
-            reason: dependencies.downloadArtifact?.unavailableReason,
-          }),
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.downloadArtifact?.available ?? false,
+            dependencies.downloadArtifact?.unavailableReason,
+          ),
           run: async (input: unknown, context: CapabilityContext) =>
             dependencies.downloadArtifact!.run(input as { file: unknown; path: string }, context),
         } satisfies CapabilityDefinition]
       : []),
   ]);
+}
+
+function filesystemWorkspaceAvailability(
+  context: CapabilityContext,
+  available = true,
+  reason?: string,
+): { available: boolean; reason?: string } {
+  if (context.workspaceKind !== "workspace" || !context.workspaceRoot) {
+    return {
+      available: false,
+      reason: "This capability requires a filesystem-backed Workspace.",
+    };
+  }
+  return { available, ...(reason ? { reason } : {}) };
+}
+
+function requireWorkspaceRoot(context: CapabilityContext): string {
+  if (context.workspaceKind !== "workspace" || !context.workspaceRoot) {
+    throw new CapabilityError(
+      "capability_unavailable",
+      "This capability requires a filesystem-backed Workspace.",
+    );
+  }
+  return context.workspaceRoot;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -83,7 +83,7 @@ export class WorkspaceTaskStore {
   initializeWorkspace(workspaceId: string): void {
     const id = normalizeWorkspaceId(workspaceId);
     const directory = this.workspaceStateDir(id);
-    mkdirSync(directory, { recursive: true });
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
     try {
       writeFileSync(this.statePath(id), `${JSON.stringify(emptyState(), null, 2)}\n`, {
         mode: 0o600,

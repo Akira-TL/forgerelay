@@ -8,6 +8,7 @@ import {
 
 const context: CapabilityContext = {
   workspaceId: "ws_test",
+  workspaceKind: "workspace",
   workspaceRoot: "/tmp/project",
   guides: [
     {
@@ -248,6 +249,40 @@ test("workspace.tasks is current-workspace scoped and exposes a strict serial ta
     ),
     (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
   );
+});
+
+test("Composite capability context exposes workspace.tasks without a filesystem root", async () => {
+  const compositeContext: CapabilityContext = {
+    workspaceId: "cws_1234567890",
+    workspaceKind: "composite",
+    guides: [
+      {
+        name: "workspace-tasks",
+        description: "Persistent Task Lists owned by the current Workspace.",
+        whenToRead: "Read before creating or maintaining Workspace Tasks.",
+        path: "~/capabilities/workspace-tasks/GUIDE.md",
+      },
+      ...context.guides,
+    ],
+  };
+  const registry = createCapabilityRegistry({
+    inspectHooks: async () => ({ globalHooks: 0, projectHooks: 0 }),
+    workspaceTasks: {
+      available: true,
+      run: async (input, capabilityContext) => ({
+        value: { operation: input.operation, workspaceId: capabilityContext.workspaceId },
+      }),
+    },
+  });
+
+  assert.deepEqual(registry.catalog(compositeContext).map((entry) => entry.name), ["workspace.tasks"]);
+  assert.deepEqual(
+    await registry.run("workspace.tasks", { operation: "get" }, compositeContext),
+    { value: { operation: "get", workspaceId: compositeContext.workspaceId } },
+  );
+  const hooksDescription = registry.describe("hooks.check", compositeContext);
+  assert.equal(hooksDescription.available, false);
+  assert.match(hooksDescription.unavailableReason ?? "", /filesystem-backed Workspace/);
 });
 
 test("subagent.session is a deep batch-unsupported capability when explicitly enabled", async () => {

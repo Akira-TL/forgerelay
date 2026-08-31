@@ -78,6 +78,11 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     whenToRead: "Read before using code.intelligence or configuring Language servers.",
   },
   {
+    name: "workspace-tasks",
+    description: "Persistent Task Lists owned by the current Workspace.",
+    whenToRead: "Read before creating or maintaining Workspace Tasks.",
+  },
+  {
     name: "batch-execution",
     description: "One-call execution of multiple independent ForgeRelay core operations.",
     whenToRead: "Read before using batch.execute for heterogeneous multi-operation work.",
@@ -141,6 +146,7 @@ export function buildCapabilityFingerprint(
     "hooks.lifecycle",
     "capability-guides.read",
     "code.intelligence",
+    "workspace.tasks",
   ];
 
   if (config.toolMode !== "codex") {

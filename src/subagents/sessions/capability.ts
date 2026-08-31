@@ -57,6 +57,12 @@ export class SubagentSessionCapability {
     context: CapabilityContext,
     options: CapabilityRunOptions,
   ): Promise<CapabilityExecution> {
+    if (!context.workspaceRoot) {
+      throw new CapabilityError(
+        "capability_unavailable",
+        "subagent.session requires a filesystem-backed Workspace.",
+      );
+    }
     const manager = new SubagentSessionManager(this.config, {
       launch: (request) => this.launch(request),
     });

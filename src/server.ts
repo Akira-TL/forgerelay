@@ -30,11 +30,12 @@ import {
   type ActivityOutcome,
 } from "./activity/lifecycle.js";
 import { ActivityQueryService } from "./activity/query-service.js";
-import { buildCapabilityFingerprint } from "./capabilities.js";
+import { buildCapabilityFingerprint, loadCapabilityGuides } from "./capabilities.js";
 import {
   CapabilityError,
   createCapabilityRegistry,
   type CapabilityContext,
+  type WorkspaceTasksCapabilityInput,
 } from "./capability-registry.js";
 import { deletePath, renamePath } from "./file-mutations.js";
 import {
@@ -122,6 +123,7 @@ import {
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
+import { WorkspaceTaskStore, type WorkspaceTaskSnapshot } from "./workspace-tasks.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
 import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
@@ -1152,6 +1154,7 @@ function workspaceHookInvocation(workspace: Workspace) {
 function capabilityContextFor(workspace: Workspace): CapabilityContext {
   return {
     workspaceId: workspace.id,
+    workspaceKind: "workspace",
     workspaceRoot: workspace.root,
     guides: workspace.capabilityGuides.map((guide) => ({
       name: guide.name,
@@ -1160,6 +1163,69 @@ function capabilityContextFor(workspace: Workspace): CapabilityContext {
       path: formatPathForPrompt(guide.filePath),
     })),
   };
+}
+
+function compositeCapabilityContext(
+  workspaceId: string,
+  guides: ReturnType<typeof loadCapabilityGuides>,
+): CapabilityContext {
+  return {
+    workspaceId,
+    workspaceKind: "composite",
+    guides: guides.map((guide) => ({
+      name: guide.name,
+      description: guide.description,
+      whenToRead: guide.whenToRead,
+      path: formatPathForPrompt(guide.filePath),
+    })),
+  };
+}
+
+function requireCapabilityWorkspaceRoot(context: CapabilityContext): string {
+  if (!context.workspaceRoot) {
+    throw new CapabilityError(
+      "capability_unavailable",
+      `Capability execution requires a filesystem-backed Workspace; ${context.workspaceId} is ${context.workspaceKind}.`,
+    );
+  }
+  return context.workspaceRoot;
+}
+
+function runWorkspaceTasksCapability(
+  store: WorkspaceTaskStore,
+  workspaceId: string,
+  input: WorkspaceTasksCapabilityInput,
+): WorkspaceTaskSnapshot {
+  switch (input.operation) {
+    case "get":
+      return store.read(workspaceId);
+    case "list.create":
+      return store.createList(workspaceId, { name: input.name, position: input.position });
+    case "list.update":
+      return store.updateList(workspaceId, input.listId, {
+        name: input.name,
+        state: input.state,
+        position: input.position,
+      });
+    case "list.delete":
+      return store.deleteList(workspaceId, input.listId);
+    case "task.create":
+      return store.createTask(workspaceId, input.listId, {
+        subject: input.subject,
+        content: input.content,
+        status: input.status,
+        position: input.position,
+      });
+    case "task.update":
+      return store.updateTask(workspaceId, input.listId, input.taskId, {
+        subject: input.subject,
+        content: input.content,
+        status: input.status,
+        position: input.position,
+      });
+    case "task.delete":
+      return store.deleteTask(workspaceId, input.listId, input.taskId);
+  }
 }
 
 async function reviewWorkspaceChanges(
@@ -1659,6 +1725,8 @@ export function createMcpServer(
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
+  const workspaceTasks = new WorkspaceTaskStore(config.stateDir);
+  const compositeTaskGuides = loadCapabilityGuides(config).filter((guide) => guide.name === "workspace-tasks");
   const compositeActivity = new CompositeActivityCoordinator(
     compositeWorkspaces,
     activityQueries,
@@ -1748,6 +1816,12 @@ export function createMcpServer(
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
     ...subagentMcp.registryDependencies,
+    workspaceTasks: {
+      available: true,
+      run: async (input, context) => ({
+        value: runWorkspaceTasksCapability(workspaceTasks, context.workspaceId, input),
+      }),
+    },
     batchExecute: {
       available: batchExecuteAvailable,
       unavailableReason: batchExecuteAvailable
@@ -1769,7 +1843,7 @@ export function createMcpServer(
       run: async (input, context, options) => {
         try {
           return {
-            value: await codeIntelligence.run(context.workspaceRoot, input, { signal: options.signal }),
+            value: await codeIntelligence.run(requireCapabilityWorkspaceRoot(context), input, { signal: options.signal }),
           };
         } catch (error) {
           if (error instanceof CodeIntelligenceError) {
@@ -1787,7 +1861,7 @@ export function createMcpServer(
       run: async (context) => {
         const review = await reviewWorkspaceChanges(reviewCheckpoints, {
           id: context.workspaceId,
-          root: context.workspaceRoot,
+          root: requireCapabilityWorkspaceRoot(context),
         });
         return {
           value: {
@@ -1815,7 +1889,7 @@ export function createMcpServer(
           const downloaded = await downloadIncomingArtifact({
             registry: incomingArtifactRegistry,
             workspaceId: context.workspaceId,
-            workspaceRoot: context.workspaceRoot,
+            workspaceRoot: requireCapabilityWorkspaceRoot(context),
             maxFileBytes: config.artifactMaxFileBytes,
             file: input.file,
             path: input.path,
@@ -3181,6 +3255,15 @@ export function createMcpServer(
         const composite = workspaceId !== undefined
           ? compositeWorkspaces.open(workspaceId)
           : compositeWorkspaces.create(name ?? "");
+        workspaceTasks.initializeWorkspace(composite.id);
+        const compositeTaskContext = compositeCapabilityContext(composite.id, compositeTaskGuides);
+        const compositeCapabilityCatalog = capabilityRegistry.catalog(compositeTaskContext);
+        const compositeCapabilityGuides = compositeTaskGuides.map((guide) => ({
+          name: guide.name,
+          description: guide.description,
+          whenToRead: guide.whenToRead,
+          path: formatPathForPrompt(guide.filePath),
+        }));
         const memberContext = memberName
           ? await loadCompositeMemberContext(
               composite.id,
@@ -3197,6 +3280,9 @@ export function createMcpServer(
             ? `Members: ${composite.members.map((member) => `${member.name} — ${member.purpose}`).join("; ")}.`
             : "This Composite Workspace currently has no members.",
           "Member names and purposes are structural context and are always returned when this Composite Workspace is opened. context=auto/full/none controls only heavy member bootstrap context, not this Composite identity.",
+          compositeCapabilityCatalog.length > 0
+            ? `Composite-owned capabilities: ${compositeCapabilityCatalog.map((entry) => entry.name).join(", ")}. Use these without member because their state belongs to the Composite Workspace itself.`
+            : undefined,
           composite.members.length > 0
             ? "Before first work on a member, reopen this Composite Workspace with memberName=<member> and context=auto to receive that member's project bootstrap without creating an implicit current member."
             : undefined,
@@ -3224,6 +3310,8 @@ export function createMcpServer(
             status: composite.status,
             state: composite.status,
             members: composite.members,
+            capabilityCatalog: compositeCapabilityCatalog,
+            capabilityGuides: compositeCapabilityGuides,
             ...(memberContext ? { memberContext } : {}),
             instruction,
           },
@@ -3347,6 +3435,7 @@ export function createMcpServer(
           protectedWorkspaceIds,
         },
       );
+      workspaceTasks.initializeWorkspace(workspace.id);
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
       const staleWorkspaces = await workspaces.listStaleWorkspaces(workspace);
       const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION, {
@@ -3628,6 +3717,84 @@ export function createMcpServer(
       },
     },
     async ({ workspaceId, member, name, action, arguments: capabilityArguments, file }, extra) => {
+      if (name === "workspace.tasks" && compositeWorkspaces.has(workspaceId)) {
+        if (member !== undefined) {
+          throw new Error(
+            `workspace.tasks belongs to Composite Workspace ${workspaceId} itself and does not accept member.`,
+          );
+        }
+        if (!compositeWorkspaces.isActive(workspaceId)) {
+          throw new Error(`Composite Workspace ${workspaceId} is closed. Reopen it with open_workspace before use.`);
+        }
+        const startedAt = performance.now();
+        const context = compositeCapabilityContext(workspaceId, compositeTaskGuides);
+        try {
+          if (action === "run") {
+            const execution = await capabilityRegistry.run(
+              name,
+              capabilityArguments ?? {},
+              context,
+              {
+                nativeFile: file,
+                signal: extra.signal,
+                requestMeta: extra._meta,
+                sessionId: extra.sessionId,
+              },
+            );
+            const result = {
+              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+              structuredContent: { name, action, result: execution.value },
+            };
+            logToolCall(config, {
+              tool: toolNames.capability,
+              capability: name,
+              action,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return result;
+          }
+
+          const capability = capabilityRegistry.describe(name, context);
+          const result = {
+            content: [textBlock([
+              `${capability.name}: ${capability.description}`,
+              `Available: ${capability.available}`,
+              `Guide: ${capability.guide.path}`,
+              capability.guide.readBeforeFirstUse
+                ? "Read the guide before first use when this contract is unfamiliar."
+                : undefined,
+            ].filter(Boolean).join("\n"))],
+            structuredContent: { name, action, capability },
+          };
+          logToolCall(config, {
+            tool: toolNames.capability,
+            capability: name,
+            action,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return result;
+        } catch (error) {
+          if (extra.signal.aborted) throw error;
+          const capabilityError = error instanceof CapabilityError
+            ? error
+            : new CapabilityError(
+                "execution_failed",
+                error instanceof Error ? error.message : String(error),
+              );
+          return {
+            content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+            structuredContent: {
+              name,
+              action,
+              error: { code: capabilityError.code, message: capabilityError.message },
+            },
+            isError: true as const,
+          };
+        }
+      }
+
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(
@@ -3828,6 +3995,7 @@ export function createMcpServer(
         const composite = action === "delete"
           ? compositeWorkspaces.dissolve(workspaceId)
           : compositeWorkspaces.close(workspaceId);
+        if (action === "delete") workspaceTasks.deleteWorkspace(workspaceId);
         compositeActivity.forgetComposite(workspaceId);
         workspacePanelStates.delete(workspaceId);
         const result = [
@@ -3900,6 +4068,7 @@ export function createMcpServer(
           payload: { workspaceId: session.id, action: "delete", mode: session.mode },
           operation: async () => {
             workspaces.deleteWorkspace(session.id);
+            workspaceTasks.deleteWorkspace(session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
             return {
@@ -3942,6 +4111,7 @@ export function createMcpServer(
           payload: { workspaceId: session.id, action: "delete", mode: session.mode },
           operation: async () => {
             workspaces.deleteWorkspace(session.id);
+            workspaceTasks.deleteWorkspace(session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted closed managed-worktree Workspace ${session.id}. Its already-removed worktree backing was not recreated.`;
             return {
@@ -4010,6 +4180,7 @@ export function createMcpServer(
             );
             if (action === "delete") {
               workspaces.deleteWorkspace(workspace.id);
+              workspaceTasks.deleteWorkspace(workspace.id);
             }
             const result = [
               action === "delete"
@@ -4113,7 +4284,7 @@ export function createMcpServer(
         member: z
           .string()
           .optional()
-          .describe("Required for a Composite Workspace; explicit member name that owns this operation."),
+          .describe("Required for Composite member-scoped file reads. Omit only when reading an advertised Composite-owned capability guide."),
         path: z
           .string()
           .optional()
@@ -4157,6 +4328,28 @@ export function createMcpServer(
     async ({ workspaceId, member, path, paths, offset, limit }, extra) => {
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("read requires exactly one of path or paths.");
+      }
+      if (compositeWorkspaces.has(workspaceId) && member === undefined && path !== undefined) {
+        const guide = compositeTaskGuides.find(
+          (candidate) => formatPathForPrompt(candidate.filePath) === path || candidate.filePath === path,
+        );
+        if (guide) {
+          const startedAt = performance.now();
+          const raw = readFileSync(guide.filePath, "utf8");
+          const start = (offset ?? 1) - 1;
+          const end = limit === undefined ? undefined : start + limit;
+          const result = raw.split("\n").slice(start, end).join("\n");
+          logToolCall(config, {
+            tool: toolNames.read,
+            path: formatPathForPrompt(guide.filePath),
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return {
+            content: [textBlock(result)],
+            structuredContent: { result },
+          };
+        }
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;

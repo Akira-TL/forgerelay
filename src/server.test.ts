@@ -89,6 +89,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   const closeWorkspaceInputProperties = (closeWorkspaceTool?.inputSchema as {
     properties?: Record<string, { description?: string; enum?: string[] }>;
   } | undefined)?.properties;
+  const readInputProperties = (readTool?.inputSchema as {
+    properties?: Record<string, { description?: string }>;
+  } | undefined)?.properties;
   const shellInputProperties = (shellTool?.inputSchema as {
     properties?: Record<string, { description?: string }>;
   } | undefined)?.properties;
@@ -145,6 +148,8 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.equal(defaultTools.tools.some((tool) => tool.name === "close_worktree"), false);
   assert.ok(closeWorkspaceTool);
   assert.match(readTool?.description ?? "", /capability guides/);
+  assert.match(readInputProperties?.member?.description ?? "", /Composite member-scoped file reads/);
+  assert.match(readInputProperties?.member?.description ?? "", /Composite-owned capability guide/);
   assert.ok((openWorkspaceTool?.description?.length ?? Infinity) < 450);
   assert.ok((closeWorkspaceTool?.description?.length ?? Infinity) < 500);
   assert.match(closeWorkspaceTool?.description ?? "", /Managed-worktree-backed/);
@@ -470,7 +475,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   const openedStructured = structuredContent(opened);
   const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
   assert.ok(Array.isArray(catalog));
-  assert.equal(catalog.length, 3);
+  assert.equal(catalog.length, 4);
   assert.deepEqual(catalog[0], {
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
@@ -494,13 +499,24 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     },
   });
   assert.deepEqual(catalog[2], {
+    name: "workspace.tasks",
+    description: "Maintain persistent Task Lists owned by the current Workspace.",
+    available: true,
+    batchPolicy: "serial",
+    guide: {
+      name: "workspace-tasks",
+      path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  assert.deepEqual(catalog[3], {
     name: "batch.execute",
     description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
     available: true,
     batchPolicy: "unsupported",
     guide: {
       name: "batch-execution",
-      path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
+      path: catalog[3]?.guide && (catalog[3].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
@@ -615,6 +631,7 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
     ["hooks.check", "parallel"],
     ["review.changes", "serial"],
     ["code.intelligence", "parallel"],
+    ["workspace.tasks", "serial"],
     ["batch.execute", "unsupported"],
   ]);
 
@@ -769,6 +786,7 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
       "hooks.lifecycle",
       "capability-guides.read",
       "code.intelligence",
+      "workspace.tasks",
       "batch.execute",
       "ui.mcp-app",
     ],
@@ -1665,6 +1683,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "hooks.lifecycle",
         "capability-guides.read",
         "code.intelligence",
+        "workspace.tasks",
         "batch.execute",
         "subagent.session",
         "artifact.native-download",
@@ -1693,6 +1712,7 @@ test("capability fingerprint reports optional feature availability without copyi
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "workspace-tasks",
     "batch-execution",
   ]);
 
@@ -1725,6 +1745,7 @@ test("open_workspace advertises capability guides that read can load on demand",
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "workspace-tasks",
     "batch-execution",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
@@ -1734,14 +1755,16 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[2]?.path), /capabilities\/host-integration\/GUIDE\.md$/);
   assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
   assert.match(String(guides[4]?.path), /capabilities\/code-intelligence\/GUIDE\.md$/);
-  assert.match(String(guides[5]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
+  assert.match(String(guides[5]?.path), /capabilities\/workspace-tasks\/GUIDE\.md$/);
+  assert.match(String(guides[6]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
 
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
     [2, /oauth-protected-resource/, /Failed to fetch template/],
     [3, /action="process"/, /tty: true/],
     [4, /definition/, /Language server/],
-    [5, /1–100 tasks|1-100 tasks/, /bash\.run/],
+    [5, /workspace\.tasks/, /current Workspace|当前 Workspace/],
+    [6, /1–100 tasks|1-100 tasks/, /bash\.run/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({
@@ -3981,6 +4004,447 @@ test("BeforeTool hook failure prevents the tool operation", async (t) => {
   assert.equal(activity?.state, "blocked");
   assert.equal(activity?.workspace.id, workspaceId);
   assert.match(activity?.error ?? "", /Silent blocking policy.*failed/);
+});
+
+test("workspace.tasks persists checkout Task state across close/reopen and removes it only on Workspace delete", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-task-checkout");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name?: string }>;
+  assert.equal(catalog.some((entry) => entry.name === "workspace.tasks"), true);
+  const taskStatePath = join(context.stateDir, "workspaces", workspaceId, "tasks.json");
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+
+  const createdList = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Release" },
+    },
+  });
+  assert.equal(createdList.isError, undefined, allResponseText(createdList));
+  const createdSnapshot = structuredContent(createdList).result as Record<string, unknown>;
+  const releaseList = (createdSnapshot.lists as Array<Record<string, unknown>>)[0]!;
+  const listId = String(releaseList.id);
+
+  const createdTask = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Publish 0.8.3",
+        content: "Run the release gate before pushing the tag.",
+        status: "in_progress",
+      },
+    },
+  });
+  assert.equal(createdTask.isError, undefined, allResponseText(createdTask));
+  const taskOnlyReopen = await callOpen(context.client, context.project, "chat-task-checkout");
+  assert.equal(
+    structuredContent(taskOnlyReopen).contextFingerprint,
+    structuredContent(opened).contextFingerprint,
+  );
+  assert.equal(structuredContent(taskOnlyReopen).agentsFiles, undefined);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+  const closedRead = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "workspace.tasks", action: "run", arguments: { operation: "get" } },
+  });
+  assert.equal(closedRead.isError, true);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-task-checkout" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  assert.equal(structuredContent(reopened).workspaceId, workspaceId);
+  const restored = await context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "workspace.tasks", action: "run", arguments: { operation: "get" } },
+  });
+  assert.equal(restored.isError, undefined, allResponseText(restored));
+  const restoredLists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  assert.equal(restoredLists[0]?.id, listId);
+  const restoredTasks = restoredLists[0]?.tasks as Array<Record<string, unknown>>;
+  assert.equal(restoredTasks[0]?.subject, "Publish 0.8.3");
+  assert.equal(restoredTasks[0]?.status, "in_progress");
+  const firstTaskId = String(restoredTasks[0]?.id);
+
+  const secondTask = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "task.create", listId, subject: "Verify package", position: 0 },
+    },
+  });
+  const secondTasks = (((structuredContent(secondTask).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.tasks ?? []) as Array<Record<string, unknown>>;
+  const secondTaskId = String(secondTasks[0]?.id);
+  const completedAndReordered = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.update",
+        listId,
+        taskId: firstTaskId,
+        status: "completed",
+        content: "Published and verified.",
+        position: 0,
+      },
+    },
+  });
+  const updatedTasks = (((structuredContent(completedAndReordered).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.tasks ?? []) as Array<Record<string, unknown>>;
+  assert.equal(updatedTasks[0]?.id, firstTaskId);
+  assert.equal(updatedTasks[0]?.status, "completed");
+
+  const archived = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.update", listId, state: "archived", name: "Release 0.8.3" },
+    },
+  });
+  assert.equal(
+    (((structuredContent(archived).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.state),
+    "archived",
+  );
+  const reactivated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.update", listId, state: "active" },
+    },
+  });
+  assert.equal(
+    (((structuredContent(reactivated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.state),
+    "active",
+  );
+  const removedTask = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "task.delete", listId, taskId: secondTaskId },
+    },
+  });
+  const remainingTasks = (((structuredContent(removedTask).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.tasks ?? []) as Array<Record<string, unknown>>;
+  assert.deepEqual(remainingTasks.map((task) => task.id), [firstTaskId]);
+  const scratch = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Scratch", position: 0 },
+    },
+  });
+  const scratchListId = String(
+    ((structuredContent(scratch).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  const removedList = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.delete", listId: scratchListId },
+    },
+  });
+  assert.equal(
+    ((structuredContent(removedList).result as Record<string, unknown>).lists as Array<Record<string, unknown>>).length,
+    1,
+  );
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, action: "delete" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  await assert.rejects(stat(taskStatePath), /ENOENT/);
+});
+
+test("workspace.tasks belongs to Composite Workspace itself and survives Composite close/reopen", async (t) => {
+  const context = await fixture(t);
+  const opened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "task-composite", context: "none" },
+  });
+  const compositeId = String(structuredContent(opened).workspaceId);
+  const catalog = structuredContent(opened).capabilityCatalog as Array<{ name?: string }>;
+  assert.deepEqual(catalog.map((entry) => entry.name), ["workspace.tasks"]);
+  const guides = structuredContent(opened).capabilityGuides as Array<Record<string, unknown>>;
+  const taskGuide = guides.find((guide) => guide.name === "workspace-tasks");
+  assert.ok(taskGuide);
+  const guideRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, path: taskGuide.path },
+  });
+  assert.equal(guideRead.isError, undefined, allResponseText(guideRead));
+  assert.match(allResponseText(guideRead), /workspace\.tasks/);
+  const taskStatePath = join(context.stateDir, "workspaces", compositeId, "tasks.json");
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+
+  const created = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Composite work" },
+    },
+  });
+  assert.equal(created.isError, undefined, allResponseText(created));
+  const createdLists = (structuredContent(created).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  assert.equal(createdLists[0]?.name, "Composite work");
+
+  const memberScoped = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      member: "anything",
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get" },
+    },
+  });
+  assert.equal(memberScoped.isError, true);
+  assert.match(allResponseText(memberScoped), /Composite Workspace itself|does not accept member/i);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, context: "none" },
+  });
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  const restored = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get" },
+    },
+  });
+  assert.equal(restored.isError, undefined, allResponseText(restored));
+  const restoredLists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  assert.equal(restoredLists[0]?.name, "Composite work");
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: compositeId, action: "delete" },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  await assert.rejects(stat(taskStatePath), /ENOENT/);
+});
+
+test("workspace.tasks survives MCP server restart through the same persistent Workspace identity", async (t) => {
+  const context = await fixture(t);
+  const opened = await callOpen(context.client, context.project, "chat-task-restart");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const createdList = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Restart work" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(createdList).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Resume after restart",
+        content: "The Task file is the durable truth.",
+      },
+    },
+  });
+  await context.close();
+
+  const restoredStore = new SqliteWorkspaceStore(context.stateDir);
+  const restoredAuditStore = new ActivityAuditStore(context.stateDir);
+  const restoredBashOutputStore = new BashOutputStore(context.stateDir);
+  const restoredHostTurnStore = new HostTurnStore(context.stateDir);
+  const restoredActivityQueries = new ActivityQueryService(
+    restoredHostTurnStore,
+    restoredAuditStore,
+    restoredBashOutputStore,
+  );
+  const restoredActivityLifecycle = new ActivityLifecycle(restoredAuditStore, {
+    turnIdForConversation: (conversationScopeId, targetWorkspaceId) =>
+      restoredActivityQueries.currentTurnId(conversationScopeId, targetWorkspaceId),
+  });
+  const restoredCodeIntelligence = new CodeIntelligenceManager(context.config);
+  const restoredProcessSessions = new ProcessManager({ outputAudit: restoredBashOutputStore });
+  const restoredServer = createMcpServer(
+    context.config,
+    new WorkspaceRegistry(context.config, restoredStore),
+    createReviewCheckpointManager(),
+    restoredProcessSessions,
+    [],
+    [],
+    restoredCodeIntelligence,
+    restoredActivityLifecycle,
+    restoredBashOutputStore,
+    restoredActivityQueries,
+  );
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const restoredClient = new Client({ name: "task-restart-client", version: "1.0.0" });
+  let restoredClosed = false;
+  const closeRestored = async () => {
+    if (restoredClosed) return;
+    restoredClosed = true;
+    await restoredClient.close();
+    await restoredServer.close();
+    await restoredCodeIntelligence.shutdown();
+    restoredProcessSessions.shutdown();
+    restoredHostTurnStore.close();
+    restoredBashOutputStore.close();
+    restoredAuditStore.close();
+    restoredStore.close();
+  };
+  t.after(closeRestored);
+
+  try {
+    await Promise.all([
+      restoredClient.connect(clientTransport),
+      restoredServer.connect(serverTransport),
+    ]);
+    const reopened = await restoredClient.callTool({
+      name: "open_workspace",
+      arguments: { workspaceId, context: "none" },
+      _meta: { "openai/session": "chat-task-restart-restored" },
+    } as Parameters<Client["callTool"]>[0]);
+    assert.equal(reopened.isError, undefined, allResponseText(reopened));
+    assert.equal(structuredContent(reopened).workspaceId, workspaceId);
+    const restored = await restoredClient.callTool({
+      name: "capability",
+      arguments: {
+        workspaceId,
+        name: "workspace.tasks",
+        action: "run",
+        arguments: { operation: "get" },
+      },
+    });
+    assert.equal(restored.isError, undefined, allResponseText(restored));
+    const lists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+    assert.equal(lists[0]?.name, "Restart work");
+    const tasks = lists[0]?.tasks as Array<Record<string, unknown>>;
+    assert.equal(tasks[0]?.subject, "Resume after restart");
+  } finally {
+    await closeRestored();
+  }
+});
+
+test("workspace.tasks survives managed-worktree backing replacement and never enters Git contents", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-task-worktree", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const firstWorktreePath = String(worktree.path);
+  const taskStatePath = join(context.stateDir, "workspaces", workspaceId, "tasks.json");
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+
+  const createdList = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Isolated release" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(createdList).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "task.create", listId, subject: "Keep across backing replacement" },
+    },
+  });
+  const worktreeStatus = await execFileAsync("git", ["status", "--porcelain"], { cwd: firstWorktreePath });
+  assert.equal(worktreeStatus.stdout.trim(), "");
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: close task worktree" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  await assert.rejects(stat(firstWorktreePath), /ENOENT/);
+  assert.equal((await stat(taskStatePath)).isFile(), true);
+
+  const reopened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-task-worktree" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(reopened.isError, undefined, allResponseText(reopened));
+  const reopenedWorktree = structuredContent(reopened).worktree as Record<string, unknown>;
+  assert.notEqual(reopenedWorktree.path, firstWorktreePath);
+  const restored = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get" },
+    },
+  });
+  const lists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  assert.equal(lists[0]?.id, listId);
+  const tasks = lists[0]?.tasks as Array<Record<string, unknown>>;
+  assert.equal(tasks[0]?.subject, "Keep across backing replacement");
+
+  const deleted = await context.client.callTool({
+    name: "close_workspace",
+    arguments: {
+      workspaceId,
+      action: "delete",
+      commitMessage: "test: delete task worktree",
+    },
+  });
+  assert.equal(deleted.isError, undefined, allResponseText(deleted));
+  await assert.rejects(stat(taskStatePath), /ENOENT/);
 });
 
 test("close_workspace finalizes a managed-worktree-backed workspace and supports commit-message retry", async (t) => {
