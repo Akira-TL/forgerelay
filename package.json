@@ -41,6 +41,8 @@
     "debug:serve": "node scripts/debug/serve.mjs",
     "debug:accept": "node scripts/debug/accept.mjs",
     "lsp:interop": "node scripts/lsp-interop.mjs",
+    "wiki:check": "node scripts/wiki/sync.mjs check",
+    "wiki:publish": "node scripts/wiki/sync.mjs publish",
     "ci:verify": "node scripts/ci/verify.mjs",
     "release:parity": "node scripts/release-parity.mjs",
     "release:pack": "node scripts/release/pack.mjs",
