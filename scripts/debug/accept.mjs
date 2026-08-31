@@ -644,9 +644,124 @@ try {
     readFileSync(join(gitProject, "feature.txt"), "utf8").replace(/\r\n/g, "\n"),
     "debug worktree acceptance\n",
   );
+  const closedWorktreeInventory = callTool(oauth.accessToken, sessionId, 110, "open_workspace", {
+    action: "list",
+    workspaceId: worktreeWorkspaceId,
+  });
+  assert.equal(closedWorktreeInventory.structuredContent.workspaces.length, 1);
+  assert.equal(closedWorktreeInventory.structuredContent.workspaces[0].state, "closed");
+
+  const reopenedWorktree = callTool(oauth.accessToken, sessionId, 111, "open_workspace", {
+    workspaceId: worktreeWorkspaceId,
+    context: "none",
+  });
+  assert.equal(reopenedWorktree.structuredContent.workspaceId, worktreeWorkspaceId);
+  const reopenedWorktreePath = reopenedWorktree.structuredContent.worktree.path;
+  assert.notEqual(reopenedWorktreePath, managedWorktreePath);
+  assert.ok(existsSync(reopenedWorktreePath));
+
+  callTool(oauth.accessToken, sessionId, 112, "write", {
+    workspaceId: worktreeWorkspaceId,
+    path: "delete-feature.txt",
+    content: "debug worktree delete acceptance\n",
+  });
+  const deletedWorktree = callTool(oauth.accessToken, sessionId, 113, "close_workspace", {
+    workspaceId: worktreeWorkspaceId,
+    action: "delete",
+    commitMessage: "test(debug): verify 7677 worktree delete lifecycle",
+  });
+  assert.equal(deletedWorktree.structuredContent.action, "delete");
+  assert.equal(existsSync(reopenedWorktreePath), false);
+  assert.equal(
+    readFileSync(join(gitProject, "delete-feature.txt"), "utf8").replace(/\r\n/g, "\n"),
+    "debug worktree delete acceptance\n",
+  );
+  const deletedWorktreeInventory = callTool(oauth.accessToken, sessionId, 114, "open_workspace", {
+    action: "list",
+    workspaceId: worktreeWorkspaceId,
+  });
+  assert.equal(deletedWorktreeInventory.structuredContent.workspaces.length, 0);
   pass(
-    "managed worktree workspace close",
-    `${closed.structuredContent.branch} -> ${closed.structuredContent.targetBranch}`,
+    "managed worktree lifecycle",
+    `${worktreeWorkspaceId} close -> closed inventory -> same-id reopen with fresh backing -> safe delete`,
+  );
+
+  callTool(oauth.accessToken, sessionId, 115, "write", {
+    workspaceId,
+    path: "composite-sentinel.txt",
+    content: "debug composite member acceptance\n",
+  });
+  const compositeOpened = callTool(oauth.accessToken, sessionId, 116, "open_workspace", {
+    kind: "composite",
+    name: "debug-lifecycle-composite",
+    context: "none",
+  });
+  const compositeWorkspaceId = compositeOpened.structuredContent.workspaceId;
+  callTool(oauth.accessToken, sessionId, 117, "open_workspace", {
+    action: "member",
+    workspaceId: compositeWorkspaceId,
+    memberAction: "add",
+    member: {
+      name: "code",
+      purpose: "Debug lifecycle member",
+      workspaceId,
+    },
+  });
+  const closedComposite = callTool(oauth.accessToken, sessionId, 118, "close_workspace", {
+    workspaceId: compositeWorkspaceId,
+  });
+  assert.equal(closedComposite.structuredContent.action, "close");
+  assert.equal(closedComposite.structuredContent.status, "closed");
+  assert.equal(closedComposite.structuredContent.dissolved, false);
+  const closedCompositeInventory = callTool(oauth.accessToken, sessionId, 119, "open_workspace", {
+    action: "list",
+    kind: "composite",
+    workspaceId: compositeWorkspaceId,
+    status: "closed",
+  });
+  assert.equal(closedCompositeInventory.structuredContent.compositeWorkspaces.length, 1);
+  assert.equal(closedCompositeInventory.structuredContent.compositeWorkspaces[0].state, "closed");
+  const closedCompositeRead = callTool(oauth.accessToken, sessionId, 120, "read", {
+    workspaceId: compositeWorkspaceId,
+    member: "code",
+    path: "composite-sentinel.txt",
+  });
+  assert.equal(closedCompositeRead.isError, true);
+
+  const reopenedComposite = callTool(oauth.accessToken, sessionId, 121, "open_workspace", {
+    workspaceId: compositeWorkspaceId,
+    context: "none",
+  });
+  assert.equal(reopenedComposite.structuredContent.workspaceId, compositeWorkspaceId);
+  assert.equal(reopenedComposite.structuredContent.status, "active");
+  assert.equal(reopenedComposite.structuredContent.members[0].workspaceId, workspaceId);
+  const reopenedCompositeRead = callTool(oauth.accessToken, sessionId, 122, "read", {
+    workspaceId: compositeWorkspaceId,
+    member: "code",
+    path: "composite-sentinel.txt",
+  });
+  assert.match(reopenedCompositeRead.structuredContent.result, /debug composite member acceptance/);
+
+  const deletedComposite = callTool(oauth.accessToken, sessionId, 123, "close_workspace", {
+    workspaceId: compositeWorkspaceId,
+    action: "delete",
+  });
+  assert.equal(deletedComposite.structuredContent.action, "delete");
+  assert.equal(deletedComposite.structuredContent.dissolved, true);
+  const memberAfterCompositeDelete = callTool(oauth.accessToken, sessionId, 124, "read", {
+    workspaceId,
+    path: "composite-sentinel.txt",
+  });
+  assert.match(memberAfterCompositeDelete.structuredContent.result, /debug composite member acceptance/);
+  const deletedCompositeInventory = callTool(oauth.accessToken, sessionId, 125, "open_workspace", {
+    action: "list",
+    kind: "composite",
+    workspaceId: compositeWorkspaceId,
+  });
+  assert.equal(deletedCompositeInventory.structuredContent.compositeWorkspaces.length, 0);
+  pass(
+    "Composite lifecycle",
+    `${compositeWorkspaceId} close -> closed/non-routable -> same-id reopen -> delete; member Workspace preserved`,
   );
 
   exerciseReleaseTagHooks(oauth.accessToken, sessionId);
