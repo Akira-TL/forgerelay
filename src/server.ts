@@ -1810,6 +1810,10 @@ function registerProcessTools(
   );
 }
 
+interface CreateMcpServerOptions extends SubagentMcpRuntimeOptions {
+  taskReminders?: WorkspaceTaskReminderTracker;
+}
+
 export function createMcpServer(
   config: ServerConfig,
   workspaces: WorkspaceRegistry,
@@ -1821,13 +1825,14 @@ export function createMcpServer(
   activityLifecycle: ActivityLifecycle,
   bashOutputStore: BashOutputStore,
   activityQueries: ActivityQueryService,
-  options: SubagentMcpRuntimeOptions = {},
+  options: CreateMcpServerOptions = {},
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
   const workspaceTasks = new WorkspaceTaskStore(config.stateDir);
-  const taskReminders = new WorkspaceTaskReminderTracker(config.taskReminderInterval, workspaceTasks);
+  const taskReminders = options.taskReminders
+    ?? new WorkspaceTaskReminderTracker(config.taskReminderInterval, workspaceTasks);
   const compositeTaskGuides = loadCapabilityGuides(config).filter((guide) => guide.name === "workspace-tasks");
   const compositeActivity = new CompositeActivityCoordinator(
     compositeWorkspaces,
@@ -5339,6 +5344,11 @@ export function createServer(
   });
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
+  const sharedWorkspaceTasks = new WorkspaceTaskStore(config.stateDir);
+  const sharedTaskReminders = new WorkspaceTaskReminderTracker(
+    config.taskReminderInterval,
+    sharedWorkspaceTasks,
+  );
   const activityAuditStore = new ActivityAuditStore(config.stateDir);
   const bashOutputStore = new BashOutputStore(config.stateDir);
   const hostTurnStore = new HostTurnStore(config.stateDir);
@@ -5570,6 +5580,7 @@ export function createServer(
           activityLifecycle,
           bashOutputStore,
           activityQueries,
+          { taskReminders: sharedTaskReminders },
         );
         await server.connect(transport);
       } else {

@@ -228,6 +228,7 @@ void test("relayed persistent Workspace identity, Task truth, inspection, and de
     allowedRoot: remoteRoot,
     ownerToken: "remote-persistent-owner-token-long-enough",
     instanceId: "forge-relay-persistent-remote",
+    taskReminderInterval: 2,
   });
   const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
   await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
@@ -287,6 +288,14 @@ void test("relayed persistent Workspace identity, Task truth, inspection, and de
     },
   }, sessionA);
   assert.equal(createdTask.isError, undefined, resultText(createdTask));
+
+  const firstSemanticWork = await call("read", { workspaceId: gatewayWorkspaceId, path: "keep.txt" }, sessionB);
+  assert.equal(firstSemanticWork.isError, undefined, resultText(firstSemanticWork));
+  assert.doesNotMatch(resultText(firstSemanticWork), /Reminder: this Workspace has unfinished active Tasks/);
+  const reminderSemanticWork = await call("read", { workspaceId: gatewayWorkspaceId, path: "keep.txt" }, sessionB);
+  assert.equal(reminderSemanticWork.isError, undefined, resultText(reminderSemanticWork));
+  assert.match(resultText(reminderSemanticWork), /Reminder: this Workspace has unfinished active Tasks/);
+  assert.equal(resultText(reminderSemanticWork).includes(taskBody), false);
 
   const remoteInventory = await withRemoteMcpClient(
     remoteRecord,
@@ -1563,6 +1572,7 @@ async function startForge(
     existingConfigDir?: string;
     hooks?: unknown;
     toolMode?: "minimal" | "full" | "codex";
+    taskReminderInterval?: number;
   },
 ): Promise<RunningForge> {
   const configDir = options.existingConfigDir ?? join(options.root, "config");
@@ -1582,6 +1592,7 @@ async function startForge(
     publicBaseUrl: "http://127.0.0.1:7676",
     stateDir,
     worktreeRoot: join(options.root, "worktrees"),
+    ...(options.taskReminderInterval !== undefined ? { taskReminderInterval: options.taskReminderInterval } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   }, null, 2));
 
