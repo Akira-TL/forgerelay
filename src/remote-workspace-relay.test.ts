@@ -83,6 +83,34 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
   assert.equal(openedStructured.root, remoteRoot);
   assert.doesNotMatch(JSON.stringify(opened), /"ws_[0-9a-f]{10}"/);
 
+  const inspected = await client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: gatewayWorkspaceId },
+  });
+  assert.equal(inspected.isError, undefined, resultText(inspected));
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(inspection.workspaceId, gatewayWorkspaceId);
+  assert.equal(inspection.kind, "workspace");
+  assert.equal(inspection.location, "relay");
+  assert.equal(inspection.root, remoteRoot);
+  assert.equal(inspection.routeState, "known");
+  assert.equal(inspection.mode, "checkout");
+  assert.equal(inspection.relay, "workstation");
+  assert.equal(inspection.executionLocation, "remote:workstation");
+  const inspectedJson = JSON.stringify(inspected);
+  for (const forbidden of [
+    remote.endpoint,
+    remote.ownerToken,
+    remoteRecord.accessToken,
+    remoteRecord.refreshToken,
+    "remoteInstanceId",
+    "remoteWorkspaceId",
+    "sshRoute",
+  ]) {
+    assert.equal(inspectedJson.includes(forbidden), false, `relayed inspect leaked ${forbidden}`);
+  }
+  assert.doesNotMatch(inspectedJson, /"ws_[0-9a-f]{10}"/);
+
   const read = await client.callTool({
     name: "read",
     arguments: {
@@ -154,6 +182,16 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
       arguments: { workspaceId: failureRemoteWorkspaceId },
     }),
   );
+
+  const staleRouteInspection = await client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: failureGatewayWorkspaceId },
+  });
+  assert.equal(staleRouteInspection.isError, undefined, resultText(staleRouteInspection));
+  const staleRouteProjection = structuredContent(staleRouteInspection).inspection as Record<string, unknown>;
+  assert.equal(staleRouteProjection.routeState, "known");
+  assert.equal("state" in staleRouteProjection, false);
+  assert.equal("status" in staleRouteProjection, false);
 
   const failedRead = await client.callTool({
     name: "read",

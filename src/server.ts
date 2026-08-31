@@ -433,6 +433,77 @@ const workspaceInventoryPageOutputSchema = z.object({
   hasMore: z.boolean(),
 });
 
+const workspaceTaskInspectionSummaryOutputSchema = z.object({
+  level: z.literal("summary"),
+  version: z.literal(1),
+  revision: z.number().int().nonnegative(),
+  lists: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    state: z.enum(["active", "archived"]),
+    revision: z.number().int().positive(),
+    taskCount: z.number().int().nonnegative(),
+    unfinishedTaskCount: z.number().int().nonnegative(),
+  })),
+});
+
+const workspaceInspectionMemberOutputSchema = z.object({
+  name: z.string(),
+  purpose: z.string(),
+  workspaceId: z.string(),
+  known: z.boolean(),
+  location: z.enum(["local", "relay"]).optional(),
+  state: z.enum(["active", "stale", "invalid", "closed"]).optional(),
+  status: z.string().optional(),
+  routeState: z.literal("known").optional(),
+  mode: z.enum(["checkout", "worktree"]).optional(),
+  rootValid: z.boolean().optional(),
+});
+
+const workspaceInspectionOutputSchema = z.union([
+  z.object({
+    workspaceId: z.string(),
+    kind: z.literal("workspace"),
+    location: z.literal("local"),
+    label: z.string(),
+    root: z.string(),
+    status: z.string(),
+    state: z.enum(["active", "stale", "invalid", "closed"]),
+    mode: z.enum(["checkout", "worktree"]),
+    sourceRoot: z.string().optional(),
+    branch: z.string().optional(),
+    targetBranch: z.string().optional(),
+    managed: z.boolean(),
+    createdAt: z.string(),
+    lastUsedAt: z.string(),
+    idleMs: z.number().nonnegative(),
+    rootValid: z.boolean(),
+    taskSummary: workspaceTaskInspectionSummaryOutputSchema.optional(),
+  }),
+  z.object({
+    workspaceId: z.string(),
+    kind: z.literal("workspace"),
+    location: z.literal("relay"),
+    root: z.string(),
+    routeState: z.literal("known"),
+    mode: z.enum(["checkout", "worktree"]),
+    sourceRoot: z.string().optional(),
+    relay: z.string(),
+    executionLocation: z.string(),
+  }),
+  z.object({
+    workspaceId: z.string(),
+    kind: z.literal("composite"),
+    name: z.string(),
+    status: z.enum(["active", "closed"]),
+    state: z.enum(["active", "closed"]),
+    createdAt: z.string(),
+    lastUsedAt: z.string(),
+    members: z.array(workspaceInspectionMemberOutputSchema),
+    taskSummary: workspaceTaskInspectionSummaryOutputSchema.optional(),
+  }),
+]);
+
 const reviewFileOutputSchema = z.object({
   path: z.string(),
   previousPath: z.string().optional(),
@@ -2809,9 +2880,9 @@ export function createMcpServer(
         "Open or resume a ForgeRelay Workspace. Ordinary workspaces default to local execution; relay may name a registered remote ForgeRelay. Composite Workspaces use the same open lifecycle but have kind=\"composite\" and a name instead of a mounted root. Reuse the returned workspaceId for later calls. Bootstrap context is delivered automatically only when needed and can be suppressed or refreshed.",
       inputSchema: {
         action: z
-          .enum(["open", "list", "member"])
+          .enum(["open", "list", "inspect", "member"])
           .optional()
-          .describe("Defaults to open. Use list to inspect known Workspaces. Use member to add/remove a named execution member on an existing Composite Workspace."),
+          .describe("Defaults to open. Use list for lightweight inventory, inspect for bounded read-only metadata about one known Workspace without opening/resuming it, or member to change Composite membership."),
         memberAction: z
           .enum(["add", "update", "remove"])
           .optional()
@@ -2856,7 +2927,7 @@ export function createMcpServer(
           .string()
           .optional()
           .describe(
-            "For action=open, an existing Workspace ID to resume or reuse. Historical duplicate IDs from earlier ForgeRelay versions may resolve to the canonical Workspace ID. For action=list, filters inventory to one Workspace ID.",
+            "For action=open, an existing Workspace ID to resume or reuse. Historical duplicate IDs from earlier ForgeRelay versions may resolve to the canonical Workspace ID. For action=list, filters inventory. For action=inspect, identifies the single Workspace to inspect without opening or binding it.",
           ),
         mode: z
           .enum(["checkout", "worktree"])
@@ -2917,7 +2988,7 @@ export function createMcpServer(
           .describe("For action=list, maximum records to return. Defaults to 50; maximum 100."),
       },
       outputSchema: {
-        action: z.enum(["open", "list", "member"]),
+        action: z.enum(["open", "list", "inspect", "member"]),
         workspaceId: z.string().optional(),
         memberAction: z.enum(["add", "update", "remove"]).optional(),
         kind: z.enum(["workspace", "composite"]).optional(),
@@ -2996,6 +3067,7 @@ export function createMcpServer(
         })).optional(),
         summary: workspaceInventorySummaryOutputSchema.optional(),
         page: workspaceInventoryPageOutputSchema.optional(),
+        inspection: workspaceInspectionOutputSchema.optional(),
         instruction: z.string(),
       },
       _meta: {},
@@ -3031,6 +3103,123 @@ export function createMcpServer(
       const startedAt = performance.now();
       const conversationScopeId = openAiConversationScopeId(_meta);
       const protectedWorkspaceIds = processSessions.activeWorkspaceIds();
+
+      const inspectTaskSummary = (targetWorkspaceId: string) => {
+        try {
+          const summary = workspaceTasks.inspectSummary(targetWorkspaceId);
+          if (!summary) return undefined;
+          const { fingerprint: _fingerprint, ...inspectionSummary } = summary;
+          return inspectionSummary;
+        } catch {
+          return undefined;
+        }
+      };
+      const inspectCompositeMember = async (entry: { name: string; purpose: string; workspaceId: string }) => {
+        if (remoteWorkspaces.has(entry.workspaceId)) {
+          const inspected = remoteWorkspaces.inspectWorkspace(entry.workspaceId);
+          return {
+            name: entry.name,
+            purpose: entry.purpose,
+            workspaceId: entry.workspaceId,
+            known: true,
+            location: inspected.location,
+            routeState: inspected.routeState,
+            mode: inspected.mode,
+          };
+        }
+        try {
+          const inspected = await workspaces.inspectWorkspace(entry.workspaceId);
+          return {
+            name: entry.name,
+            purpose: entry.purpose,
+            workspaceId: entry.workspaceId,
+            known: true,
+            location: inspected.location,
+            state: inspected.state,
+            status: inspected.status,
+            mode: inspected.mode,
+            rootValid: inspected.rootValid,
+          };
+        } catch {
+          return {
+            name: entry.name,
+            purpose: entry.purpose,
+            workspaceId: entry.workspaceId,
+            known: false,
+          };
+        }
+      };
+
+      if (action === "inspect") {
+        if (!workspaceId) {
+          throw new Error("open_workspace action=inspect requires workspaceId.");
+        }
+        if (
+          memberAction !== undefined || member !== undefined || kind !== undefined || name !== undefined ||
+          memberName !== undefined || path !== undefined || relay !== undefined || mode !== undefined ||
+          baseRef !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
+          root !== undefined || status !== undefined || state !== undefined || staleOnly !== undefined ||
+          offset !== undefined || limit !== undefined
+        ) {
+          throw new Error("open_workspace action=inspect accepts only workspaceId. It never opens, resumes, binds, or mutates the inspected Workspace.");
+        }
+
+        let inspection: z.infer<typeof workspaceInspectionOutputSchema>;
+        if (compositeWorkspaces.has(workspaceId)) {
+          const composite = compositeWorkspaces.get(workspaceId);
+          const members = await Promise.all(composite.members.map(inspectCompositeMember));
+          const taskSummary = inspectTaskSummary(composite.id);
+          inspection = {
+            workspaceId: composite.id,
+            kind: "composite",
+            name: composite.name,
+            status: composite.status,
+            state: composite.status,
+            createdAt: composite.createdAt,
+            lastUsedAt: composite.lastUsedAt,
+            members,
+            ...(taskSummary ? { taskSummary } : {}),
+          };
+        } else if (remoteWorkspaces.has(workspaceId)) {
+          inspection = remoteWorkspaces.inspectWorkspace(workspaceId);
+        } else {
+          const inspected = await workspaces.inspectWorkspace(workspaceId);
+          const taskSummary = inspectTaskSummary(inspected.workspaceId);
+          inspection = {
+            ...inspected,
+            ...(taskSummary ? { taskSummary } : {}),
+          };
+        }
+
+        const instruction =
+          "This is a bounded read-only Workspace inspection. It does not open/resume the target, deliver bootstrap context, bind this conversation, or grant file/process/Git/Capability authority. Explicitly open the Workspace before modifying or executing against it.";
+        const result = [
+          `Inspected Workspace ${inspection.workspaceId} (${inspection.kind}).`,
+          inspection.kind === "composite"
+            ? `State: ${inspection.state}; members=${inspection.members.length}.`
+            : inspection.location === "relay"
+              ? `Route: ${inspection.routeState}; mode=${inspection.mode}; location=${inspection.location}. Remote lifecycle is not probed by inspection.`
+              : `State: ${inspection.state}; mode=${inspection.mode}; location=${inspection.location}.`,
+          "Task summary is included only when durable local Task state already exists; Task bodies are never returned.",
+          instruction,
+        ].join("\n");
+        logToolCall(config, {
+          tool: "open_workspace",
+          action: "inspect",
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content: [textBlock(result)],
+          structuredContent: {
+            action: "inspect" as const,
+            workspaceId: inspection.workspaceId,
+            kind: inspection.kind,
+            inspection,
+            instruction,
+          },
+        };
+      }
 
       if (action === "member") {
         if (!workspaceId || !compositeWorkspaces.has(workspaceId)) {
@@ -3535,7 +3724,7 @@ export function createMcpServer(
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const workspaceManagementInstruction =
-        "When you need to inspect known Workspaces, continue earlier work, or organize Workspace state, use open_workspace(action=\"list\") to inspect candidates, then resume a selected workspaceId or ask the user before close_workspace cleanup.";
+        "Use open_workspace(action=\"list\") for lightweight Workspace inventory. Use action=\"inspect\" with one known workspaceId for bounded read-only metadata without opening/resuming it. Explicitly open a Workspace before executing or mutating against it, and ask the user before close_workspace cleanup.";
       const cardInstruction = config.skillsEnabled
         ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
         : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;

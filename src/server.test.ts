@@ -4219,6 +4219,237 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
   await assert.rejects(stat(taskStatePath), /ENOENT/);
 });
 
+test("open_workspace inspect reads bounded ordinary Workspace metadata without opening, binding, or leaking bootstrap context", async (t) => {
+  const context = await fixture(t);
+  const otherProject = join(dirname(context.project), "inspection-target");
+  await mkdir(join(otherProject, ".devspace", "agents"), { recursive: true });
+  await writeFile(join(otherProject, "AGENTS.md"), "INSPECTION_BOOTSTRAP_SECRET\n");
+  await writeFile(join(otherProject, ".devspace", "agents", "reviewer.md"), [
+    "---",
+    "name: inspection-reviewer",
+    "description: Inspection-only reviewer.",
+    "provider: codex",
+    "---",
+    "SUBAGENT_BODY_SECRET",
+  ].join("\n"));
+
+  const targetOpen = await callOpen(context.client, otherProject, "inspection-target-chat");
+  const targetWorkspaceId = String(structuredContent(targetOpen).workspaceId);
+  assert.equal(JSON.stringify(targetOpen).includes("INSPECTION_BOOTSTRAP_SECRET"), true);
+  const listCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: targetWorkspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Inspection coordination" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(listCreated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: targetWorkspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Safe header",
+        content: "TASK_BODY_SECRET",
+        status: "in_progress",
+      },
+    },
+  });
+
+  const callerOpen = await callOpen(context.client, context.project, "inspection-caller-chat");
+  const callerWorkspaceId = String(structuredContent(callerOpen).workspaceId);
+  assert.notEqual(callerWorkspaceId, targetWorkspaceId);
+  const beforeSession = context.store.getSession(targetWorkspaceId);
+  assert.ok(beforeSession);
+  const beforeBindings = structuredClone(context.store.listConversationBindings());
+  const targetBinding = beforeBindings.find((binding) =>
+    binding.conversationScopeId === "inspection-target-chat" && binding.workspaceSessionId === targetWorkspaceId
+  );
+  assert.ok(targetBinding);
+  const beforeDelivery = context.store.getContextDelivery(
+    targetBinding.conversationScopeId,
+    targetBinding.targetKey,
+  );
+  assert.ok(beforeDelivery);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: targetWorkspaceId },
+    _meta: { "openai/session": "inspection-caller-chat" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(inspected.isError, undefined, allResponseText(inspected));
+  const inspectedStructured = structuredContent(inspected);
+  assert.equal(inspectedStructured.action, "inspect");
+  assert.equal(inspectedStructured.workspaceId, targetWorkspaceId);
+  const projection = inspectedStructured.inspection as Record<string, unknown>;
+  assert.equal(projection.kind, "workspace");
+  assert.equal(projection.location, "local");
+  assert.equal(projection.root, otherProject);
+  assert.equal(projection.mode, "checkout");
+  assert.equal(projection.rootValid, true);
+  const taskSummary = projection.taskSummary as Record<string, unknown>;
+  const lists = taskSummary.lists as Array<Record<string, unknown>>;
+  assert.equal(lists[0]?.name, "Inspection coordination");
+  assert.equal(lists[0]?.taskCount, 1);
+  assert.equal(lists[0]?.unfinishedTaskCount, 1);
+
+  const serialized = JSON.stringify(inspected);
+  for (const forbidden of [
+    "INSPECTION_BOOTSTRAP_SECRET",
+    "SUBAGENT_BODY_SECRET",
+    "TASK_BODY_SECRET",
+    "agentsFiles",
+    "availableAgentsFiles",
+    "capabilityGuides",
+    "skillDiagnostics",
+    "agentProviders",
+    "contextFingerprint",
+    "capabilityFingerprint",
+    "fingerprint",
+    "memberContext",
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `inspect leaked forbidden value/key: ${forbidden}`);
+  }
+  assert.deepEqual(context.store.getSession(targetWorkspaceId), beforeSession);
+  assert.deepEqual(context.store.listConversationBindings(), beforeBindings);
+  assert.deepEqual(
+    context.store.getContextDelivery(targetBinding.conversationScopeId, targetBinding.targetKey),
+    beforeDelivery,
+  );
+});
+
+test("open_workspace inspect observes a closed managed worktree without recreating its backing", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "inspection-worktree-chat", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const worktreePath = String(worktree.path);
+  const targetBranch = String(worktree.targetBranch);
+
+  const listCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Managed inspection" },
+    },
+  });
+  assert.equal(listCreated.isError, undefined, allResponseText(listCreated));
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: close inspected worktree" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  await assert.rejects(stat(worktreePath), /ENOENT/);
+  const beforeSession = context.store.getSession(workspaceId);
+  assert.equal(beforeSession?.status, "closed");
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  assert.equal(inspected.isError, undefined, allResponseText(inspected));
+  const projection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(projection.workspaceId, workspaceId);
+  assert.equal(projection.mode, "worktree");
+  assert.equal(projection.managed, true);
+  assert.equal(projection.state, "closed");
+  assert.equal(projection.rootValid, false);
+  assert.equal(projection.targetBranch, targetBranch);
+  assert.ok(projection.taskSummary);
+  await assert.rejects(stat(worktreePath), /ENOENT/);
+  assert.deepEqual(context.store.getSession(workspaceId), beforeSession);
+});
+
+test("open_workspace inspect projects Composite members and Tasks without touching Composite lifecycle state", async (t) => {
+  const context = await fixture(t);
+  const memberOpen = await callOpen(context.client, context.project, "inspection-composite-member-chat");
+  const memberWorkspaceId = String(structuredContent(memberOpen).workspaceId);
+  const compositeOpen = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "inspection-composite", context: "none" },
+  });
+  const compositeId = String(structuredContent(compositeOpen).workspaceId);
+  await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: { name: "code", purpose: "Primary code", workspaceId: memberWorkspaceId },
+    },
+  });
+  const listCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Composite coordination" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(listCreated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Coordinate",
+        content: "COMPOSITE_TASK_BODY_SECRET",
+      },
+    },
+  });
+  const beforeList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", kind: "composite", workspaceId: compositeId },
+  });
+  const beforeComposite = (structuredContent(beforeList).compositeWorkspaces as Array<Record<string, unknown>>)[0]!;
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: compositeId },
+  });
+  assert.equal(inspected.isError, undefined, allResponseText(inspected));
+  const projection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(projection.kind, "composite");
+  assert.equal(projection.name, "inspection-composite");
+  const members = projection.members as Array<Record<string, unknown>>;
+  assert.deepEqual(members, [{
+    name: "code",
+    purpose: "Primary code",
+    workspaceId: memberWorkspaceId,
+    known: true,
+    location: "local",
+    state: "active",
+    status: "active",
+    mode: "checkout",
+    rootValid: true,
+  }]);
+  assert.equal(JSON.stringify(inspected).includes("COMPOSITE_TASK_BODY_SECRET"), false);
+  const afterList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", kind: "composite", workspaceId: compositeId },
+  });
+  const afterComposite = (structuredContent(afterList).compositeWorkspaces as Array<Record<string, unknown>>)[0]!;
+  assert.equal(afterComposite.lastUsedAt, beforeComposite.lastUsedAt);
+  assert.deepEqual(afterComposite.members, beforeComposite.members);
+});
+
 test("workspace.tasks reminder counts semantic work, excludes lifecycle/process follow-ups, and resets on Task mutation", async (t) => {
   const context = await fixture(t, {
     env: { DEVSPACE_TASK_REMINDER_INTERVAL: "2" },
@@ -5137,6 +5368,7 @@ interface ServerFixture {
   project: string;
   config: ServerConfig;
   stateDir: string;
+  store: SqliteWorkspaceStore;
   processSessions: ProcessManager;
   auditStore: ActivityAuditStore;
   bashOutputStore: BashOutputStore;
@@ -5259,6 +5491,7 @@ async function fixture(
     project,
     config,
     stateDir,
+    store,
     processSessions,
     auditStore,
     bashOutputStore,

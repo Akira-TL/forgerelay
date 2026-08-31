@@ -41,6 +41,18 @@ interface RelayedWorkspaceRoute {
   sourceRoot?: string;
 }
 
+export interface RelayedWorkspaceInspection {
+  workspaceId: string;
+  kind: "workspace";
+  location: "relay";
+  root: string;
+  routeState: "known";
+  mode: "checkout" | "worktree";
+  sourceRoot?: string;
+  relay: string;
+  executionLocation: string;
+}
+
 export interface RelayedWorkspaceOpenResult {
   workspaceId: string;
   root: string;
@@ -77,6 +89,22 @@ export class RemoteWorkspaceRelay {
     if (this.routes.has(workspaceId)) return true;
     this.loadRoutes();
     return this.routes.has(workspaceId);
+  }
+
+  inspectWorkspace(gatewayWorkspaceId: string): RelayedWorkspaceInspection {
+    const route = this.requireRoute(gatewayWorkspaceId);
+    const resolved = this.remoteByInstance(route.remoteInstanceId);
+    return {
+      workspaceId: route.gatewayWorkspaceId,
+      kind: "workspace",
+      location: "relay",
+      root: route.root,
+      routeState: "known",
+      mode: route.mode,
+      ...(route.sourceRoot ? { sourceRoot: route.sourceRoot } : {}),
+      relay: resolved.alias,
+      executionLocation: `remote:${resolved.alias}`,
+    };
   }
 
   async openWorkspace(

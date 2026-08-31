@@ -49,9 +49,9 @@ returning the full project context and does not record the current fingerprint a
 already delivered. Context-delivery state remains conversation-scoped and does not
 change the persistent Workspace identity.
 
-Do not enumerate Workspace state on every normal open. When the user wants to
-continue earlier work, inspect known Workspaces, or clean up accumulated state, use
-the same Core tool in inventory mode:
+Do not enumerate Workspace state on every normal open. Use the same Core tool in
+inventory mode only when the user wants to discover known Workspaces, continue earlier
+work, or organize accumulated state:
 
 ```text
 open_workspace(action="list")
@@ -65,6 +65,16 @@ root/source root, or stale-only state. Entries include a compact label such as
 `project/ws_...`, checkout/worktree backing metadata, timestamps, idle duration,
 root validity, and whether that Workspace is currently selected by this
 conversation. Listing is observational and does not refresh `lastUsedAt`.
+
+When one known Workspace needs more bounded detail but must not be opened or resumed,
+use `open_workspace(action="inspect", workspaceId="...")`. Inspection is a strict
+allowlist projection: ordinary/worktree lifecycle metadata, Composite member
+summaries, safe Relay presentation metadata, and an existing Task List summary may be
+returned. It does not return bootstrap instructions, Skills, Capability guides,
+Subagent bodies, files, process/Activity output, credentials, routes, or Task bodies;
+it does not bind the conversation, mark bootstrap delivered, refresh `lastUsedAt`, or
+grant execution authority. Explicitly open the target Workspace before mutating or
+executing against it.
 
 Treat persisted status and derived state separately. `status="active"` means the
 record has not been explicitly closed. A valid recent record has `state="active"`;

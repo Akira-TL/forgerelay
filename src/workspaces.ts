@@ -150,6 +150,25 @@ export interface WorkspaceInventoryEntry {
   current: boolean;
 }
 
+export interface WorkspaceInspection {
+  workspaceId: string;
+  kind: "workspace";
+  location: "local";
+  label: string;
+  root: string;
+  status: string;
+  state: WorkspaceInventoryState;
+  mode: WorkspaceMode;
+  sourceRoot?: string;
+  branch?: string;
+  targetBranch?: string;
+  managed: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+  idleMs: number;
+  rootValid: boolean;
+}
+
 export interface WorkspaceInventoryInput {
   workspaceId?: string;
   status?: string;
@@ -245,6 +264,38 @@ export class WorkspaceRegistry {
     );
   }
 
+  async inspectWorkspace(workspaceId: string): Promise<WorkspaceInspection> {
+    let session = this.store?.getSession(workspaceId);
+    if (!session) {
+      const workspace = this.workspaces.get(workspaceId);
+      if (workspace) {
+        session = {
+          id: workspace.id,
+          root: workspace.root,
+          status: "active",
+          mode: workspace.mode,
+          sourceRoot: workspace.sourceRoot,
+          baseRef: workspace.worktree?.baseRef,
+          baseSha: workspace.worktree?.baseSha,
+          branch: workspace.worktree?.branch,
+          targetBranch: workspace.worktree?.targetBranch,
+          managed: workspace.worktree?.managed ?? false,
+          createdAt: "",
+          lastUsedAt: "",
+        };
+      }
+    }
+    if (!session) throw new Error(`Unknown workspaceId: ${workspaceId}.`);
+
+    const entry = await this.inventoryEntryForSession(session, Date.now(), false);
+    const { current: _current, ...inspection } = entry;
+    return {
+      kind: "workspace",
+      location: "local",
+      ...inspection,
+    };
+  }
+
   async listWorkspaces(
     input: WorkspaceInventoryInput = {},
     openOptions: OpenWorkspaceOptions = {},
@@ -284,36 +335,9 @@ export class WorkspaceRegistry {
           [...this.config.allowedRoots, this.config.worktreeRoot],
         ))
       : undefined;
-    const entries = await Promise.all(sessions.map(async (session): Promise<WorkspaceInventoryEntry> => {
-      const rootValid = await this.validSessionRoot(session) !== undefined;
-      const lastUsedAt = Date.parse(session.lastUsedAt);
-      const idleMs = Number.isFinite(lastUsedAt) ? Math.max(0, now - lastUsedAt) : 0;
-      const state: WorkspaceInventoryState = session.status !== "active"
-        ? "closed"
-        : !rootValid
-          ? "invalid"
-          : idleMs >= WORKSPACE_STALE_REMINDER_MS
-            ? "stale"
-            : "active";
-      const projectRoot = session.sourceRoot ?? session.root;
-      return {
-        label: `${basename(resolve(projectRoot)) || "workspace"}/${session.id}`,
-        workspaceId: session.id,
-        root: session.root,
-        status: session.status,
-        state,
-        mode: session.mode,
-        sourceRoot: session.sourceRoot,
-        branch: session.branch,
-        targetBranch: session.targetBranch,
-        managed: session.managed,
-        createdAt: session.createdAt,
-        lastUsedAt: session.lastUsedAt,
-        idleMs,
-        rootValid,
-        current: currentWorkspaceIds.has(session.id),
-      };
-    }));
+    const entries = await Promise.all(sessions.map((session) =>
+      this.inventoryEntryForSession(session, now, currentWorkspaceIds.has(session.id))
+    ));
     const filtered: WorkspaceInventoryEntry[] = [];
     for (let index = 0; index < sessions.length; index += 1) {
       const session = sessions[index];
@@ -353,6 +377,41 @@ export class WorkspaceRegistry {
         limit,
         hasMore: offset + limit < filtered.length,
       },
+    };
+  }
+
+  private async inventoryEntryForSession(
+    session: WorkspaceSession,
+    now: number,
+    current: boolean,
+  ): Promise<WorkspaceInventoryEntry> {
+    const rootValid = await this.validSessionRoot(session) !== undefined;
+    const lastUsedAt = Date.parse(session.lastUsedAt);
+    const idleMs = Number.isFinite(lastUsedAt) ? Math.max(0, now - lastUsedAt) : 0;
+    const state: WorkspaceInventoryState = session.status !== "active"
+      ? "closed"
+      : !rootValid
+        ? "invalid"
+        : idleMs >= WORKSPACE_STALE_REMINDER_MS
+          ? "stale"
+          : "active";
+    const projectRoot = session.sourceRoot ?? session.root;
+    return {
+      label: `${basename(resolve(projectRoot)) || "workspace"}/${session.id}`,
+      workspaceId: session.id,
+      root: session.root,
+      status: session.status,
+      state,
+      mode: session.mode,
+      sourceRoot: session.sourceRoot,
+      branch: session.branch,
+      targetBranch: session.targetBranch,
+      managed: session.managed,
+      createdAt: session.createdAt,
+      lastUsedAt: session.lastUsedAt,
+      idleMs,
+      rootValid,
+      current,
     };
   }
 

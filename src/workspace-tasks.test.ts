@@ -28,6 +28,23 @@ test("Workspace Task state initialization creates missing private state without 
   assert.throws(() => store.read(existingWorkspaceId), /not valid JSON/);
 });
 
+test("Workspace Task inspection summary is read-only and does not initialize missing state", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-task-inspection-"));
+  t.after(() => rm(stateDir, { recursive: true, force: true }));
+  const store = new WorkspaceTaskStore(stateDir);
+  const workspaceId = "ws_0123456789";
+  const statePath = join(stateDir, "workspaces", workspaceId, "tasks.json");
+
+  assert.equal(store.inspectSummary(workspaceId), undefined);
+  await assert.rejects(readFile(statePath, "utf8"), /ENOENT/);
+
+  const created = store.createList(workspaceId, { name: "Inspection" });
+  const inspected = store.inspectSummary(workspaceId);
+  assert.equal(inspected?.revision, created.revision);
+  assert.equal(inspected?.lists[0]?.name, "Inspection");
+  assert.equal(inspected?.lists[0]?.taskCount, 0);
+});
+
 test("Workspace Task state is file-backed, ordered, revisioned, and restart-safe", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-tasks-"));
   const projectDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-tasks-project-"));
