@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-08-31
+
+### Added
+
+- Added `open_workspace(action="inspect", workspaceId=...)` for bounded read-only Workspace metadata, including safe Task summaries without opening, rebinding, or exposing bootstrap/remote-auth details.
+
+### Changed
+
+- `workspace.tasks` now discloses Task state progressively from List summaries to headers and one Task detail, with configurable forgotten-update reminders after meaningful Workspace work.
+
 ## [0.8.3] - 2026-08-31
 
 ### Added
