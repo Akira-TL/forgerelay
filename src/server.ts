@@ -486,8 +486,18 @@ const workspaceInspectionOutputSchema = z.union([
     location: z.literal("relay"),
     root: z.string(),
     routeState: z.literal("known"),
+    status: z.string().optional(),
+    state: z.enum(["active", "stale", "invalid", "closed"]).optional(),
     mode: z.enum(["checkout", "worktree"]),
     sourceRoot: z.string().optional(),
+    branch: z.string().optional(),
+    targetBranch: z.string().optional(),
+    managed: z.boolean().optional(),
+    createdAt: z.string().optional(),
+    lastUsedAt: z.string().optional(),
+    idleMs: z.number().nonnegative().optional(),
+    rootValid: z.boolean().optional(),
+    taskSummary: workspaceTaskInspectionSummaryOutputSchema.optional(),
     relay: z.string(),
     executionLocation: z.string(),
   }),
@@ -3116,16 +3126,28 @@ export function createMcpServer(
       };
       const inspectCompositeMember = async (entry: { name: string; purpose: string; workspaceId: string }) => {
         if (remoteWorkspaces.has(entry.workspaceId)) {
-          const inspected = remoteWorkspaces.inspectWorkspace(entry.workspaceId);
-          return {
-            name: entry.name,
-            purpose: entry.purpose,
-            workspaceId: entry.workspaceId,
-            known: true,
-            location: inspected.location,
-            routeState: inspected.routeState,
-            mode: inspected.mode,
-          };
+          try {
+            const inspected = await remoteWorkspaces.inspectWorkspace(entry.workspaceId);
+            return {
+              name: entry.name,
+              purpose: entry.purpose,
+              workspaceId: entry.workspaceId,
+              known: true,
+              location: inspected.location,
+              routeState: inspected.routeState,
+              state: inspected.state,
+              status: inspected.status,
+              mode: inspected.mode,
+              rootValid: inspected.rootValid,
+            };
+          } catch {
+            return {
+              name: entry.name,
+              purpose: entry.purpose,
+              workspaceId: entry.workspaceId,
+              known: false,
+            };
+          }
         }
         try {
           const inspected = await workspaces.inspectWorkspace(entry.workspaceId);
@@ -3181,7 +3203,7 @@ export function createMcpServer(
             ...(taskSummary ? { taskSummary } : {}),
           };
         } else if (remoteWorkspaces.has(workspaceId)) {
-          inspection = remoteWorkspaces.inspectWorkspace(workspaceId);
+          inspection = await remoteWorkspaces.inspectWorkspace(workspaceId);
         } else {
           const inspected = await workspaces.inspectWorkspace(workspaceId);
           const taskSummary = inspectTaskSummary(inspected.workspaceId);
@@ -3198,9 +3220,11 @@ export function createMcpServer(
           inspection.kind === "composite"
             ? `State: ${inspection.state}; members=${inspection.members.length}.`
             : inspection.location === "relay"
-              ? `Route: ${inspection.routeState}; mode=${inspection.mode}; location=${inspection.location}. Remote lifecycle is not probed by inspection.`
+              ? inspection.state
+                ? `State: ${inspection.state}; route=${inspection.routeState}; mode=${inspection.mode}; location=${inspection.location}. Lifecycle and Task facts come from the Execution ForgeRelay.`
+                : `Route: ${inspection.routeState}; mode=${inspection.mode}; location=${inspection.location}.`
               : `State: ${inspection.state}; mode=${inspection.mode}; location=${inspection.location}.`,
-          "Task summary is included only when durable local Task state already exists; Task bodies are never returned.",
+          "Task summary is included only when durable Task state already exists on the owning Workspace; Task bodies are never returned.",
           instruction,
         ].join("\n");
         logToolCall(config, {
@@ -3563,10 +3587,22 @@ export function createMcpServer(
       if (name !== undefined || memberName !== undefined) {
         throw new Error("open_workspace name/memberName are only valid for a Composite Workspace.");
       }
-      if (relay !== undefined) {
-        if (workspaceId !== undefined) {
-          throw new Error("Relayed open_workspace requires a path; resuming a relayed workspace is not available in this tracer bullet.");
+      if (workspaceId !== undefined && remoteWorkspaces.has(workspaceId)) {
+        if (
+          path !== undefined || relay !== undefined || mode !== undefined || baseRef !== undefined ||
+          newWorktree !== undefined || newWorkspace !== undefined
+        ) {
+          throw new Error("Resuming a relayed Workspace by workspaceId accepts context only.");
         }
+        const resumed = await remoteWorkspaces.resumeWorkspace(
+          workspaceId,
+          context ?? "auto",
+          hostScopeIdFor(_meta, sessionId),
+        );
+        rememberWorkspacePanelState(workspaceId, resumed);
+        return resumed;
+      }
+      if (relay !== undefined) {
         if (!path) throw new Error("Relayed open_workspace requires path.");
         const opened = await remoteWorkspaces.openWorkspace(relay, {
           path,
@@ -4191,7 +4227,7 @@ export function createMcpServer(
     {
       title: "Close workspace",
       description:
-        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout, managed-worktree, and Composite identity for later reopen. action=delete permanently removes ForgeRelay-owned state. Managed-worktree-backed Workspaces still finalize safely when active and require commitMessage. Composite delete dissolves only Composite-owned state and never closes member Workspaces. Checkout project files are never deleted; relayed delete remains unavailable.",
+        "Close or explicitly delete one Workspace after the user chooses cleanup. action=close (default) preserves checkout, managed-worktree, Composite, and relayed identity for later reopen. action=delete permanently removes ForgeRelay-owned state. Managed-worktree-backed Workspaces still finalize safely when active and require commitMessage. Composite delete dissolves only Composite-owned state and never closes member Workspaces. Checkout project files are never deleted.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier to close or delete."),
         action: z
@@ -4279,12 +4315,9 @@ export function createMcpServer(
         };
       }
       if (remoteWorkspaces.has(workspaceId)) {
-        if (action === "delete") {
-          throw new Error("close_workspace action=delete is not available for relayed Workspaces until Workspace Relay lifecycle parity is implemented.");
-        }
         const response = await remoteWorkspaces.closeWorkspace(
           workspaceId,
-          commitMessage,
+          { action, ...(commitMessage !== undefined ? { commitMessage } : {}) },
           hostScopeIdFor(extra._meta, extra.sessionId),
         );
         workspacePanelStates.delete(workspaceId);

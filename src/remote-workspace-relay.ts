@@ -41,14 +41,38 @@ interface RelayedWorkspaceRoute {
   sourceRoot?: string;
 }
 
+interface RelayedWorkspaceTaskSummary {
+  level: "summary";
+  version: 1;
+  revision: number;
+  lists: Array<{
+    id: string;
+    name: string;
+    state: "active" | "archived";
+    revision: number;
+    taskCount: number;
+    unfinishedTaskCount: number;
+  }>;
+}
+
 export interface RelayedWorkspaceInspection {
   workspaceId: string;
   kind: "workspace";
   location: "relay";
   root: string;
   routeState: "known";
+  status?: string;
+  state?: "active" | "stale" | "invalid" | "closed";
   mode: "checkout" | "worktree";
   sourceRoot?: string;
+  branch?: string;
+  targetBranch?: string;
+  managed?: boolean;
+  createdAt?: string;
+  lastUsedAt?: string;
+  idleMs?: number;
+  rootValid?: boolean;
+  taskSummary?: RelayedWorkspaceTaskSummary;
   relay: string;
   executionLocation: string;
 }
@@ -91,20 +115,55 @@ export class RemoteWorkspaceRelay {
     return this.routes.has(workspaceId);
   }
 
-  inspectWorkspace(gatewayWorkspaceId: string): RelayedWorkspaceInspection {
+  async inspectWorkspace(gatewayWorkspaceId: string): Promise<RelayedWorkspaceInspection> {
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
-    return {
+    let result: ToolCallResult;
+    try {
+      result = await this.callRemoteTool(resolved.alias, resolved.remote, "open_workspace", {
+        action: "inspect",
+        workspaceId: route.remoteWorkspaceId,
+      });
+      assertRemoteToolSucceeded(resolved.alias, "open_workspace", result);
+    } catch (error) {
+      throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
+    }
+    const structured = result.structuredContent as Record<string, unknown> | undefined;
+    const remoteInspection = structured?.inspection as Record<string, unknown> | undefined;
+    if (!remoteInspection || remoteInspection.kind !== "workspace") {
+      throw new Error(`Remote ForgeRelay ${resolved.alias} inspection did not return a Workspace projection.`);
+    }
+    const root = stringField(remoteInspection, "root", "Remote Workspace inspection");
+    const mode = remoteInspection.mode;
+    if (mode !== "checkout" && mode !== "worktree") {
+      throw new Error(`Remote ForgeRelay ${resolved.alias} inspection did not return a valid Workspace mode.`);
+    }
+    const projection: RelayedWorkspaceInspection = {
       workspaceId: route.gatewayWorkspaceId,
       kind: "workspace",
       location: "relay",
-      root: route.root,
+      root,
       routeState: "known",
-      mode: route.mode,
-      ...(route.sourceRoot ? { sourceRoot: route.sourceRoot } : {}),
+      mode,
       relay: resolved.alias,
       executionLocation: `remote:${resolved.alias}`,
     };
+    copyStringField(remoteInspection, projection, "status");
+    const state = remoteInspection.state;
+    if (state === "active" || state === "stale" || state === "invalid" || state === "closed") {
+      projection.state = state;
+    }
+    copyStringField(remoteInspection, projection, "sourceRoot");
+    copyStringField(remoteInspection, projection, "branch");
+    copyStringField(remoteInspection, projection, "targetBranch");
+    copyBooleanField(remoteInspection, projection, "managed");
+    copyStringField(remoteInspection, projection, "createdAt");
+    copyStringField(remoteInspection, projection, "lastUsedAt");
+    copyNumberField(remoteInspection, projection, "idleMs");
+    copyBooleanField(remoteInspection, projection, "rootValid");
+    const taskSummary = safeTaskSummary(remoteInspection.taskSummary);
+    if (taskSummary) projection.taskSummary = taskSummary;
+    return projection;
   }
 
   async openWorkspace(
@@ -141,18 +200,15 @@ export class RemoteWorkspaceRelay {
     if (mode !== "checkout" && mode !== "worktree") {
       throw new Error("Remote open_workspace response did not include a valid workspace mode.");
     }
-    const gatewayWorkspaceId = this.allocateGatewayWorkspaceId();
     const sourceRoot = typeof structured?.sourceRoot === "string" ? structured.sourceRoot : undefined;
-    const route: RelayedWorkspaceRoute = {
-      gatewayWorkspaceId,
+    const route = this.findOrCreateRoute({
       remoteInstanceId: resolved.remote.instanceId,
       remoteWorkspaceId,
       root,
       mode,
       ...(sourceRoot ? { sourceRoot } : {}),
-    };
-    this.routes.set(gatewayWorkspaceId, route);
-    this.persistRoute(route);
+    });
+    const gatewayWorkspaceId = route.gatewayWorkspaceId;
     const remapContext = (value: unknown) =>
       replaceExactWorkspaceId(value, remoteWorkspaceId, gatewayWorkspaceId);
     const remoteInstruction = typeof structured?.instruction === "string"
@@ -198,6 +254,7 @@ export class RemoteWorkspaceRelay {
     context: "auto" | "full" | "none" = "auto",
     conversationScopeId?: string,
   ): Promise<ToolCallResult> {
+    const route = this.requireRoute(gatewayWorkspaceId);
     const result = await this.callWorkspaceTool(
       gatewayWorkspaceId,
       "open_workspace",
@@ -207,6 +264,19 @@ export class RemoteWorkspaceRelay {
     if (result.isError === true) {
       throw new Error(`Remote open_workspace failed: ${toolResultText(result)}`);
     }
+    const structured = result.structuredContent as Record<string, unknown> | undefined;
+    const root = typeof structured?.root === "string" ? structured.root : route.root;
+    const mode = structured?.mode === "checkout" || structured?.mode === "worktree"
+      ? structured.mode
+      : route.mode;
+    const sourceRoot = typeof structured?.sourceRoot === "string" ? structured.sourceRoot : route.sourceRoot;
+    this.findOrCreateRoute({
+      remoteInstanceId: route.remoteInstanceId,
+      remoteWorkspaceId: route.remoteWorkspaceId,
+      root,
+      mode,
+      ...(sourceRoot ? { sourceRoot } : {}),
+    });
     return result;
   }
 
@@ -422,37 +492,44 @@ export class RemoteWorkspaceRelay {
 
   async closeWorkspace(
     gatewayWorkspaceId: string,
-    commitMessage?: string,
+    input: { action?: "close" | "delete"; commitMessage?: string } = {},
     conversationScopeId?: string,
   ): Promise<ToolCallResult> {
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
+    const action = input.action ?? "close";
     let result: ToolCallResult;
     try {
       result = await this.callRemoteTool(resolved.alias, resolved.remote, "close_workspace", {
         workspaceId: route.remoteWorkspaceId,
-        ...(commitMessage !== undefined ? { commitMessage } : {}),
+        action,
+        ...(input.commitMessage !== undefined ? { commitMessage: input.commitMessage } : {}),
       }, conversationScopeId);
       assertRemoteToolSucceeded(resolved.alias, "close_workspace", result);
     } catch (error) {
       throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
     }
     const remoteStructured = result.structuredContent as Record<string, unknown> | undefined;
-    this.routes.delete(gatewayWorkspaceId);
-    this.deletePersistedRoute(gatewayWorkspaceId);
+    if (action === "delete") {
+      this.routes.delete(gatewayWorkspaceId);
+      this.deletePersistedRoute(gatewayWorkspaceId);
+    }
     for (const [turnId, routedWorkspaceId] of this.turnRoutes) {
       if (routedWorkspaceId === gatewayWorkspaceId) this.turnRoutes.delete(turnId);
     }
 
+    const actionText = action === "delete" ? "Deleted" : "Closed";
     const text = route.mode === "worktree"
-      ? `Closed relayed worktree workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`
-      : `Closed relayed checkout workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`;
+      ? `${actionText} relayed worktree workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`
+      : `${actionText} relayed checkout workspace ${gatewayWorkspaceId} on remote ${resolved.alias}.`;
     const structuredContent: Record<string, unknown> = {
       result: text,
       workspaceId: gatewayWorkspaceId,
+      action,
       mode: route.mode,
     };
     for (const field of [
+      "status",
       "sourceRoot",
       "branch",
       "targetBranch",
@@ -476,6 +553,7 @@ export class RemoteWorkspaceRelay {
         tool: "close_workspace",
         card: {
           workspaceId: gatewayWorkspaceId,
+          action,
           mode: route.mode,
           payload: { content: [{ type: "text", text }] },
         },
@@ -500,10 +578,29 @@ export class RemoteWorkspaceRelay {
     }
   }
 
-  private persistRoute(route: RelayedWorkspaceRoute): void {
-    this.updatePersistedRoutes((routes) => {
-      routes.set(route.gatewayWorkspaceId, route);
+  private findOrCreateRoute(
+    input: Omit<RelayedWorkspaceRoute, "gatewayWorkspaceId">,
+  ): RelayedWorkspaceRoute {
+    let selected: RelayedWorkspaceRoute | undefined;
+    mkdirSync(this.routeStateDir, { recursive: true });
+    this.withRouteFileLock(() => {
+      const routes = this.readRoutesFromDisk();
+      const existing = [...routes.values()]
+        .filter((route) =>
+          route.remoteInstanceId === input.remoteInstanceId &&
+          route.remoteWorkspaceId === input.remoteWorkspaceId
+        )
+        .sort((left, right) => left.gatewayWorkspaceId.localeCompare(right.gatewayWorkspaceId))[0];
+      selected = {
+        gatewayWorkspaceId: existing?.gatewayWorkspaceId ?? this.allocateGatewayWorkspaceId(routes),
+        ...input,
+      };
+      routes.set(selected.gatewayWorkspaceId, selected);
+      this.writeRoutesToDisk(routes);
     });
+    if (!selected) throw new Error("Failed to persist relayed Workspace route.");
+    this.routes.set(selected.gatewayWorkspaceId, selected);
+    return selected;
   }
 
   private deletePersistedRoute(workspaceId: string): void {
@@ -657,11 +754,11 @@ export class RemoteWorkspaceRelay {
     return refreshed;
   }
 
-  private allocateGatewayWorkspaceId(): string {
+  private allocateGatewayWorkspaceId(routes: Map<string, RelayedWorkspaceRoute> = this.routes): string {
     let workspaceId: string;
     do {
       workspaceId = `rws_${randomBytes(5).toString("hex")}`;
-    } while (this.routes.has(workspaceId));
+    } while (routes.has(workspaceId));
     return workspaceId;
   }
 }
@@ -681,6 +778,77 @@ function stringField(
     throw new Error(`${label} did not include ${field}.`);
   }
   return value;
+}
+
+function copyStringField(
+  source: Record<string, unknown>,
+  target: RelayedWorkspaceInspection,
+  field: "status" | "sourceRoot" | "branch" | "targetBranch" | "createdAt" | "lastUsedAt",
+): void {
+  const value = source[field];
+  if (typeof value === "string") target[field] = value;
+}
+
+function copyBooleanField(
+  source: Record<string, unknown>,
+  target: RelayedWorkspaceInspection,
+  field: "managed" | "rootValid",
+): void {
+  const value = source[field];
+  if (typeof value === "boolean") target[field] = value;
+}
+
+function copyNumberField(
+  source: Record<string, unknown>,
+  target: RelayedWorkspaceInspection,
+  field: "idleMs",
+): void {
+  const value = source[field];
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) target[field] = value;
+}
+
+function safeTaskSummary(value: unknown): RelayedWorkspaceTaskSummary | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const summary = value as Record<string, unknown>;
+  if (
+    summary.level !== "summary" ||
+    summary.version !== 1 ||
+    typeof summary.revision !== "number" ||
+    !Number.isInteger(summary.revision) ||
+    summary.revision < 0 ||
+    !Array.isArray(summary.lists)
+  ) {
+    return undefined;
+  }
+  const lists: RelayedWorkspaceTaskSummary["lists"] = [];
+  for (const value of summary.lists) {
+    if (!value || typeof value !== "object") return undefined;
+    const list = value as Record<string, unknown>;
+    if (
+      typeof list.id !== "string" ||
+      typeof list.name !== "string" ||
+      (list.state !== "active" && list.state !== "archived") ||
+      typeof list.revision !== "number" || !Number.isInteger(list.revision) || list.revision <= 0 ||
+      typeof list.taskCount !== "number" || !Number.isInteger(list.taskCount) || list.taskCount < 0 ||
+      typeof list.unfinishedTaskCount !== "number" || !Number.isInteger(list.unfinishedTaskCount) || list.unfinishedTaskCount < 0
+    ) {
+      return undefined;
+    }
+    lists.push({
+      id: list.id,
+      name: list.name,
+      state: list.state,
+      revision: list.revision,
+      taskCount: list.taskCount,
+      unfinishedTaskCount: list.unfinishedTaskCount,
+    });
+  }
+  return {
+    level: "summary",
+    version: 1,
+    revision: summary.revision,
+    lists,
+  };
 }
 
 function toolResultText(result: ToolCallResult): string {
