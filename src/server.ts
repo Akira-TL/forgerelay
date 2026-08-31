@@ -4334,6 +4334,9 @@ export function createMcpServer(
           (candidate) => formatPathForPrompt(candidate.filePath) === path || candidate.filePath === path,
         );
         if (guide) {
+          if (!compositeWorkspaces.isActive(workspaceId)) {
+            throw new Error(`Composite Workspace ${workspaceId} is closed. Reopen it with open_workspace before use.`);
+          }
           const startedAt = performance.now();
           const raw = readFileSync(guide.filePath, "utf8");
           const start = (offset ?? 1) - 1;

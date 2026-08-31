@@ -4239,6 +4239,13 @@ test("workspace.tasks belongs to Composite Workspace itself and survives Composi
   assert.equal(closed.isError, undefined, allResponseText(closed));
   assert.equal((await stat(taskStatePath)).isFile(), true);
 
+  const closedGuideRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, path: taskGuide.path },
+  });
+  assert.equal(closedGuideRead.isError, true);
+  assert.match(allResponseText(closedGuideRead), /closed.*reopen|reopen.*closed/i);
+
   const reopened = await context.client.callTool({
     name: "open_workspace",
     arguments: { workspaceId: compositeId, context: "none" },
