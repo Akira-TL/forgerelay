@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-08-31
+
+### Changed
+
+- Managed-worktree Workspace close now preserves the same identity for later reopen with fresh backing; explicit delete safely finalizes active work before removing ForgeRelay-owned state.
+- Composite Workspace close now preserves identity and member topology for later reopen; explicit delete dissolves only the Composite relationship and leaves member Workspaces untouched.
+
 ## [0.8.1] - 2026-08-30
 
 ### Added
