@@ -265,6 +265,7 @@ try {
       "hooks.lifecycle",
       "capability-guides.read",
       "code.intelligence",
+      "workspace.tasks",
       "batch.execute",
       ...(process.platform === "linux" ? ["artifact.native-download"] : []),
       "ui.mcp-app",
@@ -276,11 +277,54 @@ try {
     "hooks.check",
     "review.changes",
     "code.intelligence",
+    "workspace.tasks",
     "batch.execute",
     ...(process.platform === "linux" ? ["artifact.download"] : []),
   ]);
   assert.equal(capabilityCatalog[0].available, true);
   assert.equal(capabilityCatalog[0].guide.name, "lifecycle-hooks");
+
+  const checkoutTaskStatePath = join(stateDir, "workspaces", workspaceId, "tasks.json");
+  assert.ok(existsSync(checkoutTaskStatePath));
+  const checkoutTaskList = callTool(oauth.accessToken, sessionId, 130, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "list.create", name: "7677 release tasks" },
+  });
+  assert.equal(checkoutTaskList.isError, undefined);
+  const checkoutListId = checkoutTaskList.structuredContent.result.lists[0].id;
+  const checkoutTask = callTool(oauth.accessToken, sessionId, 131, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: {
+      operation: "task.create",
+      listId: checkoutListId,
+      subject: "Verify v0.8.3 Task persistence",
+      content: "created through real MCP",
+      status: "in_progress",
+    },
+  });
+  assert.equal(checkoutTask.isError, undefined);
+  const checkoutTaskId = checkoutTask.structuredContent.result.lists[0].tasks[0].id;
+  const taskFingerprintBeforeExternal = checkoutTask.structuredContent.result.fingerprint;
+  const externalTaskState = JSON.parse(readFileSync(checkoutTaskStatePath, "utf8"));
+  externalTaskState.lists[0].tasks[0].content = "reloaded external task edit";
+  writeFileSync(checkoutTaskStatePath, `${JSON.stringify(externalTaskState, null, 2)}\n`);
+  const reloadedCheckoutTasks = callTool(oauth.accessToken, sessionId, 132, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(reloadedCheckoutTasks.isError, undefined);
+  assert.equal(reloadedCheckoutTasks.structuredContent.result.lists[0].tasks[0].id, checkoutTaskId);
+  assert.equal(
+    reloadedCheckoutTasks.structuredContent.result.lists[0].tasks[0].content,
+    "reloaded external task edit",
+  );
+  assert.notEqual(reloadedCheckoutTasks.structuredContent.result.fingerprint, taskFingerprintBeforeExternal);
 
   const repeatedOpen = callTool(oauth.accessToken, sessionId, 84, "open_workspace", {
     path: checkoutWorkspace,
@@ -312,6 +356,13 @@ try {
   assert.equal(closedWorkspace.isError, undefined);
   assert.equal(closedWorkspace.structuredContent.workspaceId, workspaceId);
   assert.equal(closedWorkspace.structuredContent.action, "close");
+  const closedCheckoutTasks = callTool(oauth.accessToken, sessionId, 133, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(closedCheckoutTasks.isError, true);
 
   const closedInventory = callTool(oauth.accessToken, sessionId, 87, "open_workspace", {
     action: "list",
@@ -336,12 +387,34 @@ try {
     resumedOriginal.structuredContent.contextFingerprint,
     opened.structuredContent.contextFingerprint,
   );
+  const resumedCheckoutTasks = callTool(oauth.accessToken, sessionId, 134, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(resumedCheckoutTasks.isError, undefined);
+  assert.equal(resumedCheckoutTasks.structuredContent.result.lists[0].tasks[0].id, checkoutTaskId);
+  assert.equal(
+    resumedCheckoutTasks.structuredContent.result.lists[0].tasks[0].content,
+    "reloaded external task edit",
+  );
+  assert.equal(resumedOriginal.structuredContent.contextFingerprint, opened.structuredContent.contextFingerprint);
 
   const deleteOpened = callTool(oauth.accessToken, sessionId, 91, "open_workspace", {
     path: lifecycleDeleteWorkspace,
     context: "none",
   }, { "openai/session": "acceptance-workspace-delete" });
   const deleteWorkspaceId = deleteOpened.structuredContent.workspaceId;
+  const deleteTaskStatePath = join(stateDir, "workspaces", deleteWorkspaceId, "tasks.json");
+  const deleteTaskList = callTool(oauth.accessToken, sessionId, 135, "capability", {
+    workspaceId: deleteWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "list.create", name: "delete with workspace" },
+  });
+  assert.equal(deleteTaskList.isError, undefined);
+  assert.ok(existsSync(deleteTaskStatePath));
   const deleteClosed = callTool(oauth.accessToken, sessionId, 92, "close_workspace", {
     workspaceId: deleteWorkspaceId,
   });
@@ -353,12 +426,17 @@ try {
   assert.equal(deletedWorkspace.isError, undefined);
   assert.equal(deletedWorkspace.structuredContent.workspaceId, deleteWorkspaceId);
   assert.equal(deletedWorkspace.structuredContent.action, "delete");
+  assert.equal(existsSync(deleteTaskStatePath), false);
   assert.equal(readFileSync(join(lifecycleDeleteWorkspace, "keep.txt"), "utf8"), "keep checkout files\n");
   const deletedInventory = callTool(oauth.accessToken, sessionId, 94, "open_workspace", {
     action: "list",
     workspaceId: deleteWorkspaceId,
   });
   assert.equal(deletedInventory.structuredContent.workspaces.length, 0);
+  pass(
+    "workspace tasks",
+    `${workspaceId} create -> external reload -> close/reopen; explicit delete removed ${deleteWorkspaceId} Task state`,
+  );
 
   pass(
     "workspace lifecycle + inventory",
@@ -440,6 +518,7 @@ try {
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "workspace-tasks",
     "batch-execution",
   ]);
   const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {
@@ -697,6 +776,33 @@ try {
     context: "none",
   });
   const compositeWorkspaceId = compositeOpened.structuredContent.workspaceId;
+  assert.deepEqual(
+    compositeOpened.structuredContent.capabilityCatalog.map((entry) => entry.name),
+    ["workspace.tasks"],
+  );
+  const compositeTaskStatePath = join(stateDir, "workspaces", compositeWorkspaceId, "tasks.json");
+  assert.ok(existsSync(compositeTaskStatePath));
+  const compositeTaskList = callTool(oauth.accessToken, sessionId, 136, "capability", {
+    workspaceId: compositeWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "list.create", name: "Composite release tasks" },
+  });
+  assert.equal(compositeTaskList.isError, undefined);
+  const compositeTaskListId = compositeTaskList.structuredContent.result.lists[0].id;
+  const compositeTask = callTool(oauth.accessToken, sessionId, 137, "capability", {
+    workspaceId: compositeWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: {
+      operation: "task.create",
+      listId: compositeTaskListId,
+      subject: "Preserve Composite Task state",
+      content: "Composite-owned state",
+    },
+  });
+  assert.equal(compositeTask.isError, undefined);
+  const compositeTaskId = compositeTask.structuredContent.result.lists[0].tasks[0].id;
   callTool(oauth.accessToken, sessionId, 117, "open_workspace", {
     action: "member",
     workspaceId: compositeWorkspaceId,
@@ -707,6 +813,14 @@ try {
       workspaceId,
     },
   });
+  const memberScopedCompositeTasks = callTool(oauth.accessToken, sessionId, 138, "capability", {
+    workspaceId: compositeWorkspaceId,
+    member: "code",
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(memberScopedCompositeTasks.isError, true);
   const closedComposite = callTool(oauth.accessToken, sessionId, 118, "close_workspace", {
     workspaceId: compositeWorkspaceId,
   });
@@ -727,6 +841,13 @@ try {
     path: "composite-sentinel.txt",
   });
   assert.equal(closedCompositeRead.isError, true);
+  const closedCompositeTasks = callTool(oauth.accessToken, sessionId, 139, "capability", {
+    workspaceId: compositeWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(closedCompositeTasks.isError, true);
 
   const reopenedComposite = callTool(oauth.accessToken, sessionId, 121, "open_workspace", {
     workspaceId: compositeWorkspaceId,
@@ -735,6 +856,18 @@ try {
   assert.equal(reopenedComposite.structuredContent.workspaceId, compositeWorkspaceId);
   assert.equal(reopenedComposite.structuredContent.status, "active");
   assert.equal(reopenedComposite.structuredContent.members[0].workspaceId, workspaceId);
+  const reopenedCompositeTasks = callTool(oauth.accessToken, sessionId, 140, "capability", {
+    workspaceId: compositeWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  assert.equal(reopenedCompositeTasks.isError, undefined);
+  assert.equal(reopenedCompositeTasks.structuredContent.result.lists[0].tasks[0].id, compositeTaskId);
+  assert.equal(
+    reopenedCompositeTasks.structuredContent.result.lists[0].tasks[0].content,
+    "Composite-owned state",
+  );
   const reopenedCompositeRead = callTool(oauth.accessToken, sessionId, 122, "read", {
     workspaceId: compositeWorkspaceId,
     member: "code",
@@ -748,6 +881,7 @@ try {
   });
   assert.equal(deletedComposite.structuredContent.action, "delete");
   assert.equal(deletedComposite.structuredContent.dissolved, true);
+  assert.equal(existsSync(compositeTaskStatePath), false);
   const memberAfterCompositeDelete = callTool(oauth.accessToken, sessionId, 124, "read", {
     workspaceId,
     path: "composite-sentinel.txt",
@@ -759,6 +893,10 @@ try {
     workspaceId: compositeWorkspaceId,
   });
   assert.equal(deletedCompositeInventory.structuredContent.compositeWorkspaces.length, 0);
+  pass(
+    "Composite workspace tasks",
+    `${compositeWorkspaceId} self-owned Task state -> close/reopen -> delete cleanup; member-scoped Task access rejected`,
+  );
   pass(
     "Composite lifecycle",
     `${compositeWorkspaceId} close -> closed/non-routable -> same-id reopen -> delete; member Workspace preserved`,
