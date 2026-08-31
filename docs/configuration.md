@@ -327,6 +327,29 @@ Hooks, Skills, language services, and Activity facts remain owned by the underly
 Workspace. The Composite Activity Panel only aggregates their presentation into one
 Host Turn.
 
+## Workspace Tasks
+
+`workspace.tasks` keeps lightweight Task Lists in ForgeRelay-owned private Workspace
+state. Task data is not project bootstrap context and is not written into checkout or
+managed-worktree Git contents. Reads use progressive disclosure: default `get` returns
+List summaries and unfinished counts, `level="headers"` adds Task ID/status/subject,
+and `level="detail"` returns full content for one explicitly selected Task.
+
+ForgeRelay can append a bounded forgotten-update reminder after semantic Workspace
+work when active Lists still contain unfinished Tasks. The counter defaults to 30
+successful semantic work calls, resets on any Task mutation, treats one
+`batch.execute` as one call, and does not count Workspace inventory/lifecycle UI,
+Activity queries, Task reads, or Bash/process follow-up polling/input as new work.
+The counter is process-local and may reset on server restart; Task state itself
+remains durable.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FORGERELAY_TASK_REMINDER_INTERVAL` | `30` | Successful semantic work calls between Task update reminders; `0` disables reminders. |
+
+The same value may be persisted as `taskReminderInterval` in `config.json`. The
+legacy-compatible `DEVSPACE_TASK_REMINDER_INTERVAL` environment name is also accepted.
+
 Use `open_workspace(action="list")` only when the Agent needs to inspect known
 Workspaces, continue earlier work, or organize Workspace state. The inventory is
 paginated (50 records by default, at most 100) and can filter by Workspace ID,

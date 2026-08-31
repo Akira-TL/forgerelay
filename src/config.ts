@@ -19,6 +19,7 @@ export type WidgetMode = "off" | "changes" | "full";
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ARTIFACT_MAX_FILE_BYTES = 100 * 1024 * 1024;
+const DEFAULT_TASK_REMINDER_INTERVAL = 30;
 
 export interface ServerConfig {
   instanceId: string;
@@ -41,6 +42,7 @@ export interface ServerConfig {
   worktreeRoot: string;
   artifactsEnabled: boolean;
   artifactMaxFileBytes: number;
+  taskReminderInterval: number;
   skillsEnabled: boolean;
   skillPaths: string[];
   devspaceSkillsDir: string;
@@ -181,6 +183,21 @@ function parsePositiveInteger(
 
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > max) {
+    throw new Error(`Invalid ${name}: ${value}`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (value === undefined || value === "") return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > Number.MAX_SAFE_INTEGER) {
     throw new Error(`Invalid ${name}: ${value}`);
   }
 
@@ -368,6 +385,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       productEnv(env, "ARTIFACT_MAX_FILE_BYTES") ?? numberConfigValue(files.config.artifactMaxFileBytes),
       DEFAULT_ARTIFACT_MAX_FILE_BYTES,
       "FORGERELAY_ARTIFACT_MAX_FILE_BYTES",
+    ),
+    taskReminderInterval: parseNonNegativeInteger(
+      productEnv(env, "TASK_REMINDER_INTERVAL") ?? numberConfigValue(files.config.taskReminderInterval),
+      DEFAULT_TASK_REMINDER_INTERVAL,
+      "FORGERELAY_TASK_REMINDER_INTERVAL",
     ),
     skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
     skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),

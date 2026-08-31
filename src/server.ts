@@ -123,6 +123,7 @@ import {
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
+import { WorkspaceTaskReminderTracker } from "./workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspace-tasks.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
 import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
@@ -537,6 +538,16 @@ function logFailedToolResponse(
 
 function textBlock(text: string): ToolContent {
   return { type: "text", text };
+}
+
+function attachWorkspaceTaskReminder<T>(result: T, reminder: string | undefined): T {
+  if (!reminder || toolResultIsError(result) || typeof result !== "object" || result === null) return result;
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return result;
+  return {
+    ...result,
+    content: [...content, textBlock(reminder)],
+  } as T;
 }
 
 function textSummary(content: ToolContent[]): {
@@ -1478,6 +1489,7 @@ interface ProcessToolRouting {
     sessionId: string | undefined,
   ) => Promise<CoreOperationContext>;
   present: <T>(result: T, target: ProcessExecutionTarget) => T;
+  presentSemantic: <T>(result: T, target: ProcessExecutionTarget) => T;
   isRemote: (workspaceId: string) => boolean;
   execCommandRemote: (
     workspaceId: string,
@@ -1555,7 +1567,7 @@ function registerProcessTools(
       const target = routing.resolve(workspaceId, member);
       const context = await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
       if (routing.isRemote(target.executionWorkspaceId)) {
-        return routing.present(await routing.execCommandRemote(
+        return routing.presentSemantic(await routing.execCommandRemote(
           target.executionWorkspaceId,
           {
             cmd,
@@ -1570,7 +1582,7 @@ function registerProcessTools(
           routing.hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
-      return routing.present(await shellRun(
+      return routing.presentSemantic(await shellRun(
         {
           workspaceId: target.executionWorkspaceId,
           command: cmd,
@@ -1734,6 +1746,7 @@ export function createMcpServer(
   const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
   const workspaceTasks = new WorkspaceTaskStore(config.stateDir);
+  const taskReminders = new WorkspaceTaskReminderTracker(config.taskReminderInterval, workspaceTasks);
   const compositeTaskGuides = loadCapabilityGuides(config).filter((guide) => guide.name === "workspace-tasks");
   const compositeActivity = new CompositeActivityCoordinator(
     compositeWorkspaces,
@@ -1778,6 +1791,29 @@ export function createMcpServer(
           target.memberName,
         );
     return subagentMcp.decorateResult(target.executionWorkspaceId, presented);
+  };
+  const taskReminderWorkspaceIdFor = (
+    target: ReturnType<typeof resolveExecutionTarget>,
+  ): string | undefined => {
+    if (target.compositeWorkspaceId) return target.compositeWorkspaceId;
+    if (remoteWorkspaces.has(target.executionWorkspaceId)) return undefined;
+    try {
+      return workspaces.getWorkspace(target.executionWorkspaceId).id;
+    } catch {
+      return undefined;
+    }
+  };
+  const presentSemanticWorkResult = <T>(
+    result: T,
+    target: ReturnType<typeof resolveExecutionTarget>,
+  ): T => {
+    const presented = presentExecutionResult(result, target);
+    if (toolResultIsError(presented)) return presented;
+    const reminderWorkspaceId = taskReminderWorkspaceIdFor(target);
+    return attachWorkspaceTaskReminder(
+      presented,
+      reminderWorkspaceId ? taskReminders.recordWork(reminderWorkspaceId) : undefined,
+    );
   };
   const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
     hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
@@ -1826,9 +1862,11 @@ export function createMcpServer(
     ...subagentMcp.registryDependencies,
     workspaceTasks: {
       available: true,
-      run: async (input, context) => ({
-        value: runWorkspaceTasksCapability(workspaceTasks, context.workspaceId, input),
-      }),
+      run: async (input, context) => {
+        const value = runWorkspaceTasksCapability(workspaceTasks, context.workspaceId, input);
+        if (input.operation !== "get") taskReminders.reset(context.workspaceId);
+        return { value };
+      },
     },
     batchExecute: {
       available: batchExecuteAvailable,
@@ -3812,12 +3850,15 @@ export function createMcpServer(
         extra.sessionId,
       );
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.capability(executionWorkspaceId, {
+        const response = await remoteWorkspaces.capability(executionWorkspaceId, {
           name,
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
-        }, hostScopeIdFor(extra._meta, extra.sessionId)), target);
+        }, hostScopeIdFor(extra._meta, extra.sessionId));
+        return action === "run" && name !== "workspace.tasks"
+          ? presentSemanticWorkResult(response, target)
+          : presentExecutionResult(response, target);
       }
       if (action === "run" && name === "batch.execute") {
         const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -3846,7 +3887,7 @@ export function createMcpServer(
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
-          return presentExecutionResult(result, target);
+          return presentSemanticWorkResult(result, target);
         } catch (error) {
           if (extra.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
@@ -3875,10 +3916,13 @@ export function createMcpServer(
       }
 
       if (action === "run") {
-        return presentExecutionResult(await coreOperations.capabilityRun(
+        const response = await coreOperations.capabilityRun(
           { workspaceId: executionWorkspaceId, name, arguments: capabilityArguments, file },
           executionContext,
-        ), target);
+        );
+        return name === "workspace.tasks"
+          ? presentExecutionResult(response, target)
+          : presentSemanticWorkResult(response, target);
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -4003,7 +4047,10 @@ export function createMcpServer(
         const composite = action === "delete"
           ? compositeWorkspaces.dissolve(workspaceId)
           : compositeWorkspaces.close(workspaceId);
-        if (action === "delete") workspaceTasks.deleteWorkspace(workspaceId);
+        if (action === "delete") {
+          workspaceTasks.deleteWorkspace(workspaceId);
+          taskReminders.forget(workspaceId);
+        }
         compositeActivity.forgetComposite(workspaceId);
         workspacePanelStates.delete(workspaceId);
         const result = [
@@ -4077,6 +4124,7 @@ export function createMcpServer(
           operation: async () => {
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
+            taskReminders.forget(session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
             return {
@@ -4120,6 +4168,7 @@ export function createMcpServer(
           operation: async () => {
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
+            taskReminders.forget(session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted closed managed-worktree Workspace ${session.id}. Its already-removed worktree backing was not recreated.`;
             return {
@@ -4189,6 +4238,7 @@ export function createMcpServer(
             if (action === "delete") {
               workspaces.deleteWorkspace(workspace.id);
               workspaceTasks.deleteWorkspace(workspace.id);
+              taskReminders.forget(workspace.id);
             }
             const result = [
               action === "delete"
@@ -4366,14 +4416,14 @@ export function createMcpServer(
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.read(
+        return presentSemanticWorkResult(await remoteWorkspaces.read(
           executionWorkspaceId,
           { path, paths, offset, limit },
           hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
       if (path !== undefined) {
-        return presentExecutionResult(await coreOperations.read(
+        return presentSemanticWorkResult(await coreOperations.read(
           { workspaceId: executionWorkspaceId, path, offset, limit },
           executionContext,
         ), target);
@@ -4451,7 +4501,7 @@ export function createMcpServer(
         activityRelationFor(executionContext),
       );
       if (!response) throw new Error("Bulk Read completed without a response.");
-      return presentExecutionResult(response, target);
+      return presentSemanticWorkResult(response, target);
     },
   );
 
@@ -4481,13 +4531,13 @@ export function createMcpServer(
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.write(
+        return presentSemanticWorkResult(await remoteWorkspaces.write(
           executionWorkspaceId,
           input,
           hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
-      return presentExecutionResult(await coreOperations.write(
+      return presentSemanticWorkResult(await coreOperations.write(
         { workspaceId: executionWorkspaceId, ...input },
         executionContext,
       ), target);
@@ -4551,20 +4601,20 @@ export function createMcpServer(
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.edit(
+        return presentSemanticWorkResult(await remoteWorkspaces.edit(
           executionWorkspaceId,
           { path, paths, edits },
           hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
       if (path !== undefined) {
-        return presentExecutionResult(await coreOperations.edit(
+        return presentSemanticWorkResult(await coreOperations.edit(
           { workspaceId: executionWorkspaceId, path, edits },
           executionContext,
         ), target);
       }
 
-      return presentExecutionResult(await nativeBulkMutations.edit(
+      return presentSemanticWorkResult(await nativeBulkMutations.edit(
         { workspaceId: executionWorkspaceId, paths: paths!, edits },
         executionContext,
       ), target);
@@ -4597,13 +4647,13 @@ export function createMcpServer(
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.rename(
+        return presentSemanticWorkResult(await remoteWorkspaces.rename(
           executionWorkspaceId,
           { path, newPath },
           hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
-      return presentExecutionResult(await coreOperations.rename(
+      return presentSemanticWorkResult(await coreOperations.rename(
         { workspaceId: executionWorkspaceId, path, newPath },
         executionContext,
       ), target);
@@ -4653,20 +4703,20 @@ export function createMcpServer(
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        return presentExecutionResult(await remoteWorkspaces.delete(
+        return presentSemanticWorkResult(await remoteWorkspaces.delete(
           executionWorkspaceId,
           { path, paths, recursive },
           hostScopeIdFor(extra._meta, extra.sessionId),
         ), target);
       }
       if (path !== undefined) {
-        return presentExecutionResult(await coreOperations.delete(
+        return presentSemanticWorkResult(await coreOperations.delete(
           { workspaceId: executionWorkspaceId, path, recursive },
           executionContext,
         ), target);
       }
 
-      return presentExecutionResult(await nativeBulkMutations.delete(
+      return presentSemanticWorkResult(await nativeBulkMutations.delete(
         { workspaceId: executionWorkspaceId, paths: paths!, recursive },
         executionContext,
       ), target);
@@ -4708,7 +4758,7 @@ export function createMcpServer(
         const executionWorkspaceId = target.executionWorkspaceId;
         const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
         if (remoteWorkspaces.has(executionWorkspaceId)) {
-          return presentExecutionResult(await remoteWorkspaces.applyPatch(
+          return presentSemanticWorkResult(await remoteWorkspaces.applyPatch(
             executionWorkspaceId,
             { patch },
             hostScopeIdFor(extra._meta, extra.sessionId),
@@ -4774,7 +4824,7 @@ export function createMcpServer(
           },
         },
         activityRelationFor(executionContext),
-        ).then((result) => presentExecutionResult(result, target));
+        ).then((result) => presentSemanticWorkResult(result, target));
       },
     );
   }
@@ -4886,7 +4936,7 @@ export function createMcpServer(
         const executionWorkspaceId = target.executionWorkspaceId;
         const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
         if (remoteWorkspaces.has(executionWorkspaceId)) {
-          return presentExecutionResult(await remoteWorkspaces.bash(executionWorkspaceId, {
+          const response = await remoteWorkspaces.bash(executionWorkspaceId, {
             action,
             ...(command !== undefined ? { command } : {}),
             ...(processId !== undefined ? { processId } : {}),
@@ -4900,7 +4950,10 @@ export function createMcpServer(
             ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          }, hostScopeIdFor(extra._meta, extra.sessionId)), target);
+          }, hostScopeIdFor(extra._meta, extra.sessionId));
+          return action === "run"
+            ? presentSemanticWorkResult(response, target)
+            : presentExecutionResult(response, target);
         }
         const workspace = workspaces.getWorkspace(executionWorkspaceId);
         if (action === "run") {
@@ -4908,7 +4961,7 @@ export function createMcpServer(
           if (processId !== undefined || outputId !== undefined || input !== undefined || interrupt !== undefined) {
             throw new Error("bash action=run does not accept processId, outputId, input, or interrupt.");
           }
-          return presentExecutionResult(await coreOperations.shellRun(
+          return presentSemanticWorkResult(await coreOperations.shellRun(
             {
               workspaceId: executionWorkspaceId,
               command,
@@ -5021,6 +5074,7 @@ export function createMcpServer(
       resolve: resolveExecutionTarget,
       prepare: prepareExecutionContext,
       present: presentExecutionResult,
+      presentSemantic: presentSemanticWorkResult,
       isRemote: (workspaceId) => remoteWorkspaces.has(workspaceId),
       execCommandRemote: (workspaceId, input, conversationScopeId) =>
         remoteWorkspaces.execCommand(workspaceId, input, conversationScopeId),

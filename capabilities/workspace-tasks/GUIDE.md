@@ -37,3 +37,14 @@ Task 操作：
 - `task.delete`：显式删除 Task。
 
 Task 修改使用独立的 revision/fingerprint 域；它不改变 Workspace bootstrap `contextFingerprint`。
+
+## 忘记更新提醒
+
+ForgeRelay 会按当前 Workspace 统计成功的语义工作调用。默认连续 30 次语义工作没有 Task mutation、且仍存在 active List 中的未完成 Task 时，在工作结果后追加一条简短提醒；提醒只提示检查 `workspace.tasks`，不会携带 Task `content`。
+
+- 任意 List/Task create/update/delete 都会重置计数。
+- `open_workspace` inventory/open/close、Activity/UI 查询、Capability describe、Task get，以及 `bash action="process"|"output"` / Codex `write_stdin` 等已有进程 follow-up 不单独计数。
+- `batch.execute` 作为一次顶层语义工作调用计数，而不是按 child operation 重复计数。
+- 只有 active List 中仍有 `pending` / `in_progress` Task 才会提醒；归档 List 或全部完成会 suppress 提醒。
+- 计数器只保存在当前 ForgeRelay 进程内，server restart 可以重置；Task durable state 本身不受影响。
+- `FORGERELAY_TASK_REMINDER_INTERVAL=0` 可禁用提醒；其他非负整数设置间隔。

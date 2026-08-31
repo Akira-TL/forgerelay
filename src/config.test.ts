@@ -122,6 +122,9 @@ assert.equal(loadConfig(baseEnv).devspaceAgentsDir, join(emptyConfigDir, "agents
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
+assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "0" }).taskReminderInterval, 0);
+assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "45" }).taskReminderInterval, 45);
 assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ARTIFACTS: "1" }).artifactsEnabled, true);
 assert.equal(
   loadConfig({ ...baseEnv, DEVSPACE_ARTIFACT_MAX_FILE_BYTES: "123" }).artifactMaxFileBytes,
@@ -148,6 +151,14 @@ assert.deepEqual(ensureDevspaceDefaultSkills({ DEVSPACE_CONFIG_DIR: seededConfig
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "invalid" }),
   /Invalid FORGERELAY_WIDGETS: invalid/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "-1" }),
+  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: -1/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "1.5" }),
+  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: 1.5/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "minimal" }),
@@ -332,6 +343,7 @@ writeFileSync(
     subagents: true,
     artifactsEnabled: true,
     artifactMaxFileBytes: 321,
+    taskReminderInterval: 12,
     workflowInstructions: false,
     appendInstructions: "Follow repository workflow instructions.",
     systemInstructionsPath: "~/configured-system.md",
@@ -359,6 +371,7 @@ assert.deepEqual(fileConfig.publicBaseUrls, [
 assert.equal(fileConfig.subagents, true);
 assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
+assert.equal(fileConfig.taskReminderInterval, 12);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));

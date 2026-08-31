@@ -4219,6 +4219,225 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
   await assert.rejects(stat(taskStatePath), /ENOENT/);
 });
 
+test("workspace.tasks reminder counts semantic work, excludes lifecycle/process follow-ups, and resets on Task mutation", async (t) => {
+  const context = await fixture(t, {
+    env: { DEVSPACE_TASK_REMINDER_INTERVAL: "2" },
+  });
+  await writeFile(join(context.project, "reminder.txt"), "semantic work\n");
+  const opened = await callOpen(context.client, context.project, "chat-task-reminder");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const listCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Current" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(listCreated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  const taskCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Keep current",
+        content: "secret reminder body",
+      },
+    },
+  });
+  const taskId = String(
+    ((((structuredContent(taskCreated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.tasks ?? []) as Array<Record<string, unknown>>)[0]?.id,
+  );
+
+  const inventory = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  assert.doesNotMatch(allResponseText(inventory), /unfinished active Tasks/i);
+  const panel = await context.client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+    _meta: { "openai/session": "chat-task-reminder" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.doesNotMatch(allResponseText(panel), /unfinished active Tasks/i);
+  const taskSummary = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get" },
+    },
+  });
+  assert.doesNotMatch(allResponseText(taskSummary), /unfinished active Tasks/i);
+
+  const firstRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+  });
+  assert.doesNotMatch(allResponseText(firstRead), /unfinished active Tasks/i);
+  const secondRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+  });
+  assert.match(allResponseText(secondRead), /unfinished active Tasks/i);
+  assert.doesNotMatch(allResponseText(secondRead), /secret reminder body/);
+
+  const oneMoreRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+  });
+  assert.doesNotMatch(allResponseText(oneMoreRead), /unfinished active Tasks/i);
+  const reset = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "task.update", listId, taskId, subject: "Still current" },
+    },
+  });
+  assert.doesNotMatch(allResponseText(reset), /unfinished active Tasks/i);
+  const batchWork = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "batch.execute",
+      action: "run",
+      arguments: {
+        tasks: [
+          { id: "read-a", operation: "read", path: "reminder.txt", limit: 1 },
+          { id: "read-b", operation: "read", path: "reminder.txt", limit: 1 },
+        ],
+      },
+    },
+  });
+  assert.doesNotMatch(allResponseText(batchWork), /unfinished active Tasks/i);
+  const afterBatch = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+  });
+  assert.match(allResponseText(afterBatch), /unfinished active Tasks/i);
+
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "task.update", listId, taskId, subject: "Current after batch" },
+    },
+  });
+  const afterResetFirst = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+  });
+  assert.doesNotMatch(allResponseText(afterResetFirst), /unfinished active Tasks/i);
+
+  const background = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      action: "run",
+      command: `${JSON.stringify(process.execPath)} -e "setTimeout(() => console.log('task-reminder-process'), 100)"`,
+      yieldTimeMs: 0,
+    },
+  });
+  assert.match(allResponseText(background), /unfinished active Tasks/i);
+  const processId = Number(structuredContent(background).processId);
+  const processFollowUp = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 5_000 },
+  });
+  assert.doesNotMatch(allResponseText(processFollowUp), /unfinished active Tasks/i);
+  const outputId = String(structuredContent(processFollowUp).outputId);
+  const outputFollowUp = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "output", outputId },
+  });
+  assert.doesNotMatch(allResponseText(outputFollowUp), /unfinished active Tasks/i);
+
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.update", listId, state: "archived" },
+    },
+  });
+  for (let call = 0; call < 3; call += 1) {
+    const read = await context.client.callTool({
+      name: "read",
+      arguments: { workspaceId, path: "reminder.txt", limit: 1 },
+    });
+    assert.doesNotMatch(allResponseText(read), /unfinished active Tasks/i);
+  }
+});
+
+test("workspace.tasks reminder follows the Composite identity during explicit member work", async (t) => {
+  const context = await fixture(t, {
+    env: { DEVSPACE_TASK_REMINDER_INTERVAL: "1" },
+  });
+  await writeFile(join(context.project, "reminder.txt"), "composite semantic work\n");
+  const memberOpen = await callOpen(context.client, context.project, "chat-composite-task-reminder-member");
+  const memberWorkspaceId = String(structuredContent(memberOpen).workspaceId);
+  const compositeOpen = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "task-reminder-composite", context: "none" },
+  });
+  const compositeId = String(structuredContent(compositeOpen).workspaceId);
+  await context.client.callTool({
+    name: "open_workspace",
+    arguments: {
+      action: "member",
+      workspaceId: compositeId,
+      memberAction: "add",
+      member: { name: "code", purpose: "Semantic work", workspaceId: memberWorkspaceId },
+    },
+  });
+  const listCreated = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Composite current" },
+    },
+  });
+  const listId = String(
+    ((structuredContent(listCreated).result as Record<string, unknown>).lists as Array<Record<string, unknown>>)[0]?.id,
+  );
+  await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId,
+        subject: "Keep Composite Task current",
+        content: "composite secret body",
+      },
+    },
+  });
+
+  const memberRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId: compositeId, member: "code", path: "reminder.txt", limit: 1 },
+  });
+  assert.match(allResponseText(memberRead), /unfinished active Tasks/i);
+  assert.doesNotMatch(allResponseText(memberRead), /composite secret body/);
+});
+
 test("workspace.tasks belongs to Composite Workspace itself and survives Composite close/reopen", async (t) => {
   const context = await fixture(t);
   const opened = await context.client.callTool({
