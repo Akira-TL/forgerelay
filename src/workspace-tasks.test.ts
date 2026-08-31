@@ -114,6 +114,67 @@ test("Workspace Task state is file-backed, ordered, revisioned, and restart-safe
   assert.deepEqual(await readdir(workspaceStateDir), ["tasks.json"]);
 });
 
+test("Workspace Task state exposes progressive summary, headers, and single-Task detail projections", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-task-projections-"));
+  t.after(() => rm(stateDir, { recursive: true, force: true }));
+  const store = new WorkspaceTaskStore(stateDir);
+  const workspaceId = "ws_13579bdf24";
+
+  const createdList = store.createList(workspaceId, { name: "Release" });
+  const listId = createdList.lists[0]!.id;
+  const first = store.createTask(workspaceId, listId, {
+    subject: "Prepare release",
+    content: "Run the release gate and preserve the exact tag SHA.",
+    status: "in_progress",
+  });
+  const firstTaskId = first.lists[0]!.tasks[0]!.id;
+  const second = store.createTask(workspaceId, listId, {
+    subject: "Verify registry",
+    content: "Confirm the published version after CI completes.",
+    status: "completed",
+  });
+  const secondTaskId = second.lists[0]!.tasks[1]!.id;
+
+  const summary = store.readSummary(workspaceId);
+  assert.equal(summary.level, "summary");
+  assert.deepEqual(summary.lists, [{
+    id: listId,
+    name: "Release",
+    state: "active",
+    revision: 3,
+    taskCount: 2,
+    unfinishedTaskCount: 1,
+  }]);
+  assert.equal(JSON.stringify(summary).includes("Run the release gate"), false);
+
+  const headers = store.readHeaders(workspaceId, listId);
+  assert.equal(headers.level, "headers");
+  assert.equal(headers.lists.length, 1);
+  assert.deepEqual(headers.lists[0]!.tasks.map((task) => ({
+    id: task.id,
+    status: task.status,
+    subject: task.subject,
+  })), [
+    { id: firstTaskId, status: "in_progress", subject: "Prepare release" },
+    { id: secondTaskId, status: "completed", subject: "Verify registry" },
+  ]);
+  assert.equal(JSON.stringify(headers).includes("release gate"), false);
+  assert.equal(JSON.stringify(headers).includes("Confirm the published version"), false);
+
+  const detail = store.readTaskDetail(workspaceId, listId, firstTaskId);
+  assert.equal(detail.level, "detail");
+  assert.equal(detail.list.id, listId);
+  assert.deepEqual(detail.task, {
+    id: firstTaskId,
+    status: "in_progress",
+    subject: "Prepare release",
+    content: "Run the release gate and preserve the exact tag SHA.",
+  });
+
+  assert.throws(() => store.readHeaders(workspaceId, "tl_0000000000"), /Unknown Task List/);
+  assert.throws(() => store.readTaskDetail(workspaceId, listId, "tsk_0000000000"), /has no Task/);
+});
+
 test("Workspace Task state reloads valid external changes and refuses malformed state", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-tasks-external-"));
   t.after(() => rm(stateDir, { recursive: true, force: true }));

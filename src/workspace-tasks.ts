@@ -43,6 +43,50 @@ export interface WorkspaceTaskSnapshot {
   lists: WorkspaceTaskList[];
 }
 
+export interface WorkspaceTaskListSummary {
+  id: string;
+  name: string;
+  state: WorkspaceTaskListState;
+  revision: number;
+  taskCount: number;
+  unfinishedTaskCount: number;
+}
+
+export interface WorkspaceTaskSummary {
+  level: "summary";
+  version: typeof TASK_STATE_VERSION;
+  revision: number;
+  fingerprint: string;
+  lists: WorkspaceTaskListSummary[];
+}
+
+export interface WorkspaceTaskHeader {
+  id: string;
+  status: WorkspaceTaskStatus;
+  subject: string;
+}
+
+export interface WorkspaceTaskHeaderList extends Omit<WorkspaceTaskListSummary, "taskCount" | "unfinishedTaskCount"> {
+  tasks: WorkspaceTaskHeader[];
+}
+
+export interface WorkspaceTaskHeaders {
+  level: "headers";
+  version: typeof TASK_STATE_VERSION;
+  revision: number;
+  fingerprint: string;
+  lists: WorkspaceTaskHeaderList[];
+}
+
+export interface WorkspaceTaskDetail {
+  level: "detail";
+  version: typeof TASK_STATE_VERSION;
+  revision: number;
+  fingerprint: string;
+  list: Omit<WorkspaceTaskListSummary, "taskCount" | "unfinishedTaskCount">;
+  task: WorkspaceTask;
+}
+
 interface PersistedWorkspaceTaskState {
   version: typeof TASK_STATE_VERSION;
   revision: number;
@@ -119,6 +163,18 @@ export class WorkspaceTaskStore {
 
   read(workspaceId: string): WorkspaceTaskSnapshot {
     return this.ensureWorkspace(workspaceId);
+  }
+
+  readSummary(workspaceId: string): WorkspaceTaskSummary {
+    return taskSummary(this.ensureWorkspace(workspaceId));
+  }
+
+  readHeaders(workspaceId: string, listId?: string): WorkspaceTaskHeaders {
+    return taskHeaders(this.ensureWorkspace(workspaceId), listId);
+  }
+
+  readTaskDetail(workspaceId: string, listId: string, taskId: string): WorkspaceTaskDetail {
+    return taskDetail(this.ensureWorkspace(workspaceId), listId, taskId);
   }
 
   createList(
@@ -347,6 +403,68 @@ function snapshot(state: PersistedWorkspaceTaskState, stateFingerprint: string):
   return {
     ...cloneState(state),
     fingerprint: stateFingerprint,
+  };
+}
+
+function taskSummary(snapshotValue: WorkspaceTaskSnapshot): WorkspaceTaskSummary {
+  return {
+    level: "summary",
+    version: snapshotValue.version,
+    revision: snapshotValue.revision,
+    fingerprint: snapshotValue.fingerprint,
+    lists: snapshotValue.lists.map((list) => ({
+      id: list.id,
+      name: list.name,
+      state: list.state,
+      revision: list.revision,
+      taskCount: list.tasks.length,
+      unfinishedTaskCount: list.tasks.filter((task) => task.status !== "completed").length,
+    })),
+  };
+}
+
+function taskHeaders(snapshotValue: WorkspaceTaskSnapshot, listId?: string): WorkspaceTaskHeaders {
+  const lists = listId === undefined
+    ? snapshotValue.lists
+    : [snapshotValue.lists[requireListIndex(snapshotValue, listId)]!];
+  return {
+    level: "headers",
+    version: snapshotValue.version,
+    revision: snapshotValue.revision,
+    fingerprint: snapshotValue.fingerprint,
+    lists: lists.map((list) => ({
+      id: list.id,
+      name: list.name,
+      state: list.state,
+      revision: list.revision,
+      tasks: list.tasks.map((task) => ({
+        id: task.id,
+        status: task.status,
+        subject: task.subject,
+      })),
+    })),
+  };
+}
+
+function taskDetail(
+  snapshotValue: WorkspaceTaskSnapshot,
+  listId: string,
+  taskId: string,
+): WorkspaceTaskDetail {
+  const list = requireList(snapshotValue, listId);
+  const task = list.tasks[requireTaskIndex(list, taskId)]!;
+  return {
+    level: "detail",
+    version: snapshotValue.version,
+    revision: snapshotValue.revision,
+    fingerprint: snapshotValue.fingerprint,
+    list: {
+      id: list.id,
+      name: list.name,
+      state: list.state,
+      revision: list.revision,
+    },
+    task: { ...task },
   };
 }
 
