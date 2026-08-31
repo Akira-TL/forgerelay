@@ -48,6 +48,10 @@ mkdirSync(acceptanceRoot, { recursive: true });
 setupGitProject(checkoutWorkspace);
 setupGitProject(lifecycleDeleteWorkspace);
 writeFileSync(join(lifecycleDeleteWorkspace, "keep.txt"), "keep checkout files\n");
+writeFileSync(
+  join(lifecycleDeleteWorkspace, "AGENTS.md"),
+  "INSPECTION_ACCEPTANCE_BOOTSTRAP_SECRET\n",
+);
 setupCodeIntelligenceAcceptanceProject({
   root: checkoutWorkspace,
   fakeLanguageServer,
@@ -316,15 +320,76 @@ try {
     workspaceId,
     name: "workspace.tasks",
     action: "run",
-    arguments: { operation: "get" },
+    arguments: {
+      operation: "get",
+      level: "detail",
+      listId: checkoutListId,
+      taskId: checkoutTaskId,
+    },
   });
   assert.equal(reloadedCheckoutTasks.isError, undefined);
-  assert.equal(reloadedCheckoutTasks.structuredContent.result.lists[0].tasks[0].id, checkoutTaskId);
-  assert.equal(
-    reloadedCheckoutTasks.structuredContent.result.lists[0].tasks[0].content,
-    "reloaded external task edit",
-  );
+  assert.equal(reloadedCheckoutTasks.structuredContent.result.task.id, checkoutTaskId);
+  assert.equal(reloadedCheckoutTasks.structuredContent.result.task.content, "reloaded external task edit");
   assert.notEqual(reloadedCheckoutTasks.structuredContent.result.fingerprint, taskFingerprintBeforeExternal);
+
+  const checkoutTaskSummary = callTool(oauth.accessToken, sessionId, 150, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get" },
+  });
+  const summaryProjection = checkoutTaskSummary.structuredContent.result;
+  assert.equal(summaryProjection.level, "summary");
+  assert.equal(summaryProjection.lists[0].id, checkoutListId);
+  assert.equal(summaryProjection.lists[0].taskCount, 1);
+  assert.equal(summaryProjection.lists[0].unfinishedTaskCount, 1);
+  assert.equal(JSON.stringify(summaryProjection).includes(checkoutTaskId), false);
+  assert.equal(JSON.stringify(summaryProjection).includes("reloaded external task edit"), false);
+
+  const checkoutTaskHeaders = callTool(oauth.accessToken, sessionId, 151, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: { operation: "get", level: "headers", listId: checkoutListId },
+  });
+  const headersProjection = checkoutTaskHeaders.structuredContent.result;
+  assert.equal(headersProjection.level, "headers");
+  assert.equal(headersProjection.lists.length, 1);
+  assert.equal(headersProjection.lists[0].tasks[0].id, checkoutTaskId);
+  assert.equal(headersProjection.lists[0].tasks[0].subject, "Verify v0.8.3 Task persistence");
+  assert.equal("content" in headersProjection.lists[0].tasks[0], false);
+
+  const checkoutTaskDetail = callTool(oauth.accessToken, sessionId, 152, "capability", {
+    workspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: {
+      operation: "get",
+      level: "detail",
+      listId: checkoutListId,
+      taskId: checkoutTaskId,
+    },
+  });
+  const detailProjection = checkoutTaskDetail.structuredContent.result;
+  assert.equal(detailProjection.level, "detail");
+  assert.equal(detailProjection.task.id, checkoutTaskId);
+  assert.equal(detailProjection.task.content, "reloaded external task edit");
+  pass("workspace.tasks progressive disclosure", "summary -> headers -> one Task detail through real MCP");
+
+  for (let index = 0; index < 29; index += 1) {
+    const semanticWork = callTool(oauth.accessToken, sessionId, 160 + index, "read", {
+      workspaceId,
+      path: "README.md",
+    });
+    assert.doesNotMatch(toolText(semanticWork), /Reminder: this Workspace has unfinished active Tasks/);
+  }
+  const reminderWork = callTool(oauth.accessToken, sessionId, 189, "read", {
+    workspaceId,
+    path: "README.md",
+  });
+  assert.match(toolText(reminderWork), /Reminder: this Workspace has unfinished active Tasks/);
+  assert.equal(toolText(reminderWork).includes("reloaded external task edit"), false);
+  pass("workspace.tasks reminder", "default 30 semantic work calls emitted one body-free reminder");
 
   const repeatedOpen = callTool(oauth.accessToken, sessionId, 84, "open_workspace", {
     path: checkoutWorkspace,
@@ -391,14 +456,16 @@ try {
     workspaceId,
     name: "workspace.tasks",
     action: "run",
-    arguments: { operation: "get" },
+    arguments: {
+      operation: "get",
+      level: "detail",
+      listId: checkoutListId,
+      taskId: checkoutTaskId,
+    },
   });
   assert.equal(resumedCheckoutTasks.isError, undefined);
-  assert.equal(resumedCheckoutTasks.structuredContent.result.lists[0].tasks[0].id, checkoutTaskId);
-  assert.equal(
-    resumedCheckoutTasks.structuredContent.result.lists[0].tasks[0].content,
-    "reloaded external task edit",
-  );
+  assert.equal(resumedCheckoutTasks.structuredContent.result.task.id, checkoutTaskId);
+  assert.equal(resumedCheckoutTasks.structuredContent.result.task.content, "reloaded external task edit");
   assert.equal(resumedOriginal.structuredContent.contextFingerprint, opened.structuredContent.contextFingerprint);
 
   const deleteOpened = callTool(oauth.accessToken, sessionId, 91, "open_workspace", {
@@ -414,7 +481,72 @@ try {
     arguments: { operation: "list.create", name: "delete with workspace" },
   });
   assert.equal(deleteTaskList.isError, undefined);
+  const deleteTaskListId = deleteTaskList.structuredContent.result.lists[0].id;
+  const inspectionTask = callTool(oauth.accessToken, sessionId, 190, "capability", {
+    workspaceId: deleteWorkspaceId,
+    name: "workspace.tasks",
+    action: "run",
+    arguments: {
+      operation: "task.create",
+      listId: deleteTaskListId,
+      subject: "Inspect safely",
+      content: "INSPECTION_ACCEPTANCE_TASK_BODY_SECRET",
+      status: "in_progress",
+    },
+  });
+  assert.equal(inspectionTask.isError, undefined);
   assert.ok(existsSync(deleteTaskStatePath));
+
+  const inspectionBefore = callTool(oauth.accessToken, sessionId, 191, "open_workspace", {
+    action: "list",
+    workspaceId: deleteWorkspaceId,
+  }, workspaceConversationMeta);
+  const inspectionBeforeEntry = inspectionBefore.structuredContent.workspaces[0];
+  assert.equal(inspectionBeforeEntry.current, false);
+  const inspectedWorkspace = callTool(oauth.accessToken, sessionId, 192, "open_workspace", {
+    action: "inspect",
+    workspaceId: deleteWorkspaceId,
+  }, workspaceConversationMeta);
+  assert.equal(inspectedWorkspace.structuredContent.action, "inspect");
+  const inspectionProjection = inspectedWorkspace.structuredContent.inspection;
+  assert.equal(inspectionProjection.workspaceId, deleteWorkspaceId);
+  assert.equal(inspectionProjection.kind, "workspace");
+  assert.equal(inspectionProjection.location, "local");
+  assert.equal(inspectionProjection.root, lifecycleDeleteWorkspace);
+  assert.equal(inspectionProjection.taskSummary.level, "summary");
+  assert.equal(inspectionProjection.taskSummary.lists[0].taskCount, 1);
+  assert.equal(inspectionProjection.taskSummary.lists[0].unfinishedTaskCount, 1);
+  const inspectionJson = JSON.stringify(inspectedWorkspace);
+  for (const forbidden of [
+    "INSPECTION_ACCEPTANCE_BOOTSTRAP_SECRET",
+    "INSPECTION_ACCEPTANCE_TASK_BODY_SECRET",
+    "\"fingerprint\"",
+    "\"agentsFiles\"",
+    "\"availableAgentsFiles\"",
+    "\"capabilityGuides\"",
+    "\"skillDiagnostics\"",
+    "\"agentProviders\"",
+    "\"contextFingerprint\"",
+    "\"capabilityFingerprint\"",
+    "\"memberContext\"",
+  ]) {
+    assert.equal(inspectionJson.includes(forbidden), false, `Workspace inspect leaked ${forbidden}`);
+  }
+  const inspectionAfter = callTool(oauth.accessToken, sessionId, 193, "open_workspace", {
+    action: "list",
+    workspaceId: deleteWorkspaceId,
+  }, workspaceConversationMeta);
+  assert.equal(inspectionAfter.structuredContent.workspaces[0].lastUsedAt, inspectionBeforeEntry.lastUsedAt);
+  assert.equal(inspectionAfter.structuredContent.workspaces[0].current, false);
+  const callerAfterInspection = callTool(oauth.accessToken, sessionId, 194, "open_workspace", {
+    workspaceId,
+    context: "auto",
+  }, workspaceConversationMeta);
+  assert.equal(callerAfterInspection.structuredContent.workspaceId, workspaceId);
+  assert.equal(callerAfterInspection.structuredContent.agentsFiles, undefined);
+  assert.equal(callerAfterInspection.structuredContent.capabilityGuides, undefined);
+  pass("Workspace inspection", "cross-Workspace metadata + Task summary stayed read-only and bootstrap-free");
+
   const deleteClosed = callTool(oauth.accessToken, sessionId, 92, "close_workspace", {
     workspaceId: deleteWorkspaceId,
   });
@@ -729,6 +861,18 @@ try {
   });
   assert.equal(closedWorktreeInventory.structuredContent.workspaces.length, 1);
   assert.equal(closedWorktreeInventory.structuredContent.workspaces[0].state, "closed");
+  const closedWorktreeInspection = callTool(oauth.accessToken, sessionId, 195, "open_workspace", {
+    action: "inspect",
+    workspaceId: worktreeWorkspaceId,
+  });
+  const closedWorktreeProjection = closedWorktreeInspection.structuredContent.inspection;
+  assert.equal(closedWorktreeProjection.kind, "workspace");
+  assert.equal(closedWorktreeProjection.mode, "worktree");
+  assert.equal(closedWorktreeProjection.managed, true);
+  assert.equal(closedWorktreeProjection.state, "closed");
+  assert.equal(closedWorktreeProjection.rootValid, false);
+  assert.equal(existsSync(managedWorktreePath), false);
+  assert.equal(JSON.stringify(closedWorktreeInspection).includes("\"fingerprint\""), false);
 
   const reopenedWorktree = callTool(oauth.accessToken, sessionId, 111, "open_workspace", {
     workspaceId: worktreeWorkspaceId,
@@ -848,6 +992,20 @@ try {
     arguments: { operation: "get" },
   });
   assert.equal(closedCompositeTasks.isError, true);
+  const closedCompositeInspection = callTool(oauth.accessToken, sessionId, 196, "open_workspace", {
+    action: "inspect",
+    workspaceId: compositeWorkspaceId,
+  });
+  const closedCompositeProjection = closedCompositeInspection.structuredContent.inspection;
+  assert.equal(closedCompositeProjection.kind, "composite");
+  assert.equal(closedCompositeProjection.state, "closed");
+  assert.equal(closedCompositeProjection.members[0].workspaceId, workspaceId);
+  assert.equal(closedCompositeProjection.members[0].known, true);
+  assert.equal(closedCompositeProjection.taskSummary.lists[0].taskCount, 1);
+  assert.equal(
+    JSON.stringify(closedCompositeInspection).includes("Composite-owned state"),
+    false,
+  );
 
   const reopenedComposite = callTool(oauth.accessToken, sessionId, 121, "open_workspace", {
     workspaceId: compositeWorkspaceId,
@@ -860,14 +1018,16 @@ try {
     workspaceId: compositeWorkspaceId,
     name: "workspace.tasks",
     action: "run",
-    arguments: { operation: "get" },
+    arguments: {
+      operation: "get",
+      level: "detail",
+      listId: compositeTaskListId,
+      taskId: compositeTaskId,
+    },
   });
   assert.equal(reopenedCompositeTasks.isError, undefined);
-  assert.equal(reopenedCompositeTasks.structuredContent.result.lists[0].tasks[0].id, compositeTaskId);
-  assert.equal(
-    reopenedCompositeTasks.structuredContent.result.lists[0].tasks[0].content,
-    "Composite-owned state",
-  );
+  assert.equal(reopenedCompositeTasks.structuredContent.result.task.id, compositeTaskId);
+  assert.equal(reopenedCompositeTasks.structuredContent.result.task.content, "Composite-owned state");
   const reopenedCompositeRead = callTool(oauth.accessToken, sessionId, 122, "read", {
     workspaceId: compositeWorkspaceId,
     member: "code",
