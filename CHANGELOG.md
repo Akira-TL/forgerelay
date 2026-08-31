@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-31
+
+### Added
+
+- Added `workspace.tasks` with private file-backed Task Lists per persistent Workspace, preserving Task state across restart, close/reopen, managed-worktree backing replacement, and Composite close while keeping Task data out of project Git contents.
+
 ## [0.8.2] - 2026-08-31
 
 ### Changed
