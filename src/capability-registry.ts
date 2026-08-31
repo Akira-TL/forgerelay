@@ -110,6 +110,18 @@ interface CapabilityDefinition {
 export type WorkspaceTasksCapabilityInput =
   | {
       operation: "get";
+      level?: "summary";
+    }
+  | {
+      operation: "get";
+      level: "headers";
+      listId?: string;
+    }
+  | {
+      operation: "get";
+      level: "detail";
+      listId: string;
+      taskId: string;
     }
   | {
       operation: "list.create";
@@ -394,7 +406,21 @@ export function createCapabilityRegistry(
   const workspaceTaskStatus = z.enum(["pending", "in_progress", "completed"]);
   const workspaceTaskListState = z.enum(["active", "archived"]);
   const workspaceTasksInput = z.union([
-    z.object({ operation: z.literal("get") }).strict(),
+    z.object({
+      operation: z.literal("get"),
+      level: z.literal("summary").optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("get"),
+      level: z.literal("headers"),
+      listId: z.string().min(1).optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("get"),
+      level: z.literal("detail"),
+      listId: z.string().min(1),
+      taskId: z.string().min(1),
+    }).strict(),
     z.object({
       operation: z.literal("list.create"),
       name: z.string().trim().min(1),

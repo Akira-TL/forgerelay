@@ -10,9 +10,19 @@
 - Task 状态只有 `pending`、`in_progress`、`completed`。`content` 保存继续工作真正需要的要求、阻塞点、结论或下一步，而不是日志或对话转录。
 - Task/List ID 创建后保持稳定。完成 Task 不会删除它；删除必须显式执行。
 
-## 操作
+## 渐进式读取
 
-先用 `operation="get"` 读取当前 Task state。
+Task 读取默认使用渐进式披露，不会一次返回所有 `content`：
+
+- `operation="get"` 或 `level="summary"`：返回 List identity、状态、revision、Task 数量和未完成数量，不返回 Task headers/body。
+- `operation="get", level="headers"`：返回 Task `id`、`status`、`subject`，不返回 `content`；可传 `listId` 只看一个 List。
+- `operation="get", level="detail", listId=..., taskId=...`：只返回指定 Task 的完整 `content`。
+
+先从 summary 定位 List，再按需读取 headers/detail；不要把所有 Task body 当作默认上下文。
+
+## 修改操作
+
+修改响应同样保持有界：List 修改返回 summary；Task 修改返回对应 List 的 headers，不会顺带回传所有 Task body。
 
 List 操作：
 

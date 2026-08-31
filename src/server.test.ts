@@ -4076,12 +4076,46 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
     arguments: { workspaceId, name: "workspace.tasks", action: "run", arguments: { operation: "get" } },
   });
   assert.equal(restored.isError, undefined, allResponseText(restored));
-  const restoredLists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  const restoredResult = structuredContent(restored).result as Record<string, unknown>;
+  assert.equal(restoredResult.level, "summary");
+  const restoredLists = restoredResult.lists as Array<Record<string, unknown>>;
   assert.equal(restoredLists[0]?.id, listId);
-  const restoredTasks = restoredLists[0]?.tasks as Array<Record<string, unknown>>;
+  assert.equal(restoredLists[0]?.taskCount, 1);
+  assert.equal(restoredLists[0]?.unfinishedTaskCount, 1);
+  assert.equal(restoredLists[0]?.tasks, undefined);
+  assert.doesNotMatch(JSON.stringify(restoredResult), /Run the release gate/);
+
+  const restoredHeaders = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get", level: "headers", listId },
+    },
+  });
+  assert.equal(restoredHeaders.isError, undefined, allResponseText(restoredHeaders));
+  const restoredHeaderLists = (structuredContent(restoredHeaders).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
+  const restoredTasks = restoredHeaderLists[0]?.tasks as Array<Record<string, unknown>>;
   assert.equal(restoredTasks[0]?.subject, "Publish 0.8.3");
   assert.equal(restoredTasks[0]?.status, "in_progress");
+  assert.equal(restoredTasks[0]?.content, undefined);
   const firstTaskId = String(restoredTasks[0]?.id);
+
+  const restoredDetail = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "get", level: "detail", listId, taskId: firstTaskId },
+    },
+  });
+  assert.equal(restoredDetail.isError, undefined, allResponseText(restoredDetail));
+  assert.equal(
+    ((structuredContent(restoredDetail).result as Record<string, unknown>).task as Record<string, unknown>).content,
+    "Run the release gate before pushing the tag.",
+  );
 
   const secondTask = await context.client.callTool({
     name: "capability",
@@ -4366,7 +4400,7 @@ test("workspace.tasks survives MCP server restart through the same persistent Wo
         workspaceId,
         name: "workspace.tasks",
         action: "run",
-        arguments: { operation: "get" },
+        arguments: { operation: "get", level: "headers", listId },
       },
     });
     assert.equal(restored.isError, undefined, allResponseText(restored));
@@ -4374,6 +4408,7 @@ test("workspace.tasks survives MCP server restart through the same persistent Wo
     assert.equal(lists[0]?.name, "Restart work");
     const tasks = lists[0]?.tasks as Array<Record<string, unknown>>;
     assert.equal(tasks[0]?.subject, "Resume after restart");
+    assert.equal(tasks[0]?.content, undefined);
   } finally {
     await closeRestored();
   }
@@ -4434,13 +4469,14 @@ test("workspace.tasks survives managed-worktree backing replacement and never en
       workspaceId,
       name: "workspace.tasks",
       action: "run",
-      arguments: { operation: "get" },
+      arguments: { operation: "get", level: "headers", listId },
     },
   });
   const lists = (structuredContent(restored).result as Record<string, unknown>).lists as Array<Record<string, unknown>>;
   assert.equal(lists[0]?.id, listId);
   const tasks = lists[0]?.tasks as Array<Record<string, unknown>>;
   assert.equal(tasks[0]?.subject, "Keep across backing replacement");
+  assert.equal(tasks[0]?.content, undefined);
 
   const deleted = await context.client.callTool({
     name: "close_workspace",

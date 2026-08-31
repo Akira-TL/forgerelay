@@ -211,6 +211,27 @@ test("workspace.tasks is current-workspace scoped and exposes a strict serial ta
   assert.deepEqual(
     await registry.run(
       "workspace.tasks",
+      { operation: "get", level: "headers", listId: "tl_1234567890" },
+      taskContext,
+    ),
+    { value: { operation: "get", workspaceId: taskContext.workspaceId } },
+  );
+  assert.deepEqual(
+    await registry.run(
+      "workspace.tasks",
+      {
+        operation: "get",
+        level: "detail",
+        listId: "tl_1234567890",
+        taskId: "tsk_1234567890",
+      },
+      taskContext,
+    ),
+    { value: { operation: "get", workspaceId: taskContext.workspaceId } },
+  );
+  assert.deepEqual(
+    await registry.run(
+      "workspace.tasks",
       { operation: "list.create", name: "Release" },
       taskContext,
     ),
@@ -237,6 +258,22 @@ test("workspace.tasks is current-workspace scoped and exposes a strict serial ta
     () => registry.run(
       "workspace.tasks",
       { operation: "get", workspaceId: "ws_other" },
+      taskContext,
+    ),
+    (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
+  );
+  await assert.rejects(
+    () => registry.run(
+      "workspace.tasks",
+      { operation: "get", level: "summary", listId: "tl_1234567890" },
+      taskContext,
+    ),
+    (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
+  );
+  await assert.rejects(
+    () => registry.run(
+      "workspace.tasks",
+      { operation: "get", level: "detail", listId: "tl_1234567890" },
       taskContext,
     ),
     (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",

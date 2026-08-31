@@ -123,7 +123,7 @@ import {
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
-import { WorkspaceTaskStore, type WorkspaceTaskSnapshot } from "./workspace-tasks.js";
+import { WorkspaceTaskStore } from "./workspace-tasks.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
 import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
@@ -1195,36 +1195,44 @@ function runWorkspaceTasksCapability(
   store: WorkspaceTaskStore,
   workspaceId: string,
   input: WorkspaceTasksCapabilityInput,
-): WorkspaceTaskSnapshot {
+) {
   switch (input.operation) {
     case "get":
-      return store.read(workspaceId);
+      if (input.level === "headers") return store.readHeaders(workspaceId, input.listId);
+      if (input.level === "detail") return store.readTaskDetail(workspaceId, input.listId, input.taskId);
+      return store.readSummary(workspaceId);
     case "list.create":
-      return store.createList(workspaceId, { name: input.name, position: input.position });
+      store.createList(workspaceId, { name: input.name, position: input.position });
+      return store.readSummary(workspaceId);
     case "list.update":
-      return store.updateList(workspaceId, input.listId, {
+      store.updateList(workspaceId, input.listId, {
         name: input.name,
         state: input.state,
         position: input.position,
       });
+      return store.readSummary(workspaceId);
     case "list.delete":
-      return store.deleteList(workspaceId, input.listId);
+      store.deleteList(workspaceId, input.listId);
+      return store.readSummary(workspaceId);
     case "task.create":
-      return store.createTask(workspaceId, input.listId, {
+      store.createTask(workspaceId, input.listId, {
         subject: input.subject,
         content: input.content,
         status: input.status,
         position: input.position,
       });
+      return store.readHeaders(workspaceId, input.listId);
     case "task.update":
-      return store.updateTask(workspaceId, input.listId, input.taskId, {
+      store.updateTask(workspaceId, input.listId, input.taskId, {
         subject: input.subject,
         content: input.content,
         status: input.status,
         position: input.position,
       });
+      return store.readHeaders(workspaceId, input.listId);
     case "task.delete":
-      return store.deleteTask(workspaceId, input.listId, input.taskId);
+      store.deleteTask(workspaceId, input.listId, input.taskId);
+      return store.readHeaders(workspaceId, input.listId);
   }
 }
 
