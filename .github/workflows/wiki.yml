@@ -1,0 +1,52 @@
+name: Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/wiki/**"
+      - "scripts/wiki/**"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish GitHub Wiki
+    if: github.repository == 'Akira-TL/forgerelay'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Wiki source
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Validate Wiki source
+        run: node scripts/wiki/sync.mjs check
+
+      - name: Publish Wiki mirror
+        env:
+          FORGERELAY_WIKI_REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.wiki.git
+          FORGERELAY_WIKI_SOURCE_REF: ${{ github.sha }}
+        run: |
+          set +e
+          node scripts/wiki/sync.mjs publish
+          status=$?
+          set -e
+          if [ "$status" -eq 2 ]; then
+            echo "::notice title=Wiki bootstrap required::Create the first page once in the GitHub Wiki, then rerun this workflow."
+            exit 0
+          fi
+          exit "$status"

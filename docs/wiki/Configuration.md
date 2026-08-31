@@ -1,0 +1,325 @@
+# 配置指南
+
+这篇页面只覆盖日常最常用的 ForgeRelay 配置。完整字段、兼容规则和低频选项请查主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
+
+## 配置来源
+
+ForgeRelay 可以通过：
+
+- `forgerelay init` 生成的持久配置；
+- 环境变量；
+- 项目级 `.forgerelay/` 配置；
+- 兼容期保留的旧 DevSpace 配置；
+
+共同决定运行行为。
+
+新安装默认目录：
+
+```text
+~/.forgerelay/config.json
+~/.forgerelay/auth.json
+```
+
+如果 `~/.forgerelay` 不存在而已有 `~/.devspace`，ForgeRelay 会继续使用旧目录，避免现有 OAuth、Workspace、worktree、Skill 和 profile state 被静默遗弃。
+
+## 常用 CLI
+
+```bash
+forgerelay init
+forgerelay serve
+forgerelay doctor
+forgerelay config get
+forgerelay config set publicBaseUrl https://forge.example.com
+```
+
+修改配置后，如果不确定最终生效值，优先运行：
+
+```bash
+forgerelay doctor
+```
+
+## 核心环境变量
+
+| Variable | 用途 |
+| --- | --- |
+| `HOST` | 本地 bind host，默认 `127.0.0.1` |
+| `PORT` | 本地端口，默认 `7676` |
+| `FORGERELAY_ALLOWED_ROOTS` | 允许打开 Workspace 的 project roots |
+| `FORGERELAY_PUBLIC_BASE_URL` | 一个或多个公网基础 URL |
+| `FORGERELAY_ALLOWED_HOSTS` | 可选 Host-header allowlist override |
+| `FORGERELAY_OAUTH_OWNER_TOKEN` | Owner password，至少 16 字符 |
+| `FORGERELAY_STATE_DIR` | ForgeRelay SQLite state 目录 |
+| `FORGERELAY_WORKTREE_ROOT` | Managed Worktree 根目录 |
+| `FORGERELAY_TOOL_MODE` | MCP tool surface mode |
+| `FORGERELAY_WIDGETS` | MCP Apps UI mode |
+
+## Public Base URL
+
+公网 URL 填写到 **MCP endpoint 之前**。
+
+正确：
+
+```text
+https://forge.example.com/forgerelay/main
+```
+
+Host 连接：
+
+```text
+https://forge.example.com/forgerelay/main/mcp
+```
+
+不要把最后 `/mcp` 写进 `publicBaseUrl`。
+
+可以配置多个入口：
+
+```json
+{
+  "publicBaseUrl": [
+    "https://forge.example.com/forgerelay/main",
+    "https://forge-alt.example.com/relay"
+  ]
+}
+```
+
+第一个 URL 是 canonical URL。所有配置 hostname 都会参与 derived Host-header allowlist。
+
+环境变量中使用逗号分隔：
+
+```bash
+FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com/main,https://forge-alt.example.com/relay"
+```
+
+## Tool mode
+
+### `minimal`
+
+默认 canonical surface：
+
+```text
+open_workspace
+capability
+close_workspace
+read
+write
+edit
+rename
+delete
+bash
+```
+
+搜索和目录 inspection 直接通过 `bash` 使用系统 `rg`、`find`、`ls` 等工具。
+
+### `full`
+
+当前仅作为兼容值保留，与 `minimal` 使用相同 canonical 9-tool surface。
+
+### `codex`
+
+实验性 Codex-shaped adapter，面向兼容性，不代表 ForgeRelay 的 canonical MCP interface。
+
+## Widget mode
+
+```text
+FORGERELAY_WIDGETS=full
+FORGERELAY_WIDGETS=changes
+FORGERELAY_WIDGETS=off
+```
+
+当前语义：
+
+- `full`：默认，使用 ForgeRelay Panel；
+- `changes`：保留同一 Panel，并启用 change-review checkpoint 行为；
+- `off`：关闭 Widget UI。
+
+Activity Panel 默认在第一次 Activity 出现后折叠。需要新 Host Turn 默认展开：
+
+```bash
+FORGERELAY_ACTIVITY_PANEL_EXPANDED=1
+```
+
+也可以持久化为：
+
+```json
+{
+  "activityPanelExpanded": true
+}
+```
+
+## Workspace Task reminder
+
+默认每 30 次成功语义 Workspace 操作，在仍有 unfinished Tasks 且长时间没有 Task mutation 时提醒 Agent 更新进度。
+
+```bash
+FORGERELAY_TASK_REMINDER_INTERVAL=30
+```
+
+设置为 `0` 关闭 reminder。
+
+Task 数据本身仍然持久，不受 reminder counter 是否在 Server restart 后重置影响。
+
+## LSP Code Intelligence
+
+Language Server definition 按优先级读取：
+
+```text
+<project>/.forgerelay/language-servers.json
+~/.forgerelay/config.json -> languageServers
+built-in executable discovery
+```
+
+ForgeRelay 不安装 Language Server。
+
+详见 [代码智能](Code-Intelligence)。
+
+## Lifecycle Hooks
+
+推荐：
+
+```text
+~/.forgerelay/hooks/<hook-name>.json
+<workspace>/.forgerelay/hooks/<hook-name>.json
+```
+
+项目 Hook 每次事件重新读取；全局 Hook 修改后需要重启 Server。
+
+检查配置：
+
+```bash
+forgerelay hooks list
+forgerelay hooks check
+forgerelay hooks list --project /path/to/project
+forgerelay hooks check --project /path/to/project
+```
+
+详见 [生命周期 Hooks](Lifecycle-Hooks)。
+
+## System Instructions
+
+ForgeRelay 只加载一个全局 system-instructions 文件，默认：
+
+```text
+~/.agents/AGENTS.md
+```
+
+更改路径：
+
+```bash
+FORGERELAY_SYSTEM_INSTRUCTIONS_PATH=/path/to/AGENTS.md
+```
+
+项目 root 的 `AGENTS.md` / `CLAUDE.md` 仍然单独加载；更深目录的指令按访问路径懒发现。
+
+`FORGERELAY_AGENT_DIR` **不是** system-instructions 路径，它只保留 Agent Skill 兼容用途。
+
+## Agent Skills
+
+Skills 默认启用。
+
+```bash
+FORGERELAY_SKILLS=0
+```
+
+可关闭 Skill discovery。
+
+标准发现位置包括：
+
+```text
+~/.agents/skills
+<project>/.agents/skills
+<forgerelay-config>/skills
+FORGERELAY_AGENT_DIR/skills
+FORGERELAY_SKILL_PATHS
+```
+
+## Subagents
+
+启用：
+
+```bash
+FORGERELAY_SUBAGENTS=1
+```
+
+常见 profile 位置：
+
+```text
+~/.forgerelay/agents/*.md
+<project>/.forgerelay/agents/*.md
+```
+
+旧 `.devspace/agents` 路径在迁移期仍兼容。
+
+本地 CLI diagnostics：
+
+```bash
+forgerelay agents ls
+forgerelay agents run <profile-or-provider-or-id> "<prompt>"
+forgerelay agents show <id>
+```
+
+Host 正常委派应按运行版本的 `subagents` Capability Guide 使用 Capability Gateway，而不是把 CLI 当成长期 MCP interface。
+
+## Native Artifact Download
+
+默认关闭：
+
+```bash
+FORGERELAY_ARTIFACTS=1
+```
+
+启用后才 advertise `artifact.download` Capability。
+
+单文件默认最大 100 MiB。该能力接受 Host 提供的受支持 native file transport，不接受随意替换成 URL、本地路径、base64 或 embedded credential。
+
+## Logging
+
+常见变量：
+
+| Variable | 默认 |
+| --- | --- |
+| `FORGERELAY_LOG_LEVEL` | `info` |
+| `FORGERELAY_LOG_FORMAT` | `pretty` |
+| `FORGERELAY_LOG_REQUESTS` | `pretty: 0`, `json: 1` |
+| `FORGERELAY_LOG_ASSETS` | `0` |
+| `FORGERELAY_LOG_TOOL_CALLS` | `1` |
+| `FORGERELAY_LOG_SHELL_COMMANDS` | `pretty: 1`, `json: 0` |
+
+`pretty` 面向本地人类阅读，会显示截断 Shell command preview。命令参数可能包含秘密时：
+
+```bash
+FORGERELAY_LOG_SHELL_COMMANDS=0
+```
+
+`json` 适合机器收集，默认保留 request log 并关闭 Shell command preview。
+
+## Proxy trust
+
+当 ForgeRelay bind 在 loopback，但配置了非 loopback public URL 时，会自动 trust 一个上游 proxy hop，以匹配常见 Tunnel/reverse-proxy 拓扑。
+
+可显式覆盖：
+
+```bash
+FORGERELAY_TRUST_PROXY=0
+FORGERELAY_TRUST_PROXY=1
+```
+
+直接 bind `0.0.0.0` 等外部可达接口时不会自动开启 proxy trust。
+
+## Environment-only 示例
+
+```bash
+FORGERELAY_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)" \
+FORGERELAY_ALLOWED_ROOTS="$HOME/personal,$HOME/work" \
+FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com" \
+FORGERELAY_WORKTREE_ROOT="$HOME/.forgerelay/worktrees" \
+FORGERELAY_ARTIFACTS="1" \
+FORGERELAY_TOOL_MODE="minimal" \
+FORGERELAY_WIDGETS="full" \
+npx @akira-tl/forgerelay serve
+```
+
+## 旧 DevSpace 环境变量
+
+对应 `DEVSPACE_*` 名称仍作为迁移 fallback。当新旧名字同时存在时，以 `FORGERELAY_*` 为准。
+
+新配置应始终优先写 `FORGERELAY_*`，不要继续扩散旧命名。
