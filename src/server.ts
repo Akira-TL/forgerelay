@@ -1812,6 +1812,8 @@ function registerProcessTools(
 
 interface CreateMcpServerOptions extends SubagentMcpRuntimeOptions {
   taskReminders?: WorkspaceTaskReminderTracker;
+  remoteWorkspaces?: RemoteWorkspaceRelay;
+  compositeWorkspaces?: CompositeWorkspaceRegistry;
 }
 
 export function createMcpServer(
@@ -1828,8 +1830,10 @@ export function createMcpServer(
   options: CreateMcpServerOptions = {},
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
-  const remoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
-  const compositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
+  const remoteWorkspaces = options.remoteWorkspaces
+    ?? new RemoteWorkspaceRelay(config.configDir, config.stateDir);
+  const compositeWorkspaces = options.compositeWorkspaces
+    ?? new CompositeWorkspaceRegistry(config.stateDir);
   const workspaceTasks = new WorkspaceTaskStore(config.stateDir);
   const taskReminders = options.taskReminders
     ?? new WorkspaceTaskReminderTracker(config.taskReminderInterval, workspaceTasks);
@@ -5344,6 +5348,8 @@ export function createServer(
   });
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
+  const sharedRemoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
+  const sharedCompositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
   const sharedWorkspaceTasks = new WorkspaceTaskStore(config.stateDir);
   const sharedTaskReminders = new WorkspaceTaskReminderTracker(
     config.taskReminderInterval,
@@ -5580,7 +5586,11 @@ export function createServer(
           activityLifecycle,
           bashOutputStore,
           activityQueries,
-          { taskReminders: sharedTaskReminders },
+          {
+            taskReminders: sharedTaskReminders,
+            remoteWorkspaces: sharedRemoteWorkspaces,
+            compositeWorkspaces: sharedCompositeWorkspaces,
+          },
         );
         await server.connect(transport);
       } else {

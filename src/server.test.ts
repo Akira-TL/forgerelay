@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
@@ -21,7 +23,8 @@ import { parseHookConfig, type HookConfigInput } from "./hooks.js";
 import type { IncomingArtifactAdapter } from "./incoming-artifacts.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
 import { ProcessManager } from "./process-sessions.js";
-import { createMcpServer } from "./server.js";
+import { authenticateRemote, withRemoteMcpClient } from "./remote-auth.js";
+import { createMcpServer, createServer } from "./server.js";
 import { SqliteWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
@@ -5360,6 +5363,61 @@ test("checkout context and durable Activity queries survive a registry restart",
     assert.equal(structuredContent(restoredBatchOutput).outputId, batchOutputId);
   } finally {
     await closeRestored();
+  }
+});
+
+test("HTTP MCP transports share Composite Workspace runtime state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-server-shared-runtime-"));
+  const project = join(root, "project");
+  const configDir = join(root, "config");
+  const stateDir = join(root, "state");
+  const ownerToken = "shared-runtime-owner-token-that-is-long-enough";
+  await mkdir(project, { recursive: true });
+
+  const config = loadConfig({
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_STATE_DIR: stateDir,
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, "worktrees"),
+    FORGERELAY_OAUTH_OWNER_TOKEN: ownerToken,
+    FORGERELAY_TOOL_MODE: "minimal",
+    FORGERELAY_WIDGETS: "off",
+    FORGERELAY_SKILLS: "0",
+    HOST: "127.0.0.1",
+    PORT: "7676",
+  });
+  const running = createServer(config);
+  const httpServer = running.app.listen(0, "127.0.0.1");
+  await once(httpServer, "listening");
+
+  try {
+    const port = (httpServer.address() as AddressInfo).port;
+    const endpoint = `http://127.0.0.1:${port}`;
+    const remote = await authenticateRemote(endpoint, ownerToken);
+    const created = await withRemoteMcpClient(remote, endpoint, (client) =>
+      client.callTool({
+        name: "open_workspace",
+        arguments: { kind: "composite", name: "shared-runtime" },
+      })
+    );
+    assert.equal(created.isError, undefined);
+    const compositeId = String(structuredContent(created).workspaceId);
+    assert.match(compositeId, /^cws_/);
+
+    const inspected = await withRemoteMcpClient(remote, endpoint, (client) =>
+      client.callTool({
+        name: "open_workspace",
+        arguments: { action: "inspect", workspaceId: compositeId },
+      })
+    );
+    assert.equal(inspected.isError, undefined);
+    const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+    assert.equal(inspection.workspaceId, compositeId);
+    assert.equal(inspection.kind, "composite");
+  } finally {
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    await running.close();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
