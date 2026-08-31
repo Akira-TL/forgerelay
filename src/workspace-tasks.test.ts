@@ -5,6 +5,29 @@ import { join } from "node:path";
 import test from "node:test";
 import { WorkspaceTaskStore } from "./workspace-tasks.js";
 
+test("Workspace Task state initialization creates missing private state without reading or overwriting existing files", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-task-init-"));
+  t.after(() => rm(stateDir, { recursive: true, force: true }));
+  const store = new WorkspaceTaskStore(stateDir);
+
+  const createdWorkspaceId = "ws_aaaaaaaaaa";
+  store.initializeWorkspace(createdWorkspaceId);
+  const createdPath = join(stateDir, "workspaces", createdWorkspaceId, "tasks.json");
+  const created = JSON.parse(await readFile(createdPath, "utf8")) as Record<string, unknown>;
+  assert.equal(created.version, 1);
+  assert.equal(created.revision, 0);
+  assert.deepEqual(created.lists, []);
+
+  const existingWorkspaceId = "cws_bbbbbbbbbb";
+  const existingDir = join(stateDir, "workspaces", existingWorkspaceId);
+  await mkdir(existingDir, { recursive: true });
+  const existingPath = join(existingDir, "tasks.json");
+  await writeFile(existingPath, "external invalid state\n");
+  store.initializeWorkspace(existingWorkspaceId);
+  assert.equal(await readFile(existingPath, "utf8"), "external invalid state\n");
+  assert.throws(() => store.read(existingWorkspaceId), /not valid JSON/);
+});
+
 test("Workspace Task state is file-backed, ordered, revisioned, and restart-safe", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-tasks-"));
   const projectDir = await mkdtemp(join(tmpdir(), "forgerelay-workspace-tasks-project-"));

@@ -80,6 +80,20 @@ export class WorkspaceTaskStore {
     return this.writeState(id, emptyState());
   }
 
+  initializeWorkspace(workspaceId: string): void {
+    const id = normalizeWorkspaceId(workspaceId);
+    const directory = this.workspaceStateDir(id);
+    mkdirSync(directory, { recursive: true });
+    try {
+      writeFileSync(this.statePath(id), `${JSON.stringify(emptyState(), null, 2)}\n`, {
+        mode: 0o600,
+        flag: "wx",
+      });
+    } catch (error) {
+      if (!isErrno(error, "EEXIST")) throw error;
+    }
+  }
+
   read(workspaceId: string): WorkspaceTaskSnapshot {
     return this.ensureWorkspace(workspaceId);
   }
