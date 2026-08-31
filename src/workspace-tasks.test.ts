@@ -138,6 +138,12 @@ test("Workspace Task state reloads valid external changes and refuses malformed 
   assert.notEqual(reloaded.fingerprint, beforeExternal.fingerprint);
   assert.equal(reloaded.lists[0]!.tasks[0]!.subject, "Externally changed subject");
 
+  const duplicateIdentity = structuredClone(external);
+  duplicateIdentity.lists.push(structuredClone(duplicateIdentity.lists[0]));
+  duplicateIdentity.lists[0].tasks.push(structuredClone(duplicateIdentity.lists[0].tasks[0]));
+  await writeFile(statePath, `${JSON.stringify(duplicateIdentity, null, 2)}\n`);
+  assert.throws(() => store.read(workspaceId), /duplicate (Task List|Task) id/i);
+
   const malformed = "{ definitely not valid json\n";
   await writeFile(statePath, malformed);
   assert.throws(() => store.read(workspaceId), /not valid JSON/i);

@@ -68,7 +68,30 @@ const workspaceTaskStateSchema = z.object({
   version: z.literal(TASK_STATE_VERSION),
   revision: z.number().int().nonnegative(),
   lists: z.array(workspaceTaskListSchema).max(MAX_TASK_LISTS),
-}).strict();
+}).strict().superRefine((state, context) => {
+  const listIds = new Set<string>();
+  const taskIds = new Set<string>();
+  state.lists.forEach((list, listIndex) => {
+    if (listIds.has(list.id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["lists", listIndex, "id"],
+        message: `Duplicate Task List id ${list.id}.`,
+      });
+    }
+    listIds.add(list.id);
+    list.tasks.forEach((task, taskIndex) => {
+      if (taskIds.has(task.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["lists", listIndex, "tasks", taskIndex, "id"],
+          message: `Duplicate Task id ${task.id}.`,
+        });
+      }
+      taskIds.add(task.id);
+    });
+  });
+});
 
 export class WorkspaceTaskStore {
   constructor(private readonly stateDir: string) {}
