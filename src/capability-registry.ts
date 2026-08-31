@@ -106,6 +106,49 @@ interface CapabilityDefinition {
   ) => Promise<CapabilityExecution>;
 }
 
+export type WorkspaceTasksCapabilityInput =
+  | {
+      operation: "get";
+    }
+  | {
+      operation: "list.create";
+      name: string;
+      position?: number;
+    }
+  | {
+      operation: "list.update";
+      listId: string;
+      name?: string;
+      state?: "active" | "archived";
+      position?: number;
+    }
+  | {
+      operation: "list.delete";
+      listId: string;
+    }
+  | {
+      operation: "task.create";
+      listId: string;
+      subject: string;
+      content?: string;
+      status?: "pending" | "in_progress" | "completed";
+      position?: number;
+    }
+  | {
+      operation: "task.update";
+      listId: string;
+      taskId: string;
+      subject?: string;
+      content?: string;
+      status?: "pending" | "in_progress" | "completed";
+      position?: number;
+    }
+  | {
+      operation: "task.delete";
+      listId: string;
+      taskId: string;
+    };
+
 export type SubagentSessionCapabilityInput =
   | {
       operation: "start";
@@ -167,6 +210,15 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: BatchExecuteInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution>;
+  };
+  workspaceTasks?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: WorkspaceTasksCapabilityInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -338,6 +390,59 @@ export function createCapabilityRegistry(
     line: z.number().int(),
     column: z.number().int(),
   };
+  const workspaceTaskStatus = z.enum(["pending", "in_progress", "completed"]);
+  const workspaceTaskListState = z.enum(["active", "archived"]);
+  const workspaceTasksInput = z.union([
+    z.object({ operation: z.literal("get") }).strict(),
+    z.object({
+      operation: z.literal("list.create"),
+      name: z.string().trim().min(1),
+      position: z.number().int().min(0).optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("list.update"),
+      listId: z.string().min(1),
+      name: z.string().trim().min(1).optional(),
+      state: workspaceTaskListState.optional(),
+      position: z.number().int().min(0).optional(),
+    }).strict().refine(
+      (input) => input.name !== undefined || input.state !== undefined || input.position !== undefined,
+      { message: "list.update requires at least one field to change" },
+    ),
+    z.object({
+      operation: z.literal("list.delete"),
+      listId: z.string().min(1),
+    }).strict(),
+    z.object({
+      operation: z.literal("task.create"),
+      listId: z.string().min(1),
+      subject: z.string().trim().min(1),
+      content: z.string().optional(),
+      status: workspaceTaskStatus.optional(),
+      position: z.number().int().min(0).optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal("task.update"),
+      listId: z.string().min(1),
+      taskId: z.string().min(1),
+      subject: z.string().trim().min(1).optional(),
+      content: z.string().optional(),
+      status: workspaceTaskStatus.optional(),
+      position: z.number().int().min(0).optional(),
+    }).strict().refine(
+      (input) =>
+        input.subject !== undefined
+        || input.content !== undefined
+        || input.status !== undefined
+        || input.position !== undefined,
+      { message: "task.update requires at least one field to change" },
+    ),
+    z.object({
+      operation: z.literal("task.delete"),
+      listId: z.string().min(1),
+      taskId: z.string().min(1),
+    }).strict(),
+  ]);
   const subagentSessionInput = z.discriminatedUnion("operation", [
     z.object({
       operation: z.literal("start"),
@@ -437,6 +542,26 @@ export function createCapabilityRegistry(
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.codeIntelligence!.run(
               input as CodeIntelligenceInput,
+              context,
+              options,
+            ),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.workspaceTasks
+      ? [{
+          name: "workspace.tasks",
+          description: "Maintain persistent Task Lists owned by the current Workspace.",
+          guideName: "workspace-tasks",
+          readGuideBeforeFirstUse: true,
+          batchPolicy: "serial",
+          inputSchema: workspaceTasksInput,
+          availability: () => ({
+            available: dependencies.workspaceTasks?.available ?? false,
+            reason: dependencies.workspaceTasks?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.workspaceTasks!.run(
+              input as WorkspaceTasksCapabilityInput,
               context,
               options,
             ),

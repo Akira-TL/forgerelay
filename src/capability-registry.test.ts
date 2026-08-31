@@ -169,6 +169,87 @@ test("capability registry advertises only available optional capabilities and ro
   );
 });
 
+test("workspace.tasks is current-workspace scoped and exposes a strict serial task contract", async () => {
+  const taskContext: CapabilityContext = {
+    ...context,
+    guides: [
+      ...context.guides,
+      {
+        name: "workspace-tasks",
+        description: "Persistent Task Lists owned by the current Workspace.",
+        whenToRead: "Read before creating or maintaining Workspace Tasks.",
+        path: "~/capabilities/workspace-tasks/GUIDE.md",
+      },
+    ],
+  };
+  const calls: Array<{ input: unknown; workspaceId: string }> = [];
+  const registry = createCapabilityRegistry({
+    inspectHooks: async () => ({ globalHooks: 0, projectHooks: 0 }),
+    workspaceTasks: {
+      available: true,
+      run: async (input, capabilityContext) => {
+        calls.push({ input, workspaceId: capabilityContext.workspaceId });
+        return { value: { operation: input.operation, workspaceId: capabilityContext.workspaceId } };
+      },
+    },
+  });
+
+  const catalogEntry = registry.catalog(taskContext).find((entry) => entry.name === "workspace.tasks");
+  assert.equal(catalogEntry?.batchPolicy, "serial");
+  assert.equal(catalogEntry?.guide.name, "workspace-tasks");
+
+  const described = registry.describe("workspace.tasks", taskContext);
+  assert.equal(described.inputSchema.type, undefined);
+  assert.ok(Array.isArray(described.inputSchema.anyOf));
+  assert.equal(JSON.stringify(described.inputSchema).includes("workspaceId"), false);
+
+  assert.deepEqual(
+    await registry.run("workspace.tasks", { operation: "get" }, taskContext),
+    { value: { operation: "get", workspaceId: taskContext.workspaceId } },
+  );
+  assert.deepEqual(
+    await registry.run(
+      "workspace.tasks",
+      { operation: "list.create", name: "Release" },
+      taskContext,
+    ),
+    { value: { operation: "list.create", workspaceId: taskContext.workspaceId } },
+  );
+  assert.deepEqual(
+    await registry.run(
+      "workspace.tasks",
+      {
+        operation: "task.create",
+        listId: "tl_1234567890",
+        subject: "Ship release",
+        content: "Run acceptance and publish.",
+        status: "in_progress",
+        position: 0,
+      },
+      taskContext,
+    ),
+    { value: { operation: "task.create", workspaceId: taskContext.workspaceId } },
+  );
+  assert.equal(calls.every((call) => call.workspaceId === taskContext.workspaceId), true);
+
+  await assert.rejects(
+    () => registry.run(
+      "workspace.tasks",
+      { operation: "get", workspaceId: "ws_other" },
+      taskContext,
+    ),
+    (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
+  );
+  await assert.rejects(
+    () => registry.run(
+      "workspace.tasks",
+      { operation: "task.update", listId: "tl_1234567890", taskId: "task_1234567890" },
+      taskContext,
+    ),
+    (error: unknown) => error instanceof CapabilityError && error.code === "invalid_arguments",
+  );
+});
+
 test("subagent.session is a deep batch-unsupported capability when explicitly enabled", async () => {
   const subagentContext: CapabilityContext = {
     ...context,
