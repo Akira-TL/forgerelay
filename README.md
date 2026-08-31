@@ -348,6 +348,7 @@ Trusted Publishing setup.
 
 ## Documentation
 
+- [GitHub Wiki](https://github.com/Akira-TL/forgerelay/wiki) — 面向用户的使用指南、概念说明与故障排查入口。
 - [Setup Guide](docs/setup.md)
 - [Local Debugging and 7677 Acceptance](docs/debugging.md)
 - [ChatGPT Coding Workflow](docs/chatgpt-coding-workflow.md)
@@ -358,6 +359,7 @@ Trusted Publishing setup.
 - [Troubleshooting](docs/gotchas.md)
 - [Roadmap](docs/roadmap.md)
 - [Versioning and Release Management](docs/versioning.md)
+- [GitHub Wiki Maintenance](docs/maintenance/wiki.md)
 - [Changelog](CHANGELOG.md)
 - [Attribution Notice](NOTICE.md)
 
