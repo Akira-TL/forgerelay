@@ -397,6 +397,7 @@ void test("relayed managed-worktree Workspace keeps identity and Task state acro
   await mkdir(gatewayRoot, { recursive: true });
   await mkdir(gatewayConfigDir, { recursive: true });
   await setupGitRepository(remoteRoot);
+  execFileSync("git", ["config", "core.autocrlf", "true"], { cwd: remoteRoot });
 
   const remote = await startForge(t, {
     root: join(root, "remote"),
@@ -491,7 +492,7 @@ void test("relayed managed-worktree Workspace keeps identity and Task state acro
   assert.equal(structuredContent(closed).workspaceId, gatewayWorkspaceId);
   assert.equal(structuredContent(closed).action, "close");
   await assert.rejects(readFile(join(firstWorktreeRoot, "relay-worktree.txt"), "utf8"), /ENOENT/);
-  assert.equal(await readFile(join(remoteRoot, "relay-worktree.txt"), "utf8"), "managed relay change\n");
+  assert.match(await readFile(join(remoteRoot, "relay-worktree.txt"), "utf8"), /^managed relay change\r?\n$/);
   assert.match(
     await readFile(join(remoteStateDir, "workspaces", remoteWorkspaceId, "tasks.json"), "utf8"),
     /WORKTREE_EXECUTION_ONLY_TASK_BODY/,
@@ -519,7 +520,7 @@ void test("relayed managed-worktree Workspace keeps identity and Task state acro
   assert.equal(structuredContent(reopened).workspaceId, gatewayWorkspaceId);
   assert.equal(structuredContent(reopened).mode, "worktree");
   const reopenedRoot = String(structuredContent(reopened).root);
-  assert.equal(await readFile(join(reopenedRoot, "relay-worktree.txt"), "utf8"), "managed relay change\n");
+  assert.match(await readFile(join(reopenedRoot, "relay-worktree.txt"), "utf8"), /^managed relay change\r?\n$/);
 
   const restored = await client.callTool({
     name: "capability",
