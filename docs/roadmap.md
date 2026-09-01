@@ -365,6 +365,9 @@ New public names use ForgeRelay:
 - `.forgerelay`
 - `forgerelay/*` managed branches
 
-Legacy `DEVSPACE_*`, `~/.devspace`, `.devspace`, old managed branch names, and
-selected persisted internal identifiers remain readable during migration where
-removing compatibility would orphan real user state.
+Rename-era public compatibility adapters have a bounded migration window rather
+than permanent support. `DEVSPACE_*`, automatic `~/.devspace` reuse, legacy
+`.devspace/agents` discovery, and old package-path special cases are retired once
+they are outside that window. Persisted internal identifiers remain compatible
+when removing them would orphan real user state; those are storage/protocol
+migration concerns, not public product aliases.

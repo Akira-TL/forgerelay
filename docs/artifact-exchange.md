@@ -9,7 +9,8 @@ Enable the capability with:
 FORGERELAY_ARTIFACTS=1 forgerelay serve
 ```
 
-The legacy `DEVSPACE_ARTIFACTS` variable remains a fallback during migration.
+Use the canonical `FORGERELAY_ARTIFACTS` variable; the old
+`DEVSPACE_ARTIFACTS` name is no longer read.
 
 ## Workflow
 

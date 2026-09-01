@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added `release:push-ready` as the canonical release-ready branch push, atomically advancing the remote main/release refs and synchronizing the local `main` only after divergence safety checks pass.
+
+### Changed
+
+- Retired rename-era DevSpace public compatibility adapters that are well beyond the migration window: `DEVSPACE_*` environment fallbacks, automatic `~/.devspace` config/state/worktree reuse, `.devspace/agents` profile discovery, and old DevSpace package-path special cases. Persisted storage/protocol identifiers remain compatible where renaming them would orphan existing state.
+
 ## [0.8.5] - 2026-08-31
 
 ### Added

@@ -244,13 +244,14 @@ files in the skill directory.
 
 ## Local subagent profiles
 
-With `FORGERELAY_SUBAGENTS=1`, profiles are discovered from the active global
-config directory plus:
+With `FORGERELAY_SUBAGENTS=1`, profiles are discovered from the active ForgeRelay
+global config directory plus:
 
 ```text
 .forgerelay/agents/*.md
-.devspace/agents/*.md   # migration compatibility
 ```
+
+Rename-era `.devspace/agents` discovery has ended.
 
 The workspace result exposes only compact profile metadata so the host can
 choose a provider/profile without loading full provider launch details. Read the
@@ -349,9 +350,8 @@ and keeps widget usage focused on workspace/change review.
 
 ## Legacy configuration
 
-`FORGERELAY_*` is the canonical environment-variable prefix. Equivalent
-`DEVSPACE_*` variables remain accepted as fallbacks during migration.
-
-Likewise, an existing `~/.devspace` configuration/state setup is reused when the
-new ForgeRelay location does not yet exist. See
-[Configuration Reference](configuration.md) for the compatibility rules.
+`FORGERELAY_*` is the canonical environment-variable prefix. Rename-era
+`DEVSPACE_*` fallbacks and automatic `~/.devspace` reuse have ended. Migrate
+older installations explicitly; persisted internal identifiers that would
+otherwise orphan state remain compatible. See
+[Configuration Reference](configuration.md) for the current rules.

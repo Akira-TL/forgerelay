@@ -13,15 +13,10 @@ New locations:
 .forgerelay/agents/*.md
 ```
 
-Migration compatibility:
-
-```text
-~/.devspace/agents/*.md
-.devspace/agents/*.md
-```
-
-When an existing legacy config directory is reused, its global `agents` folder
-remains active automatically.
+Rename-era DevSpace profile discovery has ended. `~/.devspace/agents/*.md` and
+`.devspace/agents/*.md` are not scanned automatically. Move older profiles into
+a canonical ForgeRelay location, or temporarily point `FORGERELAY_CONFIG_DIR`
+at the old global config directory while migrating.
 
 ## Example
 

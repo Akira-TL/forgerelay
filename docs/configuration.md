@@ -18,10 +18,10 @@ Override the directory with:
 FORGERELAY_CONFIG_DIR=/path/to/config npx @akira-tl/forgerelay serve
 ```
 
-For migration compatibility, `DEVSPACE_CONFIG_DIR` is accepted when
-`FORGERELAY_CONFIG_DIR` is unset. Without either variable, ForgeRelay uses
-`~/.forgerelay` unless that directory is absent and an existing `~/.devspace`
-directory is present; in that case the legacy directory is reused.
+The rename-era automatic fallback has ended. `DEVSPACE_CONFIG_DIR` is ignored,
+and the default directory is always `~/.forgerelay`. If an older installation
+still has data in a DevSpace-named directory, migrate it explicitly or point
+`FORGERELAY_CONFIG_DIR` at that directory during the migration.
 
 ## Commands
 
@@ -33,20 +33,11 @@ npx @akira-tl/forgerelay config get
 npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
 ```
 
-## Environment variable compatibility
+## Environment variables
 
-The public prefix is `FORGERELAY_*`.
-
-During the rename transition, the equivalent `DEVSPACE_*` variable remains a
-fallback when the ForgeRelay variable is unset. For example:
-
-```text
-FORGERELAY_ALLOWED_ROOTS
-        ↓ if unset
-DEVSPACE_ALLOWED_ROOTS
-```
-
-When both are present, `FORGERELAY_*` wins.
+The public prefix is `FORGERELAY_*`. Rename-era `DEVSPACE_*` environment
+variables are no longer read. Migrate automation, service files, shell profiles,
+and CI configuration to the canonical ForgeRelay names.
 
 ## Core variables
 
@@ -88,10 +79,10 @@ A single persisted string remains fully supported, so existing configs require n
 migration. For environment configuration, use a comma-separated list in
 `FORGERELAY_PUBLIC_BASE_URL`.
 
-If an existing legacy state/worktree directory is present and the new default is
-not, ForgeRelay reuses the legacy location rather than orphaning stored state.
-Persisted `stateDir` and `worktreeRoot` values in `config.json` also continue to
-win over defaults.
+ForgeRelay no longer auto-detects DevSpace-named state or worktree directories.
+Persisted `stateDir` and `worktreeRoot` values in `config.json` continue to win
+over defaults, so an explicit configuration may temporarily point at an older
+location while data is migrated.
 
 ## Native artifact download
 
@@ -145,8 +136,7 @@ MCP clients discover metadata from:
 | `codex` | Experimental Codex-shaped compatibility adapter using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `capability`. It does not define the ForgeRelay canonical interface. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
-explicit tool mode is unset. The corresponding legacy `DEVSPACE_*` names are
-also accepted.
+explicit tool mode is unset. DevSpace-prefixed equivalents are no longer read.
 
 `minimal` and `full` now resolve to the same regular 9-tool `tools/list`; `full`
 is retained only as a configuration-compatibility value. `codex` selects a
@@ -347,8 +337,7 @@ remains durable.
 | --- | --- | --- |
 | `FORGERELAY_TASK_REMINDER_INTERVAL` | `30` | Successful semantic work calls between Task update reminders; `0` disables reminders. |
 
-The same value may be persisted as `taskReminderInterval` in `config.json`. The
-legacy-compatible `DEVSPACE_TASK_REMINDER_INTERVAL` environment name is also accepted.
+The same value may be persisted as `taskReminderInterval` in `config.json`.
 
 Use `open_workspace(action="list")` only when the Agent needs lightweight inventory
 to discover known Workspaces, continue earlier work, or organize Workspace state. The
@@ -609,10 +598,12 @@ Standard Agent Skills are discovered from:
 
 When subagents are enabled, profiles are discovered from:
 
-- `~/.forgerelay/agents/*.md` for new installations;
-- project `.forgerelay/agents/*.md`;
-- active legacy config directory `~/.devspace/agents/*.md` when reused;
-- project `.devspace/agents/*.md` for migration compatibility.
+- the active ForgeRelay config directory's `agents/*.md`;
+- project `.forgerelay/agents/*.md`.
+
+DevSpace-named profile directories are no longer discovered automatically. Move
+those profiles or explicitly select their parent with `FORGERELAY_CONFIG_DIR`
+during migration.
 
 The ForgeRelay-owned `subagents` capability guide teaches the current CLI
 workflow on demand:

@@ -121,11 +121,14 @@ Keep `auth.json` private.
 
 ### Existing DevSpace configuration
 
-During migration, if `~/.forgerelay` does not exist but `~/.devspace` does,
-ForgeRelay reuses the legacy directory automatically. `FORGERELAY_CONFIG_DIR`
-takes precedence over the legacy `DEVSPACE_CONFIG_DIR` environment variable.
+Automatic DevSpace directory fallback has ended. ForgeRelay defaults to
+`~/.forgerelay` and ignores `DEVSPACE_CONFIG_DIR`.
 
-You do not need to move a working legacy config before starting ForgeRelay.
+Before upgrading an older installation, move or copy the needed configuration
+and credentials into the ForgeRelay directory, or temporarily point
+`FORGERELAY_CONFIG_DIR` at the old directory. If state or managed worktrees live
+under older paths, preserve them with explicit `stateDir` / `worktreeRoot`
+configuration until migration is complete.
 
 ## Check the setup
 

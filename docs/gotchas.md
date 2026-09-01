@@ -28,11 +28,10 @@ npm rebuild better-sqlite3
 npx @akira-tl/forgerelay doctor
 ```
 
-## Existing DevSpace config is still being used
+## Existing DevSpace config stopped being used
 
-This is intentional migration behavior. If `~/.forgerelay` does not exist but
-`~/.devspace` does, ForgeRelay reuses the legacy config directory so existing
-OAuth/state configuration is not silently abandoned.
+The automatic rename-era fallback has ended. ForgeRelay now defaults to
+`~/.forgerelay` and ignores `DEVSPACE_*` environment variables.
 
 Check the resolved directory:
 
@@ -40,7 +39,8 @@ Check the resolved directory:
 forgerelay doctor
 ```
 
-To force a new location, set:
+If an older installation still needs data from a DevSpace-named directory,
+point the canonical setting at it explicitly while migrating:
 
 ```bash
 FORGERELAY_CONFIG_DIR="$HOME/.forgerelay" forgerelay init
@@ -135,7 +135,9 @@ New installs normally use:
 ~/.forgerelay/auth.json
 ```
 
-A migrated install may still use `~/.devspace/auth.json`.
+ForgeRelay no longer discovers `~/.devspace/auth.json` automatically. Move the
+credential file to the active ForgeRelay config directory or explicitly set
+`FORGERELAY_CONFIG_DIR` while migrating.
 
 Regenerate setup intentionally with:
 
@@ -227,7 +229,8 @@ New profile locations include:
 .forgerelay/agents/*.md
 ```
 
-Legacy `.devspace/agents` paths remain supported.
+Legacy `.devspace/agents` paths are no longer scanned automatically. Move
+profiles into one of the canonical locations before upgrading.
 
 `forgerelay agents ls` lists sessions, not profile definitions. The compact
 profile catalog is returned through `open_workspace`.

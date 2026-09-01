@@ -9,7 +9,6 @@ ForgeRelay 可以通过：
 - `forgerelay init` 生成的持久配置；
 - 环境变量；
 - 项目级 `.forgerelay/` 配置；
-- 兼容期保留的旧 DevSpace 配置；
 
 共同决定运行行为。
 
@@ -20,7 +19,7 @@ ForgeRelay 可以通过：
 ~/.forgerelay/auth.json
 ```
 
-如果 `~/.forgerelay` 不存在而已有 `~/.devspace`，ForgeRelay 会继续使用旧目录，避免现有 OAuth、Workspace、worktree、Skill 和 profile state 被静默遗弃。
+旧 DevSpace 自动目录回退已经结束。ForgeRelay 默认只使用 `~/.forgerelay`；升级旧安装时需要显式迁移数据，或临时使用 `FORGERELAY_CONFIG_DIR` 指向旧目录。
 
 ## 常用 CLI
 
@@ -247,7 +246,7 @@ FORGERELAY_SUBAGENTS=1
 <project>/.forgerelay/agents/*.md
 ```
 
-旧 `.devspace/agents` 路径在迁移期仍兼容。
+旧 `.devspace/agents` 路径不再自动扫描；升级前请把 profile 移到规范路径。
 
 本地 CLI diagnostics：
 
@@ -320,6 +319,6 @@ npx @akira-tl/forgerelay serve
 
 ## 旧 DevSpace 环境变量
 
-对应 `DEVSPACE_*` 名称仍作为迁移 fallback。当新旧名字同时存在时，以 `FORGERELAY_*` 为准。
+rename 阶段的 `DEVSPACE_*` fallback 已结束，这些变量不再参与配置解析。
 
-新配置应始终优先写 `FORGERELAY_*`，不要继续扩散旧命名。
+服务文件、shell profile、CI 与脚本应全部迁移到 `FORGERELAY_*`。

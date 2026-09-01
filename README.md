@@ -255,7 +255,7 @@ See [Agent Profile Schema](docs/agent-profile-schema.md) for the profile format.
 
 ## Configuration and upgrades from DevSpace
 
-New configuration uses the `FORGERELAY_*` prefix. For example:
+Configuration uses the `FORGERELAY_*` prefix. For example:
 
 ```bash
 FORGERELAY_ALLOWED_ROOTS="$HOME/projects" \
@@ -263,16 +263,14 @@ FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com" \
 forgerelay serve
 ```
 
-Existing `DEVSPACE_*` variables are still accepted as fallbacks during the
-rename transition. When both names are present, `FORGERELAY_*` wins.
+The rename-era automatic compatibility window has ended. `DEVSPACE_*`
+environment variables are ignored, ForgeRelay no longer auto-selects
+`~/.devspace`, and project `.devspace/agents` profiles are not discovered.
 
-The same rule applies to persisted configuration. ForgeRelay prefers
-`~/.forgerelay`, but if that directory does not exist and an existing
-`~/.devspace` setup does, ForgeRelay keeps using the legacy directory rather
-than orphaning OAuth credentials, workspace state, or managed worktrees.
-
-Project-level `.devspace/agents` profiles are also still readable for migration
-compatibility. New project configuration should use `.forgerelay`.
+If an older installation still has data under DevSpace-named directories,
+migrate it explicitly or point the canonical ForgeRelay settings at those paths
+while moving the data. Persisted internal identifiers that would otherwise
+orphan existing state remain compatible and are not product-facing configuration.
 
 See [Configuration Reference](docs/configuration.md) for all supported options.
 

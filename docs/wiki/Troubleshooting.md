@@ -73,18 +73,9 @@ npm rebuild better-sqlite3
 npx @akira-tl/forgerelay doctor
 ```
 
-## 为什么还在使用 `~/.devspace`
+## 升级后为什么不再使用 `~/.devspace`
 
-这是迁移兼容行为。
-
-如果：
-
-```text
-~/.forgerelay   不存在
-~/.devspace     已存在
-```
-
-ForgeRelay 会继续复用旧目录，避免 OAuth、Workspace、worktree、Skill 或 profile state 被静默丢弃。
+rename 阶段的自动目录回退已经结束。ForgeRelay 默认使用 `~/.forgerelay`，不会因为旧 `~/.devspace` 仍存在就自动接管它。
 
 用：
 
@@ -92,15 +83,13 @@ ForgeRelay 会继续复用旧目录，避免 OAuth、Workspace、worktree、Skil
 forgerelay doctor
 ```
 
-确认真实目录。
-
-需要显式使用新目录时：
+确认真实目录。迁移旧安装时，可以临时显式指定：
 
 ```bash
-FORGERELAY_CONFIG_DIR="$HOME/.forgerelay" forgerelay init
+FORGERELAY_CONFIG_DIR="$HOME/.devspace" forgerelay doctor
 ```
 
-不要在确认旧 state 不再需要之前直接删除 `~/.devspace`。
+然后把需要的配置、认证、profile 与显式 state/worktree 路径迁到 ForgeRelay 命名。不要在确认旧 state 不再需要之前直接删除 `~/.devspace`。
 
 ## Public Base URL 写成了 `/mcp`
 
@@ -188,11 +177,13 @@ FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay ser
 ~/.forgerelay/auth.json
 ```
 
-迁移安装可能仍然是：
+ForgeRelay 不再自动发现：
 
 ```text
 ~/.devspace/auth.json
 ```
+
+旧认证需要移动到当前 config directory，或在迁移期间通过 `FORGERELAY_CONFIG_DIR` 显式选择旧目录。
 
 确实需要重新初始化时：
 
@@ -346,7 +337,7 @@ Profile 常见位置：
 <project>/.forgerelay/agents/*.md
 ```
 
-迁移期旧 `.devspace/agents` 仍可读取。
+旧 `.devspace/agents` 不再自动读取；请把 profile 移到规范 ForgeRelay 路径。
 
 注意 `forgerelay agents ls` 主要查看 Subagent Session，不等于“列出所有 profile definition”。Host 获取 compact profile catalog 的路径与 CLI session list 不完全相同。
 
