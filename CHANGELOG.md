@@ -17,6 +17,7 @@ All notable ForgeRelay changes are documented here.
 ### Fixed
 
 - Task reminders and relayed/Composite runtime state now survive independent MCP transport sessions instead of resetting or presenting stale session-local state.
+- Managed-worktree Relay acceptance now tolerates Git-native LF/CRLF checkout normalization, keeping the release matrix portable across Linux, macOS, and Windows.
 
 ## [0.8.4] - 2026-08-31
 
