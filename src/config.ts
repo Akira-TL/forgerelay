@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { expandHomePath } from "./roots.js";
@@ -45,8 +44,8 @@ export interface ServerConfig {
   taskReminderInterval: number;
   skillsEnabled: boolean;
   skillPaths: string[];
-  devspaceSkillsDir: string;
-  devspaceAgentsDir: string;
+  configSkillsDir: string;
+  configAgentsDir: string;
   subagents: boolean;
   languageServers: LanguageServerConfigInput;
   agentDir: string;
@@ -107,7 +106,7 @@ function parseBoolean(value: string | undefined): boolean {
 }
 
 function productEnv(env: NodeJS.ProcessEnv, suffix: string): string | undefined {
-  return env[`FORGERELAY_${suffix}`] ?? env[`DEVSPACE_${suffix}`];
+  return env[`FORGERELAY_${suffix}`];
 }
 
 function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
@@ -115,9 +114,9 @@ function parseToolMode(env: NodeJS.ProcessEnv): ToolMode {
   if (mode === "minimal" || mode === "full" || mode === "codex") return mode;
   if (mode) throw new Error(`Invalid FORGERELAY_TOOL_MODE: ${mode}`);
 
-  const legacyMinimal = productEnv(env, "MINIMAL_TOOLS");
-  if (legacyMinimal !== undefined) {
-    return parseBoolean(legacyMinimal) ? "minimal" : "full";
+  const minimalTools = productEnv(env, "MINIMAL_TOOLS");
+  if (minimalTools !== undefined) {
+    return parseBoolean(minimalTools) ? "minimal" : "full";
   }
   return "minimal";
 }
@@ -271,15 +270,11 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
 }
 
 function defaultStateDir(): string {
-  const current = join(homedir(), ".local", "share", "forgerelay");
-  const legacy = join(homedir(), ".local", "share", "devspace");
-  return existsSync(current) || !existsSync(legacy) ? current : legacy;
+  return join(homedir(), ".local", "share", "forgerelay");
 }
 
 function defaultWorktreeRoot(): string {
-  const current = join(homedir(), ".forgerelay", "worktrees");
-  const legacy = join(homedir(), ".devspace", "worktrees");
-  return existsSync(current) || !existsSync(legacy) ? current : legacy;
+  return join(homedir(), ".forgerelay", "worktrees");
 }
 
 function defaultAgentDir(): string {
@@ -393,8 +388,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ),
     skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
     skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
-    devspaceSkillsDir: forgerelaySkillsDir(env),
-    devspaceAgentsDir: forgerelayAgentsDir(env),
+    configSkillsDir: forgerelaySkillsDir(env),
+    configAgentsDir: forgerelayAgentsDir(env),
     subagents:
       productEnv(env, "SUBAGENTS") === undefined
         ? files.config.subagents === true

@@ -90,7 +90,7 @@ const environment = await manager.start({
   workspaceRoot: "/tmp/devspace-workspace-a",
   cwd: process.cwd(),
   codexCi: true,
-  command: `${node} -e "console.log([process.env.NO_COLOR, process.env.TERM, process.env.PAGER, process.env.GIT_PAGER, process.env.GH_PAGER, process.env.CODEX_CI, process.env.DEVSPACE_WORKSPACE_ID, process.env.DEVSPACE_WORKSPACE_ROOT].join(','))"`,
+  command: `${node} -e "console.log([process.env.NO_COLOR, process.env.TERM, process.env.PAGER, process.env.GIT_PAGER, process.env.GH_PAGER, process.env.CODEX_CI, process.env.FORGERELAY_WORKSPACE_ID, process.env.FORGERELAY_WORKSPACE_ROOT].join(','))"`,
   yieldTimeMs: 2_000,
 });
 assert.equal(environment.running, false);

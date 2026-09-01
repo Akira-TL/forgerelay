@@ -39,7 +39,6 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
       FORGERELAY_ALLOWED_HOSTS: "wrong.example.test",
       FORGERELAY_OAUTH_OWNER_TOKEN: "wrong-owner-password-123456",
       FORGERELAY_WIDGETS: "off",
-      DEVSPACE_ALLOWED_ROOTS: "/wrong/root",
       FORGERELAY_LOG_LEVEL: "debug",
     },
     home,
@@ -62,7 +61,6 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.env.FORGERELAY_ALLOWED_HOSTS, undefined);
   assert.equal(result.env.FORGERELAY_OAUTH_OWNER_TOKEN, undefined);
   assert.equal(result.env.FORGERELAY_WIDGETS, undefined);
-  assert.equal(result.env.DEVSPACE_ALLOWED_ROOTS, undefined);
   assert.equal(result.env.FORGERELAY_LOG_LEVEL, "debug");
 });
 

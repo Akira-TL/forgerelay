@@ -54,7 +54,7 @@ export async function loadSubagentProfiles(
   if (!config.subagents) return [];
 
   const profileDirs = [
-    config.devspaceAgentsDir,
+    config.configAgentsDir,
     join(workspaceRoot, ".devspace", "agents"),
     join(workspaceRoot, ".forgerelay", "agents"),
   ];

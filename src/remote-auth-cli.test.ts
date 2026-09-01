@@ -14,7 +14,7 @@ import { createServer } from "./server.js";
 
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>
-    !name.startsWith("FORGERELAY_") && !name.startsWith("DEVSPACE_")
+    !name.startsWith("FORGERELAY_") && !name.startsWith("FORGERELAY_")
   ),
 ) as NodeJS.ProcessEnv;
 

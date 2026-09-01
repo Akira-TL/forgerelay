@@ -3,33 +3,33 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
-import { ensureDevspaceDefaultSkills, resolveSubagentsFlag } from "./user-config.js";
+import { ensureForgeRelayDefaultSkills, forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "devspace-empty-config-test-"));
 const baseEnv = {
-  DEVSPACE_CONFIG_DIR: emptyConfigDir,
-  DEVSPACE_ALLOWED_ROOTS: process.cwd(),
-  DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+  FORGERELAY_CONFIG_DIR: emptyConfigDir,
+  FORGERELAY_ALLOWED_ROOTS: process.cwd(),
+  FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
 };
 
 assert.equal(loadConfig(baseEnv).widgets, "full");
 assert.equal(loadConfig(baseEnv).activityPanelExpanded, false);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ACTIVITY_PANEL_EXPANDED: "1" }).activityPanelExpanded, true);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "changes" }).widgets, "changes");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "full" }).widgets, "full");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off" }).widgets, "off");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_ACTIVITY_PANEL_EXPANDED: "1" }).activityPanelExpanded, true);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "changes" }).widgets, "changes");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "full" }).widgets, "full");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "off" }).widgets, "off");
 assert.equal(loadConfig(baseEnv).toolMode, "minimal");
 assert.equal(loadConfig(baseEnv).systemInstructionsPath, join(homedir(), ".agents", "AGENTS.md"));
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: "~/custom-system.md" })
+  loadConfig({ ...baseEnv, FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: "~/custom-system.md" })
     .systemInstructionsPath,
   join(homedir(), "custom-system.md"),
 );
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "minimal" }).toolMode, "minimal");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "full" }).toolMode, "full");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "codex" }).toolMode, "codex");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "0" }).toolMode, "full");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "minimal" }).toolMode, "minimal");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "full" }).toolMode, "full");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "codex" }).toolMode, "codex");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_MINIMAL_TOOLS: "0" }).toolMode, "full");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
 
 const forgeRelayConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-config-test-"));
 writeFileSync(
@@ -75,11 +75,8 @@ const forgeRelayConfig = loadConfig({
   ...baseEnv,
   FORGERELAY_CONFIG_DIR: forgeRelayConfigDir,
   FORGERELAY_WIDGETS: "changes",
-  DEVSPACE_WIDGETS: "off",
   FORGERELAY_TOOL_MODE: "full",
-  DEVSPACE_TOOL_MODE: "minimal",
   FORGERELAY_SUBAGENTS: "1",
-  DEVSPACE_SUBAGENTS: "0",
 });
 assert.equal(forgeRelayConfig.widgets, "changes");
 assert.equal(forgeRelayConfig.activityPanelExpanded, true);
@@ -94,86 +91,98 @@ assert.deepEqual(
   forgeRelayConfig.hooks.BeforeTool?.flatMap((rule) => rule.handlers.map((handler) => handler.name)),
   ["Legacy inline hook", "Global hooks file", "10-release-verify", "20-package-inspection"],
 );
-assert.equal(forgeRelayConfig.devspaceSkillsDir, join(forgeRelayConfigDir, "skills"));
-assert.equal(forgeRelayConfig.devspaceAgentsDir, join(forgeRelayConfigDir, "agents"));
+assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
+assert.equal(forgeRelayConfig.configAgentsDir, join(forgeRelayConfigDir, "agents"));
+assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 assert.equal(
-  resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1", DEVSPACE_SUBAGENTS: "0" }),
-  true,
+  loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off", DEVSPACE_TOOL_MODE: "full" }).widgets,
+  "full",
 );
+assert.equal(
+  loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off", DEVSPACE_TOOL_MODE: "full" }).toolMode,
+  "minimal",
+);
+assert.equal(resolveSubagentsFlag({ subagents: true }, { DEVSPACE_SUBAGENTS: "0" }), true);
 
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined Git workflows." })
+  loadConfig({ ...baseEnv, FORGERELAY_WORKFLOW_INSTRUCTIONS: "Use repository-defined Git workflows." })
     .workflowInstructions,
   "Use repository-defined Git workflows.",
 );
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_WORKFLOW_INSTRUCTIONS: "" }).workflowInstructions,
+  loadConfig({ ...baseEnv, FORGERELAY_WORKFLOW_INSTRUCTIONS: "" }).workflowInstructions,
   false,
 );
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_APPEND_INSTRUCTIONS: "Keep command output concise." })
+  loadConfig({ ...baseEnv, FORGERELAY_APPEND_INSTRUCTIONS: "Keep command output concise." })
     .appendInstructions,
   "Keep command output concise.",
 );
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
-assert.equal(loadConfig(baseEnv).devspaceSkillsDir, join(emptyConfigDir, "skills"));
-assert.equal(loadConfig(baseEnv).devspaceAgentsDir, join(emptyConfigDir, "agents"));
+assert.equal(loadConfig(baseEnv).configSkillsDir, join(emptyConfigDir, "skills"));
+assert.equal(loadConfig(baseEnv).configAgentsDir, join(emptyConfigDir, "agents"));
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "0" }).taskReminderInterval, 0);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "45" }).taskReminderInterval, 45);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_ARTIFACTS: "1" }).artifactsEnabled, true);
+assert.equal(loadConfig(baseEnv).stateDir, join(homedir(), ".local", "share", "forgerelay"));
+assert.equal(loadConfig(baseEnv).worktreeRoot, join(homedir(), ".forgerelay", "worktrees"));
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_ARTIFACT_MAX_FILE_BYTES: "123" }).artifactMaxFileBytes,
+  forgerelayConfigDir({ DEVSPACE_CONFIG_DIR: join(tmpdir(), "legacy-devspace-config") }),
+  join(homedir(), ".forgerelay"),
+);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "0" }).taskReminderInterval, 0);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "45" }).taskReminderInterval, 45);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_ARTIFACTS: "1" }).artifactsEnabled, true);
+assert.equal(
+  loadConfig({ ...baseEnv, FORGERELAY_ARTIFACT_MAX_FILE_BYTES: "123" }).artifactMaxFileBytes,
   123,
 );
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_SKILLS: "0" }).skillsEnabled, false);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_SKILLS: "1" }).skillsEnabled, true);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_SKILLS: "0" }).skillsEnabled, false);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_SUBAGENTS: "1" }).subagents,
+  loadConfig({ ...baseEnv, FORGERELAY_SUBAGENTS: "1" }).subagents,
   true,
 );
 assert.equal(resolveSubagentsFlag({}, {}), undefined);
 assert.equal(resolveSubagentsFlag({ subagents: true }, {}), true);
-assert.equal(resolveSubagentsFlag({ subagents: true }, { DEVSPACE_SUBAGENTS: "0" }), false);
-assert.equal(resolveSubagentsFlag({}, { DEVSPACE_SUBAGENTS: "1" }), true);
+assert.equal(resolveSubagentsFlag({ subagents: true }, { FORGERELAY_SUBAGENTS: "0" }), false);
+assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 
 const seededConfigDir = mkdtempSync(join(tmpdir(), "devspace-seeded-skills-test-"));
-const seededSkillPaths = ensureDevspaceDefaultSkills({ DEVSPACE_CONFIG_DIR: seededConfigDir });
+const seededSkillPaths = ensureForgeRelayDefaultSkills({ FORGERELAY_CONFIG_DIR: seededConfigDir });
 assert.deepEqual(seededSkillPaths, [join(seededConfigDir, "skills", "subagent-delegation", "SKILL.md")]);
 assert.equal(existsSync(seededSkillPaths[0]), true);
 assert.match(readFileSync(seededSkillPaths[0], "utf8"), /name: subagent-delegation/);
-assert.deepEqual(ensureDevspaceDefaultSkills({ DEVSPACE_CONFIG_DIR: seededConfigDir }), []);
+assert.deepEqual(ensureForgeRelayDefaultSkills({ FORGERELAY_CONFIG_DIR: seededConfigDir }), []);
 
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "invalid" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "invalid" }),
   /Invalid FORGERELAY_WIDGETS: invalid/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "-1" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "-1" }),
   /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: -1/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_TASK_REMINDER_INTERVAL: "1.5" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "1.5" }),
   /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: 1.5/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "minimal" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "minimal" }),
   /Invalid FORGERELAY_WIDGETS: minimal/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "write-only" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "write-only" }),
   /Invalid FORGERELAY_WIDGETS: write-only/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_TOOL_MODE: "invalid" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "invalid" }),
   /Invalid FORGERELAY_TOOL_MODE: invalid/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: "" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: "" }),
   /FORGERELAY_SYSTEM_INSTRUCTIONS_PATH must be one non-empty path/,
 );
 
@@ -187,7 +196,7 @@ assert.deepEqual(loadConfig(baseEnv).logging, {
   trustProxy: false,
 });
 
-assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging, {
+assert.deepEqual(loadConfig({ ...baseEnv, FORGERELAY_LOG_FORMAT: "json" }).logging, {
   level: "info",
   format: "json",
   requests: true,
@@ -197,28 +206,28 @@ assert.deepEqual(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging
   trustProxy: false,
 });
 
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "silent" }).logging.level, "silent");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "error" }).logging.level, "error");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "warn" }).logging.level, "warn");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "info" }).logging.level, "info");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "debug" }).logging.level, "debug");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "silent" }).logging.level, "silent");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "error" }).logging.level, "error");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "warn" }).logging.level, "warn");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "info" }).logging.level, "info");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "debug" }).logging.level, "debug");
 
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "json" }).logging.format, "json");
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "pretty" }).logging.format, "pretty");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_FORMAT: "json" }).logging.format, "json");
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_FORMAT: "pretty" }).logging.format, "pretty");
 
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_REQUESTS: "0" }).logging.requests, false);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_ASSETS: "1" }).logging.assets, true);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_TOOL_CALLS: "0" }).logging.toolCalls, false);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_LOG_SHELL_COMMANDS: "1" }).logging.shellCommands, true);
-assert.equal(loadConfig({ ...baseEnv, DEVSPACE_TRUST_PROXY: "1" }).logging.trustProxy, true);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_REQUESTS: "0" }).logging.requests, false);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_ASSETS: "1" }).logging.assets, true);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_TOOL_CALLS: "0" }).logging.toolCalls, false);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_LOG_SHELL_COMMANDS: "1" }).logging.shellCommands, true);
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TRUST_PROXY: "1" }).logging.trustProxy, true);
 
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_LOG_LEVEL: "trace" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_LOG_LEVEL: "trace" }),
   /Invalid FORGERELAY_LOG_LEVEL: trace/,
 );
 
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_LOG_FORMAT: "color" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_LOG_FORMAT: "color" }),
   /Invalid FORGERELAY_LOG_FORMAT: color/,
 );
 
@@ -233,39 +242,39 @@ assert.equal(loadConfig(baseEnv).oauth.accessTokenTtlSeconds, 3600);
 assert.equal(loadConfig(baseEnv).oauth.refreshTokenTtlSeconds, 2592000);
 
 assert.deepEqual(
-  loadConfig({ ...baseEnv, DEVSPACE_OAUTH_SCOPES: "devspace,admin" }).oauth.scopes,
+  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_SCOPES: "devspace,admin" }).oauth.scopes,
   ["devspace", "admin"],
 );
 assert.deepEqual(
-  loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ALLOWED_REDIRECT_HOSTS: "chatgpt.com,example.com" }).oauth
+  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS: "chatgpt.com,example.com" }).oauth
     .allowedRedirectHosts,
   ["chatgpt.com", "example.com"],
 );
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "120" }).oauth
+  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "120" }).oauth
     .accessTokenTtlSeconds,
   120,
 );
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_OAUTH_REFRESH_TOKEN_TTL_SECONDS: "240" }).oauth
+  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_REFRESH_TOKEN_TTL_SECONDS: "240" }).oauth
     .refreshTokenTtlSeconds,
   240,
 );
 
 assert.throws(
-  () => loadConfig({ DEVSPACE_CONFIG_DIR: emptyConfigDir, DEVSPACE_ALLOWED_ROOTS: process.cwd() }),
+  () => loadConfig({ FORGERELAY_CONFIG_DIR: emptyConfigDir, FORGERELAY_ALLOWED_ROOTS: process.cwd() }),
   /FORGERELAY_OAUTH_OWNER_TOKEN is required/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_OAUTH_OWNER_TOKEN: "too-short" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_OAUTH_OWNER_TOKEN: "too-short" }),
   /FORGERELAY_OAUTH_OWNER_TOKEN must be at least 16 characters long/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "0" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS: "0" }),
   /Invalid FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 0/,
 );
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_ARTIFACT_MAX_FILE_BYTES: "0" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_ARTIFACT_MAX_FILE_BYTES: "0" }),
   /Invalid FORGERELAY_ARTIFACT_MAX_FILE_BYTES: 0/,
 );
 
@@ -275,7 +284,7 @@ assert.deepEqual(loadConfig(baseEnv).allowedHosts, ["localhost", "127.0.0.1", ":
 
 const routedPublic = loadConfig({
   ...baseEnv,
-  DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/forgerelay/debug/",
+  FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/forgerelay/debug/",
 });
 assert.equal(routedPublic.publicBaseUrl, "https://abc.trycloudflare.com/forgerelay/debug");
 assert.deepEqual(routedPublic.publicBaseUrls, ["https://abc.trycloudflare.com/forgerelay/debug"]);
@@ -286,7 +295,7 @@ assert.deepEqual(
 
 const multiplePublic = loadConfig({
   ...baseEnv,
-  DEVSPACE_PUBLIC_BASE_URL:
+  FORGERELAY_PUBLIC_BASE_URL:
     "https://primary.example.com/forgerelay/debug, https://alias.example.com/relay, https://primary.example.com/forgerelay/debug/",
 });
 assert.equal(multiplePublic.publicBaseUrl, "https://primary.example.com/forgerelay/debug");
@@ -302,18 +311,18 @@ assert.deepEqual(multiplePublic.allowedHosts, [
   "alias.example.com",
 ]);
 assert.throws(
-  () => loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "" }),
+  () => loadConfig({ ...baseEnv, FORGERELAY_PUBLIC_BASE_URL: "" }),
   /PUBLIC_BASE_URL must contain at least one public base URL/,
 );
 assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).logging.trustProxy,
+  loadConfig({ ...baseEnv, FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).logging.trustProxy,
   true,
 );
 assert.equal(
   loadConfig({
     ...baseEnv,
-    DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
-    DEVSPACE_TRUST_PROXY: "0",
+    FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+    FORGERELAY_TRUST_PROXY: "0",
   }).logging.trustProxy,
   false,
 );
@@ -321,12 +330,12 @@ assert.equal(
   loadConfig({
     ...baseEnv,
     HOST: "0.0.0.0",
-    DEVSPACE_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+    FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
   }).logging.trustProxy,
   false,
 );
 assert.deepEqual(
-  loadConfig({ ...baseEnv, DEVSPACE_ALLOWED_HOSTS: "*" }).allowedHosts,
+  loadConfig({ ...baseEnv, FORGERELAY_ALLOWED_HOSTS: "*" }).allowedHosts,
   ["*"],
 );
 
@@ -360,7 +369,7 @@ writeFileSync(
   }),
 );
 
-const fileConfig = loadConfig({ DEVSPACE_CONFIG_DIR: configDir });
+const fileConfig = loadConfig({ FORGERELAY_CONFIG_DIR: configDir });
 assert.equal(fileConfig.port, 8787);
 assert.equal(fileConfig.oauth.ownerToken, "persisted-owner-token-long-enough");
 assert.equal(fileConfig.publicBaseUrl, "https://devspace.example.com/forgerelay/main");
@@ -411,7 +420,7 @@ writeFileSync(
   JSON.stringify({ ownerToken: "persisted-owner-token-long-enough" }),
 );
 assert.throws(
-  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
   /Unknown ForgeRelay hook event: UnknownEvent/,
 );
 
@@ -420,7 +429,7 @@ writeFileSync(
   JSON.stringify({ hooks: { BeforeTool: [{ command: "   " }] } }),
 );
 assert.throws(
-  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
   /Hook BeforeTool command must be a non-empty string/,
 );
 
@@ -429,6 +438,6 @@ writeFileSync(
   JSON.stringify({ hooks: { BeforeTool: [{ command: "echo ok", timeoutSeconds: 0 }] } }),
 );
 assert.throws(
-  () => loadConfig({ DEVSPACE_CONFIG_DIR: invalidHooksConfigDir }),
+  () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
   /Hook BeforeTool timeoutSeconds must be an integer between 1 and 300/,
 );

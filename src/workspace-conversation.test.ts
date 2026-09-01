@@ -723,11 +723,11 @@ test("canonical checkout identity survives macOS var path aliases", { skip: plat
   }
 
   const aliasConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(context.root, ".alias-config"),
-    DEVSPACE_ALLOWED_ROOTS: `${context.root},${macAlias}`,
-    DEVSPACE_WORKTREE_ROOT: join(context.root, ".worktrees"),
-    DEVSPACE_AGENT_DIR: join(context.root, "agent"),
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(context.root, ".alias-config"),
+    FORGERELAY_ALLOWED_ROOTS: `${context.root},${macAlias}`,
+    FORGERELAY_WORKTREE_ROOT: join(context.root, ".worktrees"),
+    FORGERELAY_AGENT_DIR: join(context.root, "agent"),
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const aliasRegistry = new WorkspaceRegistry(aliasConfig, context.store);
@@ -897,12 +897,12 @@ async function fixture(
   if (options.git) await initializeGitRepository(project);
 
   const config = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(root, ".config"),
-    DEVSPACE_ALLOWED_ROOTS: root,
-    DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(root, ".config"),
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const openStore = () => {

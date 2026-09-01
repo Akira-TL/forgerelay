@@ -75,10 +75,6 @@ export function createInteractiveDebugEnvironment({
       delete debugEnv[key];
       continue;
     }
-    if (key.startsWith("DEVSPACE_")) {
-      delete debugEnv[key];
-      continue;
-    }
     if (
       key.startsWith("FORGERELAY_")
       && !key.startsWith("FORGERELAY_LOG_")

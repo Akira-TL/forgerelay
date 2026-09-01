@@ -76,24 +76,12 @@ export interface ForgeRelayFiles {
   auth: ForgeRelayAuthConfig;
   hooks: HookConfigInput;
   hookFiles: HookConfig;
-  usingLegacyDir: boolean;
 }
 
-/** @deprecated Internal compatibility alias. */
-export type DevspaceUserConfig = ForgeRelayUserConfig;
-/** @deprecated Internal compatibility alias. */
-export type DevspaceAuthConfig = ForgeRelayAuthConfig;
-/** @deprecated Internal compatibility alias. */
-export type DevspaceFiles = ForgeRelayFiles;
-
 export function forgerelayConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  const explicit = env.FORGERELAY_CONFIG_DIR ?? env.DEVSPACE_CONFIG_DIR;
+  const explicit = env.FORGERELAY_CONFIG_DIR;
   if (explicit) return resolve(expandHomePath(explicit));
-
-  const current = join(homedir(), ".forgerelay");
-  const legacy = join(homedir(), ".devspace");
-  if (existsSync(current) || !existsSync(legacy)) return resolve(current);
-  return resolve(legacy);
+  return resolve(join(homedir(), ".forgerelay"));
 }
 
 export function forgerelayConfigPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -141,7 +129,6 @@ export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): Forge
     auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
     hooks: hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
     hookFiles: readHookFiles(join(dir, "hooks")),
-    usingLegacyDir: dir === resolve(join(homedir(), ".devspace")),
   };
 }
 
@@ -269,22 +256,10 @@ export function resolveSubagentsFlag(
   config: Pick<ForgeRelayUserConfig, "subagents">,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean | undefined {
-  const value = env.FORGERELAY_SUBAGENTS ?? env.DEVSPACE_SUBAGENTS;
+  const value = env.FORGERELAY_SUBAGENTS;
   if (value === undefined) return config.subagents;
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
-
-// Legacy exported names remain temporarily so existing integrations and tests do not
-// break while the public product surface migrates to ForgeRelay.
-export const devspaceConfigDir = forgerelayConfigDir;
-export const devspaceConfigPath = forgerelayConfigPath;
-export const devspaceAuthPath = forgerelayAuthPath;
-export const devspaceSkillsDir = forgerelaySkillsDir;
-export const devspaceAgentsDir = forgerelayAgentsDir;
-export const loadDevspaceFiles = loadForgeRelayFiles;
-export const writeDevspaceConfig = writeForgeRelayConfig;
-export const writeDevspaceAuth = writeForgeRelayAuth;
-export const ensureDevspaceDefaultSkills = ensureForgeRelayDefaultSkills;
 
 function readHookFiles(directory: string): HookConfig {
   if (!existsSync(directory)) return {};

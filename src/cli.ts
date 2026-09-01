@@ -22,14 +22,14 @@ import {
   ensureForgeRelayInstanceId,
   generateInstanceId,
   generateOwnerToken,
-  loadDevspaceFiles,
+  loadForgeRelayFiles,
   removeForgeRelayRemote,
   renameForgeRelayRemote,
   resolveSubagentsFlag,
-  writeDevspaceAuth,
-  writeDevspaceConfig,
+  writeForgeRelayAuth,
+  writeForgeRelayConfig,
   writeForgeRelayRemote,
-  type DevspaceUserConfig,
+  type ForgeRelayUserConfig,
 } from "./user-config.js";
 import { expandHomePath } from "./roots.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
@@ -100,12 +100,12 @@ function normalizeCommand(command: string | undefined): Command {
 }
 
 async function ensureConfigured(): Promise<void> {
-  const files = loadDevspaceFiles();
+  const files = loadForgeRelayFiles();
   if (files.configExists && files.authExists) {
     ensureForgeRelayInstanceId();
     return;
   }
-  if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN) {
+  if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN) {
     ensureForgeRelayInstanceId();
     return;
   }
@@ -127,7 +127,7 @@ async function ensureConfigured(): Promise<void> {
 }
 
 async function runInit({ force }: { force: boolean }): Promise<void> {
-  const files = loadDevspaceFiles();
+  const files = loadForgeRelayFiles();
   if (!force && files.configExists && files.authExists) {
     prompts.log.info(`ForgeRelay is already configured at ${files.dir}`);
     prompts.log.info("Run `forgerelay init --force` to update it.");
@@ -181,7 +181,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
     }));
     const publicBaseUrl = compactPublicBaseUrlConfig(publicBaseUrls);
 
-    const config: DevspaceUserConfig = {
+    const config: ForgeRelayUserConfig = {
       host: files.config.host ?? "127.0.0.1",
       port,
       allowedRoots,
@@ -197,8 +197,8 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
       instanceId: files.auth.instanceId ?? generateInstanceId(),
     };
 
-    const configPath = writeDevspaceConfig(config);
-    const authPath = writeDevspaceAuth(auth);
+    const configPath = writeForgeRelayConfig(config);
+    const authPath = writeForgeRelayAuth(auth);
 
     const lines = [
       `Config: ${configPath}`,
@@ -340,8 +340,7 @@ async function resolveAuthOwnerToken(ownerToken: string | undefined): Promise<st
 
 function localOwnerToken(): string {
   const token = process.env.FORGERELAY_OAUTH_OWNER_TOKEN
-    ?? process.env.DEVSPACE_OAUTH_OWNER_TOKEN
-    ?? loadDevspaceFiles().auth.ownerToken;
+    ?? loadForgeRelayFiles().auth.ownerToken;
   if (!token) throw new Error("ForgeRelay owner token is not configured on this machine.");
   return token;
 }
@@ -355,7 +354,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
   }
   if (subcommand === "list") {
     if (rest.length > 0) throw new Error("forgerelay auth list does not accept additional arguments.");
-    const remotes = loadDevspaceFiles().auth.remotes ?? {};
+    const remotes = loadForgeRelayFiles().auth.remotes ?? {};
     if (Object.keys(remotes).length === 0) {
       console.log("No remote ForgeRelay instances registered.");
       return;
@@ -384,7 +383,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
   if (subcommand === "test") {
     const [alias, ...extra] = rest;
     if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth test <alias>");
-    const files = loadDevspaceFiles();
+    const files = loadForgeRelayFiles();
     const storedRemote = files.auth.remotes?.[alias];
     if (!storedRemote) throw new Error(`Unknown remote alias: ${alias}`);
     let remote = storedRemote;
@@ -427,7 +426,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
     target,
     ...(parsed.sshRoute ? { sshRoute: parsed.sshRoute } : {}),
   };
-  const files = loadDevspaceFiles();
+  const files = loadForgeRelayFiles();
   const existingAlias = Object.entries(files.auth.remotes ?? {}).find(
     ([, record]) => record.instanceId === remote.instanceId,
   )?.[0];
@@ -443,7 +442,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
 }
 
 async function runDoctor(): Promise<void> {
-  const files = loadDevspaceFiles();
+  const files = loadForgeRelayFiles();
   console.log(`Config dir: ${files.dir}`);
   console.log(`Config file: ${files.configExists ? files.configPath : "missing"}`);
   console.log(`Auth file: ${files.authExists ? files.authPath : "missing"}`);
@@ -475,7 +474,7 @@ async function runDoctor(): Promise<void> {
 
 function runConfigCommand(args: string[]): void {
   const [subcommand, key, ...rest] = args;
-  const files = loadDevspaceFiles();
+  const files = loadForgeRelayFiles();
 
   if (!subcommand || subcommand === "get") {
     console.log(JSON.stringify(files.config, null, 2));
@@ -492,7 +491,7 @@ function runConfigCommand(args: string[]): void {
   const value = rest.join(" ").trim();
   if (!value) throw new Error("Missing publicBaseUrl value.");
 
-  writeDevspaceConfig({
+  writeForgeRelayConfig({
     ...files.config,
     publicBaseUrl: normalizeOptionalPublicBaseUrl(value),
   });
@@ -584,7 +583,7 @@ async function runAgentsRun(args: string[]): Promise<void> {
     const started = existing
       ? manager.resume({ sessionId: existing.id, prompt: parsed.prompt })
       : await manager.start({
-          workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
+          workspaceId: process.env.FORGERELAY_WORKSPACE_ID,
           workspaceRoot,
           target: parsed.target,
           prompt: parsed.prompt,
@@ -676,12 +675,12 @@ function writeSubagentPromptFile(prompt: string): string {
 }
 
 function resolveCurrentWorkspaceRoot(): string {
-  return resolve(process.env.FORGERELAY_WORKSPACE_ROOT ?? process.env.DEVSPACE_WORKSPACE_ROOT ?? process.cwd());
+  return resolve(process.env.FORGERELAY_WORKSPACE_ROOT ?? process.cwd());
 }
 
 function resolveCurrentWorkspaceScope(): { workspaceId?: string; workspaceRoot: string } {
   return {
-    workspaceId: process.env.FORGERELAY_WORKSPACE_ID ?? process.env.DEVSPACE_WORKSPACE_ID,
+    workspaceId: process.env.FORGERELAY_WORKSPACE_ID,
     workspaceRoot: resolveCurrentWorkspaceRoot(),
   };
 }

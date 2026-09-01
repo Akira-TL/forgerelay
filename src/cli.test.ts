@@ -11,14 +11,14 @@ const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.me
 };
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>
-    !name.startsWith("FORGERELAY_") && !name.startsWith("DEVSPACE_")
+    !name.startsWith("FORGERELAY_")
   ),
 ) as NodeJS.ProcessEnv;
 
 for (const flag of ["-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
     encoding: "utf8",
-    env: { ...cleanProductEnv, DEVSPACE_CONFIG_DIR: "/tmp/devspace-cli-version-test" },
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-version-test" },
   }).trim();
 
   assert.equal(output, packageJson.version);
@@ -200,9 +200,9 @@ try {
   rmSync(hooksRoot, { recursive: true, force: true });
 }
 
-const root = mkdtempSync(join(tmpdir(), "devspace-cli-agents-test-"));
+const root = mkdtempSync(join(tmpdir(), "forgerelay-cli-agents-test-"));
 try {
-  const configDir = join(root, ".devspace");
+  const configDir = join(root, ".forgerelay");
   const stateDir = join(root, ".state");
   const projectRoot = join(root, "project");
   mkdirSync(stateDir, { recursive: true });
@@ -261,13 +261,13 @@ try {
     encoding: "utf8",
     env: {
       ...cleanProductEnv,
-      DEVSPACE_CONFIG_DIR: configDir,
-      DEVSPACE_ALLOWED_ROOTS: projectRoot,
-      DEVSPACE_STATE_DIR: stateDir,
-      DEVSPACE_WORKSPACE_ID: "ws_current",
-      DEVSPACE_WORKSPACE_ROOT: projectRoot,
-      DEVSPACE_SUBAGENTS: "1",
-      DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      FORGERELAY_CONFIG_DIR: configDir,
+      FORGERELAY_ALLOWED_ROOTS: projectRoot,
+      FORGERELAY_STATE_DIR: stateDir,
+      FORGERELAY_WORKSPACE_ID: "ws_current",
+      FORGERELAY_WORKSPACE_ROOT: projectRoot,
+      FORGERELAY_SUBAGENTS: "1",
+      FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     },
   });
 
@@ -276,11 +276,11 @@ try {
   assert.doesNotMatch(output, new RegExp(other.id));
 
   assert.equal(loadConfig({
-    DEVSPACE_CONFIG_DIR: configDir,
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_STATE_DIR: stateDir,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_STATE_DIR: stateDir,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   }).subagents, true);
 
   const workerStore = new SubagentSessionStore(stateDir);
@@ -306,11 +306,11 @@ try {
       encoding: "utf8",
       env: {
         ...cleanProductEnv,
-        DEVSPACE_CONFIG_DIR: configDir,
-        DEVSPACE_ALLOWED_ROOTS: projectRoot,
-        DEVSPACE_STATE_DIR: stateDir,
-        DEVSPACE_SUBAGENTS: "1",
-        DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+        FORGERELAY_CONFIG_DIR: configDir,
+        FORGERELAY_ALLOWED_ROOTS: projectRoot,
+        FORGERELAY_STATE_DIR: stateDir,
+        FORGERELAY_SUBAGENTS: "1",
+        FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
       },
     },
   );
@@ -335,11 +335,11 @@ try {
       encoding: "utf8",
       env: {
         ...cleanProductEnv,
-        DEVSPACE_CONFIG_DIR: configDir,
-        DEVSPACE_ALLOWED_ROOTS: projectRoot,
-        DEVSPACE_STATE_DIR: stateDir,
-        DEVSPACE_SUBAGENTS: "1",
-        DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+        FORGERELAY_CONFIG_DIR: configDir,
+        FORGERELAY_ALLOWED_ROOTS: projectRoot,
+        FORGERELAY_STATE_DIR: stateDir,
+        FORGERELAY_SUBAGENTS: "1",
+        FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
       },
     },
   );

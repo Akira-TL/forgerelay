@@ -163,8 +163,8 @@ test("MCP instructions separate capability contract from configurable workflow p
 
   const overrideContext = await fixture(t, {
     env: {
-      DEVSPACE_WORKFLOW_INSTRUCTIONS: "Follow repository-defined development and Git workflows.",
-      DEVSPACE_APPEND_INSTRUCTIONS: "Preserve the capability contract.",
+      FORGERELAY_WORKFLOW_INSTRUCTIONS: "Follow repository-defined development and Git workflows.",
+      FORGERELAY_APPEND_INSTRUCTIONS: "Preserve the capability contract.",
     },
   });
   const overrideInstructions = overrideContext.client.getInstructions() ?? "";
@@ -180,11 +180,11 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(overrideInstructions, /\/etc\/sudoers/);
   assert.doesNotMatch(overrideInstructions, /Do not create or modify files with bash/);
 
-  const minimalContext = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "minimal" } });
+  const minimalContext = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "minimal" } });
   const minimalTools = await minimalContext.client.listTools();
   assert.deepEqual(minimalTools.tools.map((tool) => tool.name), canonicalToolNames);
 
-  const codexContext = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const codexContext = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
   const codexTools = await codexContext.client.listTools();
   const execCommandTool = codexTools.tools.find((tool) => tool.name === "exec_command");
   assert.match(execCommandTool?.description ?? "", /may modify ordinary project files/);
@@ -195,13 +195,13 @@ test("MCP instructions separate capability contract from configurable workflow p
 test("MCP App resource identities include the full public base URL list", async (t) => {
   const first = await fixture(t, {
     env: {
-      DEVSPACE_PUBLIC_BASE_URL:
+      FORGERELAY_PUBLIC_BASE_URL:
         "https://shared.example.com/forgerelay/main,https://alias-a.example.com/relay",
     },
   });
   const second = await fixture(t, {
     env: {
-      DEVSPACE_PUBLIC_BASE_URL:
+      FORGERELAY_PUBLIC_BASE_URL:
         "https://shared.example.com/forgerelay/main,https://alias-b.example.com/relay",
     },
   });
@@ -224,7 +224,7 @@ test("MCP App resource identities include the full public base URL list", async 
 test("Activity Panel is the single advertised MCP App for new rendering", async (t) => {
   const context = await fixture(t, {
     env: {
-      DEVSPACE_PUBLIC_BASE_URL:
+      FORGERELAY_PUBLIC_BASE_URL:
         "https://forge.example.com/base/path,https://forge-alt.example.com/alternate/path",
     },
   });
@@ -592,7 +592,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
 });
 
 test("batch.execute does not bypass Codex tool-mode surface", async (t) => {
-  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const context = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
   const opened = await callOpen(context.client, context.project, "batch-codex-mode");
   const workspaceId = String(structuredContent(opened).workspaceId);
   const openedStructured = structuredContent(opened);
@@ -619,7 +619,7 @@ test("batch.execute does not bypass Codex tool-mode surface", async (t) => {
 test("review.changes capability owns checkpoints, Hook reports, and review-card metadata", async (t) => {
   const context = await fixture(t, {
     git: true,
-    env: { DEVSPACE_WIDGETS: "changes" },
+    env: { FORGERELAY_WIDGETS: "changes" },
     hooks: {
       BeforeTool: [{
         matcher: { tool: "capability" },
@@ -692,7 +692,7 @@ test("artifact.download capability preserves native-file transport without a ded
     },
   };
   const context = await fixture(t, {
-    env: { DEVSPACE_ARTIFACTS: "1" },
+    env: { FORGERELAY_ARTIFACTS: "1" },
     incomingArtifactAdapters: [adapter],
     hooks: {
       AfterFileChange: [{
@@ -1666,9 +1666,9 @@ test("open_workspace list distinguishes closed and externally missing managed wo
 test("capability fingerprint reports optional feature availability without copying tools/list", async (t) => {
   const context = await fixture(t, {
     env: {
-      DEVSPACE_ARTIFACTS: "1",
-      DEVSPACE_SUBAGENTS: "1",
-      DEVSPACE_WIDGETS: "changes",
+      FORGERELAY_ARTIFACTS: "1",
+      FORGERELAY_SUBAGENTS: "1",
+      FORGERELAY_WIDGETS: "changes",
     },
   });
 
@@ -2165,7 +2165,7 @@ test("Activity Panel exposes the default-expanded preference only through app re
   );
 
   const expanded = await fixture(t, {
-    env: { DEVSPACE_ACTIVITY_PANEL_EXPANDED: "1" },
+    env: { FORGERELAY_ACTIVITY_PANEL_EXPANDED: "1" },
   });
   const expandedOpened = await callOpen(expanded.client, expanded.project, "chat-activity-panel-expanded");
   const expandedWorkspaceId = String(structuredContent(expandedOpened).workspaceId);
@@ -2919,7 +2919,7 @@ test("edit can modify a file in the OS temp directory", async (t) => {
 
 test("rename and delete are core tools in regular and codex modes", async (t) => {
   const regular = await fixture(t);
-  const codex = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const codex = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
 
   for (const context of [regular, codex]) {
     const tools = await context.client.listTools();
@@ -2994,7 +2994,7 @@ test("delete refuses the workspace root itself", async (t) => {
 });
 
 test("codex apply_patch can create a file in the OS temp directory", async (t) => {
-  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const context = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
   const opened = await callOpen(context.client, context.project, "chat-temp-apply-patch");
   const workspaceId = String(structuredContent(opened).workspaceId);
   const tempRoot = await mkdtemp(join(tmpdir(), "forgerelay-file-tool-test-"));
@@ -3018,7 +3018,7 @@ test("codex apply_patch can create a file in the OS temp directory", async (t) =
 });
 
 test("Composite Workspace routes Codex apply_patch and process tools through an explicit member", async (t) => {
-  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const context = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
   const ordinary = await callOpen(context.client, context.project, "chat-codex-composite-member");
   const ordinaryId = String(structuredContent(ordinary).workspaceId);
   const composite = await context.client.callTool({
@@ -3111,7 +3111,7 @@ test("Composite Workspace routes Codex apply_patch and process tools through an 
 });
 
 test("codex exec_command is a top-level Activity while write_stdin remains process control", async (t) => {
-  const context = await fixture(t, { env: { DEVSPACE_TOOL_MODE: "codex" } });
+  const context = await fixture(t, { env: { FORGERELAY_TOOL_MODE: "codex" } });
   const opened = await callOpen(context.client, context.project, "chat-codex-activity");
   const workspaceId = String(structuredContent(opened).workspaceId);
 
@@ -4455,7 +4455,7 @@ test("open_workspace inspect projects Composite members and Tasks without touchi
 
 test("workspace.tasks reminder counts semantic work, excludes lifecycle/process follow-ups, and resets on Task mutation", async (t) => {
   const context = await fixture(t, {
-    env: { DEVSPACE_TASK_REMINDER_INTERVAL: "2" },
+    env: { FORGERELAY_TASK_REMINDER_INTERVAL: "2" },
   });
   await writeFile(join(context.project, "reminder.txt"), "semantic work\n");
   const opened = await callOpen(context.client, context.project, "chat-task-reminder");
@@ -4618,7 +4618,7 @@ test("workspace.tasks reminder counts semantic work, excludes lifecycle/process 
 
 test("workspace.tasks reminder follows the Composite identity during explicit member work", async (t) => {
   const context = await fixture(t, {
-    env: { DEVSPACE_TASK_REMINDER_INTERVAL: "1" },
+    env: { FORGERELAY_TASK_REMINDER_INTERVAL: "1" },
   });
   await writeFile(join(context.project, "reminder.txt"), "composite semantic work\n");
   const memberOpen = await callOpen(context.client, context.project, "chat-composite-task-reminder-member");
@@ -5473,14 +5473,14 @@ async function fixture(
   }
 
   const loadedConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(root, ".config"),
-    DEVSPACE_STATE_DIR: stateDir,
-    DEVSPACE_ALLOWED_ROOTS: root,
-    DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_WIDGETS: "full",
-    DEVSPACE_TOOL_MODE: "full",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(root, ".config"),
+    FORGERELAY_STATE_DIR: stateDir,
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_WIDGETS: "full",
+    FORGERELAY_TOOL_MODE: "full",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
     ...options.env,
   });

@@ -52,12 +52,12 @@ test("a checkout loads one configured system instruction plus project context", 
     await symlink(join(context.outsideRoot, "secret.txt"), join(unsafeAgentDir, "AGENTS.md"));
 
     const unsafeConfig = loadConfig({
-      DEVSPACE_CONFIG_DIR: join(context.root, ".devspace-unsafe-home"),
-      DEVSPACE_ALLOWED_ROOTS: context.root,
-      DEVSPACE_WORKTREE_ROOT: join(context.root, ".devspace", "unsafe-worktrees"),
-      DEVSPACE_AGENT_DIR: unsafeAgentDir,
-      DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
-      DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+      FORGERELAY_CONFIG_DIR: join(context.root, ".devspace-unsafe-home"),
+      FORGERELAY_ALLOWED_ROOTS: context.root,
+      FORGERELAY_WORKTREE_ROOT: join(context.root, ".devspace", "unsafe-worktrees"),
+      FORGERELAY_AGENT_DIR: unsafeAgentDir,
+      FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
+      FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
       PORT: "1",
     });
     const unsafeWorkspace = await new WorkspaceRegistry(unsafeConfig).openWorkspace(context.root);
@@ -353,11 +353,11 @@ test("a symlinked allowed root preserves checkout and worktree path behavior", {
   await createGitProject(context.root);
 
   const aliasConfig = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: aliasRoot,
-    DEVSPACE_WORKTREE_ROOT: join(aliasRoot, ".devspace", "alias-worktrees"),
-    DEVSPACE_AGENT_DIR: context.agentDir,
-    DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: aliasRoot,
+    FORGERELAY_WORKTREE_ROOT: join(aliasRoot, ".devspace", "alias-worktrees"),
+    FORGERELAY_AGENT_DIR: context.agentDir,
+    FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const aliasRegistry = new WorkspaceRegistry(aliasConfig);
@@ -424,13 +424,13 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   await writeFile(join(root, "nested", "file.txt"), "hello\n");
 
   const config = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(root, ".devspace-home"),
-    DEVSPACE_ALLOWED_ROOTS: root,
-    DEVSPACE_WORKTREE_ROOT: join(root, ".devspace", "worktrees"),
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SYSTEM_INSTRUCTIONS_PATH: systemInstructionsPath,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(root, ".devspace-home"),
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, ".devspace", "worktrees"),
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: systemInstructionsPath,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
 

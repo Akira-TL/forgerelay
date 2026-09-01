@@ -183,15 +183,15 @@ async function fixture(
     }),
   ]);
   const config = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(root, ".config"),
-    DEVSPACE_STATE_DIR: stateDir,
-    DEVSPACE_ALLOWED_ROOTS: root,
-    DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_WIDGETS: "full",
-    DEVSPACE_TOOL_MODE: "full",
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(root, ".config"),
+    FORGERELAY_STATE_DIR: stateDir,
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_WIDGETS: "full",
+    FORGERELAY_TOOL_MODE: "full",
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const store = new SqliteWorkspaceStore(stateDir);

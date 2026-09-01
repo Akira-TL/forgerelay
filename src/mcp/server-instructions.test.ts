@@ -11,9 +11,9 @@ import {
 
 const configDir = mkdtempSync(join(tmpdir(), "devspace-server-instructions-test-"));
 const baseEnv = {
-  DEVSPACE_CONFIG_DIR: configDir,
-  DEVSPACE_ALLOWED_ROOTS: process.cwd(),
-  DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+  FORGERELAY_CONFIG_DIR: configDir,
+  FORGERELAY_ALLOWED_ROOTS: process.cwd(),
+  FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
 };
 
 function instructions(env: NodeJS.ProcessEnv = {}): string {
@@ -51,8 +51,8 @@ test("default instructions keep a compact core capability contract and built-in 
 });
 
 test("minimal and full share the same regular workflow instructions", () => {
-  const minimal = instructions({ DEVSPACE_TOOL_MODE: "minimal" });
-  const full = instructions({ DEVSPACE_TOOL_MODE: "full" });
+  const minimal = instructions({ FORGERELAY_TOOL_MODE: "minimal" });
+  const full = instructions({ FORGERELAY_TOOL_MODE: "full" });
 
   assert.equal(full, minimal);
   assert.match(full, /Use bash with command-line tools such as grep, rg, find, ls, and tree/);
@@ -68,8 +68,8 @@ test("capability contract requires agents to report visible hook results", () =>
 test("optional artifact and review features do not expand the core instruction payload", () => {
   const result = buildServerInstructions(loadConfig({
     ...baseEnv,
-    DEVSPACE_ARTIFACTS: "1",
-    DEVSPACE_WIDGETS: "changes",
+    FORGERELAY_ARTIFACTS: "1",
+    FORGERELAY_WIDGETS: "changes",
   }));
 
   assert.ok(result.length < 3_000, `feature-enabled instructions should stay compact, got ${result.length} characters`);
@@ -81,7 +81,7 @@ test("optional artifact and review features do not expand the core instruction p
 
 test("workflow override replaces built-in workflow without replacing the capability contract", () => {
   const result = instructions({
-    DEVSPACE_WORKFLOW_INSTRUCTIONS: "Use repository-defined development and Git workflows.",
+    FORGERELAY_WORKFLOW_INSTRUCTIONS: "Use repository-defined development and Git workflows.",
   });
 
   assert.match(result, /Default to the user's existing checkout/);
@@ -98,7 +98,7 @@ test("workflow override replaces built-in workflow without replacing the capabil
 });
 
 test("empty workflow override emits capability-only instructions", () => {
-  const result = instructions({ DEVSPACE_WORKFLOW_INSTRUCTIONS: "" });
+  const result = instructions({ FORGERELAY_WORKFLOW_INSTRUCTIONS: "" });
 
   assert.match(result, /Default to the user's existing checkout/);
   assert.match(result, /Only open mode="worktree" when the user explicitly asks/);
@@ -113,7 +113,7 @@ test("empty workflow override emits capability-only instructions", () => {
 
 test("append instructions extend the selected workflow", () => {
   const result = instructions({
-    DEVSPACE_APPEND_INSTRUCTIONS: "Repository policy decides how Git commits are created.",
+    FORGERELAY_APPEND_INSTRUCTIONS: "Repository policy decides how Git commits are created.",
   });
 
   assert.match(result, /Shell commands may modify ordinary project files/);
@@ -121,10 +121,10 @@ test("append instructions extend the selected workflow", () => {
 });
 
 test("codex workflow override relies on tools/list instead of duplicating the tool surface", () => {
-  const defaultResult = instructions({ DEVSPACE_TOOL_MODE: "codex" });
+  const defaultResult = instructions({ FORGERELAY_TOOL_MODE: "codex" });
   const overrideResult = instructions({
-    DEVSPACE_TOOL_MODE: "codex",
-    DEVSPACE_WORKFLOW_INSTRUCTIONS: "Follow the repository workflow.",
+    FORGERELAY_TOOL_MODE: "codex",
+    FORGERELAY_WORKFLOW_INSTRUCTIONS: "Follow the repository workflow.",
   });
 
   assert.match(defaultResult, /rename and delete for direct path moves or removals/);

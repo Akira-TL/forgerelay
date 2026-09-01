@@ -161,20 +161,20 @@ try {
   );
 
   const disabledConfig = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SKILL_PATHS: explicitSkills,
-    DEVSPACE_SKILLS: "0",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SKILL_PATHS: explicitSkills,
+    FORGERELAY_SKILLS: "0",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   assert.deepEqual(loadWorkspaceSkills(disabledConfig, projectRoot).skills, []);
 
   const config = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SKILL_PATHS: [explicitSkills, "~/.claude/skills", "./.claude/skills"].join(","),
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SKILL_PATHS: [explicitSkills, "~/.claude/skills", "./.claude/skills"].join(","),
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const loaded = loadWorkspaceSkills(config, projectRoot);
@@ -183,7 +183,7 @@ try {
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-global-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-project-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "project-skill"), false);
-  assert.equal(loaded.skills.some((skill) => skill.name === "devspace-local-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "devspace-local-skill"), false);
   assert.equal(loaded.skills.some((skill) => skill.name === "subagent-delegation"), false);
   assert.equal(loaded.skills.filter((skill) => skill.name === "duplicate-skill").length, 1);
   assert.equal(loaded.skills.some((skill) => skill.name === "hidden-skill"), true);
@@ -200,11 +200,11 @@ try {
   await mkdir(cleanAgentDir, { recursive: true });
   await mkdir(cleanConfigDir, { recursive: true });
   const capabilityGuideSubagentConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: cleanConfigDir,
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: cleanAgentDir,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: cleanConfigDir,
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: cleanAgentDir,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   assert.equal(
@@ -215,10 +215,10 @@ try {
   );
 
   const experimentalConfig = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SUBAGENTS: "1",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SUBAGENTS: "1",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   assert.equal(
@@ -229,10 +229,10 @@ try {
   );
 
   const duplicateConfig = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SKILL_PATHS: [explicitSkills, "./.agents/skills"].join(","),
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SKILL_PATHS: [explicitSkills, "./.agents/skills"].join(","),
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   assert.equal(
@@ -241,10 +241,10 @@ try {
   );
 
   const legacyPiConfig = loadConfig({
-    DEVSPACE_ALLOWED_ROOTS: projectRoot,
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_SKILL_PATHS: [explicitSkills, join(projectRoot, ".pi", "skills")].join(","),
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_SKILL_PATHS: [explicitSkills, join(projectRoot, ".pi", "skills")].join(","),
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   assert.equal(

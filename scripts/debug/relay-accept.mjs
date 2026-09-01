@@ -537,7 +537,6 @@ function cleanProductEnv() {
     name !== "HOST"
     && name !== "PORT"
     && !name.startsWith("FORGERELAY_")
-    && !name.startsWith("DEVSPACE_")
   ));
 }
 

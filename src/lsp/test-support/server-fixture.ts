@@ -39,13 +39,13 @@ export async function createCodeIntelligenceServerFixture(
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
 
   const config: ServerConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: join(root, ".config"),
-    DEVSPACE_ALLOWED_ROOTS: root,
-    DEVSPACE_WORKTREE_ROOT: join(root, ".worktrees"),
-    DEVSPACE_AGENT_DIR: agentDir,
-    DEVSPACE_WIDGETS: "full",
-    DEVSPACE_TOOL_MODE: "full",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: join(root, ".config"),
+    FORGERELAY_ALLOWED_ROOTS: root,
+    FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_WIDGETS: "full",
+    FORGERELAY_TOOL_MODE: "full",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
   const store = new SqliteWorkspaceStore(stateDir);

@@ -24,7 +24,7 @@ import { SubagentSessionStore } from "../store.js";
 
 const cleanEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key]) =>
-    !key.startsWith("FORGERELAY_") && !key.startsWith("DEVSPACE_") && key !== "PORT" && key !== "HOST"
+    !key.startsWith("FORGERELAY_") && !key.startsWith("FORGERELAY_") && key !== "PORT" && key !== "HOST"
   ),
 ) as NodeJS.ProcessEnv;
 

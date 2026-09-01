@@ -30,7 +30,7 @@ export function effectiveSkillPaths(config: ServerConfig, cwd: string): string[]
   const defaultPathCandidates = [
     join(homedir(), ".agents", "skills"),
     resolve(cwd, ".agents", "skills"),
-    config.devspaceSkillsDir,
+    config.configSkillsDir,
     join(config.agentDir, "skills"),
   ];
   const defaultPaths = defaultPathCandidates.filter(

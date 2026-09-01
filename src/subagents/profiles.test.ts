@@ -113,10 +113,10 @@ try {
   assert.deepEqual(profilesWithInvalid.map((profile) => profile.name), ["reviewer"]);
 
   const disabledConfig = loadConfig({
-    DEVSPACE_CONFIG_DIR: configDir,
-    DEVSPACE_ALLOWED_ROOTS: workspaceRoot,
-    DEVSPACE_SUBAGENTS: "0",
-    DEVSPACE_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_ALLOWED_ROOTS: workspaceRoot,
+    FORGERELAY_SUBAGENTS: "0",
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
   assert.deepEqual(await loadSubagentProfiles(disabledConfig, workspaceRoot), []);
 } finally {
