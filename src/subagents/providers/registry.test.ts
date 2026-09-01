@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { delimiter } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import {
   resolveAcpModelConfigUpdate,
   resolveAcpThinkingConfigUpdate,
@@ -14,7 +16,7 @@ import {
 } from "./adapters/pi.js";
 import { subagentProviderContinuationSupported } from "./continuation.js";
 import { createSubagentProviderAdapter } from "./registry.js";
-import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
+import { removeForgeRelayNodeModulesBinFromPath } from "./path.js";
 import { linkedAbortController, terminateChildOnAbort } from "./shared.js";
 import type { SubagentProvider } from "../profiles.js";
 
@@ -399,9 +401,23 @@ assert.equal(
   const devspaceBin = `${process.cwd()}/node_modules/.bin`;
   const userBin = "/home/user/.local/bin";
   assert.equal(
-    removeDevspaceNodeModulesBinFromPath([devspaceBin, userBin].join(delimiter)),
+    removeForgeRelayNodeModulesBinFromPath([devspaceBin, userBin].join(delimiter)),
     userBin,
   );
+
+  const legacyRoot = mkdtempSync(join(tmpdir(), "forgerelay-legacy-package-path-"));
+  try {
+    for (const [index, packageName] of ["@akira-tl/devspace", "@waishnav/devspace"].entries()) {
+      const packageRoot = join(legacyRoot, `legacy-${index}`);
+      const legacyBin = join(packageRoot, "node_modules", ".bin");
+      mkdirSync(legacyBin, { recursive: true });
+      writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: packageName }));
+      const pathValue = [legacyBin, userBin].join(delimiter);
+      assert.equal(removeForgeRelayNodeModulesBinFromPath(pathValue), pathValue);
+    }
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
+  }
 
   const env = piCommandEnvironment({
     PATH: [devspaceBin, userBin].join(delimiter),

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { delimiter, resolve } from "node:path";
 import { subagentProviderContinuationSupported } from "./continuation.js";
-import { removeDevspaceNodeModulesBinFromPath } from "./path.js";
+import { removeForgeRelayNodeModulesBinFromPath } from "./path.js";
 import {
   SUBAGENT_PROVIDERS,
   type SubagentProvider,
@@ -162,6 +162,6 @@ function piAvailabilityEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (!path) return env;
   return {
     ...env,
-    PATH: removeDevspaceNodeModulesBinFromPath(path),
+    PATH: removeForgeRelayNodeModulesBinFromPath(path),
   };
 }

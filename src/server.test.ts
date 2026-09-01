@@ -4225,9 +4225,9 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
 test("open_workspace inspect reads bounded ordinary Workspace metadata without opening, binding, or leaking bootstrap context", async (t) => {
   const context = await fixture(t);
   const otherProject = join(dirname(context.project), "inspection-target");
-  await mkdir(join(otherProject, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(otherProject, ".forgerelay", "agents"), { recursive: true });
   await writeFile(join(otherProject, "AGENTS.md"), "INSPECTION_BOOTSTRAP_SECRET\n");
-  await writeFile(join(otherProject, ".devspace", "agents", "reviewer.md"), [
+  await writeFile(join(otherProject, ".forgerelay", "agents", "reviewer.md"), [
     "---",
     "name: inspection-reviewer",
     "description: Inspection-only reviewer.",
@@ -5450,11 +5450,11 @@ async function fixture(
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
 
-  await mkdir(join(project, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
-  await writeFile(join(project, ".devspace", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",

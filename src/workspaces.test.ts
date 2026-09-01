@@ -405,9 +405,9 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   }
 
   await writeFile(join(root, "AGENTS.md"), "root instructions\n");
-  await mkdir(join(root, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(root, ".forgerelay", "agents"), { recursive: true });
   await writeFile(
-    join(root, ".devspace", "agents", "reviewer.md"),
+    join(root, ".forgerelay", "agents", "reviewer.md"),
     [
       "---",
       "name: reviewer",

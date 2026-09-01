@@ -165,12 +165,12 @@ async function fixture(t: TestContext, runner: SubagentProviderRunner): Promise<
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
-  await mkdir(join(project, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
   await mkdir(join(project, ".forgerelay", "hooks"), { recursive: true });
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
-  await writeFile(join(project, ".devspace", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",

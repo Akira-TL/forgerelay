@@ -430,9 +430,9 @@ test("managed-worktree reopen stays closed when context bootstrap fails after ba
   const closedRoot = opened.workspace.root;
 
   await registry.closeWorktree(workspaceId, "test: close before bootstrap failure");
-  await rm(join(project, ".devspace", "agents"), { recursive: true, force: true });
-  await writeFile(join(project, ".devspace", "agents"), "not a directory\n");
-  await git(project, ["add", ".devspace/agents"]);
+  await rm(join(project, ".forgerelay", "agents"), { recursive: true, force: true });
+  await writeFile(join(project, ".forgerelay", "agents"), "not a directory\n");
+  await git(project, ["add", ".forgerelay/agents"]);
   await git(project, ["commit", "-m", "test: break agent profile directory"]);
 
   await assert.rejects(
@@ -633,8 +633,8 @@ test("legacy duplicate checkout records fold to one canonical Workspace with ali
 
 test("a failed first context load does not consume bootstrap", async (t) => {
   const { project, registry } = await fixture(t);
-  const agentsDir = join(project, ".devspace", "agents");
-  const backupDir = join(project, ".devspace", "agents-backup");
+  const agentsDir = join(project, ".forgerelay", "agents");
+  const backupDir = join(project, ".forgerelay", "agents-backup");
 
   await breakAgentsDirectory(agentsDir, backupDir);
   try {
@@ -652,8 +652,8 @@ test("a failed first context load does not consume bootstrap", async (t) => {
 test("a context-loading failure preserves a valid checkout binding", async (t) => {
   const { project, registry } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const agentsDir = join(project, ".devspace", "agents");
-  const backupDir = join(project, ".devspace", "agents-backup");
+  const agentsDir = join(project, ".forgerelay", "agents");
+  const backupDir = join(project, ".forgerelay", "agents-backup");
 
   await breakAgentsDirectory(agentsDir, backupDir);
   try {
@@ -881,11 +881,11 @@ async function fixture(
   const stateDir = join(root, ".state");
   const stores = new Set<SqliteWorkspaceStore>();
 
-  await mkdir(join(project, ".devspace", "agents"), { recursive: true });
+  await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
-  await writeFile(join(project, ".devspace", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",

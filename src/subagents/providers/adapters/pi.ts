@@ -4,7 +4,7 @@ import type {
   SubagentRunInput,
   SubagentRunResult,
 } from "../contract.js";
-import { removeDevspaceNodeModulesBinFromPath } from "../path.js";
+import { removeForgeRelayNodeModulesBinFromPath } from "../path.js";
 import {
   asRecord,
   assertPipedChild,
@@ -85,7 +85,7 @@ export function piCommandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
 
   return {
     ...env,
-    PATH: removeDevspaceNodeModulesBinFromPath(path),
+    PATH: removeForgeRelayNodeModulesBinFromPath(path),
   };
 }
 

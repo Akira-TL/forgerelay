@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { delimiter, resolve, sep } from "node:path";
 
-export function removeDevspaceNodeModulesBinFromPath(pathValue: string): string {
+export function removeForgeRelayNodeModulesBinFromPath(pathValue: string): string {
   return pathValue
     .split(delimiter)
-    .filter((entry) => entry && !isDevspaceNodeModulesBin(entry))
+    .filter((entry) => entry && !isForgeRelayNodeModulesBin(entry))
     .join(delimiter);
 }
 
-function isDevspaceNodeModulesBin(pathEntry: string): boolean {
+function isForgeRelayNodeModulesBin(pathEntry: string): boolean {
   const resolvedEntry = resolve(pathEntry);
   if (!resolvedEntry.endsWith(`${sep}node_modules${sep}.bin`)) {
     return false;
@@ -20,7 +20,7 @@ function isDevspaceNodeModulesBin(pathEntry: string): boolean {
   try {
     const packageInfo = JSON.parse(readFileSync(packageJson, "utf8")) as { name?: unknown };
     const packageName = typeof packageInfo.name === "string" ? packageInfo.name : "";
-    return ["@akira-tl/forgerelay", "@akira-tl/devspace", "@waishnav/devspace"].includes(packageName);
+    return packageName === "@akira-tl/forgerelay";
   } catch {
     return false;
   }
