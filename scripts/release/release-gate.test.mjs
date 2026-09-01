@@ -34,6 +34,7 @@ test("optional release:verify records proof only after the cloud-equivalent pari
     pkg.scripts["release:verify"],
     "npm run release:parity && node scripts/release-proof.mjs write",
   );
+  assert.equal(pkg.scripts["release:push-ready"], "node scripts/release/push-ready.mjs");
 });
 
 test("cross-platform cloud CI delegates to one shell-free verification entrypoint", async () => {

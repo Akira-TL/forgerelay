@@ -83,6 +83,20 @@ function readProof() {
   return parsed;
 }
 
+function checkProof() {
+  assertReleaseTreeClean("using the local release proof");
+  const proof = readProof();
+  const head = currentHead();
+  const version = packageVersion();
+  if (proof.head !== head) {
+    throw new Error(`release proof is for ${proof.head.slice(0, 12)}, but current HEAD is ${head.slice(0, 12)}. Run npm run release:verify again`);
+  }
+  if (proof.packageVersion !== version) {
+    throw new Error(`release proof is for package ${proof.packageVersion}, but package.json is ${version}. Run npm run release:verify again`);
+  }
+  console.log(`Release proof OK: ${head.slice(0, 12)} (${version}).`);
+}
+
 function hookTag() {
   let payload;
   try {
@@ -141,8 +155,9 @@ function checkHookTag() {
 const action = process.argv[2];
 try {
   if (action === "write") writeProof();
+  else if (action === "check") checkProof();
   else if (action === "check-hook") checkHookTag();
-  else throw new Error("usage: node scripts/release-proof.mjs <write|check-hook>");
+  else throw new Error("usage: node scripts/release-proof.mjs <write|check|check-hook>");
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }

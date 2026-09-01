@@ -167,7 +167,7 @@ npm publishing token.
 3. Run the appropriate `release:patch`, `release:minor`, or `release:major`
    command.
 4. Review the generated version and changelog diff, then commit the release-ready code and metadata.
-5. Push the release-ready `main` commit without changing it afterward.
+5. Run `npm run release:verify` on the committed release HEAD, then run `npm run release:push-ready`. This is the only normal release-ready branch push entrypoint: it requires a proof for the current HEAD, atomically advances `origin/main` plus the current `release/*` branch when applicable, rejects a local `main` with real unique patches, and synchronizes the local `main` ref after the remote push succeeds.
 6. Create the exact version tag, for example:
 
    ```bash
