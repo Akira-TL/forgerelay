@@ -288,6 +288,7 @@ body {
 }
 
 .workspace-row {
+  --workspace-row-accent: var(--tool-accent);
   display: grid;
   grid-template-columns: 22px minmax(116px, 0.24fr) minmax(0, 1fr);
   gap: 10px;
@@ -302,8 +303,8 @@ body {
   height: 22px;
   place-items: center;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tool-accent) 9%, transparent);
-  color: color-mix(in srgb, var(--tool-accent) 72%, var(--color-text-tertiary, #a3a3aa));
+  background: color-mix(in srgb, var(--workspace-row-accent) 9%, transparent);
+  color: color-mix(in srgb, var(--workspace-row-accent) 72%, var(--color-text-tertiary, #a3a3aa));
 }
 
 .workspace-row-icon-svg {
@@ -472,6 +473,28 @@ body {
 .workspace-instructions-row,
 .workspace-agents-row {
   align-items: start;
+}
+
+.workspace-instructions-row {
+  --workspace-row-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #d99742 72%);
+}
+
+.workspace-skills-row {
+  --workspace-row-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #14b8a6 72%);
+}
+
+.workspace-agents-row {
+  --workspace-row-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 30%, #8b5cf6 70%);
+}
+
+.workspace-skills-row .workspace-chip,
+.workspace-agents-row .workspace-chip,
+.workspace-agents-row .workspace-agent-profile {
+  border-color: color-mix(in srgb, var(--workspace-row-accent) 28%, var(--tool-card-divider));
+}
+
+.workspace-skills-row .workspace-chip {
+  background: color-mix(in srgb, var(--workspace-row-accent) 7%, transparent);
 }
 
 .workspace-skills-list {

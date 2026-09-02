@@ -2794,9 +2794,13 @@ export function createMcpServer(
     const meta = response._meta as Record<string, unknown>;
     const card = meta.card;
     if (meta.tool !== toolNames.openWorkspace || typeof card !== "object" || card === null) return;
+    const compact = compactWorkspacePresentation(card as Record<string, unknown>);
     workspacePanelStates.set(
       workspaceId,
-      compactWorkspacePresentation(card as Record<string, unknown>),
+      {
+        ...(workspacePanelStates.get(workspaceId) ?? {}),
+        ...compact,
+      },
     );
   };
 
