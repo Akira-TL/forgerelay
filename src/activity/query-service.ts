@@ -55,6 +55,7 @@ export interface ActivityBashOutput {
   processId: number;
   command: string;
   output: string;
+  cursor: number;
   status: BashOutputRecord["status"];
   exitCode?: number;
   signal?: string;
@@ -116,7 +117,7 @@ export class ActivityQueryService {
     };
   }
 
-  bashOutput(turnId: string, outputId: string): ActivityBashOutput {
+  bashOutput(turnId: string, outputId: string, cursor = 0): ActivityBashOutput {
     this.requireTurn(turnId);
     const output = this.outputs.read(outputId);
     if (!output) throw new Error(`Unknown Bash output: ${outputId}.`);
@@ -127,12 +128,17 @@ export class ActivityQueryService {
     if (!visible) {
       throw new Error(`Bash output ${outputId} is not part of Host Turn ${turnId}.`);
     }
+    const latestCursor = output.chunks.at(-1)?.sequence ?? 0;
     return {
       outputId: output.outputId,
       activityId: output.activityId,
       processId: output.processId,
       command: output.command,
-      output: output.output,
+      output: output.chunks
+        .filter((chunk) => chunk.sequence > cursor)
+        .map((chunk) => chunk.data)
+        .join(""),
+      cursor: latestCursor,
       status: output.status,
       ...(output.exitCode !== undefined ? { exitCode: output.exitCode } : {}),
       ...(output.signal !== undefined ? { signal: output.signal } : {}),

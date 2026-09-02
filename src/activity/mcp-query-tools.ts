@@ -51,7 +51,12 @@ export interface ActivityQueryRelay {
     conversationScopeId: string,
   ): Promise<CallToolResult | undefined>;
   detail(turnId: string, activityId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
-  output(turnId: string, outputId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
+  output(
+    turnId: string,
+    outputId: string,
+    conversationScopeId: string,
+    cursor?: number,
+  ): Promise<CallToolResult | undefined>;
 }
 
 const snapshotOutputSchema = {
@@ -297,10 +302,11 @@ export function registerActivityQueryTools(
     "activity_output",
     {
       title: "Read Bash output",
-      description: "App-only lazy data source for complete durable Bash command/output by stable outputId.",
+      description: "App-only lazy data source for durable Bash command/output by stable outputId. Pass the returned cursor on follow-up reads to receive only newly appended output.",
       inputSchema: {
         turnId: z.string(),
         outputId: z.string(),
+        cursor: z.number().int().nonnegative().optional(),
       },
       outputSchema: {
         outputId: z.string(),
@@ -308,6 +314,7 @@ export function registerActivityQueryTools(
         processId: z.number().int().positive(),
         command: z.string(),
         output: z.string(),
+        cursor: z.number().int().nonnegative(),
         status: z.enum(["running", "done", "failed"]),
         exitCode: z.number().int().optional(),
         signal: z.string().optional(),
@@ -318,19 +325,21 @@ export function registerActivityQueryTools(
       _meta: { ui: { visibility: ["app"] } },
       annotations: READ_ONLY_ANNOTATIONS,
     },
-    async ({ turnId, outputId }, extra) => {
+    async ({ turnId, outputId, cursor }, extra) => {
       const conversationScopeId = hostConversationScopeId(
         extra._meta,
         extra.sessionId,
         connectionScopeId,
       );
-      const relayed = await relay?.output(turnId, outputId, conversationScopeId);
+      const relayed = await relay?.output(turnId, outputId, conversationScopeId, cursor);
       if (relayed) return relayed;
-      const output = queries.bashOutput(turnId, outputId);
+      const output = queries.bashOutput(turnId, outputId, cursor);
       if (logging) {
         logEvent(logging, "debug", "activity_output_call", {
           turnId,
           outputId,
+          cursor,
+          nextCursor: output.cursor,
           activityId: output.activityId,
           processId: output.processId,
           status: output.status,

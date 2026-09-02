@@ -2257,6 +2257,14 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   assert.equal(fullOutput.isError, undefined);
   assert.match(String(structuredContent(fullOutput).command), /console\.log/);
   assert.match(String(structuredContent(fullOutput).output), /BASH-QUERY-OUTPUT-SECRET/);
+  const outputCursor = Number(structuredContent(fullOutput).cursor);
+  assert.ok(Number.isInteger(outputCursor) && outputCursor >= 0);
+
+  context.bashOutputStore.append(outputId, "stdout", "BASH-QUERY-OUTPUT-DELTA\n");
+  const deltaOutput = await call("activity_output", { turnId, outputId, cursor: outputCursor });
+  assert.equal(deltaOutput.isError, undefined);
+  assert.equal(structuredContent(deltaOutput).output, "BASH-QUERY-OUTPUT-DELTA\n");
+  assert.ok(Number(structuredContent(deltaOutput).cursor) > outputCursor);
 
   const revision = Number(snapshotStructured.revision);
   const unchanged = await call("activity_snapshot", { turnId, knownRevision: revision });

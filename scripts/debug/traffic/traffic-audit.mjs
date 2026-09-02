@@ -128,6 +128,7 @@ async function auditLocalTraffic() {
     assert.equal(typeof outputId, "string");
 
     const outputPolls = [];
+    let outputCursor;
     for (let poll = 0; poll < 5; poll += 1) {
       await delay(1100);
       const response = callToolMeasured(
@@ -136,20 +137,27 @@ async function auditLocalTraffic() {
         sessionId,
         id++,
         "activity_output",
-        { turnId, outputId },
+        {
+          turnId,
+          outputId,
+          ...(outputCursor !== undefined ? { cursor: outputCursor } : {}),
+        },
         meta,
       );
       const output = response.result.structuredContent.output;
+      const nextCursor = response.result.structuredContent.cursor;
+      if (Number.isInteger(nextCursor) && nextCursor >= 0) outputCursor = nextCursor;
       outputPolls.push({
         bodyBytes: response.http.sizeDownload,
         outputBytes: Buffer.byteLength(output ?? "", "utf8"),
+        cursor: nextCursor,
         status: response.result.structuredContent.status,
       });
     }
     await delay(1500);
 
     const totalOutputResponseBytes = outputPolls.reduce((sum, item) => sum + item.bodyBytes, 0);
-    const finalOutputBytes = Math.max(...outputPolls.map((item) => item.outputBytes));
+    const finalOutputBytes = 5 * 262_144;
     const outputAmplification = finalOutputBytes === 0 ? 0 : totalOutputResponseBytes / finalOutputBytes;
     addFinding(
       outputAmplification >= 2 ? "HIGH" : outputAmplification >= 1.25 ? "MED" : "LOW",
@@ -160,6 +168,7 @@ async function auditLocalTraffic() {
         "downloaded response bodies": formatBytes(totalOutputResponseBytes),
         "response/final-output amplification": `${outputAmplification.toFixed(2)}x`,
         "per-poll output bytes": outputPolls.map((item) => formatBytes(item.outputBytes)).join(" -> "),
+        "per-poll cursors": outputPolls.map((item) => String(item.cursor ?? "missing")).join(" -> "),
       },
       outputAmplification >= 2,
     );

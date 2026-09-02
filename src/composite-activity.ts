@@ -161,6 +161,7 @@ export class CompositeActivityCoordinator {
   async output(
     turnId: string,
     outputId: string,
+    cursor?: number,
   ): Promise<CallToolResult | undefined> {
     const state = this.turns.get(turnId);
     if (!state) return undefined;
@@ -170,6 +171,7 @@ export class CompositeActivityCoordinator {
       route.remoteTurnId,
       outputId,
       state.conversationScopeId,
+      cursor,
     );
   }
 

@@ -443,8 +443,14 @@ export class RemoteWorkspaceRelay {
     turnId: string,
     outputId: string,
     conversationScopeId: string,
+    cursor?: number,
   ): Promise<ToolCallResult | undefined> {
-    return this.callTurnTool(turnId, "activity_output", { turnId, outputId }, conversationScopeId);
+    return this.callTurnTool(
+      turnId,
+      "activity_output",
+      { turnId, outputId, ...(cursor !== undefined ? { cursor } : {}) },
+      conversationScopeId,
+    );
   }
 
   private async callTurnTool(

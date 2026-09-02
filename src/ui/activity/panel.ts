@@ -248,17 +248,27 @@ export class ActivityPanelController {
 
     let shouldRefresh = false;
     try {
+      const currentOutput = this.outputs.get(outputId);
       const result = await this.app.callServerTool({
         name: "activity_output",
-        arguments: { turnId, outputId },
+        arguments: {
+          turnId,
+          outputId,
+          ...(currentOutput ? { cursor: currentOutput.cursor } : {}),
+        },
       });
       if (result.isError) throw new Error("Bash output request failed.");
       const output = result.structuredContent as unknown;
       if (!isActivityBashOutput(output) || output.outputId !== outputId) {
         throw new Error("Bash output returned an invalid durable output record.");
       }
+      if (currentOutput && output.cursor < currentOutput.cursor) {
+        throw new Error("Bash output cursor moved backwards.");
+      }
       if (!this.snapshot || this.snapshot.turnId !== turnId) return;
-      this.outputs.set(outputId, output);
+      this.outputs.set(outputId, currentOutput
+        ? { ...output, output: currentOutput.output + output.output }
+        : output);
       shouldRefresh = output.status === "running";
     } catch (outputError) {
       if (!this.snapshot || this.snapshot.turnId !== turnId) return;

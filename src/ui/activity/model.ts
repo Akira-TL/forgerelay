@@ -54,6 +54,7 @@ export interface ActivityBashOutput {
   processId: number;
   command: string;
   output: string;
+  cursor: number;
   status: "running" | "done" | "failed";
   exitCode?: number;
   signal?: string;
@@ -111,6 +112,7 @@ export function isActivityBashOutput(value: unknown): value is ActivityBashOutpu
     !isPositiveInteger(value.processId) ||
     typeof value.command !== "string" ||
     typeof value.output !== "string" ||
+    !isNonnegativeInteger(value.cursor) ||
     (value.status !== "running" && value.status !== "done" && value.status !== "failed") ||
     typeof value.timedOut !== "boolean" ||
     typeof value.startedAt !== "string"
