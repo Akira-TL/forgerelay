@@ -70,7 +70,10 @@
 }
 
 .workspace-panel .workspace-details {
-  max-height: none;
+  max-height: 420px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-top: 1px solid var(--tool-card-divider);
   background: var(--tool-card-body-bg);
 }

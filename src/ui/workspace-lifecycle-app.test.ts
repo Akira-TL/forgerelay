@@ -6,6 +6,7 @@ import { workspacePanelCardFromResult } from "./workspace/panel.js";
 
 const unifiedSource = readFileSync(new URL("./activity-panel-app.tsx", import.meta.url), "utf8");
 const activityPanelSource = readFileSync(new URL("./activity/panel.ts", import.meta.url), "utf8");
+const activityPanelCss = readFileSync(new URL("./activity/panel.css", import.meta.url), "utf8");
 const lifecycleCompatibilitySource = readFileSync(
   new URL("./workspace-lifecycle-app.tsx", import.meta.url),
   "utf8",
@@ -67,6 +68,12 @@ test("activity_panel owns one runtime containing permanent Workspace and collaps
   assert.match(activityPanelSource, /private activities: ActivitySummary\[\] = \[\]/);
   assert.match(activityPanelSource, /name: "activity_index"/);
   assert.match(activityPanelSource, /this\.root\.replaceChildren\(\)/);
+});
+
+test("unified Workspace details stay bounded and scroll internally", () => {
+  assert.match(activityPanelCss, /\.workspace-panel \.workspace-details \{[^}]*max-height: 420px;/s);
+  assert.match(activityPanelCss, /\.workspace-panel \.workspace-details \{[^}]*overflow-y: auto;/s);
+  assert.doesNotMatch(activityPanelCss, /\.workspace-panel \.workspace-details \{[^}]*max-height: none;/s);
 });
 
 test("Workspace Lifecycle entry is compatibility-only and does not own Activity", () => {
