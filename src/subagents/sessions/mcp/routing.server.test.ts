@@ -197,7 +197,12 @@ test("Relay and Composite keep Subagent Session state on the Execution ForgeRela
     name: "activity_snapshot",
     arguments: { turnId },
   });
-  const activities = structured(snapshot).activities as Array<{ tool?: string; member?: string }>;
+  assert.equal(structured(snapshot).activities, undefined);
+  const index = await gateway.client.callTool({
+    name: "activity_index",
+    arguments: { turnId },
+  });
+  const activities = structured(index).activities as Array<{ tool?: string; member?: string }>;
   assert.equal(activities.some((activity) => activity.tool === "capability" && activity.member === "remote"), true);
 
   const deleted = await callSession(gateway.client, gatewayWorkspaceId, {
