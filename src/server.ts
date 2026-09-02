@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,6 @@ import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextpro
 import {
   registerAppResource,
   registerAppTool,
-  RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import express from "express";
 import type { Request, Response } from "express";
@@ -43,7 +42,7 @@ import {
   isArtifactDownloadSupportedPlatform,
 } from "./artifact-tools.js";
 import { ArtifactError } from "./artifact-error.js";
-import { loadConfig, type ServerConfig, type WidgetMode } from "./config.js";
+import { loadConfig, type ServerConfig } from "./config.js";
 import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import { attachHookReports, HookRunner, runToolWithHooks, type ToolHookOptions } from "./hooks.js";
@@ -107,11 +106,10 @@ import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
 import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
 import {
-  MCP_APP_RESOURCE_TEMPLATE_REVISION,
-  readActivityPanelAppManifestEntry,
-  resolveActivityPanelAppIdentity,
-  type WorkspaceAppManifestEntry,
-} from "./mcp-app-template.js";
+  activityPanelAssetDirectory,
+  createActivityPanelApp,
+  setActivityPanelAssetHeaders,
+} from "./mcp/panel/app.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
 import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
@@ -169,52 +167,6 @@ type ToolContent =
 interface DiffStats {
   additions: number;
   removals: number;
-}
-
-type ToolWidgetKind =
-  | "workspace"
-  | "activity"
-  | "read"
-  | "write"
-  | "edit"
-  | "shell"
-  | "capability";
-
-interface ToolDefinitionMeta extends Record<string, unknown> {
-  ui: {
-    resourceUri: string;
-    visibility: ["model", "app"];
-  };
-}
-
-type EmptyToolDefinitionMeta = Record<string, unknown> & {
-  "ui/resourceUri"?: string;
-};
-
-interface ToolWidgetDescriptorMeta {
-  _meta: ToolDefinitionMeta | EmptyToolDefinitionMeta;
-}
-
-function shouldAttachWidget(mode: WidgetMode, kind: ToolWidgetKind): boolean {
-  if (mode === "off") return false;
-  return kind === "activity";
-}
-
-function toolWidgetDescriptorMeta(
-  config: ServerConfig,
-  kind: ToolWidgetKind,
-): ToolWidgetDescriptorMeta {
-  if (!shouldAttachWidget(config.widgets, kind)) return { _meta: {} };
-
-  const resourceUri = currentActivityPanelAppIdentity(config).uri;
-  return {
-    _meta: {
-      ui: {
-        resourceUri,
-        visibility: ["model", "app"],
-      },
-    },
-  };
 }
 
 interface ToolLogFields {
@@ -677,193 +629,6 @@ function newFilePatch(path: string, content: string): string {
     .join("\n");
 }
 
-function assetBaseUrl(config: ServerConfig): string {
-  return `${config.publicBaseUrl.replace(/\/+$/, "")}/mcp-app-assets`;
-}
-
-function uiManifestUrl(): URL {
-  return new URL("../dist/ui/.vite/manifest.json", import.meta.url);
-}
-
-function uiBuildDirectoryUrl(): URL {
-  return new URL("../dist/ui/", import.meta.url);
-}
-
-const cachedActivityPanelAppIdentities = new Map<
-  string,
-  ReturnType<typeof resolveActivityPanelAppIdentity>
->();
-
-function appResourceContractRevision(config: ServerConfig): string {
-  return [
-    MCP_APP_RESOURCE_TEMPLATE_REVISION,
-    `publicBaseUrls=${JSON.stringify(config.publicBaseUrls)}`,
-  ].join("\0");
-}
-
-function appIdentityOptions(config: ServerConfig) {
-  return {
-    manifestUrl: uiManifestUrl(),
-    buildDirectoryUrl: uiBuildDirectoryUrl(),
-    fallbackRevision: FORGERELAY_VERSION,
-    resourceTemplateRevision: appResourceContractRevision(config),
-  };
-}
-
-function currentActivityPanelAppIdentity(
-  config: ServerConfig,
-): ReturnType<typeof resolveActivityPanelAppIdentity> {
-  const key = appResourceContractRevision(config);
-  let identity = cachedActivityPanelAppIdentities.get(key);
-  if (!identity) {
-    identity = resolveActivityPanelAppIdentity(appIdentityOptions(config));
-    cachedActivityPanelAppIdentities.set(key, identity);
-  }
-  return identity;
-}
-
-function getActivityPanelAppManifestEntry(): WorkspaceAppManifestEntry {
-  return readActivityPanelAppManifestEntry(uiManifestUrl());
-}
-
-function assetUrl(baseUrl: string, assetPath: string): string {
-  return `${baseUrl}/${assetPath.replace(/^\/+/, "")}`;
-}
-
-function mcpAppHtml(
-  config: ServerConfig,
-  entry: WorkspaceAppManifestEntry,
-  title: string,
-  waitingMessage: string,
-): string {
-  const baseUrl = assetBaseUrl(config);
-  const stylesheets = (entry.css ?? [])
-    .map(
-      (stylesheet) =>
-        `    <link rel="stylesheet" crossorigin href="${assetUrl(baseUrl, stylesheet)}" />`,
-    )
-    .join("\n");
-
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <script type="module" crossorigin src="${assetUrl(baseUrl, entry.file)}"></script>
-${stylesheets}
-  </head>
-  <body>
-    <main id="app" class="shell">
-      <section class="empty">${waitingMessage}</section>
-    </main>
-  </body>
-</html>`;
-}
-
-function activityPanelAppHtml(config: ServerConfig): string {
-  return mcpAppHtml(
-    config,
-    getActivityPanelAppManifestEntry(),
-    "ForgeRelay Activity Panel",
-    "Waiting for Activity Panel state.",
-  );
-}
-
-function appDomain(config: ServerConfig): string {
-  return new URL(config.publicBaseUrl).origin;
-}
-
-function appCsp(config: ServerConfig): {
-  resourceDomains: string[];
-  connectDomains: string[];
-} {
-  return {
-    resourceDomains: [...config.publicBaseUrls],
-    connectDomains: [...config.publicBaseUrls],
-  };
-}
-
-function uiBuildDirectory(): string {
-  return fileURLToPath(new URL("../dist/ui", import.meta.url));
-}
-
-function setAssetHeaders(res: Response): void {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-}
-
-async function assertMcpAppAssets(entry: WorkspaceAppManifestEntry): Promise<void> {
-  const candidates = [entry.file, ...(entry.css ?? [])].map(
-    (assetPath) => new URL(`../dist/ui/${assetPath}`, import.meta.url),
-  );
-
-  for (const candidate of candidates) await access(candidate);
-}
-
-async function readMcpAppResource(
-  config: ServerConfig,
-  options: {
-    requestedUri: string;
-    currentUri: string;
-    entry: WorkspaceAppManifestEntry;
-    html: string;
-    transportSessionId?: string;
-  },
-) {
-  try {
-    await assertMcpAppAssets(options.entry);
-    const result = {
-      contents: [{
-        uri: options.requestedUri,
-        mimeType: RESOURCE_MIME_TYPE,
-        text: options.html,
-        _meta: {
-          ui: {
-            domain: appDomain(config),
-            csp: appCsp(config),
-          },
-          // MCP Apps defines resource metadata under `_meta.ui`. Inspector 2.3.0
-          // reads the content-item CSP/domain from `_meta` directly, so mirror
-          // these values until that installed-host compatibility gap is gone.
-          domain: appDomain(config),
-          csp: appCsp(config),
-        },
-      }],
-    };
-    logEvent(config.logging, "debug", "mcp_app_template_read", {
-      requestedUri: options.requestedUri,
-      currentUri: options.currentUri,
-      transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
-    });
-    return result;
-  } catch (error) {
-    logEvent(config.logging, "warn", "mcp_app_template_read_failed", {
-      requestedUri: options.requestedUri,
-      currentUri: options.currentUri,
-      error: error instanceof Error ? error.message : String(error),
-      transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
-    });
-    throw error;
-  }
-}
-
-function readActivityPanelAppResource(
-  config: ServerConfig,
-  requestedUri: string,
-  transportSessionId?: string,
-) {
-  return readMcpAppResource(config, {
-    requestedUri,
-    currentUri: currentActivityPanelAppIdentity(config).uri,
-    entry: getActivityPanelAppManifestEntry(),
-    html: activityPanelAppHtml(config),
-    transportSessionId,
-  });
-}
-
 function readForgeRelayVersion(): string {
   const packageJson = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -1182,6 +947,7 @@ export function createMcpServer(
   options: CreateMcpServerOptions = {},
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
+  const activityPanelApp = createActivityPanelApp(config, FORGERELAY_VERSION);
   const ownsRemoteWorkspaces = options.remoteWorkspaces === undefined;
   const remoteWorkspaces = options.remoteWorkspaces
     ?? new RemoteWorkspaceRelay(config.configDir, config.stateDir);
@@ -2190,27 +1956,12 @@ export function createMcpServer(
     );
   };
 
-  const activityPanelResourceMetadata = {
-    description: "ForgeRelay unified Workspace and Activity UI for one Host Turn.",
-    _meta: {
-      ui: {
-        domain: appDomain(config),
-        csp: appCsp(config),
-      },
-    },
-  };
-
-  const currentActivityPanelAppUri = currentActivityPanelAppIdentity(config).uri;
   registerAppResource(
     server,
     "ForgeRelay Activity Panel",
-    currentActivityPanelAppUri,
-    activityPanelResourceMetadata,
-    async (uri, extra) => readActivityPanelAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
+    activityPanelApp.uri,
+    activityPanelApp.resourceMetadata,
+    async (uri, extra) => activityPanelApp.readResource(uri.toString(), extra.sessionId),
   );
 
   registerAppTool(
@@ -3251,7 +3002,7 @@ export function createMcpServer(
     server,
     activityQueries,
     connectionScopeId,
-    toolWidgetDescriptorMeta(config, "activity")._meta,
+    activityPanelApp.toolMeta._meta,
     config.activityPanelExpanded,
     config.logging,
     workspacePanelState,
@@ -3375,7 +3126,6 @@ export function createMcpServer(
         error: capabilityErrorOutputSchema.optional(),
       },
       _meta: {
-        ...toolWidgetDescriptorMeta(config, "capability")._meta,
         "openai/fileParams": ["file"],
       },
       annotations: {
@@ -4007,7 +3757,7 @@ export function createMcpServer(
         files: z.number().int().nonnegative().optional(),
         failed: z.number().int().nonnegative().optional(),
       }),
-      ...toolWidgetDescriptorMeta(config, "read"),
+      _meta: {},
       annotations: { readOnlyHint: true },
     },
     async ({ workspaceId, member, path, paths, offset, limit }, extra) => {
@@ -4150,7 +3900,7 @@ export function createMcpServer(
         content: z.string().describe("Complete new file content."),
       },
       outputSchema: resultOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "write"),
+      _meta: {},
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, ...input }, extra) => {
@@ -4217,7 +3967,7 @@ export function createMcpServer(
         failed: z.number().int().nonnegative().optional(),
         unexecuted: z.number().int().nonnegative().optional(),
       }),
-      ...toolWidgetDescriptorMeta(config, "edit"),
+      _meta: {},
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, path, paths, edits }, extra) => {
@@ -4266,7 +4016,7 @@ export function createMcpServer(
         path: z.string(),
         newPath: z.string(),
       }),
-      ...toolWidgetDescriptorMeta(config, "edit"),
+      _meta: {},
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, path, newPath }, extra) => {
@@ -4319,7 +4069,7 @@ export function createMcpServer(
         failed: z.number().int().nonnegative().optional(),
         unexecuted: z.number().int().nonnegative().optional(),
       }),
-      ...toolWidgetDescriptorMeta(config, "edit"),
+      _meta: {},
       annotations: EDIT_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, path, paths, recursive }, extra) => {
@@ -4377,7 +4127,7 @@ export function createMcpServer(
             }),
           ),
         }),
-        ...toolWidgetDescriptorMeta(config, "edit"),
+          _meta: {},
         annotations: EDIT_TOOL_ANNOTATIONS,
       },
       async ({ workspaceId, member, patch }, extra) => {
@@ -4672,17 +4422,17 @@ export function createServer(
   );
 
   app.options("/mcp-app-assets/{*asset}", (_req, res) => {
-    setAssetHeaders(res);
+    setActivityPanelAssetHeaders(res);
     res.sendStatus(204);
   });
 
   app.use(
     "/mcp-app-assets",
-    express.static(uiBuildDirectory(), {
+    express.static(activityPanelAssetDirectory(), {
       immutable: true,
       maxAge: "1y",
       fallthrough: false,
-      setHeaders: setAssetHeaders,
+      setHeaders: setActivityPanelAssetHeaders,
     }),
   );
 
