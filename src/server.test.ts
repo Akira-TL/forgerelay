@@ -415,6 +415,67 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
   );
 });
 
+test("activity_panel reconstructs lightweight Workspace UI metadata on a fresh MCP connection", async (t) => {
+  const context = await fixture(t, { env: { FORGERELAY_SUBAGENTS: "1" } });
+  const skillDir = join(context.project, ".agents", "skills", "panel-skill");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(join(skillDir, "SKILL.md"), [
+    "---",
+    "name: panel-skill",
+    "description: Visible in the Workspace panel.",
+    "---",
+    "panel skill body",
+  ].join("\n"));
+
+  const opened = await callOpen(context.client, context.project, "workspace-panel-first-connection");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const secondServer = createMcpServer(
+    context.config,
+    context.workspaces,
+    createReviewCheckpointManager(),
+    context.processSessions,
+    [],
+    [],
+    context.codeIntelligence,
+    context.activityLifecycle,
+    context.bashOutputStore,
+    context.activityQueries,
+  );
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const secondClient = new Client({ name: "workspace-panel-fallback-client", version: "1.0.0" });
+  await Promise.all([
+    secondClient.connect(clientTransport),
+    secondServer.connect(serverTransport),
+  ]);
+  t.after(async () => {
+    await secondClient.close();
+    await secondServer.close();
+  });
+
+  const panel = await secondClient.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.equal(panel.isError, undefined, allResponseText(panel));
+  const workspace = (panel._meta as Record<string, unknown> | undefined)?.[
+    "forgerelay/activityPanelWorkspace"
+  ] as {
+    agentsFiles?: Array<{ path?: string; content?: string }>;
+    availableAgentsFiles?: Array<{ path?: string }>;
+    skills?: Array<{ name?: string; description?: string }>;
+    agents?: Array<{ name?: string; description?: string }>;
+  } | undefined;
+
+  assert.ok((workspace?.agentsFiles?.length ?? 0) > 0);
+  assert.ok(workspace?.agentsFiles?.some((file) => file.path === "AGENTS.md"));
+  assert.ok(workspace?.agentsFiles?.every((file) => file.content === undefined));
+  assert.ok(workspace?.skills?.some((skill) => skill.name === "panel-skill"));
+  assert.ok(workspace?.skills?.every((skill) => skill.description === undefined));
+  assert.ok(workspace?.agents?.some((agent) => agent.name === "reviewer"));
+  assert.ok(workspace?.agents?.every((agent) => agent.description === undefined));
+});
+
 test("transport session scopes Activity when openai/session metadata is absent", async (t) => {
   const context = await fixture(t);
   await writeFile(join(context.project, "transport-scope.txt"), "transport scoped activity\n");
@@ -5622,7 +5683,10 @@ interface ServerFixture {
   config: ServerConfig;
   stateDir: string;
   store: SqliteWorkspaceStore;
+  workspaces: WorkspaceRegistry;
   processSessions: ProcessManager;
+  activityLifecycle: ActivityLifecycle;
+  codeIntelligence: CodeIntelligenceManager;
   auditStore: ActivityAuditStore;
   bashOutputStore: BashOutputStore;
   hostTurnStore: HostTurnStore;
@@ -5745,7 +5809,10 @@ async function fixture(
     config,
     stateDir,
     store,
+    workspaces,
     processSessions,
+    activityLifecycle,
+    codeIntelligence,
     auditStore,
     bashOutputStore,
     hostTurnStore,

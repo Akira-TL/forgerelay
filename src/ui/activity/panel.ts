@@ -15,10 +15,16 @@ import {
   type ActivitySummary,
   type HostTurnState,
 } from "./model.js";
+import type { ToolResultCard } from "../card-types.js";
 import { renderIcon, toolIcons, type ToolIcon } from "../icons.js";
+import { activityDetailCard, hasRichActivityPayload } from "./detail-card.js";
 import "./panel.css";
 
 const ACTIVITY_OUTPUT_REFRESH_INTERVAL_MS = 1_000;
+
+interface MountedActivityPayload {
+  unmount(): void;
+}
 
 export class ActivityPanelController {
   private app: App | null = null;
@@ -44,6 +50,8 @@ export class ActivityPanelController {
   private readonly outputLoading = new Set<string>();
   private readonly outputErrors = new Map<string, string>();
   private outputRefreshTimer: number | null = null;
+  private mountedRichPayload: MountedActivityPayload | null = null;
+  private renderGeneration = 0;
   private readonly handleVisibilityChange = (): void => {
     if (document.hidden) {
       this.stopRefresh();
@@ -135,6 +143,8 @@ export class ActivityPanelController {
   }
 
   render(): boolean {
+    this.renderGeneration += 1;
+    this.unmountRichPayload();
     if (!this.snapshot) return false;
     if (this.snapshot.revision === 0) {
       this.root.replaceChildren();
@@ -267,6 +277,7 @@ export class ActivityPanelController {
 
   private resetDetails(): void {
     this.stopOutputRefresh();
+    this.unmountRichPayload();
     this.selectedActivityId = null;
     this.details.clear();
     this.detailLoading.clear();
@@ -444,12 +455,62 @@ export class ActivityPanelController {
     }
 
     if (detail.error) appendDetailSection(container, "Error", detail.error, true);
+
+    const richCard = activityDetailCard(detail);
+    if (richCard && hasRichActivityPayload(richCard)) {
+      const target = element("div", { className: "activity-detail-rich" });
+      target.append(element("div", {
+        className: "activity-detail-status",
+        text: richCard.tool === "read" ? "Loading file view..." : "Loading diff...",
+      }));
+      container.append(target);
+      void this.mountRichPayload(activityId, target, richCard, this.renderGeneration);
+      return container;
+    }
+
     if (detail.request !== undefined) appendDetailSection(container, "Request", detail.request);
     if (detail.result !== undefined) appendDetailSection(container, "Result", detail.result);
     if (container.childElementCount === 0) {
       container.append(element("div", { className: "activity-detail-status", text: "No additional details." }));
     }
     return container;
+  }
+
+  private async mountRichPayload(
+    activityId: string,
+    target: HTMLElement,
+    card: ToolResultCard,
+    generation: number,
+  ): Promise<void> {
+    try {
+      const { mountHeavyPayload } = await import("../heavy-payload.js");
+      if (
+        generation !== this.renderGeneration ||
+        this.selectedActivityId !== activityId ||
+        !target.isConnected
+      ) return;
+
+      target.replaceChildren();
+      this.mountedRichPayload = mountHeavyPayload(target, {
+        card,
+        hostContext: this.app?.getHostContext() ?? undefined,
+      });
+    } catch (error) {
+      if (
+        generation !== this.renderGeneration ||
+        this.selectedActivityId !== activityId ||
+        !target.isConnected
+      ) return;
+      target.replaceChildren(element("div", {
+        className: "activity-detail-status error",
+        text: error instanceof Error ? error.message : "Unable to load Activity payload.",
+      }));
+    }
+  }
+
+  private unmountRichPayload(): void {
+    this.mountedRichPayload?.unmount();
+    this.mountedRichPayload = null;
   }
 
   private renderBashOutput(activity: ActivitySummary & { outputId: string }): HTMLElement {

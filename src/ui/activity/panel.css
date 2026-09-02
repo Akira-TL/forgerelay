@@ -491,6 +491,16 @@
   border-top: 1px solid color-mix(in srgb, var(--tool-card-divider) 62%, transparent);
 }
 
+.activity-detail-rich {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.activity-detail-rich .pierre-diff,
+.activity-detail-rich .pierre-file {
+  border-radius: 0;
+}
+
 .activity-detail-label {
   padding: 8px 12px 0;
   color: var(--color-text-tertiary, #a3a3aa);

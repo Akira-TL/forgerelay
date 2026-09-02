@@ -2769,22 +2769,60 @@ export function createMcpServer(
   );
 
   const workspacePanelStates = new Map<string, Record<string, unknown>>();
+  const liveWorkspacePanelState = (workspace: Workspace): Record<string, unknown> => {
+    const loadedInstructionPaths = [...workspace.loadedInstructionRealPaths]
+      .map((path) => formatAgentsPath(path, workspace.root));
+    const loadedInstructionPathSet = new Set(loadedInstructionPaths);
+    const availableInstructionPaths = [...new Set(
+      [...workspace.knownInstructionPathsByDir.values()]
+        .flat()
+        .map((path) => formatAgentsPath(path, workspace.root))
+        .filter((path) => !loadedInstructionPathSet.has(path)),
+    )];
+    const agentProviders = config.subagents ? subagentProviders : [];
+    const agents = workspace.agentProfiles.map((profile) => {
+      const summary = summarizeSubagentProfile(profile);
+      const availability = agentProviders.find((provider) => provider.name === summary.provider);
+      return {
+        ...summary,
+        providerAvailable: availability?.available,
+        providerUnavailableReason: availability?.reason,
+      };
+    });
+    const skills = workspace.skills
+      .filter((skill) => !skill.disableModelInvocation)
+      .map((skill) => ({ name: skill.name, description: skill.description }));
+
+    return compactWorkspacePresentation({
+      workspaceId: workspace.id,
+      root: workspace.root,
+      path: workspace.root,
+      mode: workspace.mode,
+      sourceRoot: workspace.sourceRoot,
+      worktree: workspace.worktree,
+      agentsFiles: loadedInstructionPaths.map((path) => ({ path })),
+      availableAgentsFiles: availableInstructionPaths.map((path) => ({ path })),
+      skills,
+      agentProviders,
+      agents,
+      summary: {
+        mode: workspace.mode,
+        agentsFiles: loadedInstructionPaths.length,
+        availableAgentsFiles: availableInstructionPaths.length,
+        skills: skills.length,
+        agentProviders: agentProviders.length,
+        agents: agents.length,
+      },
+    });
+  };
   const workspacePanelState = (workspaceId: string): Record<string, unknown> | undefined => {
     const remembered = workspacePanelStates.get(workspaceId);
     if (remoteWorkspaces.has(workspaceId) || compositeWorkspaces.has(workspaceId)) {
       return remembered;
     }
     try {
-      const workspace = workspaces.getWorkspace(workspaceId);
-      if (remembered) return remembered;
-      return compactWorkspacePresentation({
-        workspaceId: workspace.id,
-        root: workspace.root,
-        path: workspace.root,
-        mode: workspace.mode,
-        sourceRoot: workspace.sourceRoot,
-        summary: { mode: workspace.mode },
-      });
+      const live = liveWorkspacePanelState(workspaces.getWorkspace(workspaceId));
+      return remembered ? { ...live, ...remembered } : live;
     } catch {
       return undefined;
     }
