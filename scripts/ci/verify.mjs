@@ -13,6 +13,10 @@ runNpm(["run", "release:check"], "Release metadata");
 runNpm(["run", "typecheck"], "Typecheck");
 runNpm(["test"], "Full test suite");
 runNpm(["run", "build"], "Build");
+// The traffic audit is an end-to-end wire-budget check, not a platform feature
+// matrix. Run it once on Linux so regressions are gated without tripling the
+// 7677/7678 server exercise across every CI operating system.
+if (process.platform === "linux") runNpm(["run", "traffic:audit"], "Traffic audit");
 runNpm(["run", "lsp:interop"], "Optional LSP interoperability");
 run(process.execPath, ["dist/cli.js", "doctor"], "Doctor");
 

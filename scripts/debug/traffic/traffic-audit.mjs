@@ -17,7 +17,7 @@ import { debugRoot, repoRoot } from "../runtime.mjs";
 
 const mode = process.argv[2] ?? "all";
 if (!["all", "local", "relay"].includes(mode)) {
-  throw new Error("Usage: scripts/debug/traffic/run.sh [all|local|relay]");
+  throw new Error("Usage: npm run traffic:audit -- [all|local|relay]");
 }
 
 const trafficRoot = resolve(debugRoot, "traffic-audit");
