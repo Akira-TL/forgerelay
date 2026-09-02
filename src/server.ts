@@ -71,7 +71,7 @@ import {
   editFileTool,
   readFileTool,
   writeFileTool,
-} from "./pi-tools.js";
+} from "./filesystem-tools.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import { createForgeRelayAuthRouter } from "./oauth/router.js";
 import { publicEndpointUrl } from "./oauth/public-url.js";

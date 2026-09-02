@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { preflightEditFiles } from "../pi-tools.js";
+import { preflightEditFiles } from "../filesystem-tools.js";
 
 test("bulk Edit preflight reuses exact Edit validation without writing files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-edit-preflight-test-"));

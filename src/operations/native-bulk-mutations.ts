@@ -5,7 +5,7 @@ import {
   type ActivityOutcome,
 } from "../activity/lifecycle.js";
 import { preflightDeletePaths } from "../file-mutations.js";
-import { preflightEditFiles } from "../pi-tools.js";
+import { preflightEditFiles } from "../filesystem-tools.js";
 import { openAiConversationScopeId } from "../request-meta.js";
 import type { Workspace, WorkspaceRegistry } from "../workspaces.js";
 import { executeSequentialBulkMutation } from "./bulk-mutation.js";

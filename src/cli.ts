@@ -8,7 +8,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
-import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { satisfies } from "semver";
 import { loadConfig } from "./config.js";
 import { runHooksCommand } from "./hook-cli.js";
@@ -830,8 +829,13 @@ function checkGitAvailable(): string {
 
 function checkBashShell(): string {
   try {
-    const { shell, args } = getShellConfig();
-    return `${shell} ${args.join(" ")}`;
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    const command = process.env.BASH?.trim() || "bash";
+    const version = execFileSync(command, ["--version"], {
+      encoding: "utf8",
+      windowsHide: true,
+    }).split(/\r?\n/, 1)[0]?.trim();
+    return version ? `${command} (${version})` : command;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return `unavailable (${message})`;
