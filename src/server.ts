@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -2770,8 +2770,14 @@ export function createMcpServer(
 
   const workspacePanelStates = new Map<string, Record<string, unknown>>();
   const liveWorkspacePanelState = (workspace: Workspace): Record<string, unknown> => {
+    let canonicalWorkspaceRoot = workspace.root;
+    try {
+      canonicalWorkspaceRoot = realpathSync(workspace.root);
+    } catch {
+      // Keep the logical root when the backing path cannot be canonicalized.
+    }
     const loadedInstructionPaths = [...workspace.loadedInstructionRealPaths]
-      .map((path) => formatAgentsPath(path, workspace.root));
+      .map((path) => formatAgentsPath(path, canonicalWorkspaceRoot));
     const loadedInstructionPathSet = new Set(loadedInstructionPaths);
     const availableInstructionPaths = [...new Set(
       [...workspace.knownInstructionPathsByDir.values()]
