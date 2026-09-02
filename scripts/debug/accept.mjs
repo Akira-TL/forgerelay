@@ -206,11 +206,7 @@ try {
   const currentActivityResource = resources.find((resource) => resource.uri === activityTemplateUri);
   assert.ok(currentActivityResource);
   assert.equal(currentActivityResource._meta?.ui?.domain, debugBaseUrl);
-  assert.equal(
-    resources.some((resource) => /^ui:\/\/forgerelay\/workspace-lifecycle-app-/.test(resource.uri)),
-    false,
-  );
-  assert.ok(resources.some((resource) => resource.uri === "ui://forgerelay/workspace-app.html"));
+  assert.equal(resources.length, 1);
 
   const resourceTemplates = mcpRequest(oauth.accessToken, sessionId, {
     jsonrpc: "2.0",
@@ -218,12 +214,7 @@ try {
     method: "resources/templates/list",
     params: {},
   }).message.result.resourceTemplates;
-  assert.ok(resourceTemplates.some(
-    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/workspace-lifecycle-app-{revision}.html",
-  ));
-  assert.ok(resourceTemplates.some(
-    (resourceTemplate) => resourceTemplate.uriTemplate === "ui://forgerelay/activity-panel-app-{revision}.html",
-  ));
+  assert.deepEqual(resourceTemplates, []);
 
   const readTemplate = (id, uri) => mcpRequest(oauth.accessToken, sessionId, {
     jsonrpc: "2.0",
@@ -243,10 +234,7 @@ try {
   const scriptAsset = curlRequest({ method: "GET", url: scriptUrl });
   assert.equal(scriptAsset.status, 200, scriptAsset.body);
 
-  const legacyTemplate = readTemplate(25, "ui://forgerelay/workspace-app.html");
-  assert.equal(legacyTemplate.uri, "ui://forgerelay/workspace-app.html");
-  assert.equal(legacyTemplate.mimeType, "text/html;profile=mcp-app");
-  pass("MCP app templates", `${activityTemplateUri} + historical compatibility templates`);
+  pass("MCP App template", activityTemplateUri);
 
   const workspaceConversationMeta = { "openai/session": "acceptance-workspace" };
   const opened = callTool(oauth.accessToken, sessionId, 3, "open_workspace", {

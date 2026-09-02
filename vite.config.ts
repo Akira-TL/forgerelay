@@ -12,8 +12,6 @@ export default defineConfig({
     manifest: true,
     rollupOptions: {
       input: [
-        resolve(__dirname, "src/ui/workspace-app.html"),
-        resolve(__dirname, "src/ui/workspace-lifecycle-app.html"),
         resolve(__dirname, "src/ui/activity-panel-app.html"),
       ],
       output: {

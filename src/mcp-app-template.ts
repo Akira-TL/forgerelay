@@ -1,27 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-export const WORKSPACE_APP_MANIFEST_ENTRY = "workspace-app.html";
-export const WORKSPACE_LIFECYCLE_APP_MANIFEST_ENTRY = "workspace-lifecycle-app.html";
 export const ACTIVITY_PANEL_APP_MANIFEST_ENTRY = "activity-panel-app.html";
 
 // Host caches are keyed by the ui:// resource URI, so the revision must cover
 // both bundle assets and the HTML/resource contract that serves them. Bump this
-// when the MCP App HTML shell or resource-to-entry mapping changes.
-export const MCP_APP_RESOURCE_TEMPLATE_REVISION = "4";
-
-// Historical mixed-widget resource. Keep serving it so existing ChatGPT Web
-// conversations can still render cards created before the UI split.
-export const WORKSPACE_APP_LEGACY_URI = "ui://forgerelay/workspace-app.html";
-export const WORKSPACE_APP_URI_TEMPLATE = "ui://forgerelay/workspace-app-{revision}.html";
-
-export const WORKSPACE_LIFECYCLE_APP_LEGACY_URI =
-  "ui://forgerelay/workspace-lifecycle-app.html";
-export const WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE =
-  "ui://forgerelay/workspace-lifecycle-app-{revision}.html";
-export const ACTIVITY_PANEL_APP_LEGACY_URI = "ui://forgerelay/activity-panel-app.html";
-export const ACTIVITY_PANEL_APP_URI_TEMPLATE =
-  "ui://forgerelay/activity-panel-app-{revision}.html";
+// whenever either side changes so a Host never reuses stale UI bytes.
+export const MCP_APP_RESOURCE_TEMPLATE_REVISION = "5";
 
 export interface WorkspaceAppManifestEntry {
   file: string;
@@ -59,14 +44,6 @@ export interface WorkspaceAppIdentity {
   revision: string;
   uri: string;
   source: "bundle" | "fallback";
-}
-
-export function workspaceAppUriForRevision(revision: string): string {
-  return `ui://forgerelay/workspace-app-${encodeURIComponent(revision)}.html`;
-}
-
-export function workspaceLifecycleAppUriForRevision(revision: string): string {
-  return `ui://forgerelay/workspace-lifecycle-app-${encodeURIComponent(revision)}.html`;
 }
 
 export function activityPanelAppUriForRevision(revision: string): string {
@@ -119,14 +96,6 @@ export function readMcpAppManifestEntry(
     ...(dependencies.length > 0 ? { dependencies } : {}),
     ...(entry.isEntry !== undefined ? { isEntry: entry.isEntry } : {}),
   };
-}
-
-export function readWorkspaceAppManifestEntry(manifestUrl: URL): WorkspaceAppManifestEntry {
-  return readMcpAppManifestEntry(manifestUrl, WORKSPACE_APP_MANIFEST_ENTRY);
-}
-
-export function readWorkspaceLifecycleAppManifestEntry(manifestUrl: URL): WorkspaceAppManifestEntry {
-  return readMcpAppManifestEntry(manifestUrl, WORKSPACE_LIFECYCLE_APP_MANIFEST_ENTRY);
 }
 
 export function readActivityPanelAppManifestEntry(manifestUrl: URL): WorkspaceAppManifestEntry {
@@ -187,26 +156,6 @@ function resolveAppIdentity(options: AppIdentityOptions): WorkspaceAppIdentity {
       source: "fallback",
     };
   }
-}
-
-export function resolveWorkspaceAppIdentity(
-  options: WorkspaceAppIdentityOptions,
-): WorkspaceAppIdentity {
-  return resolveAppIdentity({
-    ...options,
-    manifestEntry: WORKSPACE_APP_MANIFEST_ENTRY,
-    uriForRevision: workspaceAppUriForRevision,
-  });
-}
-
-export function resolveWorkspaceLifecycleAppIdentity(
-  options: WorkspaceAppIdentityOptions,
-): WorkspaceAppIdentity {
-  return resolveAppIdentity({
-    ...options,
-    manifestEntry: WORKSPACE_LIFECYCLE_APP_MANIFEST_ENTRY,
-    uriForRevision: workspaceLifecycleAppUriForRevision,
-  });
 }
 
 export function resolveActivityPanelAppIdentity(

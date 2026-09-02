@@ -4,7 +4,7 @@ import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
@@ -21,7 +21,11 @@ import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { ActivityAuditStore, type ActivityWorkspaceSnapshot } from "./activity/audit-store.js";
-import { BashOutputStore, type BashOutputRecord } from "./activity/bash-output-store.js";
+import {
+  BashOutputStore,
+  type BashOutputMetadata,
+  type BashOutputRecord,
+} from "./activity/bash-output-store.js";
 import { HostTurnStore } from "./activity/host-turn-store.js";
 import { registerActivityQueryTools } from "./activity/mcp-query-tools.js";
 import {
@@ -105,19 +109,9 @@ import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
 import { hostConversationScopeId, openAiConversationScopeId } from "./request-meta.js";
 import {
-  ACTIVITY_PANEL_APP_LEGACY_URI,
-  ACTIVITY_PANEL_APP_URI_TEMPLATE,
   MCP_APP_RESOURCE_TEMPLATE_REVISION,
   readActivityPanelAppManifestEntry,
-  readWorkspaceAppManifestEntry,
-  readWorkspaceLifecycleAppManifestEntry,
   resolveActivityPanelAppIdentity,
-  resolveWorkspaceAppIdentity,
-  resolveWorkspaceLifecycleAppIdentity,
-  WORKSPACE_APP_LEGACY_URI,
-  WORKSPACE_APP_URI_TEMPLATE,
-  WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
-  WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE,
   type WorkspaceAppManifestEntry,
 } from "./mcp-app-template.js";
 import { shutdownHttpServer } from "./server-shutdown.js";
@@ -220,9 +214,7 @@ function toolWidgetDescriptorMeta(
 ): ToolWidgetDescriptorMeta {
   if (!shouldAttachWidget(config.widgets, kind)) return { _meta: {} };
 
-  const resourceUri = kind === "activity"
-    ? currentActivityPanelAppIdentity(config).uri
-    : currentWorkspaceLifecycleAppIdentity(config).uri;
+  const resourceUri = currentActivityPanelAppIdentity(config).uri;
   return {
     _meta: {
       ui: {
@@ -705,14 +697,6 @@ function uiBuildDirectoryUrl(): URL {
   return new URL("../dist/ui/", import.meta.url);
 }
 
-const cachedWorkspaceAppIdentities = new Map<
-  string,
-  ReturnType<typeof resolveWorkspaceAppIdentity>
->();
-const cachedWorkspaceLifecycleAppIdentities = new Map<
-  string,
-  ReturnType<typeof resolveWorkspaceLifecycleAppIdentity>
->();
 const cachedActivityPanelAppIdentities = new Map<
   string,
   ReturnType<typeof resolveActivityPanelAppIdentity>
@@ -732,30 +716,6 @@ function appIdentityOptions(config: ServerConfig) {
     fallbackRevision: FORGERELAY_VERSION,
     resourceTemplateRevision: appResourceContractRevision(config),
   };
-}
-
-function currentWorkspaceAppIdentity(
-  config: ServerConfig,
-): ReturnType<typeof resolveWorkspaceAppIdentity> {
-  const key = appResourceContractRevision(config);
-  let identity = cachedWorkspaceAppIdentities.get(key);
-  if (!identity) {
-    identity = resolveWorkspaceAppIdentity(appIdentityOptions(config));
-    cachedWorkspaceAppIdentities.set(key, identity);
-  }
-  return identity;
-}
-
-function currentWorkspaceLifecycleAppIdentity(
-  config: ServerConfig,
-): ReturnType<typeof resolveWorkspaceLifecycleAppIdentity> {
-  const key = appResourceContractRevision(config);
-  let identity = cachedWorkspaceLifecycleAppIdentities.get(key);
-  if (!identity) {
-    identity = resolveWorkspaceLifecycleAppIdentity(appIdentityOptions(config));
-    cachedWorkspaceLifecycleAppIdentities.set(key, identity);
-  }
-  return identity;
 }
 
 function currentActivityPanelAppIdentity(
@@ -809,24 +769,6 @@ ${stylesheets}
 </html>`;
 }
 
-function workspaceAppHtml(config: ServerConfig): string {
-  return mcpAppHtml(
-    config,
-    getWorkspaceAppManifestEntry(),
-    "ForgeRelay Workspace",
-    "Waiting for a workspace result.",
-  );
-}
-
-function workspaceLifecycleAppHtml(config: ServerConfig): string {
-  return mcpAppHtml(
-    config,
-    getWorkspaceLifecycleAppManifestEntry(),
-    "ForgeRelay Workspace Lifecycle",
-    "Waiting for a workspace result.",
-  );
-}
-
 function activityPanelAppHtml(config: ServerConfig): string {
   return mcpAppHtml(
     config,
@@ -869,35 +811,16 @@ async function assertMcpAppAssets(entry: WorkspaceAppManifestEntry): Promise<voi
   for (const candidate of candidates) await access(candidate);
 }
 
-type AppResourceVariant = "current" | "legacy" | "historical";
-
-function appResourceVariant(
-  requestedUri: string,
-  currentUri: string,
-  legacyUri: string,
-): AppResourceVariant {
-  if (requestedUri === currentUri) return "current";
-  if (requestedUri === legacyUri) return "legacy";
-  return "historical";
-}
-
 async function readMcpAppResource(
   config: ServerConfig,
   options: {
     requestedUri: string;
     currentUri: string;
-    legacyUri: string;
     entry: WorkspaceAppManifestEntry;
     html: string;
     transportSessionId?: string;
   },
 ) {
-  const compatibility = appResourceVariant(
-    options.requestedUri,
-    options.currentUri,
-    options.legacyUri,
-  );
-
   try {
     await assertMcpAppAssets(options.entry);
     const result = {
@@ -921,7 +844,6 @@ async function readMcpAppResource(
     logEvent(config.logging, "debug", "mcp_app_template_read", {
       requestedUri: options.requestedUri,
       currentUri: options.currentUri,
-      compatibility,
       transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
     });
     return result;
@@ -929,44 +851,11 @@ async function readMcpAppResource(
     logEvent(config.logging, "warn", "mcp_app_template_read_failed", {
       requestedUri: options.requestedUri,
       currentUri: options.currentUri,
-      compatibility,
       error: error instanceof Error ? error.message : String(error),
       transportSessionIdPrefix: transportSessionIdPrefix(options.transportSessionId),
     });
     throw error;
   }
-}
-
-function readWorkspaceAppResource(
-  config: ServerConfig,
-  requestedUri: string,
-  transportSessionId?: string,
-  currentUri = currentWorkspaceAppIdentity(config).uri,
-  legacyUri = WORKSPACE_APP_LEGACY_URI,
-) {
-  return readMcpAppResource(config, {
-    requestedUri,
-    currentUri,
-    legacyUri,
-    entry: getWorkspaceAppManifestEntry(),
-    html: workspaceAppHtml(config),
-    transportSessionId,
-  });
-}
-
-function readWorkspaceLifecycleAppResource(
-  config: ServerConfig,
-  requestedUri: string,
-  transportSessionId?: string,
-) {
-  return readMcpAppResource(config, {
-    requestedUri,
-    currentUri: currentWorkspaceLifecycleAppIdentity(config).uri,
-    legacyUri: WORKSPACE_LIFECYCLE_APP_LEGACY_URI,
-    entry: getWorkspaceLifecycleAppManifestEntry(),
-    html: workspaceLifecycleAppHtml(config),
-    transportSessionId,
-  });
 }
 
 function readActivityPanelAppResource(
@@ -977,7 +866,6 @@ function readActivityPanelAppResource(
   return readMcpAppResource(config, {
     requestedUri,
     currentUri: currentActivityPanelAppIdentity(config).uri,
-    legacyUri: ACTIVITY_PANEL_APP_LEGACY_URI,
     entry: getActivityPanelAppManifestEntry(),
     html: activityPanelAppHtml(config),
     transportSessionId,
@@ -1197,7 +1085,7 @@ function readWorkspaceBashOutput(
   return record;
 }
 
-function bashCompletionError(record: BashOutputRecord): string {
+function bashCompletionError(record: BashOutputMetadata): string {
   if (record.error) return record.error;
   if (record.timedOut) return `Background process ${record.processId} timed out.`;
   if (record.signal) return `Background process ${record.processId} exited after signal ${record.signal}.`;
@@ -2836,8 +2724,8 @@ export function createMcpServer(
     );
   };
 
-  const workspaceAppResourceMetadata = {
-    description: "Historical ForgeRelay tool card UI.",
+  const activityPanelResourceMetadata = {
+    description: "ForgeRelay unified Workspace and Activity UI for one Host Turn.",
     _meta: {
       ui: {
         domain: appDomain(config),
@@ -2845,59 +2733,6 @@ export function createMcpServer(
       },
     },
   };
-  const workspaceLifecycleResourceMetadata = {
-    description: "Historical ForgeRelay Workspace lifecycle UI compatibility resource.",
-    _meta: workspaceAppResourceMetadata._meta,
-  };
-  const activityPanelResourceMetadata = {
-    description: "ForgeRelay unified Workspace and Activity UI for one Host Turn.",
-    _meta: workspaceAppResourceMetadata._meta,
-  };
-
-  const currentWorkspaceAppUri = currentWorkspaceAppIdentity(config).uri;
-  registerAppResource(
-    server,
-    "ForgeRelay historical tool card",
-    currentWorkspaceAppUri,
-    workspaceAppResourceMetadata,
-    async (uri, extra) => readWorkspaceAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-  registerAppResource(
-    server,
-    "ForgeRelay historical tool card legacy",
-    WORKSPACE_APP_LEGACY_URI,
-    workspaceAppResourceMetadata,
-    async (uri, extra) => readWorkspaceAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-  server.registerResource(
-    "ForgeRelay historical tool card compatibility",
-    new ResourceTemplate(WORKSPACE_APP_URI_TEMPLATE, { list: undefined }),
-    { ...workspaceAppResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
-    async (uri, _variables, extra) => readWorkspaceAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-
-  server.registerResource(
-    "ForgeRelay historical Workspace Lifecycle compatibility",
-    new ResourceTemplate(WORKSPACE_LIFECYCLE_APP_URI_TEMPLATE, { list: undefined }),
-    { ...workspaceLifecycleResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
-    async (uri, _variables, extra) => readWorkspaceLifecycleAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
 
   const currentActivityPanelAppUri = currentActivityPanelAppIdentity(config).uri;
   registerAppResource(
@@ -2906,27 +2741,6 @@ export function createMcpServer(
     currentActivityPanelAppUri,
     activityPanelResourceMetadata,
     async (uri, extra) => readActivityPanelAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-  registerAppResource(
-    server,
-    "ForgeRelay Activity Panel legacy",
-    ACTIVITY_PANEL_APP_LEGACY_URI,
-    activityPanelResourceMetadata,
-    async (uri, extra) => readActivityPanelAppResource(
-      config,
-      uri.toString(),
-      extra.sessionId,
-    ),
-  );
-  server.registerResource(
-    "ForgeRelay Activity Panel compatibility",
-    new ResourceTemplate(ACTIVITY_PANEL_APP_URI_TEMPLATE, { list: undefined }),
-    { ...activityPanelResourceMetadata, mimeType: RESOURCE_MIME_TYPE },
-    async (uri, _variables, extra) => readActivityPanelAppResource(
       config,
       uri.toString(),
       extra.sessionId,

@@ -300,9 +300,7 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
   assert.doesNotMatch(activityText, /workspace-lifecycle-app-/);
 
   const templates = await context.client.listResourceTemplates();
-  assert.ok(templates.resourceTemplates.some(
-    (template) => template.uriTemplate === "ui://forgerelay/workspace-lifecycle-app-{revision}.html",
-  ));
+  assert.deepEqual(templates.resourceTemplates, []);
 });
 
 test("activity_panel carries one lightweight Workspace presentation in metadata and changes it with workspaceId", async (t) => {
