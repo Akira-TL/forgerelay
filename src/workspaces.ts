@@ -78,6 +78,7 @@ export interface Workspace {
   scannedInstructionDirs: Set<string>;
   knownInstructionPathsByDir: Map<string, string[]>;
   loadedInstructionRealPaths: Set<string>;
+  loadedInstructionPaths: Set<string>;
 }
 
 export type WorkspaceBootstrapContextMode = "auto" | "full" | "none";
@@ -1095,6 +1096,7 @@ export class WorkspaceRegistry {
     workspace.scannedInstructionDirs.clear();
     workspace.knownInstructionPathsByDir.clear();
     workspace.loadedInstructionRealPaths.clear();
+    workspace.loadedInstructionPaths.clear();
     const agentsFiles = await this.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
     const {
@@ -1284,6 +1286,7 @@ export class WorkspaceRegistry {
       scannedInstructionDirs: new Set(),
       knownInstructionPathsByDir: new Map(),
       loadedInstructionRealPaths: new Set(),
+      loadedInstructionPaths: new Set(),
     };
     if (touch) this.store?.touchSession(session.id);
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);
@@ -1427,6 +1430,7 @@ export class WorkspaceRegistry {
       scannedInstructionDirs: new Set(),
       knownInstructionPathsByDir: new Map(),
       loadedInstructionRealPaths: new Set(),
+      loadedInstructionPaths: new Set(),
     };
 
     this.store?.createSession({
@@ -1504,6 +1508,7 @@ export class WorkspaceRegistry {
         path: systemInstructionsPath,
         content: systemInstructions,
       });
+      workspace.loadedInstructionPaths.add(systemInstructionsPath);
       if (systemInstructionsRealPath) {
         workspace.loadedInstructionRealPaths.add(systemInstructionsRealPath);
       }
@@ -1650,6 +1655,7 @@ export class WorkspaceRegistry {
       }
 
       workspace.loadedInstructionRealPaths.add(realPath);
+      workspace.loadedInstructionPaths.add(path);
       loaded.push({ path, content });
     }
     return loaded;

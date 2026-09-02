@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -2770,49 +2770,14 @@ export function createMcpServer(
 
   const workspacePanelStates = new Map<string, Record<string, unknown>>();
   const liveWorkspacePanelState = (workspace: Workspace): Record<string, unknown> => {
-    let canonicalWorkspaceRoot = workspace.root;
-    try {
-      canonicalWorkspaceRoot = realpathSync(workspace.root);
-    } catch {
-      // Keep the logical root when the backing path cannot be canonicalized.
-    }
-    const filesystemPathKey = (path: string): string => {
-      let canonicalPath = path;
-      try {
-        canonicalPath = realpathSync(path);
-      } catch {
-        // Fall back to the supplied path when the file is no longer available.
-      }
-      const normalized = resolve(canonicalPath);
-      return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-    };
-    const knownInstructionEntries = [...new Set(
+    const loadedInstructionPathSet = new Set(workspace.loadedInstructionPaths);
+    const loadedInstructionPaths = [...loadedInstructionPathSet]
+      .map((path) => formatAgentsPath(path, workspace.root));
+    const availableInstructionPaths = [...new Set(
       [...workspace.knownInstructionPathsByDir.values()].flat(),
-    )].map((path) => {
-      try {
-        return { path, realPathKey: filesystemPathKey(realpathSync(path)) };
-      } catch {
-        return { path };
-      }
-    });
-    const logicalInstructionPathByRealPath = new Map(
-      knownInstructionEntries.flatMap((entry) => entry.realPathKey
-        ? [[entry.realPathKey, entry.path] as const]
-        : []),
-    );
-    const loadedInstructionRealPathKeys = new Set(
-      [...workspace.loadedInstructionRealPaths].map(filesystemPathKey),
-    );
-    const loadedInstructionPaths = [...workspace.loadedInstructionRealPaths]
-      .map((realPath) => {
-        const logicalPath = logicalInstructionPathByRealPath.get(filesystemPathKey(realPath));
-        return logicalPath
-          ? formatAgentsPath(logicalPath, workspace.root)
-          : formatAgentsPath(realPath, canonicalWorkspaceRoot);
-      });
-    const availableInstructionPaths = knownInstructionEntries
-      .filter((entry) => !entry.realPathKey || !loadedInstructionRealPathKeys.has(entry.realPathKey))
-      .map((entry) => formatAgentsPath(entry.path, workspace.root));
+    )]
+      .filter((path) => !loadedInstructionPathSet.has(path))
+      .map((path) => formatAgentsPath(path, workspace.root));
     const agentProviders = config.subagents ? subagentProviders : [];
     const agents = workspace.agentProfiles.map((profile) => {
       const summary = summarizeSubagentProfile(profile);
