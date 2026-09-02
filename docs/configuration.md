@@ -287,16 +287,20 @@ deprecated compatibility input and no longer allocates another identity for the
 same physical target; use `newWorktree: true` for genuinely separate Git isolation.
 
 Bootstrap delivery is tracked separately from Workspace identity.
-`open_workspace` defaults to `context="auto"`: ForgeRelay fingerprints the current
-project context and returns the full AGENTS/Skills/Capability-guide/profile bootstrap
-only when that conversation has not already received the current fingerprint for
-the canonical workspace target. `context="full"` forces a refresh;
-`context="none"` opens or resumes the Workspace without returning the full bootstrap
-and does not mark the current fingerprint as delivered. Conversation-scoped
-bootstrap delivery therefore remains independent from the persistent Workspace
-identity: another conversation may reuse the same Workspace while independently
-receiving the current bootstrap once, and changed context produces a new fingerprint
-for the next `auto` open.
+`open_workspace` defaults to `context="auto"`: ForgeRelay keeps the overall
+`contextFingerprint` for change detection while also tracking fingerprints for the
+individual bootstrap components (`agentsFiles`, nested-instruction discovery,
+Skills, Skill diagnostics, Capability guides, and Subagent profiles). The first
+useful open returns the complete bootstrap; later `auto` opens return only components
+whose current fingerprint has not already been delivered to that conversation for
+the canonical Workspace target. A changed component is returned as its complete
+current value, including an empty array when previously delivered content was removed,
+so Hosts can clear stale bootstrap state without receiving unrelated context again.
+`context="full"` forces every component to be returned. `context="none"` opens or
+resumes the Workspace without returning bootstrap components and does not acknowledge
+new component fingerprints. Conversation-scoped bootstrap delivery therefore remains
+independent from the persistent Workspace identity, and another conversation may reuse
+the same Workspace while receiving its own current bootstrap state.
 
 Composite Workspaces use the same `open_workspace` entry point with
 `kind="composite"` and a human-readable `name`. They have no filesystem root of

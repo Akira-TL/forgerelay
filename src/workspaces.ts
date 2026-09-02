@@ -82,11 +82,21 @@ export interface Workspace {
 
 export type WorkspaceBootstrapContextMode = "auto" | "full" | "none";
 
+export type WorkspaceBootstrapComponent =
+  | "agentsFiles"
+  | "availableAgentsFiles"
+  | "skills"
+  | "skillDiagnostics"
+  | "capabilityGuides"
+  | "agentProfiles";
+
 export interface WorkspaceContext extends HookReportContainer {
   workspace: Workspace;
   agentsFiles: LoadedAgentsFile[];
   availableAgentsFiles: AvailableAgentsFile[];
   contextFingerprint: string;
+  bootstrapComponentFingerprints: Record<WorkspaceBootstrapComponent, string>;
+  bootstrapContextComponents: WorkspaceBootstrapComponent[];
   workspaceReused: boolean;
   includeBootstrapContext: boolean;
 }
@@ -426,36 +436,47 @@ export class WorkspaceRegistry {
       : await this.reusedWorkspaceContext(await this.workspaceForOpen(workspaceId));
     const workspace = context.workspace;
     if (!conversationScopeId || !this.store) {
+      const bootstrapContextComponents = resolveBootstrapContextComponents(
+        bootstrapContext,
+        context.bootstrapComponentFingerprints,
+        [],
+      );
       return {
         ...context,
-        includeBootstrapContext: bootstrapContext !== "none",
+        bootstrapContextComponents,
+        includeBootstrapContext: bootstrapContextComponents.length > 0,
       };
     }
 
     const targetKeys = await this.workspaceTargetKeys(workspace);
-    const contextAlreadyDelivered = targetKeys.some((targetKey) =>
-      this.store?.getContextDelivery(conversationScopeId, targetKey)?.contextFingerprint ===
-        context.contextFingerprint
-    );
-    const includeBootstrapContext = resolveBootstrapContextVisibility(
+    const deliveries = targetKeys
+      .map((targetKey) => this.store?.getContextDelivery(conversationScopeId, targetKey))
+      .filter((delivery): delivery is NonNullable<typeof delivery> => delivery !== undefined);
+    const bootstrapContextComponents = resolveBootstrapContextComponents(
       bootstrapContext,
-      contextAlreadyDelivered,
+      context.bootstrapComponentFingerprints,
+      deliveries,
+      context.contextFingerprint,
     );
+    const includeBootstrapContext = bootstrapContextComponents.length > 0;
     for (const targetKey of targetKeys) {
       this.store.setConversationBinding({
         conversationScopeId,
         targetKey,
         workspaceSessionId: workspace.id,
       });
-      if (includeBootstrapContext) {
+      if (bootstrapContext !== "none" && (includeBootstrapContext || deliveries.some((delivery) =>
+        delivery.contextFingerprint === context.contextFingerprint && !delivery.componentFingerprints
+      ))) {
         this.store.setContextDelivery({
           conversationScopeId,
           targetKey,
           contextFingerprint: context.contextFingerprint,
+          componentFingerprints: context.bootstrapComponentFingerprints,
         });
       }
     }
-    return { ...context, includeBootstrapContext };
+    return { ...context, bootstrapContextComponents, includeBootstrapContext };
   }
 
   async listStaleWorkspaces(workspace: Workspace): Promise<StaleWorkspaceSession[]> {
@@ -830,30 +851,44 @@ export class WorkspaceRegistry {
     bootstrapContext: WorkspaceBootstrapContextMode,
   ): WorkspaceContext {
     if (!conversationScopeId || !this.store) {
+      const bootstrapContextComponents = resolveBootstrapContextComponents(
+        bootstrapContext,
+        context.bootstrapComponentFingerprints,
+        [],
+      );
       return {
         ...context,
-        includeBootstrapContext: bootstrapContext !== "none",
+        bootstrapContextComponents,
+        includeBootstrapContext: bootstrapContextComponents.length > 0,
       };
     }
 
     const delivery = this.store.getContextDelivery(conversationScopeId, targetKey);
-    const includeBootstrapContext = resolveBootstrapContextVisibility(
+    const bootstrapContextComponents = resolveBootstrapContextComponents(
       bootstrapContext,
-      delivery?.contextFingerprint === context.contextFingerprint,
+      context.bootstrapComponentFingerprints,
+      delivery ? [delivery] : [],
+      context.contextFingerprint,
     );
+    const includeBootstrapContext = bootstrapContextComponents.length > 0;
     this.store.setConversationBinding({
       conversationScopeId,
       targetKey,
       workspaceSessionId: context.workspace.id,
     });
-    if (includeBootstrapContext) {
+    if (
+      bootstrapContext !== "none" &&
+      (includeBootstrapContext ||
+        (delivery?.contextFingerprint === context.contextFingerprint && !delivery.componentFingerprints))
+    ) {
       this.store.setContextDelivery({
         conversationScopeId,
         targetKey,
         contextFingerprint: context.contextFingerprint,
+        componentFingerprints: context.bootstrapComponentFingerprints,
       });
     }
-    return { ...context, includeBootstrapContext };
+    return { ...context, bootstrapContextComponents, includeBootstrapContext };
   }
 
   private pruneIdleWorkspaceSessions(
@@ -1062,17 +1097,18 @@ export class WorkspaceRegistry {
     workspace.loadedInstructionRealPaths.clear();
     const agentsFiles = await this.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
-    const contextFingerprint = bootstrapContextFingerprint(
-      workspace,
-      agentsFiles,
-      availableAgentsFiles,
-    );
+    const {
+      contextFingerprint,
+      componentFingerprints: bootstrapComponentFingerprints,
+    } = bootstrapContextFingerprints(workspace, agentsFiles, availableAgentsFiles);
 
     return {
       workspace,
       agentsFiles,
       availableAgentsFiles,
       contextFingerprint,
+      bootstrapComponentFingerprints,
+      bootstrapContextComponents: [...BOOTSTRAP_CONTEXT_COMPONENTS],
       hookReports: [],
       workspaceReused: true,
       includeBootstrapContext: true,
@@ -1419,17 +1455,18 @@ export class WorkspaceRegistry {
     });
     const agentsFiles = await this.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
-    const contextFingerprint = bootstrapContextFingerprint(
-      workspace,
-      agentsFiles,
-      availableAgentsFiles,
-    );
+    const {
+      contextFingerprint,
+      componentFingerprints: bootstrapComponentFingerprints,
+    } = bootstrapContextFingerprints(workspace, agentsFiles, availableAgentsFiles);
 
     return {
       workspace,
       agentsFiles,
       availableAgentsFiles,
       contextFingerprint,
+      bootstrapComponentFingerprints,
+      bootstrapContextComponents: [...BOOTSTRAP_CONTEXT_COMPONENTS],
       hookReports,
       workspaceReused: false,
       includeBootstrapContext: true,
@@ -1619,20 +1656,49 @@ export class WorkspaceRegistry {
   }
 }
 
-function resolveBootstrapContextVisibility(
+const BOOTSTRAP_CONTEXT_COMPONENTS: readonly WorkspaceBootstrapComponent[] = [
+  "agentsFiles",
+  "availableAgentsFiles",
+  "skills",
+  "skillDiagnostics",
+  "capabilityGuides",
+  "agentProfiles",
+];
+
+function resolveBootstrapContextComponents(
   mode: WorkspaceBootstrapContextMode,
-  contextAlreadyDelivered: boolean,
-): boolean {
-  if (mode === "full") return true;
-  if (mode === "none") return false;
-  return !contextAlreadyDelivered;
+  currentFingerprints: Record<WorkspaceBootstrapComponent, string>,
+  deliveries: Array<{ contextFingerprint: string; componentFingerprints?: Record<string, string> }>,
+  contextFingerprint?: string,
+): WorkspaceBootstrapComponent[] {
+  if (mode === "none") return [];
+  if (mode === "full") return [...BOOTSTRAP_CONTEXT_COMPONENTS];
+  if (deliveries.length === 0) return [...BOOTSTRAP_CONTEXT_COMPONENTS];
+
+  if (
+    contextFingerprint &&
+    deliveries.some((delivery) =>
+      !delivery.componentFingerprints && delivery.contextFingerprint === contextFingerprint
+    )
+  ) {
+    return [];
+  }
+
+  return BOOTSTRAP_CONTEXT_COMPONENTS.filter((component) =>
+    !deliveries.some((delivery) =>
+      delivery.componentFingerprints?.[component] === currentFingerprints[component]
+    )
+  );
 }
 
-function bootstrapContextFingerprint(
+function bootstrapContextFingerprints(
   workspace: Workspace,
   agentsFiles: LoadedAgentsFile[],
   availableAgentsFiles: AvailableAgentsFile[],
-): string {
+): {
+  contextFingerprint: string;
+  componentFingerprints: Record<WorkspaceBootstrapComponent, string>;
+} {
   const payload = {
     agentsFiles: agentsFiles
       .map((file) => ({ path: resolve(file.path), content: file.content }))
@@ -1670,8 +1736,19 @@ function bootstrapContextFingerprint(
       }))
       .sort((left, right) => left.name.localeCompare(right.name)),
   };
+  const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  return {
+    contextFingerprint: hash(payload),
+    componentFingerprints: {
+      agentsFiles: hash(payload.agentsFiles),
+      availableAgentsFiles: hash(payload.availableAgentsFiles),
+      skills: hash(payload.skills),
+      skillDiagnostics: hash(payload.skillDiagnostics),
+      capabilityGuides: hash(payload.capabilityGuides),
+      agentProfiles: hash(payload.agentProfiles),
+    },
+  };
 }
 
 function canonicalPersistedWorkspacePath(path: string): string {

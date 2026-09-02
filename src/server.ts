@@ -126,7 +126,12 @@ import { createWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceTaskReminderTracker } from "./workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspace-tasks.js";
 import { compactWorkspacePresentation } from "./workspace-presentation.js";
-import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
+import {
+  formatAgentsPath,
+  WorkspaceRegistry,
+  type Workspace,
+  type WorkspaceBootstrapComponent,
+} from "./workspaces.js";
 import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
   formatSubagentProviderAvailabilitySummary,
@@ -2103,6 +2108,7 @@ export function createMcpServer(
         providerUnavailableReason: availability?.reason,
       };
     });
+    const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(opened.bootstrapContextComponents);
     return {
       member: memberName,
       workspaceId: compositeWorkspaceId,
@@ -2112,16 +2118,13 @@ export function createMcpServer(
       capabilityFingerprint,
       capabilityCatalog,
       includeBootstrapContext: opened.includeBootstrapContext,
-      ...(opened.includeBootstrapContext
-        ? {
-            capabilityGuides,
-            agentsFiles,
-            availableAgentsFiles,
-            skills,
-            agentProviders,
-            agents,
-            skillDiagnostics: redactSkillDiagnosticPaths(workspace.skillDiagnostics),
-          }
+      ...(bootstrapComponents.has("capabilityGuides") ? { capabilityGuides } : {}),
+      ...(bootstrapComponents.has("agentsFiles") ? { agentsFiles } : {}),
+      ...(bootstrapComponents.has("availableAgentsFiles") ? { availableAgentsFiles } : {}),
+      ...(bootstrapComponents.has("skills") ? { skills } : {}),
+      ...(bootstrapComponents.has("agentProfiles") ? { agentProviders, agents } : {}),
+      ...(bootstrapComponents.has("skillDiagnostics")
+        ? { skillDiagnostics: redactSkillDiagnosticPaths(workspace.skillDiagnostics) }
         : {}),
       instruction: opened.includeBootstrapContext
         ? `Bootstrap context for Composite member ${memberName}. Keep using Composite workspaceId ${compositeWorkspaceId} and pass member=${memberName} for work operations.`
@@ -3718,6 +3721,7 @@ export function createMcpServer(
         hookReports,
         workspaceReused,
         includeBootstrapContext,
+        bootstrapContextComponents,
         contextFingerprint,
       } = await workspaces.openWorkspace(
         { path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context },
@@ -3768,15 +3772,18 @@ export function createMcpServer(
       const cardAvailableAgentsFiles = availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
       }));
-      const visibleSkills = includeBootstrapContext ? cardSkills : [];
-      const visibleSkillDiagnostics = includeBootstrapContext
+      const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(bootstrapContextComponents);
+      const visibleSkills = bootstrapComponents.has("skills") ? cardSkills : [];
+      const visibleSkillDiagnostics = bootstrapComponents.has("skillDiagnostics")
         ? redactSkillDiagnosticPaths(workspace.skillDiagnostics)
         : [];
-      const visibleCapabilityGuides = includeBootstrapContext ? capabilityGuides : [];
-      const visibleAgentProviders = includeBootstrapContext ? cardAgentProviders : [];
-      const visibleAgents = includeBootstrapContext ? cardAgents : [];
-      const loadedAgentsFiles = includeBootstrapContext ? cardAgentsFiles : [];
-      const availableAgentsFileOutputs = includeBootstrapContext ? cardAvailableAgentsFiles : [];
+      const visibleCapabilityGuides = bootstrapComponents.has("capabilityGuides") ? capabilityGuides : [];
+      const visibleAgentProviders = bootstrapComponents.has("agentProfiles") ? cardAgentProviders : [];
+      const visibleAgents = bootstrapComponents.has("agentProfiles") ? cardAgents : [];
+      const loadedAgentsFiles = bootstrapComponents.has("agentsFiles") ? cardAgentsFiles : [];
+      const availableAgentsFileOutputs = bootstrapComponents.has("availableAgentsFiles")
+        ? cardAvailableAgentsFiles
+        : [];
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const workspaceManagementInstruction =
@@ -3789,7 +3796,7 @@ export function createMcpServer(
           ? [
               `Workspace already exists as ${workspace.id} for this directory.`,
               "Reuse this workspaceId for subsequent tool calls.",
-              "The complete project context is included because it has not yet been provided in this conversation or host context.",
+              `Project bootstrap context components included in this response: ${bootstrapContextComponents.join(", ")}. Components not listed are unchanged and are not repeated.`,
               workspaceContextInstruction,
               workspaceManagementInstruction,
             ].join("\n\n")
@@ -3909,16 +3916,19 @@ export function createMcpServer(
           capabilityFingerprint,
           contextFingerprint,
           capabilityCatalog,
-          ...(includeBootstrapContext
-            ? {
-                capabilityGuides: visibleCapabilityGuides,
-                agentsFiles: loadedAgentsFiles,
-                availableAgentsFiles: availableAgentsFileOutputs,
-                skills: visibleSkills,
-                agentProviders: visibleAgentProviders,
-                agents: visibleAgents,
-                skillDiagnostics: visibleSkillDiagnostics,
-              }
+          ...(bootstrapComponents.has("capabilityGuides")
+            ? { capabilityGuides: visibleCapabilityGuides }
+            : {}),
+          ...(bootstrapComponents.has("agentsFiles") ? { agentsFiles: loadedAgentsFiles } : {}),
+          ...(bootstrapComponents.has("availableAgentsFiles")
+            ? { availableAgentsFiles: availableAgentsFileOutputs }
+            : {}),
+          ...(bootstrapComponents.has("skills") ? { skills: visibleSkills } : {}),
+          ...(bootstrapComponents.has("agentProfiles")
+            ? { agentProviders: visibleAgentProviders, agents: visibleAgents }
+            : {}),
+          ...(bootstrapComponents.has("skillDiagnostics")
+            ? { skillDiagnostics: visibleSkillDiagnostics }
             : {}),
           instruction,
         },

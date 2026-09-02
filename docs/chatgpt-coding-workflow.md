@@ -30,12 +30,14 @@ open_workspace(path="~/project")
 ```
 
 The default `context="auto"` keeps the first useful bootstrap while avoiding
-replay. ForgeRelay tracks delivered context by conversation plus canonical
-Workspace target and a content fingerprint, independently from persistent
-Workspace identity. Different conversations may reuse the same `workspaceId` while
-each receives the current bootstrap once. If loaded instruction contents or
-relevant Skill, Capability guide, profile, diagnostic, or nested-instruction
-metadata changes, the next automatic open returns the refreshed bootstrap.
+replay. ForgeRelay tracks delivery by conversation plus canonical Workspace target,
+with both an overall `contextFingerprint` and component fingerprints for loaded
+instructions, nested-instruction discovery, Skills, Skill diagnostics, Capability
+guides, and Subagent profiles. Different conversations may reuse the same
+`workspaceId` while each receives the current bootstrap independently. After the
+first full delivery, an automatic open returns only components that changed or were
+removed; an emptied component is returned as an empty array so the Host can clear
+stale state without replaying unrelated bootstrap context.
 
 Two explicit controls are available for exceptional cases:
 
@@ -44,10 +46,10 @@ open_workspace(workspaceId="ws_...", context="full")
 open_workspace(workspaceId="ws_...", context="none")
 ```
 
-`full` forces a bootstrap refresh. `none` opens/resumes the Workspace without
-returning the full project context and does not record the current fingerprint as
-already delivered. Context-delivery state remains conversation-scoped and does not
-change the persistent Workspace identity.
+`full` forces every bootstrap component to refresh. `none` opens/resumes the
+Workspace without returning bootstrap components and does not acknowledge changed
+component fingerprints as delivered. Context-delivery state remains
+conversation-scoped and does not change the persistent Workspace identity.
 
 Do not enumerate Workspace state on every normal open. Use the same Core tool in
 inventory mode only when the user wants to discover known Workspaces, continue earlier

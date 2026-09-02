@@ -20,17 +20,17 @@ ForgeRelay 会为 canonical checkout 找到或创建稳定的 `workspaceId`。�
 
 ### `context="auto"`
 
-默认模式。第一次需要时返回当前 AGENTS/CLAUDE 指令、Skill、Capability guide、profile 等上下文；同一 conversation 已经收到相同 fingerprint 后，不再重复整包发送。
+默认模式。第一次需要时返回当前 AGENTS/CLAUDE 指令、Skill、Capability guide、profile 等完整 bootstrap。之后 ForgeRelay 按 bootstrap component 分别记录 delivery fingerprint；如果只有某个 component 变化，下一次 `auto` 只返回该 component，其他未变内容不重复发送。
 
-如果这些内容发生变化，新的 fingerprint 会让下一次 `auto` 再次返回更新后的 bootstrap。
+如果某个已交付 component 的内容被删除，`auto` 会返回该 component 的当前空数组，使 Host 能明确清除旧状态，而不是继续保留已经失效的上下文。
 
 ### `context="full"`
 
-强制刷新完整 bootstrap。适合接手工作、怀疑 Host 上下文过旧，或明确需要重新检查全部项目规则时。
+强制刷新全部 bootstrap component。适合接手工作、怀疑 Host 上下文过旧，或明确需要重新检查全部项目规则时。
 
 ### `context="none"`
 
-只打开/恢复 Workspace，不返回完整 bootstrap，也不会把当前 fingerprint 标记为已经交付。适合只需要 Workspace handle 或轻量元数据的场景。
+只打开/恢复 Workspace，不返回 bootstrap component，也不会确认尚未交付的新 component fingerprint。适合只需要 Workspace handle 或轻量元数据的场景；之后再使用 `auto` 时，期间发生的变更仍会正常返回。
 
 ## 查看已知 Workspace
 

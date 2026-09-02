@@ -305,7 +305,11 @@ must be published successfully before work begins on the next stage.
   allowlist-based read-only inspection of other Workspaces and their safe Task
   projections;
 - **0.8.5** — verify the complete contract across Workspace Relay and publish the
-  accepted 0.8 lifecycle/Task model.
+  accepted 0.8 lifecycle/Task model;
+- **0.8.7** — make `open_workspace(context="auto")` bootstrap delivery component-level,
+  returning only changed/removed AGENTS, nested-instruction, Skill/diagnostic,
+  Capability-guide, or Subagent-profile domains while preserving `full`/`none`,
+  Composite member, Relay, and legacy delivery-record semantics.
 
 The release boundary is part of the dependency graph, not just a documentation
 milestone: the next stage remains blocked until the previous version's tag-triggered

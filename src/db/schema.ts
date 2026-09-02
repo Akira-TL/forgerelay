@@ -76,6 +76,7 @@ export const workspaceContextDeliveries = sqliteTable(
     conversationScopeId: text("conversation_scope_id").notNull(),
     targetKey: text("target_key").notNull(),
     contextFingerprint: text("context_fingerprint").notNull(),
+    componentFingerprintsJson: text("component_fingerprints_json"),
     deliveredAt: text("delivered_at").notNull(),
   },
   (table) => [

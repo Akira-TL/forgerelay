@@ -1065,6 +1065,22 @@ test("Composite Workspace can open a path-backed member and explicitly load that
   assert.equal(repeatedMemberContext.includeBootstrapContext, false);
   assert.match(String(repeatedMemberContext.instruction), /already delivered/i);
 
+  await writeFile(join(context.project, "AGENTS.md"), "updated Composite member instructions\n");
+  const incremental = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "gpu", context: "auto" },
+    _meta: { "openai/session": "chat-member-context-policy" },
+  } as Parameters<Client["callTool"]>[0]);
+  const incrementalMemberContext = structuredContent(incremental).memberContext as Record<string, unknown>;
+  assert.equal(incrementalMemberContext.includeBootstrapContext, true);
+  assert.match(JSON.stringify(incrementalMemberContext.agentsFiles), /updated Composite member instructions/);
+  assert.equal(incrementalMemberContext.availableAgentsFiles, undefined);
+  assert.equal(incrementalMemberContext.skills, undefined);
+  assert.equal(incrementalMemberContext.capabilityGuides, undefined);
+  assert.equal(incrementalMemberContext.agentProviders, undefined);
+  assert.equal(incrementalMemberContext.agents, undefined);
+  assert.equal(incrementalMemberContext.skillDiagnostics, undefined);
+
   const closed = await context.client.callTool({
     name: "close_workspace",
     arguments: { workspaceId: compositeId },
@@ -1085,7 +1101,7 @@ test("Composite Workspace can open a path-backed member and explicitly load that
   assert.equal(memberContext.root, context.project);
   assert.equal(memberContext.includeBootstrapContext, true);
   assert.ok(Array.isArray(memberContext.agentsFiles));
-  assert.match(JSON.stringify(memberContext.agentsFiles), /project instructions/);
+  assert.match(JSON.stringify(memberContext.agentsFiles), /updated Composite member instructions/);
   assert.ok(Array.isArray(memberContext.capabilityGuides));
   assert.ok(Array.isArray(memberContext.agentProviders));
   assert.ok(Array.isArray(memberContext.agents));
@@ -5239,6 +5255,106 @@ test("checkout opened after a worktree receives its own complete context", async
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
+test("open_workspace auto returns only changed bootstrap components", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-incremental-bootstrap");
+  const firstContent = structuredContent(first);
+  assert.ok(Array.isArray(firstContent.agentsFiles));
+  assert.ok(Array.isArray(firstContent.capabilityGuides));
+
+  await writeFile(join(context.project, "AGENTS.md"), "updated project instructions only\n");
+
+  const updated = await callOpen(context.client, context.project, "chat-incremental-bootstrap");
+  const updatedContent = structuredContent(updated);
+  const updatedAgentsFiles = updatedContent.agentsFiles as Array<{ path?: string; content?: string }>;
+  assert.equal(
+    updatedAgentsFiles.some((file) =>
+      file.path === "AGENTS.md" && file.content === "updated project instructions only\n"
+    ),
+    true,
+  );
+  assert.equal(updatedContent.availableAgentsFiles, undefined);
+  assert.equal(updatedContent.skills, undefined);
+  assert.equal(updatedContent.skillDiagnostics, undefined);
+  assert.equal(updatedContent.capabilityGuides, undefined);
+  assert.equal(updatedContent.agentProviders, undefined);
+  assert.equal(updatedContent.agents, undefined);
+});
+
+test("open_workspace context none does not acknowledge changed bootstrap components", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-incremental-none");
+  const workspaceId = String(structuredContent(first).workspaceId);
+
+  await writeFile(join(context.project, "AGENTS.md"), "changed while bootstrap is suppressed\n");
+  const suppressed = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "none" },
+    _meta: { "openai/session": "chat-incremental-none" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(structuredContent(suppressed).agentsFiles, undefined);
+
+  const automatic = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId, context: "auto" },
+    _meta: { "openai/session": "chat-incremental-none" },
+  } as Parameters<Client["callTool"]>[0]);
+  const automaticContent = structuredContent(automatic);
+  assert.match(JSON.stringify(automaticContent.agentsFiles), /changed while bootstrap is suppressed/);
+  assert.equal(automaticContent.skills, undefined);
+  assert.equal(automaticContent.capabilityGuides, undefined);
+  assert.equal(automaticContent.agents, undefined);
+});
+
+test("open_workspace auto returns an empty changed component when bootstrap content is removed", async (t) => {
+  const context = await fixture(t);
+  const nestedDir = join(context.project, "nested-bootstrap");
+  await mkdir(nestedDir, { recursive: true });
+  await writeFile(join(nestedDir, "AGENTS.md"), "nested bootstrap instructions\n");
+
+  const first = await callOpen(context.client, context.project, "chat-incremental-delete");
+  const firstAvailable = structuredContent(first).availableAgentsFiles as Array<{ path?: string }>;
+  assert.equal(firstAvailable.some((file) => file.path === "nested-bootstrap/AGENTS.md"), true);
+
+  await rm(join(nestedDir, "AGENTS.md"), { force: true });
+  const updated = await callOpen(context.client, context.project, "chat-incremental-delete");
+  const updatedContent = structuredContent(updated);
+  assert.deepEqual(updatedContent.availableAgentsFiles, []);
+  assert.equal(updatedContent.agentsFiles, undefined);
+  assert.equal(updatedContent.skills, undefined);
+  assert.equal(updatedContent.capabilityGuides, undefined);
+  assert.equal(updatedContent.agents, undefined);
+});
+
+test("legacy whole-bootstrap delivery upgrades without resending unchanged context", async (t) => {
+  const context = await fixture(t);
+  const first = await callOpen(context.client, context.project, "chat-legacy-bootstrap-delivery");
+  const workspaceId = String(structuredContent(first).workspaceId);
+  const binding = context.store.listConversationBindings().find((candidate) =>
+    candidate.conversationScopeId === "chat-legacy-bootstrap-delivery" &&
+    candidate.workspaceSessionId === workspaceId
+  );
+  assert.ok(binding);
+
+  const database = openDatabase(context.stateDir);
+  try {
+    database.sqlite.prepare(`
+      update workspace_context_deliveries
+         set component_fingerprints_json = null
+       where conversation_scope_id = ? and target_key = ?
+    `).run(binding.conversationScopeId, binding.targetKey);
+  } finally {
+    database.close();
+  }
+
+  const repeated = await callOpen(context.client, context.project, "chat-legacy-bootstrap-delivery");
+  assert.equal(structuredContent(repeated).agentsFiles, undefined);
+  assert.equal(structuredContent(repeated).skills, undefined);
+  assert.ok(
+    context.store.getContextDelivery(binding.conversationScopeId, binding.targetKey)?.componentFingerprints,
+  );
+});
+
 test("a host without conversation metadata reuses the directory workspace and still receives full context", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project);
@@ -5247,7 +5363,11 @@ test("a host without conversation metadata reuses the directory workspace and st
   assert.equal(structuredContent(first).workspaceId, structuredContent(second).workspaceId);
   assert.ok(Array.isArray(structuredContent(first).agentsFiles));
   assert.ok(Array.isArray(structuredContent(second).agentsFiles));
-  assert.match(responseText(second), /complete project context is included/i);
+  assert.ok(Array.isArray(structuredContent(second).availableAgentsFiles));
+  assert.ok(Array.isArray(structuredContent(second).skills));
+  assert.ok(Array.isArray(structuredContent(second).skillDiagnostics));
+  assert.ok(Array.isArray(structuredContent(second).capabilityGuides));
+  assert.ok(Array.isArray(structuredContent(second).agents));
   assert.doesNotMatch(responseText(first), /conversation metadata/i);
   assert.doesNotMatch(responseText(second), /conversation metadata/i);
 });

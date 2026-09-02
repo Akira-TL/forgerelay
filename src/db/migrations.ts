@@ -87,6 +87,11 @@ const migrations: Migration[] = [
     name: "workspace-session-aliases",
     up: migrateWorkspaceSessionAliases,
   },
+  {
+    version: 17,
+    name: "workspace-context-components",
+    up: migrateWorkspaceContextComponents,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -424,6 +429,11 @@ function migrateWorkspaceSessionAliases(sqlite: Database.Database): void {
   `);
 }
 
+function migrateWorkspaceContextComponents(sqlite: Database.Database): void {
+  migrateWorkspaceContextDeliveries(sqlite);
+  addColumnIfMissing(sqlite, "workspace_context_deliveries", "component_fingerprints_json", "text");
+}
+
 function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {
   migrateActivityHostTurns(sqlite);
   addColumnIfMissing(sqlite, "activity_host_turns", "workspace_id", "text");
@@ -455,7 +465,12 @@ function tableExists(sqlite: Database.Database, table: string): boolean {
 
 function addColumnIfMissing(
   sqlite: Database.Database,
-  table: "workspace_sessions" | "local_agent_sessions" | "bash_output_streams" | "activity_host_turns",
+  table:
+    | "workspace_sessions"
+    | "local_agent_sessions"
+    | "bash_output_streams"
+    | "activity_host_turns"
+    | "workspace_context_deliveries",
   column: string,
   definition: string,
 ): void {

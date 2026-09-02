@@ -4,6 +4,10 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- `open_workspace(context="auto")` now tracks bootstrap delivery per component and returns only changed or removed AGENTS/nested-instruction, Skill/diagnostic, Capability-guide, and Subagent-profile domains after the first full delivery; `full`, `none`, Composite member, Relay, and legacy whole-fingerprint delivery behavior remain compatible.
+
 ## [0.8.6] - 2026-09-02
 
 ### Added

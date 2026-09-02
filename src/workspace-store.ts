@@ -39,6 +39,7 @@ export interface WorkspaceContextDelivery {
   conversationScopeId: string;
   targetKey: string;
   contextFingerprint: string;
+  componentFingerprints?: Record<string, string>;
   deliveredAt: string;
 }
 
@@ -103,6 +104,7 @@ export interface WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     contextFingerprint: string;
+    componentFingerprints?: Record<string, string>;
   }): WorkspaceContextDelivery;
   deleteContextDelivery(conversationScopeId: string, targetKey: string): void;
   close?(): void;
@@ -460,11 +462,21 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     conversationScopeId: string;
     targetKey: string;
     contextFingerprint: string;
+    componentFingerprints?: Record<string, string>;
   }): WorkspaceContextDelivery {
     const deliveredAt = new Date().toISOString();
+    const componentFingerprintsJson = input.componentFingerprints
+      ? JSON.stringify(input.componentFingerprints)
+      : null;
     const row = this.database.db
       .insert(workspaceContextDeliveries)
-      .values({ ...input, deliveredAt })
+      .values({
+        conversationScopeId: input.conversationScopeId,
+        targetKey: input.targetKey,
+        contextFingerprint: input.contextFingerprint,
+        componentFingerprintsJson,
+        deliveredAt,
+      })
       .onConflictDoUpdate({
         target: [
           workspaceContextDeliveries.conversationScopeId,
@@ -472,6 +484,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         ],
         set: {
           contextFingerprint: input.contextFingerprint,
+          componentFingerprintsJson,
           deliveredAt,
         },
       })
@@ -613,10 +626,25 @@ function rowToWorkspaceConversationBinding(
 function rowToWorkspaceContextDelivery(
   row: WorkspaceContextDeliveryRow,
 ): WorkspaceContextDelivery {
+  const componentFingerprints = parseContextComponentFingerprints(row.componentFingerprintsJson);
   return {
     conversationScopeId: row.conversationScopeId,
     targetKey: row.targetKey,
     contextFingerprint: row.contextFingerprint,
+    ...(componentFingerprints ? { componentFingerprints } : {}),
     deliveredAt: row.deliveredAt,
   };
+}
+
+function parseContextComponentFingerprints(value: string | null): Record<string, string> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.some(([, fingerprint]) => typeof fingerprint !== "string")) return undefined;
+    return Object.fromEntries(entries) as Record<string, string>;
+  } catch {
+    return undefined;
+  }
 }

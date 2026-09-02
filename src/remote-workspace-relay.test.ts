@@ -660,6 +660,7 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   const bootstrap = await client.callTool({
     name: "open_workspace",
     arguments: { workspaceId: compositeId, memberName: "compute", context: "full" },
+    _meta: { "openai/session": "chat-composite-relay-bootstrap" },
   });
   assert.equal(bootstrap.isError, undefined, resultText(bootstrap));
   const memberContext = structuredContent(bootstrap).memberContext as Record<string, unknown>;
@@ -672,6 +673,22 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   assert.ok(Array.isArray(memberContext.agentProviders));
   assert.ok(Array.isArray(memberContext.agents));
   assert.doesNotMatch(JSON.stringify(memberContext), /"ws_[0-9a-f]{10}"/);
+
+  await writeFile(join(remoteRoot, "AGENTS.md"), "updated relayed Composite instructions\n");
+  const incrementalBootstrap = await client.callTool({
+    name: "open_workspace",
+    arguments: { workspaceId: compositeId, memberName: "compute", context: "auto" },
+    _meta: { "openai/session": "chat-composite-relay-bootstrap" },
+  });
+  assert.equal(incrementalBootstrap.isError, undefined, resultText(incrementalBootstrap));
+  const incrementalMemberContext = structuredContent(incrementalBootstrap).memberContext as Record<string, unknown>;
+  assert.match(JSON.stringify(incrementalMemberContext.agentsFiles), /updated relayed Composite instructions/);
+  assert.equal(incrementalMemberContext.availableAgentsFiles, undefined);
+  assert.equal(incrementalMemberContext.skills, undefined);
+  assert.equal(incrementalMemberContext.capabilityGuides, undefined);
+  assert.equal(incrementalMemberContext.agentProviders, undefined);
+  assert.equal(incrementalMemberContext.agents, undefined);
+  assert.equal(incrementalMemberContext.skillDiagnostics, undefined);
 
   const createdMemberList = await client.callTool({
     name: "capability",

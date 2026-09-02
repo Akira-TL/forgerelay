@@ -68,11 +68,9 @@ ForgeRelay 把“高频执行 primitive”和“低频领域能力”分开。
 
 ForgeRelay 的 bootstrap 也采用 progressive disclosure。
 
-`context="auto"` 会为 conversation + canonical Workspace target 记录内容 fingerprint。相同上下文已经交付后，不会每次 reopen 都重复发送完整 AGENTS、Skills、Capability guides 和 profiles。
+`context="auto"` 会为 conversation + canonical Workspace target 记录整体 `contextFingerprint`，同时分别记录 AGENTS/nested instructions、Skills、Skill diagnostics、Capability guides 和 Subagent profiles 等 bootstrap component 的 fingerprint。首次需要时仍返回完整 bootstrap；之后只返回发生变化的 component，不会因为一处 AGENTS 或 Skill 变化把其他未变内容整包重发。
 
-如果项目指令、Skill 或其他相关上下文发生变化，fingerprint 会变化，下一次 `auto` 再返回更新内容。
-
-接手复杂工作时可使用 `context="full"`；只需要 handle/metadata 时可使用 `context="none"`。
+component 内容被删除时，下一次 `auto` 会返回该 component 的当前空数组，让 Host 明确清除旧状态。`context="full"` 强制返回全部 component；`context="none"` 不返回 bootstrap，也不会把尚未交付的新 component fingerprint 标记为已交付。
 
 详见 [Workspace 生命周期](Workspace-Lifecycle)。
 

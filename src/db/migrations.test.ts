@@ -110,6 +110,63 @@ test("database migration adds persistent Workspace alias storage after the v0.7.
   assert.equal(migration?.name, "workspace-session-aliases");
 });
 
+test("database migration adds component fingerprints to historical Workspace context deliveries", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-context-components-test-"));
+  const databasePath = join(stateDir, "devspace.sqlite");
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    create table devspace_schema_migrations (
+      version integer primary key,
+      name text not null,
+      applied_at text not null
+    );
+
+    create table workspace_context_deliveries (
+      conversation_scope_id text not null,
+      target_key text not null,
+      context_fingerprint text not null,
+      delivered_at text not null,
+      primary key (conversation_scope_id, target_key)
+    );
+
+    insert into workspace_context_deliveries (
+      conversation_scope_id,
+      target_key,
+      context_fingerprint,
+      delivered_at
+    ) values ('chat-legacy', '/project', 'legacy-fingerprint', '2026-08-31T00:00:00.000Z');
+  `);
+  const recordMigration = legacy.prepare(
+    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+  );
+  for (let version = 1; version <= 16; version += 1) {
+    recordMigration.run(version, `legacy-${version}`, "2026-08-31T00:00:00.000Z");
+  }
+  legacy.close();
+
+  const migrated = openDatabase(stateDir);
+  t.after(async () => {
+    migrated.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const columns = migrated.sqlite.prepare("pragma table_info(workspace_context_deliveries)").all() as Array<{
+    name: string;
+  }>;
+  assert.equal(columns.some((column) => column.name === "component_fingerprints_json"), true);
+  const historical = migrated.sqlite.prepare(`
+    select context_fingerprint, component_fingerprints_json
+      from workspace_context_deliveries
+     where conversation_scope_id = 'chat-legacy' and target_key = '/project'
+  `).get() as { context_fingerprint?: string; component_fingerprints_json?: string | null } | undefined;
+  assert.equal(historical?.context_fingerprint, "legacy-fingerprint");
+  assert.equal(historical?.component_fingerprints_json, null);
+  const migration = migrated.sqlite.prepare(
+    "select name from devspace_schema_migrations where version = 17",
+  ).get() as { name?: string } | undefined;
+  assert.equal(migration?.name, "workspace-context-components");
+});
+
 test("database migration repairs a partial historical Bash output schema before completion writes", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-bash-output-test-"));
   const databasePath = join(stateDir, "devspace.sqlite");
