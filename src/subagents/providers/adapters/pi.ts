@@ -17,6 +17,10 @@ import {
 } from "../shared.js";
 
 const PI_AGENT_TIMEOUT_MS = 120_000;
+const PI_RPC_MAX_LINE_BYTES = 8 * 1024 * 1024;
+const PI_RPC_STDERR_TAIL_BYTES = 128 * 1024;
+const PI_STREAMING_TEXT_MAX_BYTES = 8 * 1024 * 1024;
+const PI_ERROR_PREVIEW_BYTES = 4 * 1024;
 
 export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "pi" as const;
@@ -36,12 +40,22 @@ export class PiRpcSubagentAdapter implements SubagentProviderAdapter {
     const detachAbort = terminateChildOnAbort(child, input.signal);
     const rpc = new JsonLineRpc(child);
     let streamingText = "";
+    let streamingTextBytes = 0;
     let streamingProviderError = "";
     rpc.onEvent((event) => {
       const text = extractPiStreamingText([event]);
-      if (text) streamingText += text;
+      if (text) {
+        const nextBytes = streamingTextBytes + Buffer.byteLength(text, "utf8");
+        if (nextBytes > PI_STREAMING_TEXT_MAX_BYTES) {
+          rpc.fail(new Error(`Pi streaming response exceeded ${PI_STREAMING_TEXT_MAX_BYTES} bytes.`));
+          child.kill();
+          return;
+        }
+        streamingText += text;
+        streamingTextBytes = nextBytes;
+      }
       const providerError = extractPiProviderError(event);
-      if (providerError) streamingProviderError = providerError;
+      if (providerError) streamingProviderError = boundedUtf8Tail(providerError, PI_RPC_STDERR_TAIL_BYTES);
     });
     try {
       const state = await rpc.request({ type: "get_state" });
@@ -89,13 +103,15 @@ export function piCommandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
   };
 }
 
-class JsonLineRpc {
+export class JsonLineRpc {
   private readonly pending = new Map<string, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
   }>();
   private readonly eventSubscribers = new Set<(event: unknown) => void>();
+  private readonly failureSubscribers = new Set<(error: Error) => void>();
   private buffer = "";
+  private bufferBytes = 0;
   private nextId = 1;
   private stderr = "";
   private fatalError: Error | undefined;
@@ -103,7 +119,7 @@ class JsonLineRpc {
   constructor(private readonly child: ChildProcessWithoutNullStreams) {
     child.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk.toString("utf8")));
     child.stderr.on("data", (chunk: Buffer) => {
-      this.stderr += chunk.toString("utf8");
+      this.stderr = boundedUtf8Tail(`${this.stderr}${chunk.toString("utf8")}`, PI_RPC_STDERR_TAIL_BYTES);
     });
     child.on("exit", (code, signal) => {
       this.failAll(new Error(`Pi RPC process exited with code ${code ?? "null"} and signal ${signal ?? "null"}\n${this.stderr}`.trim()));
@@ -127,6 +143,10 @@ class JsonLineRpc {
     return () => this.eventSubscribers.delete(callback);
   }
 
+  fail(error: Error): void {
+    this.failAll(error);
+  }
+
   waitForEvent(
     predicate: (event: unknown) => boolean,
     timeoutMs: number,
@@ -136,6 +156,7 @@ class JsonLineRpc {
       const finish = (callback: () => void) => {
         clearTimeout(timer);
         unsubscribe();
+        unsubscribeFailure();
         signal?.removeEventListener("abort", abort);
         callback();
       };
@@ -151,6 +172,7 @@ class JsonLineRpc {
         if (!predicate(event)) return;
         finish(() => resolve(event));
       });
+      const unsubscribeFailure = this.onFailure((error) => finish(() => reject(error)));
       if (signal?.aborted) abort();
       else signal?.addEventListener("abort", abort, { once: true });
     });
@@ -158,18 +180,36 @@ class JsonLineRpc {
 
   private handleStdout(chunk: string): void {
     this.buffer += chunk;
+    this.bufferBytes += Buffer.byteLength(chunk, "utf8");
     for (;;) {
       const newline = this.buffer.indexOf("\n");
-      if (newline === -1) return;
-      const line = this.buffer.slice(0, newline).trim();
+      if (newline === -1) {
+        if (this.bufferBytes > PI_RPC_MAX_LINE_BYTES) {
+          const error = new Error(`Pi RPC line exceeded ${PI_RPC_MAX_LINE_BYTES} bytes.`);
+          this.failAll(error);
+          this.child.kill();
+        }
+        return;
+      }
+      const consumed = this.buffer.slice(0, newline + 1);
+      const line = consumed.slice(0, -1).trim();
       this.buffer = this.buffer.slice(newline + 1);
+      this.bufferBytes = Math.max(0, this.bufferBytes - Buffer.byteLength(consumed, "utf8"));
       if (!line) continue;
+      if (Buffer.byteLength(line, "utf8") > PI_RPC_MAX_LINE_BYTES) {
+        const error = new Error(`Pi RPC line exceeded ${PI_RPC_MAX_LINE_BYTES} bytes.`);
+        this.failAll(error);
+        this.child.kill();
+        return;
+      }
       let message: Record<string, unknown>;
       try {
         message = JSON.parse(line) as Record<string, unknown>;
       } catch {
-        this.stderr += `${line}\n`;
-        this.failAll(new Error(`Pi RPC emitted malformed JSON on stdout: ${line}`));
+        const preview = boundedUtf8Tail(line, PI_ERROR_PREVIEW_BYTES);
+        this.stderr = boundedUtf8Tail(`${this.stderr}${preview}\n`, PI_RPC_STDERR_TAIL_BYTES);
+        this.failAll(new Error(`Pi RPC emitted malformed JSON on stdout: ${preview}`));
+        this.child.kill();
         return;
       }
       if (message.type !== "response") {
@@ -190,13 +230,26 @@ class JsonLineRpc {
     }
   }
 
+  private onFailure(callback: (error: Error) => void): () => void {
+    this.failureSubscribers.add(callback);
+    return () => this.failureSubscribers.delete(callback);
+  }
+
   private failAll(error: Error): void {
+    if (this.fatalError) return;
     this.fatalError = error;
     for (const pending of this.pending.values()) {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const subscriber of [...this.failureSubscribers]) subscriber(error);
   }
+}
+
+function boundedUtf8Tail(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.length <= maxBytes) return value;
+  return bytes.subarray(bytes.length - maxBytes).toString("utf8");
 }
 
 export function extractPiFinalResponse(value: unknown): string {
