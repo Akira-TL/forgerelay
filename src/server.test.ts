@@ -39,6 +39,7 @@ const canonicalToolNames = [
   "activity_index",
   "activity_detail",
   "activity_output",
+  "workspace_instruction",
   "capability",
   "close_workspace",
   "read",
@@ -932,6 +933,55 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.ok(card.skills?.every((skill) => skill.path === undefined));
   assert.ok(card.agentProviders?.every((provider) => provider.name !== undefined));
   assert.ok(card.agents?.every((agent) => agent.name !== undefined));
+});
+
+test("Workspace Panel loads advertised instruction bodies on demand without activating nested context", async (t) => {
+  const context = await fixture(t);
+  const nested = join(context.project, "panel-preview");
+  await mkdir(nested, { recursive: true });
+  await writeFile(join(nested, "AGENTS.md"), "panel-only nested instructions\n");
+  await writeFile(join(nested, "target.txt"), "target\n");
+  await writeFile(join(context.project, "not-an-instruction.txt"), "private workspace file\n");
+
+  const opened = await callOpen(context.client, context.project, "chat-panel-instruction");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const available = structuredContent(opened).availableAgentsFiles as Array<{ path?: string }>;
+  assert.equal(available.some((file) => file.path === "panel-preview/AGENTS.md"), true);
+
+  const tools = await context.client.listTools();
+  const instructionTool = tools.tools.find((tool) => tool.name === "workspace_instruction");
+  assert.deepEqual(
+    (instructionTool?._meta as { ui?: { visibility?: string[] } } | undefined)?.ui?.visibility,
+    ["app"],
+  );
+
+  const detail = await context.client.callTool({
+    name: "workspace_instruction",
+    arguments: { workspaceId, path: "panel-preview/AGENTS.md" },
+  });
+  assert.equal(detail.isError, undefined, allResponseText(detail));
+  assert.deepEqual(structuredContent(detail), {
+    path: "panel-preview/AGENTS.md",
+    content: "panel-only nested instructions\n",
+    status: "available",
+  });
+
+  const rejected = await context.client.callTool({
+    name: "workspace_instruction",
+    arguments: { workspaceId, path: "not-an-instruction.txt" },
+  });
+  assert.equal(rejected.isError, true);
+  assert.match(allResponseText(rejected), /not advertised for this Workspace/);
+
+  const ordinaryRead = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "panel-preview/target.txt" },
+  });
+  assert.equal(ordinaryRead.isError, undefined, allResponseText(ordinaryRead));
+  assert.deepEqual(structuredContent(ordinaryRead).agentsFiles, [{
+    path: "panel-preview/AGENTS.md",
+    content: "panel-only nested instructions\n",
+  }]);
 });
 
 test("open_workspace context policy suppresses, automatically delivers, and forces bootstrap context", async (t) => {

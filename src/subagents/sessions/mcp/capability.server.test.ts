@@ -35,6 +35,7 @@ const canonicalToolNames = [
   "activity_index",
   "activity_detail",
   "activity_output",
+  "workspace_instruction",
   "capability",
   "close_workspace",
   "read",

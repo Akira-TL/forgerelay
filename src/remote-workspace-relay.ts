@@ -342,6 +342,19 @@ export class RemoteWorkspaceRelay {
     return this.callWorkspaceTool(gatewayWorkspaceId, "bash", input, conversationScopeId);
   }
 
+  async workspaceInstruction(
+    gatewayWorkspaceId: string,
+    path: string,
+    conversationScopeId?: string,
+  ): Promise<ToolCallResult> {
+    return this.callWorkspaceTool(
+      gatewayWorkspaceId,
+      "workspace_instruction",
+      { path },
+      conversationScopeId,
+    );
+  }
+
   async execCommand(
     gatewayWorkspaceId: string,
     input: Record<string, unknown>,

@@ -63,6 +63,7 @@ async function boot(): Promise<void> {
   app.onteardown = async () => {
     connected = false;
     activityPanel.detach();
+    workspacePanel.detach();
     workspacePanel.clear();
     return {};
   };
@@ -74,6 +75,7 @@ async function boot(): Promise<void> {
     applyHostContext();
     connected = true;
     activityPanel.attach(app);
+    workspacePanel.attach(app);
     if (currentWorkspaceId && !activityPanel.active) void bootstrapCurrentTurn();
   } catch (error) {
     connectionError = error instanceof Error ? error.message : String(error);

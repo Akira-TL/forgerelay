@@ -1,3 +1,4 @@
+import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ACTIVITY_PANEL_WORKSPACE_META_KEY } from "../../activity/ui/contract.js";
 import type { ToolResultCard } from "../card-types.js";
@@ -44,9 +45,13 @@ export function workspacePanelCardFromResult(
 }
 
 export class WorkspacePanelController {
+  private app: App | null = null;
   private card: WorkspacePanelCard | null = null;
   private openInstructionKey: string | null = null;
   private showAvailableInstructions = false;
+  private readonly instructionContents = new Map<string, string>();
+  private readonly instructionLoading = new Set<string>();
+  private readonly instructionErrors = new Map<string, string>();
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -58,12 +63,23 @@ export class WorkspacePanelController {
     return this.card?.workspaceId;
   }
 
+  attach(app: App): void {
+    this.app = app;
+  }
+
+  detach(): void {
+    this.app = null;
+  }
+
   accept(result: CallToolResult): boolean {
     const next = workspacePanelCardFromResult(result);
     if (!next) return false;
     if (this.card?.workspaceId !== next.workspaceId) {
       this.openInstructionKey = null;
       this.showAvailableInstructions = false;
+      this.instructionContents.clear();
+      this.instructionLoading.clear();
+      this.instructionErrors.clear();
     }
     this.card = next;
     return true;
@@ -73,6 +89,9 @@ export class WorkspacePanelController {
     this.card = null;
     this.openInstructionKey = null;
     this.showAvailableInstructions = false;
+    this.instructionContents.clear();
+    this.instructionLoading.clear();
+    this.instructionErrors.clear();
     this.root.replaceChildren();
   }
 
@@ -98,7 +117,7 @@ export class WorkspacePanelController {
     const mode = element("span", "workspace-panel-mode", card.mode ?? "workspace");
     header.append(icon, titleGroup, mode);
 
-    const details = element("div", "workspace-details");
+    const details = element("div", "workspace-details pretty-scrollbar");
     const rows = element("div", "workspace-rows");
     appendWorkspaceTextRow(rows, "Root", card.root, toolIcons.folderOpen, true);
     appendWorkspaceTextRow(rows, "Mode", card.mode ?? "workspace", toolIcons.folderTree);
@@ -206,11 +225,18 @@ export class WorkspacePanelController {
     );
   }
 
-  private renderInstruction(instruction: WorkspaceInstruction, list: HTMLElement): HTMLElement {
+  private renderInstruction(instruction: WorkspaceInstruction, _list: HTMLElement): HTMLElement {
     const item = element("span", "workspace-instruction-item");
     item.dataset.instructionKey = instruction.key;
-    const hasContent = instruction.status === "loaded" && instruction.content !== undefined;
-    const header = element(hasContent ? "button" : "span", `workspace-instruction-header${hasContent ? " interactive" : ""}`);
+    const cachedContent = instruction.path
+      ? this.instructionContents.get(instruction.path)
+      : undefined;
+    const content = instruction.content ?? cachedContent;
+    const canExpand = content !== undefined || instruction.path !== undefined;
+    const header = element(
+      canExpand ? "button" : "span",
+      `workspace-instruction-header${canExpand ? " interactive" : ""}`,
+    );
     if (header instanceof HTMLButtonElement) {
       header.type = "button";
       header.setAttribute("aria-expanded", String(this.openInstructionKey === instruction.key));
@@ -237,7 +263,7 @@ export class WorkspacePanelController {
     }
     header.append(status, text);
 
-    if (!hasContent) {
+    if (!canExpand) {
       item.append(header);
       return item;
     }
@@ -246,27 +272,68 @@ export class WorkspacePanelController {
     chevron.setAttribute("aria-hidden", "true");
     chevron.append(renderIcon(toolIcons.chevronDown, "workspace-instruction-chevron-svg"));
     header.append(chevron);
-    const preview = element("pre", "workspace-instruction-preview", instruction.content);
-    const sync = () => {
-      const open = this.openInstructionKey === instruction.key;
-      item.classList.toggle("expanded", open);
-      header.setAttribute("aria-expanded", String(open));
-      preview.hidden = !open;
-    };
+
+    const loading = instruction.path ? this.instructionLoading.has(instruction.path) : false;
+    const error = instruction.path ? this.instructionErrors.get(instruction.path) : undefined;
+    const preview = element(
+      "pre",
+      "workspace-instruction-preview pretty-scrollbar",
+      content ?? (loading ? "Loading instruction…" : error ?? "Instruction content is unavailable."),
+    );
+    const open = this.openInstructionKey === instruction.key;
+    item.classList.toggle("expanded", open);
+    header.setAttribute("aria-expanded", String(open));
+    preview.hidden = !open;
+
     header.addEventListener("click", () => {
-      this.openInstructionKey = this.openInstructionKey === instruction.key ? null : instruction.key;
-      for (const sibling of list.querySelectorAll<HTMLElement>(".workspace-instruction-item")) {
-        const siblingHeader = sibling.querySelector<HTMLElement>(".workspace-instruction-header.interactive");
-        const siblingPreview = sibling.querySelector<HTMLElement>(".workspace-instruction-preview");
-        const open = sibling.dataset.instructionKey === this.openInstructionKey;
-        sibling.classList.toggle("expanded", open);
-        siblingHeader?.setAttribute("aria-expanded", String(open));
-        if (siblingPreview) siblingPreview.hidden = !open;
+      if (this.openInstructionKey === instruction.key) {
+        this.openInstructionKey = null;
+        this.render();
+        return;
       }
+      this.openInstructionKey = instruction.key;
+      if (content === undefined && instruction.path) {
+        void this.loadInstruction(instruction.path);
+      }
+      this.render();
     });
     item.append(header, preview);
-    sync();
     return item;
+  }
+
+  private async loadInstruction(path: string): Promise<void> {
+    const app = this.app;
+    const workspaceId = this.card?.workspaceId;
+    if (!app || !workspaceId || this.instructionLoading.has(path)) return;
+
+    this.instructionLoading.add(path);
+    this.instructionErrors.delete(path);
+    this.render();
+    try {
+      const result = await app.callServerTool({
+        name: "workspace_instruction",
+        arguments: { workspaceId, path },
+      });
+      if (this.card?.workspaceId !== workspaceId) return;
+      if (result.isError) {
+        throw new Error(result.content
+          ?.filter((entry): entry is Extract<typeof entry, { type: "text" }> => entry.type === "text")
+          .map((entry) => entry.text)
+          .join("\n") || "Failed to load instruction.");
+      }
+      const structured = asRecord(result.structuredContent);
+      const content = structured?.content;
+      const returnedPath = structured?.path;
+      if (typeof content !== "string" || (returnedPath !== undefined && returnedPath !== path)) {
+        throw new Error("Workspace instruction response was malformed.");
+      }
+      this.instructionContents.set(path, content);
+    } catch (error) {
+      this.instructionErrors.set(path, error instanceof Error ? error.message : String(error));
+    } finally {
+      this.instructionLoading.delete(path);
+      if (this.card?.workspaceId === workspaceId) this.render();
+    }
   }
 
   private appendSkills(

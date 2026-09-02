@@ -52,6 +52,12 @@ export interface AvailableAgentsFile {
   path: string;
 }
 
+export interface AdvertisedWorkspaceInstruction {
+  path: string;
+  content: string;
+  status: "loaded" | "available";
+}
+
 export interface WorkspaceWorktree {
   path: string;
   baseRef: string;
@@ -1378,6 +1384,44 @@ export class WorkspaceRegistry {
         readPath.capabilityGuideRead.guide,
       );
     }
+  }
+
+  async readAdvertisedInstruction(
+    workspace: Workspace,
+    inputPath: string,
+  ): Promise<AdvertisedWorkspaceInstruction> {
+    const candidates = [
+      ...workspace.loadedInstructionPaths,
+      ...new Set([...workspace.knownInstructionPathsByDir.values()].flat()),
+    ];
+    const selectedPath = candidates.find((candidate) =>
+      candidate === inputPath || formatAgentsPath(candidate, workspace.root) === inputPath
+    );
+    if (!selectedPath) {
+      throw new Error(`Instruction path is not advertised for this Workspace: ${inputPath}`);
+    }
+
+    const realPath = await tryRealpath(selectedPath);
+    if (!realPath) {
+      throw new Error(`Instruction file is no longer available: ${inputPath}`);
+    }
+
+    // Project instruction discovery is allowed to expose only files whose real
+    // target remains inside the Workspace. The configured system instruction is
+    // the one deliberate exception because it is a trusted global input and may
+    // itself be a symlink outside the Workspace.
+    if (resolve(selectedPath) !== resolve(this.config.systemInstructionsPath)) {
+      const realRoot = (await tryRealpath(workspace.root)) ?? resolve(workspace.root);
+      if (!isPathInsideRoot(realPath, realRoot)) {
+        throw new Error(`Instruction path escaped the Workspace after discovery: ${inputPath}`);
+      }
+    }
+
+    return {
+      path: selectedPath,
+      content: await readFile(realPath, "utf8"),
+      status: workspace.loadedInstructionPaths.has(selectedPath) ? "loaded" : "available",
+    };
   }
 
   resolveWorkingDirectory(workspace: Workspace, workingDirectory: string | undefined): string {

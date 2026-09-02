@@ -4018,6 +4018,58 @@ export function createMcpServer(
       },
     },
   );
+
+  registerAppTool(
+    server,
+    "workspace_instruction",
+    {
+      title: "Read Workspace instruction",
+      description:
+        "App-only lazy data source for one instruction file already advertised by the Workspace presentation. Reading through this UI source does not activate nested instructions or create an Activity.",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        path: z.string().min(1),
+      },
+      outputSchema: {
+        path: z.string(),
+        content: z.string(),
+        status: z.enum(["loaded", "available"]),
+      },
+      _meta: { ui: { visibility: ["app"] } },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ workspaceId, path }, extra) => {
+      if (remoteWorkspaces.has(workspaceId)) {
+        return remoteWorkspaces.workspaceInstruction(
+          workspaceId,
+          path,
+          hostScopeIdFor(extra._meta, extra.sessionId),
+        );
+      }
+      if (compositeWorkspaces.has(workspaceId)) {
+        throw new Error(
+          "Composite Workspace instructions belong to a selected member; open that member context before viewing its instruction files.",
+        );
+      }
+
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const instruction = await workspaces.readAdvertisedInstruction(workspace, path);
+      return {
+        content: [],
+        structuredContent: {
+          path: formatAgentsPath(instruction.path, workspace.root),
+          content: instruction.content,
+          status: instruction.status,
+        },
+      };
+    },
+  );
+
   registerAppTool(
     server,
     toolNames.capability,
