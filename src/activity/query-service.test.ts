@@ -177,6 +177,80 @@ test("Host Turn query contract persists summaries, lazy detail, and Bash output 
   assert.equal(restoredQuery.bashOutput(turn.turnId, outputId).output, HEAVY.bashOutput);
 });
 
+test("Activity state polling stays content-free while Activity index returns only changed summaries", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-query-tier-test-"));
+  const turns = new HostTurnStore(stateDir, { turnId: () => "turn_tiered_query" });
+  const audit = new ActivityAuditStore(stateDir);
+  const outputs = new BashOutputStore(stateDir);
+  const query = new ActivityQueryService(turns, audit, outputs);
+  t.after(async () => {
+    outputs.close();
+    audit.close();
+    turns.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const turn = turns.begin("conversation_tiered_query", workspace.id);
+  audit.append({
+    type: "started",
+    activityId: "act_tier_parent",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_tiered_query",
+    tool: "batch",
+    workspace,
+    request: { tasks: [{ tool: "read" }] },
+  });
+  audit.append({
+    type: "started",
+    activityId: "act_tier_read",
+    parentActivityId: "act_tier_parent",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_tiered_query",
+    tool: "read",
+    workspace,
+    request: { path: "src/tier.ts" },
+  });
+
+  const initialState = query.state(turn.turnId);
+  assert.deepEqual(Object.keys(initialState).sort(), ["changed", "revision", "state", "turnId"]);
+  assert.equal(initialState.state, "working");
+  assert.equal(initialState.changed, true);
+
+  const initialIndex = query.index(turn.turnId);
+  assert.equal(initialIndex.revision, initialState.revision);
+  assert.deepEqual(
+    initialIndex.activities.map((activity) => activity.activityId),
+    ["act_tier_parent", "act_tier_read"],
+  );
+
+  const unchangedState = query.state(turn.turnId, initialState.revision);
+  assert.equal(unchangedState.changed, false);
+  const unchangedIndex = query.index(turn.turnId, initialIndex.revision);
+  assert.equal(unchangedIndex.changed, false);
+  assert.deepEqual(unchangedIndex.activities, []);
+
+  audit.append({
+    type: "succeeded",
+    activityId: "act_tier_read",
+    result: { content: [{ type: "text", text: "TIERED-DETAIL-SENTINEL" }] },
+  });
+
+  const changedState = query.state(turn.turnId, initialState.revision);
+  assert.equal(changedState.changed, true);
+  assert.equal(changedState.state, "working");
+  assert.equal("activities" in changedState, false);
+
+  const deltaIndex = query.index(turn.turnId, initialIndex.revision);
+  assert.equal(deltaIndex.changed, true);
+  assert.deepEqual(
+    deltaIndex.activities.map((activity) => activity.activityId),
+    ["act_tier_parent", "act_tier_read"],
+    "child changes also update the parent aggregate without retransmitting unrelated rows",
+  );
+  assert.deepEqual(deltaIndex.activities[0]?.children, { total: 1, working: 0, done: 1, error: 0 });
+  assert.doesNotMatch(JSON.stringify(deltaIndex), /TIERED-DETAIL-SENTINEL/);
+});
+
 test("current Host Turn is scoped by conversation and workspace", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-query-workspace-turn-test-"));
   const turns = new HostTurnStore(stateDir, { turnId: (() => {

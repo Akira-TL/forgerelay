@@ -214,15 +214,67 @@ export class ActivityAuditStore {
   }
 
   turnRevision(turnId: string): number {
+    return this.turnState(turnId).revision;
+  }
+
+  turnState(turnId: string): {
+    revision: number;
+    total: number;
+    working: number;
+    error: number;
+  } {
     const row = this.database.sqlite.prepare(
-      `select count(*) as revision
-       from activity_audit_events
-       where activity_id in (
-         select activity_id from activity_audit_events
+      `with turn_activities as (
+         select activity_id
+         from activity_audit_events
          where event_type = 'started' and turn_id = ?
-       )`,
-    ).get(turnId) as { revision: number };
-    return row.revision;
+       ), turn_events as (
+         select event.rowid, event.activity_id, event.event_type
+         from activity_audit_events event
+         join turn_activities turn_activity on turn_activity.activity_id = event.activity_id
+       ), latest_events as (
+         select event.event_type
+         from turn_events event
+         join (
+           select activity_id, max(rowid) as rowid
+           from turn_events
+           group by activity_id
+         ) latest on latest.rowid = event.rowid
+       )
+       select
+         (select count(*) from turn_events) as revision,
+         count(*) as total,
+         coalesce(sum(case when event_type = 'started' then 1 else 0 end), 0) as working,
+         coalesce(sum(case when event_type in ('failed', 'blocked') then 1 else 0 end), 0) as error
+       from latest_events`,
+    ).get(turnId) as {
+      revision: number;
+      total: number;
+      working: number;
+      error: number;
+    };
+    return row;
+  }
+
+  activityIdsSinceTurnRevision(turnId: string, knownRevision: number): string[] {
+    const offset = Math.max(0, Math.floor(knownRevision));
+    const rows = this.database.sqlite.prepare(
+      `select activity_id, min(rowid) as first_rowid
+       from (
+         select event.rowid, event.activity_id
+         from activity_audit_events event
+         where event.activity_id in (
+           select activity_id
+           from activity_audit_events
+           where event_type = 'started' and turn_id = ?
+         )
+         order by event.rowid asc
+         limit -1 offset ?
+       )
+       group by activity_id
+       order by first_rowid asc`,
+    ).all(turnId, offset) as Array<{ activity_id: string }>;
+    return rows.map((row) => row.activity_id);
   }
 
   getActivity(activityId: string): ActivityRecord | undefined {

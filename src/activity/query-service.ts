@@ -34,11 +34,14 @@ export interface ActivitySummary {
   };
 }
 
-export interface HostTurnSnapshot {
+export interface HostTurnState {
   turnId: string;
   revision: number;
   changed: boolean;
   state: ActivitySummaryStatus;
+}
+
+export interface HostTurnSnapshot extends HostTurnState {
   activities: ActivitySummary[];
 }
 
@@ -73,7 +76,7 @@ export class ActivityQueryService {
 
   beginTurn(conversationScopeId: string | undefined, workspaceId: string): HostTurnSnapshot {
     const turn = this.turns.begin(conversationScopeId, workspaceId);
-    return this.snapshot(turn.turnId);
+    return this.index(turn.turnId);
   }
 
   currentTurnId(
@@ -83,19 +86,46 @@ export class ActivityQueryService {
     return this.turns.current(conversationScopeId, workspaceId)?.turnId;
   }
 
-  snapshot(turnId: string, knownRevision?: number): HostTurnSnapshot {
+  state(turnId: string, knownRevision?: number): HostTurnState {
     this.requireTurn(turnId);
-    const revision = this.audit.turnRevision(turnId);
-    const activities = this.summaries(turnId);
-    const state = aggregateState(activities);
-    const changed = knownRevision === undefined || knownRevision !== revision;
+    const aggregate = this.audit.turnState(turnId);
+    const state: ActivitySummaryStatus = aggregate.total === 0 || aggregate.working > 0
+      ? "working"
+      : aggregate.error > 0
+        ? "error"
+        : "done";
     return {
       turnId,
-      revision,
-      changed,
+      revision: aggregate.revision,
+      changed: knownRevision === undefined || knownRevision !== aggregate.revision,
       state,
-      activities: changed ? activities : [],
     };
+  }
+
+  index(turnId: string, knownRevision?: number): HostTurnSnapshot {
+    const state = this.state(turnId, knownRevision);
+    if (!state.changed) return { ...state, activities: [] };
+
+    const activities = this.summaries(turnId);
+    if (knownRevision === undefined || knownRevision < 0 || knownRevision > state.revision) {
+      return { ...state, activities };
+    }
+
+    const changedIds = new Set(this.audit.activityIdsSinceTurnRevision(turnId, knownRevision));
+    if (changedIds.size === 0) return { ...state, activities: [] };
+    for (const activity of activities) {
+      if (changedIds.has(activity.activityId) && activity.parentActivityId) {
+        changedIds.add(activity.parentActivityId);
+      }
+    }
+    return {
+      ...state,
+      activities: activities.filter((activity) => changedIds.has(activity.activityId)),
+    };
+  }
+
+  snapshot(turnId: string, knownRevision?: number): HostTurnSnapshot {
+    return this.index(turnId, knownRevision);
   }
 
   detail(turnId: string, activityId: string): ActivityDetail {
