@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test, { type TestContext } from "node:test";
+import test, { after, type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ActivityAuditStore } from "../../../activity/audit-store.js";
@@ -21,6 +21,13 @@ import { WorkspaceRegistry } from "../../../workspaces.js";
 import type { SubagentRunInput } from "../../providers/contract.js";
 import type { SubagentProviderRunner } from "../execution.js";
 import { SubagentSessionStore } from "../store.js";
+
+const previousCodexCommand = process.env.CODEX_COMMAND;
+process.env.CODEX_COMMAND = process.execPath;
+after(() => {
+  if (previousCodexCommand === undefined) delete process.env.CODEX_COMMAND;
+  else process.env.CODEX_COMMAND = previousCodexCommand;
+});
 
 const forbiddenOldPrompt = "THIS_OLD_PROMPT_MUST_NEVER_BE_REPLAYED";
 
