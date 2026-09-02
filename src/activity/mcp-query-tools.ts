@@ -127,10 +127,6 @@ export function registerActivityQueryTools(
             [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
             [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
           },
-          structuredContent: {
-            ...((relayed.structuredContent ?? {}) as Record<string, unknown>),
-            [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
-          },
         };
       }
       const snapshot = queries.beginTurn(conversationScopeId, workspaceId);
@@ -153,10 +149,7 @@ export function registerActivityQueryTools(
           type: "text" as const,
           text: `Started ForgeRelay Panel Host Turn ${snapshot.turnId} for ${workspaceId}.`,
         }],
-        structuredContent: {
-          ...snapshot,
-          [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
-        },
+        structuredContent: { ...snapshot },
       };
     },
   );
@@ -203,10 +196,6 @@ export function registerActivityQueryTools(
                 [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
                 [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
               },
-              structuredContent: {
-                ...((relayed.structuredContent ?? {}) as Record<string, unknown>),
-                [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
-              },
             }
           : relayed;
       }
@@ -244,10 +233,7 @@ export function registerActivityQueryTools(
             ? `Activity snapshot ${resolvedTurnId} revision ${snapshot.revision}.`
             : `Activity snapshot ${resolvedTurnId} unchanged at revision ${snapshot.revision}.`,
         }],
-        structuredContent: {
-          ...snapshot,
-          ...(workspace ? { [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace } : {}),
-        },
+        structuredContent: { ...snapshot },
       };
     },
   );

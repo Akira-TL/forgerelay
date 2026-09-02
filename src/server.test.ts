@@ -291,7 +291,7 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
   ));
 });
 
-test("activity_panel carries the selected Workspace presentation and changes it with workspaceId", async (t) => {
+test("activity_panel carries one lightweight Workspace presentation in metadata and changes it with workspaceId", async (t) => {
   const context = await fixture(t);
   const conversationScopeId = "unified-panel-chat";
   const opened = await callOpen(context.client, context.project, conversationScopeId);
@@ -306,16 +306,13 @@ test("activity_panel carries the selected Workspace presentation and changes it 
   const firstTurnId = String(structuredContent(firstPanel).turnId);
   const firstWorkspace = (firstPanel._meta as Record<string, unknown> | undefined)?.[
     "forgerelay/activityPanelWorkspace"
-  ] as { workspaceId?: string; root?: string; mode?: string } | undefined;
-  const firstStructuredWorkspace = structuredContent(firstPanel)[
-    "forgerelay/activityPanelWorkspace"
-  ] as { workspaceId?: string; root?: string; mode?: string } | undefined;
+  ] as { workspaceId?: string; root?: string; mode?: string; presentationRevision?: string; agentsFiles?: unknown } | undefined;
   assert.equal(firstWorkspace?.workspaceId, workspaceId);
   assert.equal(firstWorkspace?.root, context.project);
   assert.equal(firstWorkspace?.mode, "checkout");
-  assert.equal(firstStructuredWorkspace?.workspaceId, workspaceId);
-  assert.equal(firstStructuredWorkspace?.root, context.project);
-  assert.equal(firstStructuredWorkspace?.mode, "checkout");
+  assert.equal(typeof firstWorkspace?.presentationRevision, "string");
+  assert.equal(firstWorkspace?.agentsFiles, undefined);
+  assert.equal(structuredContent(firstPanel)["forgerelay/activityPanelWorkspace"], undefined);
 
   const otherProject = join(dirname(context.project), "other-panel-project");
   await mkdir(otherProject, { recursive: true });
@@ -336,14 +333,11 @@ test("activity_panel carries the selected Workspace presentation and changes it 
   const secondTurnId = String(structuredContent(secondPanel).turnId);
   const secondWorkspace = (secondPanel._meta as Record<string, unknown> | undefined)?.[
     "forgerelay/activityPanelWorkspace"
-  ] as { workspaceId?: string; root?: string } | undefined;
-  const secondStructuredWorkspace = structuredContent(secondPanel)[
-    "forgerelay/activityPanelWorkspace"
-  ] as { workspaceId?: string; root?: string } | undefined;
+  ] as { workspaceId?: string; root?: string; presentationRevision?: string } | undefined;
   assert.equal(secondWorkspace?.workspaceId, secondWorkspaceId);
   assert.equal(secondWorkspace?.root, otherProject);
-  assert.equal(secondStructuredWorkspace?.workspaceId, secondWorkspaceId);
-  assert.equal(secondStructuredWorkspace?.root, otherProject);
+  assert.equal(typeof secondWorkspace?.presentationRevision, "string");
+  assert.equal(structuredContent(secondPanel)["forgerelay/activityPanelWorkspace"], undefined);
   assert.notEqual(secondTurnId, firstTurnId);
 
   await context.client.callTool({
@@ -369,12 +363,14 @@ test("activity_panel carries the selected Workspace presentation and changes it 
   } as Parameters<Client["callTool"]>[0]);
   assert.equal(structuredContent(firstBootstrap).turnId, firstTurnId);
   assert.equal(structuredContent(secondBootstrap).turnId, secondTurnId);
+  assert.equal(structuredContent(firstBootstrap)["forgerelay/activityPanelWorkspace"], undefined);
+  assert.equal(structuredContent(secondBootstrap)["forgerelay/activityPanelWorkspace"], undefined);
   assert.equal(
-    (structuredContent(firstBootstrap)["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
+    ((firstBootstrap._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
     workspaceId,
   );
   assert.equal(
-    (structuredContent(secondBootstrap)["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
+    ((secondBootstrap._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
     secondWorkspaceId,
   );
   assert.deepEqual(
@@ -764,7 +760,7 @@ test("artifact.download capability preserves native-file transport without a ded
   );
 });
 
-test("open_workspace keeps lifecycle flags out of model output and preserves complete card metadata", async (t) => {
+test("open_workspace keeps lifecycle flags out of model output and makes repeated card metadata lightweight", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
   const repeated = await callOpen(context.client, context.project, "chat-1");
@@ -825,11 +821,12 @@ test("open_workspace keeps lifecycle flags out of model output and preserves com
   const card = responseCard(repeated);
   assert.equal(card.workspaceReused, true);
   assert.equal(card.includeBootstrapContext, false);
-  assert.ok(Array.isArray(card.agentsFiles));
-  assert.ok(Array.isArray(card.availableAgentsFiles));
-  assert.ok(Array.isArray(card.skills));
-  assert.ok(Array.isArray(card.agentProviders));
-  assert.ok(Array.isArray(card.agents));
+  assert.equal(typeof card.presentationRevision, "string");
+  assert.equal(card.agentsFiles, undefined);
+  assert.equal(card.availableAgentsFiles, undefined);
+  assert.equal(card.skills, undefined);
+  assert.equal(card.agentProviders, undefined);
+  assert.equal(card.agents, undefined);
 });
 
 test("open_workspace context policy suppresses, automatically delivers, and forces bootstrap context", async (t) => {

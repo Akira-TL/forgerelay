@@ -125,6 +125,7 @@ import { formatPathForPrompt } from "./skills.js";
 import { createWorkspaceStore } from "./workspace-store.js";
 import { WorkspaceTaskReminderTracker } from "./workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspace-tasks.js";
+import { compactWorkspacePresentation } from "./workspace-presentation.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace } from "./workspaces.js";
 import { formatAvailableSubagentProfile, summarizeSubagentProfile } from "./subagents/profiles.js";
 import {
@@ -2769,15 +2770,14 @@ export function createMcpServer(
     if (remembered) return remembered;
     try {
       const workspace = workspaces.getWorkspace(workspaceId);
-      return {
+      return compactWorkspacePresentation({
         workspaceId: workspace.id,
         root: workspace.root,
         path: workspace.root,
         mode: workspace.mode,
         sourceRoot: workspace.sourceRoot,
-        instruction: `Use workspaceId ${workspace.id} for subsequent calls.`,
         summary: { mode: workspace.mode },
-      };
+      });
     } catch {
       return undefined;
     }
@@ -2790,7 +2790,10 @@ export function createMcpServer(
     const meta = response._meta as Record<string, unknown>;
     const card = meta.card;
     if (meta.tool !== toolNames.openWorkspace || typeof card !== "object" || card === null) return;
-    workspacePanelStates.set(workspaceId, card as Record<string, unknown>);
+    workspacePanelStates.set(
+      workspaceId,
+      compactWorkspacePresentation(card as Record<string, unknown>),
+    );
   };
 
   const workspaceAppResourceMetadata = {
@@ -3846,41 +3849,44 @@ export function createMcpServer(
         durationMs: Math.round(performance.now() - startedAt),
       });
 
+      const workspaceCard = {
+        workspaceId: workspace.id,
+        kind: "workspace" as const,
+        root: workspace.root,
+        path: workspace.root,
+        mode: workspace.mode,
+        workspaceReused,
+        includeBootstrapContext,
+        sourceRoot: workspace.sourceRoot,
+        worktree: workspace.worktree,
+        worktrees: knownWorktrees,
+        staleWorkspaces,
+        capabilityFingerprint,
+        contextFingerprint,
+        capabilityCatalog,
+        agentsFiles: cardAgentsFiles,
+        availableAgentsFiles: cardAvailableAgentsFiles,
+        skills: cardSkills,
+        agentProviders: cardAgentProviders,
+        agents: cardAgents,
+        instruction: cardInstruction,
+        summary: {
+          mode: workspace.mode,
+          agentsFiles: cardAgentsFiles.length,
+          availableAgentsFiles: cardAvailableAgentsFiles.length,
+          skills: cardSkills.length,
+          capabilities: capabilityCatalog.length,
+          agentProviders: cardAgentProviders.length,
+          agents: cardAgents.length,
+        },
+      };
       const response = hooks.decorateResult(workspace.id, attachHookReports({
         content: resultContent,
         _meta: {
           tool: "open_workspace",
-          card: {
-            workspaceId: workspace.id,
-            kind: "workspace" as const,
-            root: workspace.root,
-            path: workspace.root,
-            mode: workspace.mode,
-            workspaceReused,
-            includeBootstrapContext,
-            sourceRoot: workspace.sourceRoot,
-            worktree: workspace.worktree,
-            worktrees: knownWorktrees,
-            staleWorkspaces,
-            capabilityFingerprint,
-            contextFingerprint,
-            capabilityCatalog,
-            agentsFiles: cardAgentsFiles,
-            availableAgentsFiles: cardAvailableAgentsFiles,
-            skills: cardSkills,
-            agentProviders: cardAgentProviders,
-            agents: cardAgents,
-            instruction: cardInstruction,
-            summary: {
-              mode: workspace.mode,
-              agentsFiles: cardAgentsFiles.length,
-              availableAgentsFiles: cardAvailableAgentsFiles.length,
-              skills: cardSkills.length,
-              capabilities: capabilityCatalog.length,
-              agentProviders: cardAgentProviders.length,
-              agents: cardAgents.length,
-            },
-          },
+          card: includeBootstrapContext
+            ? workspaceCard
+            : compactWorkspacePresentation(workspaceCard),
         },
         structuredContent: {
           action: "open" as const,

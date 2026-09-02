@@ -43,6 +43,7 @@ export interface ToolResultCard {
   root?: string;
   workspaceReused?: boolean;
   includeBootstrapContext?: boolean;
+  presentationRevision?: string;
   mode?: "checkout" | "worktree";
   sourceRoot?: string;
   branch?: string;
