@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-09-02
+
 ### Added
 
 - Added `release:push-ready` as the canonical release-ready branch push, atomically advancing the remote main/release refs and synchronizing the local `main` only after divergence safety checks pass.
@@ -11,6 +13,11 @@ All notable ForgeRelay changes are documented here.
 ### Changed
 
 - Retired rename-era DevSpace public compatibility adapters that are well beyond the migration window: `DEVSPACE_*` environment fallbacks, automatic `~/.devspace` config/state/worktree reuse, `.devspace/agents` profile discovery, and old DevSpace package-path special cases. Persisted storage/protocol identifiers remain compatible where renaming them would orphan existing state.
+
+### Fixed
+
+- Reduced Activity Panel wire amplification with state-only collapsed polling, lazy revisioned Activity indexes, cursor-based Bash output, adaptive polling, and persistent Relay connections.
+- Restored the Workspace overview without reintroducing large repeated payloads by keeping Skills, instructions, and agent presentation metadata bounded.
 
 ## [0.8.5] - 2026-08-31
 
