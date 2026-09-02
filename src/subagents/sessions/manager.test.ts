@@ -7,6 +7,8 @@ import { SubagentSessionManager, type SubagentLaunchRequest } from "./manager.js
 import { SubagentSessionStore } from "./store.js";
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-subagent-manager-test-"));
+const previousCodexCommand = process.env.CODEX_COMMAND;
+process.env.CODEX_COMMAND = process.execPath;
 try {
   const configDir = join(root, ".forgerelay");
   const stateDir = join(root, ".state");
@@ -103,5 +105,10 @@ try {
   );
   resumedManager.close();
 } finally {
+  if (previousCodexCommand === undefined) {
+    delete process.env.CODEX_COMMAND;
+  } else {
+    process.env.CODEX_COMMAND = previousCodexCommand;
+  }
   rmSync(root, { recursive: true, force: true });
 }
