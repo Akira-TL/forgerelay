@@ -67,6 +67,12 @@ export class HostTurnStore {
     return row ? rowToTurn(row) : undefined;
   }
 
+  deleteWorkspace(workspaceId: string): void {
+    this.database.sqlite.prepare(
+      "delete from activity_host_turns where workspace_id = ?",
+    ).run(workspaceId);
+  }
+
   close(): void {
     this.database.close();
   }

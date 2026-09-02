@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -405,4 +405,52 @@ test("Activity query exposes parent-child aggregates without duplicating child d
     restored.activities.find((activity) => activity.activityId === "act_bulk_read_a")?.parentActivityId,
     "act_bulk_read",
   );
+});
+
+test("explicit Workspace deletion removes Activity indexes and segmented history", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-delete-test-"));
+  const turns = new HostTurnStore(stateDir, { turnId: () => "turn_delete" });
+  const audit = new ActivityAuditStore(stateDir);
+  const outputs = new BashOutputStore(stateDir, { outputId: () => "out_delete" });
+  const query = new ActivityQueryService(turns, audit, outputs);
+  t.after(async () => {
+    outputs.close();
+    audit.close();
+    turns.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const workspaceId = "ws_delete";
+  const root = "/tmp/forgerelay-delete";
+  const turn = query.beginTurn("conversation_delete", workspaceId);
+  audit.append({
+    type: "started",
+    activityId: "act_delete",
+    turnId: turn.turnId,
+    conversationScopeId: "conversation_delete",
+    tool: "bash",
+    workspace: { id: workspaceId, root, mode: "checkout" },
+    request: { command: "printf delete-me" },
+  });
+  const outputId = outputs.begin({
+    activityId: "act_delete",
+    turnId: turn.turnId,
+    processId: 71,
+    workspaceId,
+    workspaceRoot: root,
+    command: "printf delete-me",
+    tty: false,
+  });
+  outputs.append(outputId, "stdout", "delete-me\n");
+  outputs.finish(outputId, { exitCode: 0, timedOut: false });
+  audit.append({ type: "succeeded", activityId: "act_delete", result: { outputId } });
+
+  const activityDir = join(stateDir, "workspaces", workspaceId, "activity");
+  assert.equal((await stat(activityDir)).isDirectory(), true);
+  query.deleteWorkspaceHistory(stateDir, workspaceId);
+
+  assert.equal(audit.getActivity("act_delete"), undefined);
+  assert.equal(outputs.read(outputId), undefined);
+  assert.equal(turns.get(turn.turnId), undefined);
+  await assert.rejects(stat(activityDir), /ENOENT/);
 });

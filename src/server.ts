@@ -4207,6 +4207,7 @@ export function createMcpServer(
         if (action === "delete") {
           workspaceTasks.deleteWorkspace(workspaceId);
           taskReminders.forget(workspaceId);
+          activityQueries.deleteWorkspaceHistory(config.stateDir, workspaceId);
         }
         compositeActivity.forgetComposite(workspaceId);
         workspacePanelStates.delete(workspaceId);
@@ -4252,6 +4253,9 @@ export function createMcpServer(
           { action, ...(commitMessage !== undefined ? { commitMessage } : {}) },
           hostScopeIdFor(extra._meta, extra.sessionId),
         );
+        if (action === "delete") {
+          activityQueries.deleteWorkspaceHistory(config.stateDir, workspaceId);
+        }
         workspacePanelStates.delete(workspaceId);
         return response;
       }
@@ -4279,6 +4283,7 @@ export function createMcpServer(
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
             taskReminders.forget(session.id);
+            activityQueries.deleteWorkspaceHistory(config.stateDir, session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
             return {
@@ -4323,6 +4328,7 @@ export function createMcpServer(
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
             taskReminders.forget(session.id);
+            activityQueries.deleteWorkspaceHistory(config.stateDir, session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted closed managed-worktree Workspace ${session.id}. Its already-removed worktree backing was not recreated.`;
             return {
@@ -4393,6 +4399,7 @@ export function createMcpServer(
               workspaces.deleteWorkspace(workspace.id);
               workspaceTasks.deleteWorkspace(workspace.id);
               taskReminders.forget(workspace.id);
+              activityQueries.deleteWorkspaceHistory(config.stateDir, workspace.id);
             }
             const result = [
               action === "delete"

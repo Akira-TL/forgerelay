@@ -3,6 +3,7 @@ import { ActivityAuditStore } from "./audit-store.js";
 import type { BashOutputRecord } from "./bash-output-store.js";
 import { BashOutputStore } from "./bash-output-store.js";
 import { HostTurnStore } from "./host-turn-store.js";
+import { deleteWorkspaceActivityHistory } from "./storage/history.js";
 
 export type ActivitySummaryStatus = "working" | "done" | "error";
 export type ActivityBashPhase = "executing" | "returned" | "done" | "error";
@@ -73,6 +74,16 @@ export class ActivityQueryService {
     private readonly audit: ActivityAuditStore,
     private readonly outputs: BashOutputStore,
   ) {}
+
+  deleteWorkspaceHistory(stateDir: string, workspaceId: string): void {
+    deleteWorkspaceActivityHistory({
+      stateDir,
+      workspaceId,
+      audit: this.audit,
+      outputs: this.outputs,
+      turns: this.turns,
+    });
+  }
 
   beginTurn(conversationScopeId: string | undefined, workspaceId: string): HostTurnState {
     const turn = this.turns.begin(conversationScopeId, workspaceId);

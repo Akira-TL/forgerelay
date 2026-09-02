@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { openDatabase, type DatabaseHandle } from "../db/client.js";
 import type { ProcessOutputAuditSink, ProcessOutputChannel } from "./process-output-audit.js";
 import { SegmentedLogStore } from "./storage/segmented-log.js";
-import { bashOutputLogPrefix, stateRelativePath } from "./storage/paths.js";
+import { bashOutputLogPrefix, bashOutputMetadataPrefix, stateRelativePath } from "./storage/paths.js";
 
 export type BashOutputChannel = ProcessOutputChannel;
 
@@ -85,6 +85,12 @@ interface BashOutputStreamRow {
   finished_at: string | null;
   log_file: string | null;
   output_bytes: number;
+  command_file: string | null;
+  command_offset: number | null;
+  command_length: number | null;
+  error_file: string | null;
+  error_offset: number | null;
+  error_length: number | null;
 }
 
 interface PendingOutput {
@@ -119,6 +125,7 @@ export class BashOutputStore implements ProcessOutputAuditSink {
       "Bash output flushIntervalMs",
     );
     this.migrateLegacyStreams();
+    this.migrateLegacyMetadata();
     this.flushTimer = setInterval(() => this.flushPending(), flushIntervalMs);
     this.flushTimer.unref();
   }
@@ -126,20 +133,21 @@ export class BashOutputStore implements ProcessOutputAuditSink {
   begin(input: BeginBashOutputInput): string {
     const outputId = this.nextOutputId();
     const startedAt = this.now().toISOString();
+    const workspace = { id: input.workspaceId, root: input.workspaceRoot, mode: "checkout" as const };
     const logPrefix = stateRelativePath(
       this.stateDir,
-      bashOutputLogPrefix(
-        this.stateDir,
-        { id: input.workspaceId, root: input.workspaceRoot, mode: "checkout" },
-        outputId,
-      ),
+      bashOutputLogPrefix(this.stateDir, workspace, outputId),
+    );
+    const commandRef = this.logs.append(
+      bashOutputMetadataPrefix(this.stateDir, workspace, outputId, "command"),
+      Buffer.from(input.command, "utf8"),
     );
     this.database.sqlite.prepare(
       `insert into bash_output_streams (
         id, activity_id, turn_id, conversation_scope_id, process_id,
         workspace_id, workspace_root, command, tty, status, timed_out, started_at,
-        log_file, output_bytes
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 0, ?, ?, 0)`,
+        log_file, output_bytes, command_file, command_offset, command_length
+      ) values (?, ?, ?, ?, ?, ?, ?, '', ?, 'running', 0, ?, ?, 0, ?, ?, ?)`,
     ).run(
       outputId,
       input.activityId,
@@ -148,10 +156,12 @@ export class BashOutputStore implements ProcessOutputAuditSink {
       input.processId,
       input.workspaceId,
       input.workspaceRoot,
-      input.command,
       input.tty ? 1 : 0,
       startedAt,
       logPrefix,
+      commandRef.prefix,
+      commandRef.offset,
+      commandRef.length,
     );
     return outputId;
   }
@@ -186,20 +196,35 @@ export class BashOutputStore implements ProcessOutputAuditSink {
 
   finish(outputId: string, input: FinishBashOutputInput): void {
     this.flushOutput(outputId);
+    const row = this.requireStream(outputId);
     const status = input.error || input.timedOut || input.signal || (input.exitCode !== undefined && input.exitCode !== 0)
       ? "failed"
       : "done";
+    const errorRef = input.error
+      ? this.logs.append(
+          bashOutputMetadataPrefix(
+            this.stateDir,
+            { id: row.workspace_id, root: row.workspace_root, mode: "checkout" },
+            outputId,
+            "error",
+          ),
+          Buffer.from(input.error, "utf8"),
+        )
+      : undefined;
     this.database.sqlite.prepare(
       `update bash_output_streams
-       set status = ?, exit_code = ?, signal = ?, timed_out = ?, error = ?, finished_at = ?
+       set status = ?, exit_code = ?, signal = ?, timed_out = ?, error = null, finished_at = ?,
+           error_file = ?, error_offset = ?, error_length = ?
        where id = ?`,
     ).run(
       status,
       input.exitCode ?? null,
       input.signal ?? null,
       input.timedOut ? 1 : 0,
-      input.error ?? null,
       this.now().toISOString(),
+      errorRef?.prefix ?? null,
+      errorRef?.offset ?? null,
+      errorRef?.length ?? null,
       outputId,
     );
   }
@@ -232,7 +257,20 @@ export class BashOutputStore implements ProcessOutputAuditSink {
     if (!row) return undefined;
     this.ensureFileBacked(row);
     const refreshed = this.requireStream(outputId);
-    return rowToMetadata(refreshed);
+    return this.rowToMetadata(refreshed);
+  }
+
+  deleteWorkspace(workspaceId: string): void {
+    const rows = this.database.sqlite.prepare(
+      "select id from bash_output_streams where workspace_id = ?",
+    ).all(workspaceId) as Array<{ id: string }>;
+    for (const row of rows) {
+      this.flushOutput(row.id);
+      this.pending.delete(row.id);
+    }
+    this.database.sqlite.prepare(
+      "delete from bash_output_streams where workspace_id = ?",
+    ).run(workspaceId);
   }
 
   close(): void {
@@ -324,6 +362,92 @@ export class BashOutputStore implements ProcessOutputAuditSink {
     }
   }
 
+  private migrateLegacyMetadata(): void {
+    const rows = this.database.sqlite.prepare(
+      `select * from bash_output_streams
+       where command_file is null or (error is not null and error_file is null)
+       order by started_at asc`,
+    );
+    const update = this.database.sqlite.prepare(
+      `update bash_output_streams
+       set command = '', error = null,
+           command_file = ?, command_offset = ?, command_length = ?,
+           error_file = ?, error_offset = ?, error_length = ?
+       where id = ?`,
+    );
+    for (const row of rows.iterate() as Iterable<BashOutputStreamRow>) {
+      const workspace = { id: row.workspace_id, root: row.workspace_root, mode: "checkout" as const };
+      const commandRef = row.command_file
+        ? undefined
+        : this.logs.append(
+            bashOutputMetadataPrefix(this.stateDir, workspace, row.id, "command"),
+            Buffer.from(row.command, "utf8"),
+          );
+      const errorRef = row.error && !row.error_file
+        ? this.logs.append(
+            bashOutputMetadataPrefix(this.stateDir, workspace, row.id, "error"),
+            Buffer.from(row.error, "utf8"),
+          )
+        : undefined;
+      update.run(
+        commandRef?.prefix ?? row.command_file,
+        commandRef?.offset ?? row.command_offset,
+        commandRef?.length ?? row.command_length,
+        errorRef?.prefix ?? row.error_file,
+        errorRef?.offset ?? row.error_offset,
+        errorRef?.length ?? row.error_length,
+        row.id,
+      );
+    }
+  }
+
+  private rowToMetadata(stream: BashOutputStreamRow): BashOutputMetadata {
+    const command = this.readMetadataField(
+      stream.command_file,
+      stream.command_offset,
+      stream.command_length,
+      stream.command,
+    );
+    const error = this.readMetadataField(
+      stream.error_file,
+      stream.error_offset,
+      stream.error_length,
+      stream.error ?? undefined,
+    );
+    return {
+      outputId: stream.id,
+      activityId: stream.activity_id,
+      turnId: stream.turn_id,
+      ...(stream.conversation_scope_id ? { conversationScopeId: stream.conversation_scope_id } : {}),
+      processId: stream.process_id,
+      workspaceId: stream.workspace_id,
+      workspaceRoot: stream.workspace_root,
+      command,
+      tty: stream.tty === 1,
+      status: isBashOutputStatus(stream.status) ? stream.status : "failed",
+      ...(stream.exit_code !== null ? { exitCode: stream.exit_code } : {}),
+      ...(stream.signal ? { signal: stream.signal } : {}),
+      timedOut: stream.timed_out === 1,
+      ...(error ? { error } : {}),
+      returned: stream.returned === 1,
+      outputBytes: stream.output_bytes,
+      startedAt: stream.started_at,
+      ...(stream.finished_at ? { finishedAt: stream.finished_at } : {}),
+    };
+  }
+
+  private readMetadataField(
+    file: string | null,
+    offset: number | null,
+    length: number | null,
+    fallback: string | undefined,
+  ): string {
+    if (file !== null && offset !== null && length !== null) {
+      return this.logs.read({ prefix: file, offset, length }).toString("utf8");
+    }
+    return fallback ?? "";
+  }
+
   private readStream(outputId: string): BashOutputStreamRow | undefined {
     return this.database.sqlite.prepare(
       "select * from bash_output_streams where id = ?",
@@ -335,29 +459,6 @@ export class BashOutputStore implements ProcessOutputAuditSink {
     if (!row) throw new Error(`Unknown Bash output: ${outputId}.`);
     return row;
   }
-}
-
-function rowToMetadata(stream: BashOutputStreamRow): BashOutputMetadata {
-  return {
-    outputId: stream.id,
-    activityId: stream.activity_id,
-    turnId: stream.turn_id,
-    ...(stream.conversation_scope_id ? { conversationScopeId: stream.conversation_scope_id } : {}),
-    processId: stream.process_id,
-    workspaceId: stream.workspace_id,
-    workspaceRoot: stream.workspace_root,
-    command: stream.command,
-    tty: stream.tty === 1,
-    status: isBashOutputStatus(stream.status) ? stream.status : "failed",
-    ...(stream.exit_code !== null ? { exitCode: stream.exit_code } : {}),
-    ...(stream.signal ? { signal: stream.signal } : {}),
-    timedOut: stream.timed_out === 1,
-    ...(stream.error ? { error: stream.error } : {}),
-    returned: stream.returned === 1,
-    outputBytes: stream.output_bytes,
-    startedAt: stream.started_at,
-    ...(stream.finished_at ? { finishedAt: stream.finished_at } : {}),
-  };
 }
 
 function isBashOutputStatus(value: string): value is BashOutputMetadata["status"] {

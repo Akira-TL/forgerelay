@@ -241,10 +241,26 @@ test("Bash output uses bounded shards, byte cursors, and no SQLite chunk payload
     ).get(outputId) as { count: number };
     assert.equal(chunkCount.count, 0);
     const metadata = sqlite.prepare(
-      "select log_file, output_bytes from bash_output_streams where id = ?",
-    ).get(outputId) as { log_file: string | null; output_bytes: number };
+      `select log_file, output_bytes, command, error,
+              command_file, command_offset, command_length
+         from bash_output_streams where id = ?`,
+    ).get(outputId) as {
+      log_file: string | null;
+      output_bytes: number;
+      command: string;
+      error: string | null;
+      command_file: string | null;
+      command_offset: number | null;
+      command_length: number | null;
+    };
     assert.ok(metadata.log_file);
     assert.equal(metadata.output_bytes, prefix.length + suffix.length);
+    assert.equal(metadata.command, "");
+    assert.equal(metadata.error, null);
+    assert.ok(metadata.command_file);
+    assert.equal(metadata.command_offset, 0);
+    assert.equal(metadata.command_length, Buffer.byteLength("large-output"));
+    assert.equal(store.readMetadata(outputId)?.command, "large-output");
   } finally {
     sqlite.close();
   }

@@ -62,6 +62,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 16, name: "workspace-session-aliases" },
       { version: 17, name: "workspace-context-components" },
       { version: 18, name: "file-backed-activity-audit" },
+      { version: 19, name: "file-backed-bash-metadata" },
     ]);
   } finally {
     database.close();

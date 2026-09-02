@@ -4409,12 +4409,16 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
     1,
   );
 
+  const activityStatePath = join(context.stateDir, "workspaces", workspaceId, "activity");
+  assert.equal((await stat(activityStatePath)).isDirectory(), true);
+
   const deleted = await context.client.callTool({
     name: "close_workspace",
     arguments: { workspaceId, action: "delete" },
   });
   assert.equal(deleted.isError, undefined, allResponseText(deleted));
   await assert.rejects(stat(taskStatePath), /ENOENT/);
+  await assert.rejects(stat(activityStatePath), /ENOENT/);
 });
 
 test("open_workspace inspect reads bounded ordinary Workspace metadata without opening, binding, or leaking bootstrap context", async (t) => {

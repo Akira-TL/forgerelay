@@ -363,6 +363,16 @@ export class ActivityAuditStore {
     };
   }
 
+  deleteWorkspace(workspaceId: string): void {
+    this.database.sqlite.prepare(
+      `delete from activity_audit_events
+       where activity_id in (
+         select activity_id from activity_audit_events
+         where event_type = 'started' and workspace_id = ?
+       )`,
+    ).run(workspaceId);
+  }
+
   close(): void {
     this.database.close();
   }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { ActivityWorkspaceSnapshot } from "../audit-store.js";
 
@@ -37,6 +37,25 @@ export function bashOutputLogPrefix(
   outputId: string,
 ): string {
   return join(bashOutputDirectory(stateDir, workspace), outputId);
+}
+
+export function bashOutputMetadataPrefix(
+  stateDir: string,
+  workspace: ActivityWorkspaceSnapshot,
+  outputId: string,
+  field: "command" | "error",
+): string {
+  return join(bashOutputDirectory(stateDir, workspace), `${outputId}-${field}`);
+}
+
+export function removeWorkspaceActivityStorage(stateDir: string, workspaceId: string): void {
+  if (!SAFE_WORKSPACE_ID.test(workspaceId)) {
+    throw new Error(`Invalid Workspace id for Activity storage cleanup: ${workspaceId}`);
+  }
+  rmSync(join(stateDir, "workspaces", workspaceId, "activity"), {
+    recursive: true,
+    force: true,
+  });
 }
 
 export function ensurePrivateDirectory(path: string): void {

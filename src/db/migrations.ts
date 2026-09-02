@@ -97,6 +97,11 @@ const migrations: Migration[] = [
     name: "file-backed-activity-audit",
     up: migrateFileBackedActivityAudit,
   },
+  {
+    version: 19,
+    name: "file-backed-bash-metadata",
+    up: migrateFileBackedBashMetadata,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -472,6 +477,16 @@ function migrateFileBackedActivityAudit(sqlite: Database.Database): void {
     addColumnIfMissing(sqlite, "bash_output_streams", "log_file", "text");
     addColumnIfMissing(sqlite, "bash_output_streams", "output_bytes", "integer not null default 0");
   }
+}
+
+function migrateFileBackedBashMetadata(sqlite: Database.Database): void {
+  if (!tableExists(sqlite, "bash_output_streams")) return;
+  addColumnIfMissing(sqlite, "bash_output_streams", "command_file", "text");
+  addColumnIfMissing(sqlite, "bash_output_streams", "command_offset", "integer");
+  addColumnIfMissing(sqlite, "bash_output_streams", "command_length", "integer");
+  addColumnIfMissing(sqlite, "bash_output_streams", "error_file", "text");
+  addColumnIfMissing(sqlite, "bash_output_streams", "error_offset", "integer");
+  addColumnIfMissing(sqlite, "bash_output_streams", "error_length", "integer");
 }
 
 function tableExists(sqlite: Database.Database, table: string): boolean {
