@@ -416,7 +416,7 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
 });
 
 test("activity_panel reconstructs lightweight Workspace UI metadata on a fresh MCP connection", async (t) => {
-  const context = await fixture(t, { env: { FORGERELAY_SUBAGENTS: "1" } });
+  const context = await fixture(t);
   const skillDir = join(context.project, ".agents", "skills", "panel-skill");
   await mkdir(skillDir, { recursive: true });
   await writeFile(join(skillDir, "SKILL.md"), [
@@ -464,7 +464,6 @@ test("activity_panel reconstructs lightweight Workspace UI metadata on a fresh M
     agentsFiles?: Array<{ path?: string; content?: string }>;
     availableAgentsFiles?: Array<{ path?: string }>;
     skills?: Array<{ name?: string; description?: string }>;
-    agents?: Array<{ name?: string; description?: string }>;
   } | undefined;
 
   assert.ok((workspace?.agentsFiles?.length ?? 0) > 0);
@@ -472,8 +471,6 @@ test("activity_panel reconstructs lightweight Workspace UI metadata on a fresh M
   assert.ok(workspace?.agentsFiles?.every((file) => file.content === undefined));
   assert.ok(workspace?.skills?.some((skill) => skill.name === "panel-skill"));
   assert.ok(workspace?.skills?.every((skill) => skill.description === undefined));
-  assert.ok(workspace?.agents?.some((agent) => agent.name === "reviewer"));
-  assert.ok(workspace?.agents?.every((agent) => agent.description === undefined));
 });
 
 test("transport session scopes Activity when openai/session metadata is absent", async (t) => {

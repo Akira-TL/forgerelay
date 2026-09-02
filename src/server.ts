@@ -2776,15 +2776,37 @@ export function createMcpServer(
     } catch {
       // Keep the logical root when the backing path cannot be canonicalized.
     }
+    const filesystemPathKey = (path: string): string => {
+      const normalized = resolve(path);
+      return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+    };
+    const knownInstructionEntries = [...new Set(
+      [...workspace.knownInstructionPathsByDir.values()].flat(),
+    )].map((path) => {
+      try {
+        return { path, realPathKey: filesystemPathKey(realpathSync(path)) };
+      } catch {
+        return { path };
+      }
+    });
+    const logicalInstructionPathByRealPath = new Map(
+      knownInstructionEntries.flatMap((entry) => entry.realPathKey
+        ? [[entry.realPathKey, entry.path] as const]
+        : []),
+    );
+    const loadedInstructionRealPathKeys = new Set(
+      [...workspace.loadedInstructionRealPaths].map(filesystemPathKey),
+    );
     const loadedInstructionPaths = [...workspace.loadedInstructionRealPaths]
-      .map((path) => formatAgentsPath(path, canonicalWorkspaceRoot));
-    const loadedInstructionPathSet = new Set(loadedInstructionPaths);
-    const availableInstructionPaths = [...new Set(
-      [...workspace.knownInstructionPathsByDir.values()]
-        .flat()
-        .map((path) => formatAgentsPath(path, workspace.root))
-        .filter((path) => !loadedInstructionPathSet.has(path)),
-    )];
+      .map((realPath) => {
+        const logicalPath = logicalInstructionPathByRealPath.get(filesystemPathKey(realPath));
+        return logicalPath
+          ? formatAgentsPath(logicalPath, workspace.root)
+          : formatAgentsPath(realPath, canonicalWorkspaceRoot);
+      });
+    const availableInstructionPaths = knownInstructionEntries
+      .filter((entry) => !entry.realPathKey || !loadedInstructionRealPathKeys.has(entry.realPathKey))
+      .map((entry) => formatAgentsPath(entry.path, workspace.root));
     const agentProviders = config.subagents ? subagentProviders : [];
     const agents = workspace.agentProfiles.map((profile) => {
       const summary = summarizeSubagentProfile(profile);
