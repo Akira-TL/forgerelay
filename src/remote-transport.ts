@@ -38,12 +38,18 @@ export async function readRemoteOwnerToken(sshRoute: string[]): Promise<string> 
   return token;
 }
 
-export async function withRemoteServiceEndpoint<T>(
+export interface RemoteServiceEndpointLease {
+  endpoint: string;
+  close(): Promise<void>;
+}
+
+export async function openRemoteServiceEndpoint(
   target: string,
   sshRoute: string[] | undefined,
-  operation: (endpoint: string) => Promise<T>,
-): Promise<T> {
-  if (!sshRoute) return operation(target);
+): Promise<RemoteServiceEndpointLease> {
+  if (!sshRoute) {
+    return { endpoint: target, close: async () => undefined };
+  }
 
   const url = new URL(target);
   if (url.protocol === "https:") {
@@ -81,17 +87,33 @@ export async function withRemoteServiceEndpoint<T>(
 
   try {
     await waitForLoopbackPort(tunnel, localPort, stderr, () => spawnError, () => forwardingReady);
-    const mapped = new URL(url);
-    mapped.hostname = "127.0.0.1";
-    mapped.port = String(localPort);
-    try {
-      return await operation(mapped.toString().replace(/\/$/, ""));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Remote service request through SSH tunnel failed: ${message}`, { cause: error });
-    }
-  } finally {
+  } catch (error) {
     await stopTunnel(tunnel);
+    throw error;
+  }
+  const mapped = new URL(url);
+  mapped.hostname = "127.0.0.1";
+  mapped.port = String(localPort);
+  return {
+    endpoint: mapped.toString().replace(/\/$/, ""),
+    close: () => stopTunnel(tunnel),
+  };
+}
+
+export async function withRemoteServiceEndpoint<T>(
+  target: string,
+  sshRoute: string[] | undefined,
+  operation: (endpoint: string) => Promise<T>,
+): Promise<T> {
+  const lease = await openRemoteServiceEndpoint(target, sshRoute);
+  try {
+    return await operation(lease.endpoint);
+  } catch (error) {
+    if (!sshRoute) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Remote service request through SSH tunnel failed: ${message}`, { cause: error });
+  } finally {
+    await lease.close();
   }
 }
 

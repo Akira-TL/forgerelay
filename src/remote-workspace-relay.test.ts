@@ -1391,7 +1391,7 @@ void test("ssh-routed relayed workspace rebuilds fresh tunnels across gateway in
     const match = /^127\.0\.0\.1:(\d+):/.exec(args[index + 1]!);
     return match ? [Number(match[1])] : [];
   });
-  assert.ok(forwardPorts.length >= 3, JSON.stringify(sshCalls));
+  assert.equal(forwardPorts.length, 2, JSON.stringify(sshCalls));
   assert.equal(new Set(forwardPorts).size, forwardPorts.length);
   assert.ok(sshCalls.every((args) => args.includes("jump@example.test") && args.includes("target@example.test")));
 
@@ -1456,7 +1456,7 @@ void test("single-target SSH relay executes a remote workspace without ProxyJump
     .filter(Boolean)
     .map((line) => JSON.parse(line) as string[]);
   const forwardCalls = sshCalls.filter((args) => args.includes("-L"));
-  assert.ok(forwardCalls.length >= 3, JSON.stringify(sshCalls));
+  assert.equal(forwardCalls.length, 1, JSON.stringify(sshCalls));
   assert.ok(forwardCalls.every((args) => args.includes("target@example.test")));
   assert.ok(forwardCalls.every((args) => !args.includes("-J")), JSON.stringify(sshCalls));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1609,8 +1609,8 @@ async function startForge(
   await new Promise<void>((resolve) => httpServer.once("listening", resolve));
   const port = (httpServer.address() as AddressInfo).port;
   t.after(async () => {
-    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     await running.close();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   });
   return {
     endpoint: `http://127.0.0.1:${port}`,

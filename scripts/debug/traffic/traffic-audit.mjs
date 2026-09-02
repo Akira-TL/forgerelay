@@ -328,8 +328,12 @@ async function auditRelayTraffic() {
       return sum + (Number.isFinite(value) ? value : 0);
     }, 0);
     const clientDownload = snapshots.reduce((sum, item) => sum + item.http.sizeDownload, 0);
+    const relaySessionsCreated = snapshotLogs.filter(
+      (entry) => entry.event === "mcp_transport_session_created",
+    ).length;
+    const relayConnectionChurn = relaySessionsCreated > 0 || mcpEntries.length > snapshots.length;
     addFinding(
-      mcpEntries.length >= snapshots.length * 3 ? "HIGH" : "MED",
+      relayConnectionChurn ? "HIGH" : "LOW",
       "Relay activity_snapshot connection churn (7677 -> 7678)",
       {
         "Gateway snapshots": String(snapshots.length),
@@ -338,11 +342,9 @@ async function auditRelayTraffic() {
         "Execution methods": JSON.stringify(methods),
         "Execution request bodies": formatBytes(executionRequestBodyBytes),
         "Host <- Gateway snapshot bodies": formatBytes(clientDownload),
-        "Execution transport sessions created": String(
-          snapshotLogs.filter((entry) => entry.event === "mcp_transport_session_created").length,
-        ),
+        "Execution transport sessions created": String(relaySessionsCreated),
       },
-      mcpEntries.length >= snapshots.length * 3,
+      relayConnectionChurn,
     );
 
     const compositeMeta = { "openai/session": "traffic-audit-composite-conversation" };

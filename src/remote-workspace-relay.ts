@@ -16,8 +16,8 @@ import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol
 import {
   isRemoteMcpUnauthorized,
   refreshRemoteAuthentication,
-  withRemoteMcpClient,
 } from "./remote-auth.js";
+import { RemoteMcpConnectionPool, type RemoteMcpConnection } from "./remote-mcp-connection-pool.js";
 import { withRemoteServiceEndpoint } from "./remote-transport.js";
 import {
   loadForgeRelayFiles,
@@ -101,6 +101,7 @@ export class RemoteWorkspaceRelay {
   private readonly authEnv: NodeJS.ProcessEnv;
   private readonly routeStateDir: string;
   private readonly routeStatePath: string;
+  private readonly mcpConnections = new RemoteMcpConnectionPool();
 
   constructor(configDir: string, stateDir: string) {
     this.authEnv = { FORGERELAY_CONFIG_DIR: configDir };
@@ -113,6 +114,10 @@ export class RemoteWorkspaceRelay {
     if (this.routes.has(workspaceId)) return true;
     this.loadRoutes();
     return this.routes.has(workspaceId);
+  }
+
+  async shutdown(): Promise<void> {
+    await this.mcpConnections.closeAll();
   }
 
   async inspectWorkspace(gatewayWorkspaceId: string): Promise<RelayedWorkspaceInspection> {
@@ -710,44 +715,71 @@ export class RemoteWorkspaceRelay {
     args: Record<string, unknown>,
     conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return withRemoteServiceEndpoint(
-      initialRemote.target,
-      initialRemote.sshRoute,
-      async (endpoint) => {
-        let remote = initialRemote;
-        let refreshed = false;
-        if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
-          remote = await this.refreshRemote(alias, remote, endpoint);
-          refreshed = true;
-        }
+    let remote = initialRemote;
+    let refreshed = false;
+    if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
+      remote = await withRemoteServiceEndpoint(
+        remote.target,
+        remote.sshRoute,
+        (endpoint) => this.refreshRemote(alias, remote, endpoint),
+      );
+      refreshed = true;
+    }
 
-        const invoke = () => withRemoteMcpClient(
-          remote,
-          endpoint,
-          async (client) => CallToolResultSchema.parse(
-            await client.callTool({
-              name,
-              arguments: args,
-              ...(conversationScopeId
-                ? { _meta: { "openai/session": conversationScopeId } }
-                : {}),
-            } as Parameters<Client["callTool"]>[0]),
-          ),
+    let connection: RemoteMcpConnection;
+    try {
+      connection = await this.mcpConnections.get(remote);
+    } catch (error) {
+      if (!refreshed && isRemoteMcpUnauthorized(error)) {
+        remote = await withRemoteServiceEndpoint(
+          remote.target,
+          remote.sshRoute,
+          (endpoint) => this.refreshRemote(alias, remote, endpoint),
         );
+        refreshed = true;
+        connection = await this.mcpConnections.get(remote);
+      } else {
+        throw new Error(
+          `Remote ForgeRelay ${alias} request failed: ${errorMessage(error)}`,
+          { cause: error },
+        );
+      }
+    }
+
+    const invoke = async (active: RemoteMcpConnection) => CallToolResultSchema.parse(
+      await active.client.callTool({
+        name,
+        arguments: args,
+        ...(conversationScopeId
+          ? { _meta: { "openai/session": conversationScopeId } }
+          : {}),
+      } as Parameters<Client["callTool"]>[0]),
+    );
+
+    try {
+      return await invoke(connection);
+    } catch (error) {
+      if (!refreshed && isRemoteMcpUnauthorized(error)) {
+        remote = await this.refreshRemote(alias, remote, connection.endpoint);
+        refreshed = true;
+        await this.mcpConnections.invalidate(remote.instanceId, connection);
+        const refreshedConnection = await this.mcpConnections.get(remote);
         try {
-          return await invoke();
-        } catch (error) {
-          if (!refreshed && isRemoteMcpUnauthorized(error)) {
-            remote = await this.refreshRemote(alias, remote, endpoint);
-            return invoke();
-          }
+          return await invoke(refreshedConnection);
+        } catch (retryError) {
+          await this.mcpConnections.invalidate(remote.instanceId, refreshedConnection);
           throw new Error(
-            `Remote ForgeRelay ${alias} request failed: ${errorMessage(error)}`,
-            { cause: error },
+            `Remote ForgeRelay ${alias} request failed: ${errorMessage(retryError)}`,
+            { cause: retryError },
           );
         }
-      },
-    );
+      }
+      await this.mcpConnections.invalidate(remote.instanceId, connection);
+      throw new Error(
+        `Remote ForgeRelay ${alias} request failed: ${errorMessage(error)}`,
+        { cause: error },
+      );
+    }
   }
 
   private async refreshRemote(

@@ -75,11 +75,10 @@ export function isRemoteMcpUnauthorized(error: unknown): boolean {
     (error instanceof StreamableHTTPError && error.code === 401);
 }
 
-export async function withRemoteMcpClient<T>(
+export async function connectRemoteMcpClient(
   remote: ForgeRelayRemoteRecord,
   endpointInput: string,
-  operation: (client: Client) => Promise<T>,
-): Promise<T> {
+): Promise<Client> {
   const endpoint = normalizeRemoteServiceTarget(endpointInput);
   const client = new Client({ name: "forgerelay-cli", version: packageVersion });
   const transport = new StreamableHTTPClientTransport(publicEndpointUrl(endpoint, "mcp"), {
@@ -89,6 +88,20 @@ export async function withRemoteMcpClient<T>(
   });
   try {
     await client.connect(transport);
+    return client;
+  } catch (error) {
+    await client.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function withRemoteMcpClient<T>(
+  remote: ForgeRelayRemoteRecord,
+  endpointInput: string,
+  operation: (client: Client) => Promise<T>,
+): Promise<T> {
+  const client = await connectRemoteMcpClient(remote, endpointInput);
+  try {
     return await operation(client);
   } finally {
     await client.close().catch(() => undefined);

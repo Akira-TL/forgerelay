@@ -1831,6 +1831,7 @@ export function createMcpServer(
   options: CreateMcpServerOptions = {},
 ): McpServer {
   const connectionScopeId = `mcp-connection:${randomUUID()}`;
+  const ownsRemoteWorkspaces = options.remoteWorkspaces === undefined;
   const remoteWorkspaces = options.remoteWorkspaces
     ?? new RemoteWorkspaceRelay(config.configDir, config.stateDir);
   const compositeWorkspaces = options.compositeWorkspaces
@@ -2767,9 +2768,12 @@ export function createMcpServer(
   const workspacePanelStates = new Map<string, Record<string, unknown>>();
   const workspacePanelState = (workspaceId: string): Record<string, unknown> | undefined => {
     const remembered = workspacePanelStates.get(workspaceId);
-    if (remembered) return remembered;
+    if (remoteWorkspaces.has(workspaceId) || compositeWorkspaces.has(workspaceId)) {
+      return remembered;
+    }
     try {
       const workspace = workspaces.getWorkspace(workspaceId);
+      if (remembered) return remembered;
       return compactWorkspacePresentation({
         workspaceId: workspace.id,
         root: workspace.root,
@@ -5321,6 +5325,21 @@ export function createMcpServer(
     },
   );
 
+  if (ownsRemoteWorkspaces) {
+    const closeServer = server.close.bind(server);
+    let closePromise: Promise<void> | undefined;
+    server.close = () => {
+      closePromise ??= (async () => {
+        try {
+          await closeServer();
+        } finally {
+          await remoteWorkspaces.shutdown();
+        }
+      })();
+      return closePromise;
+    };
+  }
+
   return server;
 }
 
@@ -5626,6 +5645,7 @@ export function createServer(
         clearInterval(transportCleanupTimer);
         const results = await transports.closeAll();
         logTransportCloseResults("server_shutdown", results);
+        await sharedRemoteWorkspaces.shutdown();
         processSessions.shutdown();
         await codeIntelligence.shutdown();
         oauthProvider.close();

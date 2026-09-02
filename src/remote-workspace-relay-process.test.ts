@@ -448,8 +448,8 @@ async function startForge(
   await new Promise<void>((resolve) => httpServer.once("listening", resolve));
   const port = (httpServer.address() as AddressInfo).port;
   t.after(async () => {
-    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     await running.close();
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   });
   return {
     endpoint: `http://127.0.0.1:${port}`,
