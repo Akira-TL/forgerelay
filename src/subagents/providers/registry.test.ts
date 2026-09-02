@@ -6,8 +6,19 @@ import {
   resolveAcpModelConfigUpdate,
   resolveAcpThinkingConfigUpdate,
 } from "./adapters/acp.js";
-import { claudeCommandEnvironment } from "./adapters/claude.js";
-import { extractOpenCodeFinalResponse } from "./adapters/opencode.js";
+import {
+  ClaudeSubagentAdapter,
+  claudeCommandArgs,
+  claudeCommandEnvironment,
+  parseClaudeJsonOutput,
+} from "./adapters/claude.js";
+import {
+  OpencodeSubagentAdapter,
+  extractOpenCodeFinalResponse,
+  opencodeCommandArgs,
+  parseOpenCodeJsonLines,
+} from "./adapters/opencode.js";
+import type { ExternalCommandRequest } from "./runtime/external-command.js";
 import {
   extractPiFinalResponse,
   extractPiProviderError,
@@ -238,6 +249,147 @@ assert.throws(
   assert.equal(env.CLAUDE_CODE_SSE_PORT, undefined);
   assert.equal(env.CLAUDE_AGENT_SDK_VERSION, undefined);
   assert.equal(env.PATH, "/usr/bin");
+}
+
+assert.deepEqual(
+  claudeCommandArgs({
+    prompt: "review",
+    workspace: "/tmp/project",
+    providerSessionId: "claude-session",
+    model: "claude-sonnet-4-5",
+    thinking: "high",
+  }),
+  [
+    "--print",
+    "--output-format",
+    "json",
+    "--dangerously-skip-permissions",
+    "--model",
+    "claude-sonnet-4-5",
+    "--effort",
+    "high",
+    "--resume",
+    "claude-session",
+  ],
+);
+
+assert.deepEqual(
+  parseClaudeJsonOutput(JSON.stringify({
+    type: "result",
+    subtype: "success",
+    session_id: "claude-session",
+    result: "Final Claude response.",
+  })),
+  {
+    providerSessionId: "claude-session",
+    finalResponse: "Final Claude response.",
+    error: undefined,
+  },
+);
+
+{
+  const calls: ExternalCommandRequest[] = [];
+  const adapter = new ClaudeSubagentAdapter(async (request) => {
+    calls.push(request);
+    return {
+      stdout: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        session_id: "claude-new-session",
+        result: "Claude CLI response.",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+  }, { ...process.env, CLAUDE_COMMAND: "/custom/claude" });
+  const result = await adapter.run({
+    prompt: "review",
+    workspace: "/tmp/project",
+  });
+  assert.equal(result.providerSessionId, "claude-new-session");
+  assert.equal(result.finalResponse, "Claude CLI response.");
+  assert.equal(calls[0]?.command, "/custom/claude");
+  assert.equal(calls[0]?.stdin, "review");
+}
+
+assert.deepEqual(
+  opencodeCommandArgs({
+    prompt: "review",
+    workspace: "/tmp/project",
+    providerSessionId: "ses_existing",
+    model: "openai/gpt-5.4",
+    thinking: "high",
+  }),
+  [
+    "run",
+    "--format",
+    "json",
+    "--dir",
+    "/tmp/project",
+    "--dangerously-skip-permissions",
+    "--model",
+    "openai/gpt-5.4",
+    "--variant",
+    "high",
+    "--session",
+    "ses_existing",
+  ],
+);
+
+assert.deepEqual(
+  parseOpenCodeJsonLines([
+    JSON.stringify({ type: "step_start", sessionID: "ses_123", part: { type: "step-start" } }),
+    JSON.stringify({
+      type: "text",
+      sessionID: "ses_123",
+      part: { type: "text", messageID: "msg_1", text: "Final " },
+    }),
+    JSON.stringify({
+      type: "text",
+      sessionID: "ses_123",
+      part: { type: "text", messageID: "msg_1", text: "OpenCode response." },
+    }),
+  ].join("\n")),
+  { providerSessionId: "ses_123", finalResponse: "Final OpenCode response." },
+);
+
+{
+  const calls: ExternalCommandRequest[] = [];
+  const adapter = new OpencodeSubagentAdapter(async (request) => {
+    calls.push(request);
+    if (request.args[0] === "export") {
+      return {
+        stdout: JSON.stringify({
+          data: [
+            {
+              info: { id: "msg_assistant", role: "assistant" },
+              parts: [{ type: "text", text: "Recovered OpenCode response." }],
+            },
+          ],
+        }),
+        stderr: "",
+        exitCode: 0,
+      };
+    }
+    return {
+      stdout: JSON.stringify({
+        type: "step_start",
+        sessionID: "ses_recover",
+        part: { type: "step-start" },
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+  }, { ...process.env, OPENCODE_COMMAND: "/custom/opencode" });
+  const result = await adapter.run({
+    prompt: "continue",
+    workspace: "/tmp/project",
+    providerSessionId: "ses_recover",
+  });
+  assert.equal(result.providerSessionId, "ses_recover");
+  assert.equal(result.finalResponse, "Recovered OpenCode response.");
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1]?.args, ["export", "ses_recover"]);
 }
 
 assert.equal(

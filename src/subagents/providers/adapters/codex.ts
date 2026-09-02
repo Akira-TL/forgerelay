@@ -1,31 +1,74 @@
 import type {
-  Codex,
-  CodexOptions,
-  ModelReasoningEffort,
-  RunResult,
-  SandboxMode,
-  ThreadOptions,
-} from "@openai/codex-sdk";
-import type {
   SubagentProviderAdapter,
   SubagentRunInput,
   SubagentRunResult,
   SubagentWriteMode,
 } from "../contract.js";
+import {
+  runExternalCommand,
+  type ExternalCommandRunner,
+} from "../runtime/external-command.js";
+import { removeForgeRelayNodeModulesBinFromPath } from "../path.js";
+import { asRecord, directString, requireFinalResponse } from "../shared.js";
 
-interface CodexThreadLike {
-  readonly id: string | null;
-  run(prompt: string, options?: { signal?: AbortSignal }): Promise<RunResult>;
+export class CodexSubagentAdapter implements SubagentProviderAdapter {
+  readonly provider = "codex" as const;
+
+  constructor(
+    private readonly runner: ExternalCommandRunner = runExternalCommand,
+    private readonly env: NodeJS.ProcessEnv = process.env,
+  ) {}
+
+  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
+    const command = this.env.CODEX_COMMAND?.trim() || "codex";
+    const result = await this.runner({
+      command,
+      args: codexCommandArgs(input),
+      cwd: input.workspace,
+      env: codexCommandEnvironment(this.env),
+      signal: input.signal,
+      stdin: input.prompt,
+      label: "Codex",
+    });
+    const parsed = parseCodexJsonLines(result.stdout);
+    if (parsed.error) throw new Error(`Codex returned an error: ${parsed.error}`);
+    if (
+      input.providerSessionId &&
+      parsed.providerSessionId &&
+      parsed.providerSessionId !== input.providerSessionId
+    ) {
+      throw new Error(
+        `Codex resume returned a different session id (${parsed.providerSessionId}) than requested (${input.providerSessionId}).`,
+      );
+    }
+    return {
+      provider: this.provider,
+      providerSessionId: parsed.providerSessionId ?? input.providerSessionId ?? null,
+      finalResponse: requireFinalResponse("Codex", parsed.finalResponse),
+    };
+  }
 }
 
-interface CodexClientLike {
-  startThread(options?: ThreadOptions): CodexThreadLike;
-  resumeThread(id: string, options?: ThreadOptions): CodexThreadLike;
+export function codexCommandArgs(input: SubagentRunInput): string[] {
+  const args = [
+    "exec",
+    "--json",
+    "--sandbox",
+    codexSandboxMode(input.writeMode),
+    "--cd",
+    input.workspace,
+    "--config",
+    'approval_policy="never"',
+  ];
+  if (input.model) args.push("--model", input.model);
+  if (input.thinking) {
+    args.push("--config", `model_reasoning_effort=${JSON.stringify(input.thinking)}`);
+  }
+  if (input.providerSessionId) args.push("resume", input.providerSessionId);
+  return args;
 }
 
-type CodexFactory = (options?: CodexOptions) => CodexClientLike;
-
-function sandboxModeFor(writeMode: SubagentWriteMode | undefined): SandboxMode {
+function codexSandboxMode(writeMode: SubagentWriteMode | undefined): string {
   switch (writeMode) {
     case "allowed":
       return "workspace-write";
@@ -37,57 +80,57 @@ function sandboxModeFor(writeMode: SubagentWriteMode | undefined): SandboxMode {
   }
 }
 
-function threadOptionsFor(input: SubagentRunInput): ThreadOptions {
+export function codexCommandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (env.CODEX_COMMAND || !env.PATH) return { ...env };
   return {
-    workingDirectory: input.workspace,
-    sandboxMode: sandboxModeFor(input.writeMode),
-    approvalPolicy: "never",
-    model: input.model,
-    modelReasoningEffort: input.thinking as ModelReasoningEffort | undefined,
+    ...env,
+    PATH: removeForgeRelayNodeModulesBinFromPath(env.PATH),
   };
 }
 
-export class CodexSdkSubagentRuntime {
-  readonly provider = "codex" as const;
-  private readonly codex: CodexClientLike;
+export function parseCodexJsonLines(output: string): {
+  providerSessionId?: string;
+  finalResponse: string;
+  error?: string;
+} {
+  let providerSessionId: string | undefined;
+  let finalResponse = "";
+  let error: string | undefined;
 
-  constructor(codex: CodexClientLike) {
-    this.codex = codex;
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(trimmed);
+      const record = asRecord(parsed);
+      if (!record) continue;
+      event = record;
+    } catch {
+      continue;
+    }
+
+    if (event.type === "thread.started") {
+      providerSessionId = directString(event.thread_id) ?? providerSessionId;
+      continue;
+    }
+    if (event.type === "item.completed") {
+      const item = asRecord(event.item);
+      if (item?.type === "agent_message") {
+        finalResponse = directString(item.text) ?? finalResponse;
+      }
+      continue;
+    }
+    if (event.type === "turn.failed") {
+      const failure = asRecord(event.error);
+      error = directString(failure?.message) ?? directString(event.message) ?? error;
+      continue;
+    }
+    if (event.type === "error") {
+      const nested = asRecord(event.error);
+      error = directString(event.message) ?? directString(nested?.message) ?? error;
+    }
   }
 
-  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
-    const options = threadOptionsFor(input);
-    const thread = input.providerSessionId
-      ? this.codex.resumeThread(input.providerSessionId, options)
-      : this.codex.startThread(options);
-    const turn = await thread.run(input.prompt, { signal: input.signal });
-
-    return {
-      provider: this.provider,
-      providerSessionId: thread.id,
-      finalResponse: turn.finalResponse,
-    };
-  }
-}
-
-export async function createCodexSdkSubagentRuntime(
-  options?: CodexOptions,
-  codexFactory?: CodexFactory,
-): Promise<CodexSdkSubagentRuntime> {
-  const factory = codexFactory ?? (await defaultCodexFactory());
-  return new CodexSdkSubagentRuntime(factory(options));
-}
-
-export class CodexSubagentAdapter implements SubagentProviderAdapter {
-  readonly provider = "codex" as const;
-
-  async run(input: SubagentRunInput): Promise<SubagentRunResult> {
-    const runtime = await createCodexSdkSubagentRuntime();
-    return runtime.run(input);
-  }
-}
-
-async function defaultCodexFactory(): Promise<CodexFactory> {
-  const module = await import("@openai/codex-sdk");
-  return (options) => new module.Codex(options) as Codex;
+  return { providerSessionId, finalResponse, error };
 }

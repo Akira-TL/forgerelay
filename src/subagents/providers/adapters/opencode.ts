@@ -4,9 +4,14 @@ import type {
   SubagentRunResult,
 } from "../contract.js";
 import {
+  runExternalCommand,
+  type ExternalCommandRunner,
+} from "../runtime/external-command.js";
+import { removeForgeRelayNodeModulesBinFromPath } from "../path.js";
+import {
   asRecord,
+  directString,
   readArray,
-  readNestedString,
   requireFinalResponse,
   unwrapProviderPayload,
 } from "../shared.js";
@@ -14,136 +19,132 @@ import {
 export class OpencodeSubagentAdapter implements SubagentProviderAdapter {
   readonly provider = "opencode" as const;
 
+  constructor(
+    private readonly runner: ExternalCommandRunner = runExternalCommand,
+    private readonly env: NodeJS.ProcessEnv = process.env,
+  ) {}
+
   async run(input: SubagentRunInput): Promise<SubagentRunResult> {
-    const { createOpencode } = await import("@opencode-ai/sdk/v2");
-    const { client, server } = await createOpencode();
-    try {
-      const sessionId = input.providerSessionId ?? await createOpencodeSession(client, input);
-      let abortPromise: Promise<void> | undefined;
-      const abort = () => {
-        abortPromise ??= abortOpencodeSession(client, sessionId, input.workspace);
-      };
-      if (input.signal?.aborted) abort();
-      else input.signal?.addEventListener("abort", abort, { once: true });
-      try {
-        input.signal?.throwIfAborted();
-        const promptResult = await promptOpencodeSession(client, sessionId, input);
-        await waitForOpencodeSession(client, sessionId, input.signal);
-        const messages = await readOpencodeMessages(client, sessionId, input.signal);
-        const finalResponse = requireFinalResponse(
-          "OpenCode",
-          extractOpenCodeFinalResponse(messages) || extractOpenCodeFinalResponse(promptResult),
-        );
-        return {
-          provider: this.provider,
-          providerSessionId: sessionId,
-          finalResponse,
-        };
-      } finally {
-        input.signal?.removeEventListener("abort", abort);
-        if (abortPromise) await abortPromise;
-      }
-    } finally {
-      server.close();
+    const command = this.env.OPENCODE_COMMAND?.trim() || "opencode";
+    const commandEnv = opencodeCommandEnvironment(this.env);
+    const result = await this.runner({
+      command,
+      args: opencodeCommandArgs(input),
+      cwd: input.workspace,
+      env: commandEnv,
+      signal: input.signal,
+      stdin: input.prompt,
+      label: "OpenCode",
+    });
+    const streamed = parseOpenCodeJsonLines(result.stdout);
+    const providerSessionId = streamed.providerSessionId ?? input.providerSessionId ?? null;
+    let finalResponse = streamed.finalResponse;
+
+    if (!finalResponse && providerSessionId) {
+      const exported = await this.runner({
+        command,
+        args: ["export", providerSessionId],
+        cwd: input.workspace,
+        env: commandEnv,
+        signal: input.signal,
+        label: "OpenCode export",
+      });
+      finalResponse = extractOpenCodeExportFinalResponse(exported.stdout);
     }
+
+    return {
+      provider: this.provider,
+      providerSessionId,
+      finalResponse: requireFinalResponse("OpenCode", finalResponse),
+    };
   }
 }
 
-async function createOpencodeSession(client: unknown, input: SubagentRunInput): Promise<string> {
-  const sessionClient = client as {
-    session: {
-      create(parameters?: unknown, options?: unknown): Promise<unknown>;
-    };
-  };
-  const result = await sessionClient.session.create({
-    directory: input.workspace,
-    location: { directory: input.workspace },
-    ...(input.model ? { model: parseOpencodeModel(input.model) } : {}),
-  }, { throwOnError: true, signal: input.signal });
-  const id =
-    readNestedString(result, ["id"]) ??
-    readNestedString(result, ["data", "id"]) ??
-    readNestedString(result, ["session", "id"]) ??
-    readNestedString(result, ["data", "session", "id"]);
-  if (typeof id !== "string") {
-    throw new Error("OpenCode did not return a session id.");
-  }
-  return id;
+export function opencodeCommandArgs(input: SubagentRunInput): string[] {
+  const args = [
+    "run",
+    "--format",
+    "json",
+    "--dir",
+    input.workspace,
+    "--dangerously-skip-permissions",
+  ];
+  if (input.model) args.push("--model", input.model);
+  if (input.thinking) args.push("--variant", input.thinking);
+  if (input.providerSessionId) args.push("--session", input.providerSessionId);
+  return args;
 }
 
-async function promptOpencodeSession(
-  client: unknown,
-  sessionId: string,
-  input: SubagentRunInput,
-): Promise<unknown> {
-  const session = (client as {
-    session: {
-      prompt(parameters?: unknown, options?: unknown): Promise<unknown>;
-    };
-  }).session;
-
-  const promptInput = {
-    sessionID: sessionId,
-    directory: input.workspace,
-    prompt: { parts: [{ type: "text", text: input.prompt }] },
-    parts: [{ type: "text", text: input.prompt }],
-    ...(input.model ? { model: parseOpencodeModel(input.model) } : {}),
-    ...(input.thinking ? { variant: input.thinking } : {}),
-  };
-  return session.prompt(promptInput, { throwOnError: true, signal: input.signal });
-}
-
-async function waitForOpencodeSession(
-  client: unknown,
-  sessionId: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  const session = (client as {
-    session?: { wait?: (parameters?: unknown, options?: unknown) => Promise<unknown> };
-  }).session;
-  if (!session?.wait) return;
-  await session.wait({ sessionID: sessionId }, { throwOnError: true, signal });
-}
-
-async function readOpencodeMessages(
-  client: unknown,
-  sessionId: string,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const session = (client as {
-    session?: {
-      messages?: (parameters?: unknown, options?: unknown) => Promise<unknown>;
-    };
-  }).session;
-  if (!session?.messages) return undefined;
-  return session.messages(
-    { sessionID: sessionId, order: "asc", limit: 100 },
-    { throwOnError: true, signal },
-  );
-}
-
-async function abortOpencodeSession(client: unknown, sessionId: string, workspace: string): Promise<void> {
-  const session = (client as {
-    session?: { abort?: (parameters?: unknown, options?: unknown) => Promise<unknown> };
-  }).session;
-  if (!session?.abort) return;
-  try {
-    await session.abort(
-      { sessionID: sessionId, directory: workspace },
-      { throwOnError: true },
-    );
-  } catch {
-    // The prompt request may already have observed the AbortSignal and closed the local server.
-  }
-}
-
-function parseOpencodeModel(model: string): { providerID: string; modelID: string } {
-  const separator = model.indexOf("/");
-  if (separator === -1) return { providerID: "opencode", modelID: model };
+export function opencodeCommandEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (env.OPENCODE_COMMAND || !env.PATH) return { ...env };
   return {
-    providerID: model.slice(0, separator),
-    modelID: model.slice(separator + 1),
+    ...env,
+    PATH: removeForgeRelayNodeModulesBinFromPath(env.PATH),
   };
+}
+
+export function parseOpenCodeJsonLines(output: string): {
+  providerSessionId?: string;
+  finalResponse: string;
+} {
+  let providerSessionId: string | undefined;
+  const textByMessage = new Map<string, string[]>();
+  const messageOrder: string[] = [];
+  let fallback = "";
+  let anonymousIndex = 0;
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let record: Record<string, unknown>;
+    try {
+      const parsed = asRecord(JSON.parse(trimmed));
+      if (!parsed) continue;
+      record = parsed;
+    } catch {
+      continue;
+    }
+
+    providerSessionId =
+      directString(record.sessionID) ??
+      directString(record.sessionId) ??
+      providerSessionId;
+
+    if (record.type === "text") {
+      const part = asRecord(record.part);
+      const text = typeof part?.text === "string" ? part.text : undefined;
+      if (!text) continue;
+      const messageId =
+        directString(part?.messageID) ??
+        directString(part?.messageId) ??
+        `anonymous-${anonymousIndex++}`;
+      if (!textByMessage.has(messageId)) {
+        textByMessage.set(messageId, []);
+        messageOrder.push(messageId);
+      }
+      textByMessage.get(messageId)!.push(text);
+      continue;
+    }
+
+    const extracted = extractOpenCodeFinalResponse(record);
+    if (extracted) fallback = extracted;
+  }
+
+  const lastMessageId = messageOrder.at(-1);
+  const finalResponse = lastMessageId
+    ? (textByMessage.get(lastMessageId) ?? []).join("").trim()
+    : fallback;
+  return { providerSessionId, finalResponse };
+}
+
+function extractOpenCodeExportFinalResponse(output: string): string {
+  const trimmed = output.trim();
+  if (!trimmed) return "";
+  try {
+    return extractOpenCodeFinalResponse(JSON.parse(trimmed));
+  } catch {
+    return "";
+  }
 }
 
 export function extractOpenCodeFinalResponse(value: unknown): string {

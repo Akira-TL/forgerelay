@@ -1,49 +1,38 @@
 import assert from "node:assert/strict";
-import type { RunResult, ThreadOptions } from "@openai/codex-sdk";
+import type {
+  ExternalCommandRequest,
+  ExternalCommandResult,
+} from "../runtime/external-command.js";
 import {
-  CodexSdkSubagentRuntime,
-  createCodexSdkSubagentRuntime,
+  CodexSubagentAdapter,
+  codexCommandArgs,
+  parseCodexJsonLines,
 } from "./codex.js";
 
-const emptyTurn = (finalResponse: string): RunResult => ({
-  finalResponse,
-  items: [],
-  usage: null,
+const requests: ExternalCommandRequest[] = [];
+const runner = async (request: ExternalCommandRequest): Promise<ExternalCommandResult> => {
+  requests.push(request);
+  const resumeIndex = request.args.indexOf("resume");
+  const sessionId = resumeIndex >= 0 ? request.args[resumeIndex + 1] : "new-thread";
+  return {
+    stdout: [
+      JSON.stringify({ type: "thread.started", thread_id: sessionId }),
+      JSON.stringify({
+        type: "item.completed",
+        item: { type: "agent_message", text: `response:${request.stdin}` },
+      }),
+      JSON.stringify({ type: "turn.completed", usage: {} }),
+    ].join("\n"),
+    stderr: "",
+    exitCode: 0,
+  };
+};
+
+const adapter = new CodexSubagentAdapter(runner, {
+  ...process.env,
+  CODEX_COMMAND: "/custom/codex",
 });
-
-class FakeThread {
-  prompts: string[] = [];
-  signals: Array<AbortSignal | undefined> = [];
-
-  constructor(readonly id: string | null) {}
-
-  async run(prompt: string, options?: { signal?: AbortSignal }): Promise<RunResult> {
-    this.prompts.push(prompt);
-    this.signals.push(options?.signal);
-    return emptyTurn(`response:${prompt}`);
-  }
-}
-
-class FakeCodex {
-  started: ThreadOptions[] = [];
-  resumed: Array<{ id: string; options?: ThreadOptions }> = [];
-  readonly startThreadInstance = new FakeThread("new-thread");
-  readonly resumeThreadInstance = new FakeThread("resumed-thread");
-
-  startThread(options?: ThreadOptions): FakeThread {
-    this.started.push(options ?? {});
-    return this.startThreadInstance;
-  }
-
-  resumeThread(id: string, options?: ThreadOptions): FakeThread {
-    this.resumed.push({ id, options });
-    return this.resumeThreadInstance;
-  }
-}
-
-const codex = new FakeCodex();
-const runtime = new CodexSdkSubagentRuntime(codex);
-const readOnly = await runtime.run({
+const readOnly = await adapter.run({
   prompt: "inspect only",
   workspace: "/tmp/project",
 });
@@ -51,55 +40,99 @@ const readOnly = await runtime.run({
 assert.equal(readOnly.provider, "codex");
 assert.equal(readOnly.providerSessionId, "new-thread");
 assert.equal(readOnly.finalResponse, "response:inspect only");
-assert.deepEqual(codex.startThreadInstance.prompts, ["inspect only"]);
-assert.deepEqual(codex.started[0], {
-  workingDirectory: "/tmp/project",
-  sandboxMode: "read-only",
-  approvalPolicy: "never",
-  model: undefined,
-  modelReasoningEffort: undefined,
-});
+assert.equal(requests[0]?.command, "/custom/codex");
+assert.equal(requests[0]?.stdin, "inspect only");
+assert.deepEqual(requests[0]?.args, [
+  "exec",
+  "--json",
+  "--sandbox",
+  "read-only",
+  "--cd",
+  "/tmp/project",
+  "--config",
+  'approval_policy="never"',
+]);
 
-await runtime.run({
+await adapter.run({
   prompt: "make change",
   workspace: "/tmp/project",
   writeMode: "allowed",
   model: "gpt-5.4",
   thinking: "high",
 });
-
-assert.deepEqual(codex.started[1], {
-  workingDirectory: "/tmp/project",
-  sandboxMode: "workspace-write",
-  approvalPolicy: "never",
-  model: "gpt-5.4",
-  modelReasoningEffort: "high",
-});
+assert.deepEqual(requests[1]?.args, [
+  "exec",
+  "--json",
+  "--sandbox",
+  "workspace-write",
+  "--cd",
+  "/tmp/project",
+  "--config",
+  'approval_policy="never"',
+  "--model",
+  "gpt-5.4",
+  "--config",
+  'model_reasoning_effort="high"',
+]);
 
 const controller = new AbortController();
-const resumed = await runtime.run({
+const resumed = await adapter.run({
   prompt: "continue",
   workspace: "/tmp/project",
   providerSessionId: "existing-thread",
   writeMode: "full_access",
   signal: controller.signal,
 });
-
-assert.equal(resumed.providerSessionId, "resumed-thread");
-assert.deepEqual(codex.resumeThreadInstance.prompts, ["continue"]);
-assert.equal(codex.resumeThreadInstance.signals[0], controller.signal);
-assert.deepEqual(codex.resumed, [
-  {
-    id: "existing-thread",
-    options: {
-      workingDirectory: "/tmp/project",
-      sandboxMode: "danger-full-access",
-      approvalPolicy: "never",
-      model: undefined,
-      modelReasoningEffort: undefined,
-    },
-  },
+assert.equal(resumed.providerSessionId, "existing-thread");
+assert.equal(requests[2]?.signal, controller.signal);
+assert.deepEqual(requests[2]?.args, [
+  "exec",
+  "--json",
+  "--sandbox",
+  "danger-full-access",
+  "--cd",
+  "/tmp/project",
+  "--config",
+  'approval_policy="never"',
+  "resume",
+  "existing-thread",
 ]);
 
-const created = await createCodexSdkSubagentRuntime(undefined, () => new FakeCodex());
-assert.equal(created.provider, "codex");
+assert.deepEqual(
+  codexCommandArgs({ prompt: "x", workspace: "C:/repo", writeMode: "read_only" }).slice(0, 6),
+  ["exec", "--json", "--sandbox", "read-only", "--cd", "C:/repo"],
+);
+
+assert.deepEqual(
+  parseCodexJsonLines([
+    "not json",
+    JSON.stringify({ type: "thread.started", thread_id: "thread-1" }),
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "final" } }),
+  ].join("\n")),
+  { providerSessionId: "thread-1", finalResponse: "final", error: undefined },
+);
+
+assert.equal(
+  parseCodexJsonLines(JSON.stringify({
+    type: "turn.failed",
+    error: { message: "quota exceeded" },
+  })).error,
+  "quota exceeded",
+);
+
+const mismatched = new CodexSubagentAdapter(async () => ({
+  stdout: [
+    JSON.stringify({ type: "thread.started", thread_id: "replacement-thread" }),
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "unexpected" } }),
+  ].join("\n"),
+  stderr: "",
+  exitCode: 0,
+}));
+await assert.rejects(
+  mismatched.run({
+    prompt: "continue",
+    workspace: "/tmp/project",
+    providerSessionId: "expected-thread",
+  }),
+  /different session id/,
+);

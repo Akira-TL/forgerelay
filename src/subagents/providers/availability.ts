@@ -26,19 +26,25 @@ export function checkSubagentProviderAvailability(
 ): SubagentProviderAvailability {
   switch (provider) {
     case "codex":
-      return packageAvailability(provider, "@openai/codex-sdk");
+      return commandAvailability(provider, env.CODEX_COMMAND ?? "codex", {
+        env: externalProviderEnvironment(env, "CODEX_COMMAND"),
+      });
     case "claude":
-      return packageAvailability(provider, "@anthropic-ai/claude-agent-sdk");
+      return commandAvailability(provider, env.CLAUDE_COMMAND ?? "claude", {
+        env: externalProviderEnvironment(env, "CLAUDE_COMMAND"),
+      });
     case "opencode":
-      return packageAvailability(provider, "@opencode-ai/sdk/v2");
+      return commandAvailability(provider, env.OPENCODE_COMMAND ?? "opencode", {
+        env: externalProviderEnvironment(env, "OPENCODE_COMMAND"),
+      });
     case "pi":
       return commandAvailability(provider, env.PI_COMMAND ?? "pi", {
-        env: piAvailabilityEnvironment(env),
+        env: externalProviderEnvironment(env, "PI_COMMAND"),
       });
     case "cursor":
-      return commandAvailability(provider, "cursor-agent");
+      return commandAvailability(provider, "cursor-agent", { env });
     case "copilot":
-      return commandAvailability(provider, "copilot");
+      return commandAvailability(provider, "copilot", { env });
   }
 }
 
@@ -70,27 +76,6 @@ export function formatSubagentProviderAvailabilitySummary(
     available.length > 0 ? `available: ${available.join(", ")}` : undefined,
     unavailable.length > 0 ? `unavailable: ${unavailable.join(", ")}` : undefined,
   ].filter(Boolean).join("; ");
-}
-
-function packageAvailability(
-  provider: SubagentProvider,
-  packageName: string,
-): SubagentProviderAvailability {
-  try {
-    import.meta.resolve(packageName);
-    return {
-      name: provider,
-      available: true,
-      continuationSupported: subagentProviderContinuationSupported(provider),
-    };
-  } catch {
-    return {
-      name: provider,
-      available: false,
-      continuationSupported: subagentProviderContinuationSupported(provider),
-      reason: `${packageName} package not found`,
-    };
-  }
 }
 
 function commandAvailability(
@@ -156,12 +141,13 @@ function executableExists(command: string, env: NodeJS.ProcessEnv): boolean {
   return code !== "ENOENT";
 }
 
-function piAvailabilityEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (env.PI_COMMAND) return env;
-  const path = env.PATH;
-  if (!path) return env;
+function externalProviderEnvironment(
+  env: NodeJS.ProcessEnv,
+  explicitCommandKey: "CODEX_COMMAND" | "CLAUDE_COMMAND" | "OPENCODE_COMMAND" | "PI_COMMAND",
+): NodeJS.ProcessEnv {
+  if (env[explicitCommandKey] || !env.PATH) return env;
   return {
     ...env,
-    PATH: removeForgeRelayNodeModulesBinFromPath(path),
+    PATH: removeForgeRelayNodeModulesBinFromPath(env.PATH),
   };
 }

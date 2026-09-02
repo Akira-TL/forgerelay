@@ -5,18 +5,29 @@ import {
   getSubagentProviderAvailabilitySnapshot,
 } from "./availability.js";
 
-assert.deepEqual(
-  {
-    available: checkSubagentProviderAvailability("codex").available,
-    continuationSupported: checkSubagentProviderAvailability("codex").continuationSupported,
-  },
-  { available: true, continuationSupported: true },
-);
-
 {
-  const availability = checkSubagentProviderAvailability("pi", {
+  const availability = checkSubagentProviderAvailability("codex", {
     ...process.env,
-    PI_COMMAND: "/definitely/missing/forgerelay-pi",
+    CODEX_COMMAND: process.execPath,
+  });
+  assert.deepEqual(
+    {
+      available: availability.available,
+      continuationSupported: availability.continuationSupported,
+    },
+    { available: true, continuationSupported: true },
+  );
+}
+
+for (const [provider, key] of [
+  ["codex", "CODEX_COMMAND"],
+  ["claude", "CLAUDE_COMMAND"],
+  ["opencode", "OPENCODE_COMMAND"],
+  ["pi", "PI_COMMAND"],
+] as const) {
+  const availability = checkSubagentProviderAvailability(provider, {
+    ...process.env,
+    [key]: `/definitely/missing/forgerelay-${provider}`,
   });
   assert.equal(availability.available, false);
   assert.match(availability.reason ?? "", /executable not found/);
@@ -25,12 +36,18 @@ assert.deepEqual(
 {
   const snapshot = getSubagentProviderAvailabilitySnapshot({
     ...process.env,
+    CODEX_COMMAND: process.execPath,
+    CLAUDE_COMMAND: process.execPath,
+    OPENCODE_COMMAND: process.execPath,
     PI_COMMAND: "/definitely/missing/forgerelay-pi",
   });
   assert.deepEqual(
     snapshot.map((provider) => provider.name),
     ["codex", "claude", "opencode", "pi", "cursor", "copilot"],
   );
+  assert.equal(snapshot.find((provider) => provider.name === "codex")?.available, true);
+  assert.equal(snapshot.find((provider) => provider.name === "claude")?.available, true);
+  assert.equal(snapshot.find((provider) => provider.name === "opencode")?.available, true);
   assert.equal(snapshot.find((provider) => provider.name === "pi")?.available, false);
   assert.equal(snapshot.find((provider) => provider.name === "pi")?.continuationSupported, true);
   assert.equal(snapshot.find((provider) => provider.name === "cursor")?.continuationSupported, false);
