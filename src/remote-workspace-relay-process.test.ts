@@ -322,25 +322,28 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   assert.equal(background.isError, undefined, resultText(background));
   const outputId = String(structuredContent(background).outputId);
   assert.ok(outputId.length > 0);
-  let snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
+  const snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
   assert.equal(snapshotA.isError, undefined, resultText(snapshotA));
-  let activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(snapshotA).activities, undefined);
+  let indexA = await call("activity_index", { turnId: turnA }, sessionA);
+  assert.equal(indexA.isError, undefined, resultText(indexA));
+  let activitiesA = structuredContent(indexA).activities as Array<Record<string, unknown>>;
   const completionDeadline = Date.now() + 5_000;
   while (!activitiesA.some((activity) => activity.tool === "bash_result") && Date.now() < completionDeadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
     const completionTrigger = await call("read", { workspaceId, path: "session-a.txt" }, sessionA);
     assert.equal(completionTrigger.isError, undefined, resultText(completionTrigger));
-    snapshotA = await call("activity_snapshot", { turnId: turnA }, sessionA);
-    assert.equal(snapshotA.isError, undefined, resultText(snapshotA));
-    activitiesA = structuredContent(snapshotA).activities as Array<Record<string, unknown>>;
+    indexA = await call("activity_index", { turnId: turnA }, sessionA);
+    assert.equal(indexA.isError, undefined, resultText(indexA));
+    activitiesA = structuredContent(indexA).activities as Array<Record<string, unknown>>;
   }
   assert.equal(activitiesA.some((activity) => activity.tool === "read"), true);
   assert.equal(activitiesA.some((activity) => activity.tool === "bash"), true);
   assert.equal(activitiesA.some((activity) => activity.tool === "bash_result"), true);
   assert.equal(activitiesA.some((activity) => activity.target === "session-b.txt"), false);
-  assert.doesNotMatch(JSON.stringify(snapshotA), /"ws_[0-9a-f]{10}"/);
-  assert.doesNotMatch(JSON.stringify(snapshotA), new RegExp(remote.endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.doesNotMatch(JSON.stringify(snapshotA), /remote-activity-owner-token|accessToken|refreshToken/);
+  assert.doesNotMatch(JSON.stringify(indexA), /"ws_[0-9a-f]{10}"/);
+  assert.doesNotMatch(JSON.stringify(indexA), new RegExp(remote.endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(JSON.stringify(indexA), /remote-activity-owner-token|accessToken|refreshToken/);
 
   const detailActivity = activitiesA.find((activity) => activity.detailAvailable === true);
   assert.ok(detailActivity && typeof detailActivity.activityId === "string");
@@ -365,12 +368,17 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   assert.equal(readB.isError, undefined, resultText(readB));
   const snapshotB = await call("activity_snapshot", { turnId: turnB }, sessionB);
   assert.equal(snapshotB.isError, undefined, resultText(snapshotB));
-  const activitiesB = structuredContent(snapshotB).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(snapshotB).activities, undefined);
+  const indexB = await call("activity_index", { turnId: turnB }, sessionB);
+  assert.equal(indexB.isError, undefined, resultText(indexB));
+  const activitiesB = structuredContent(indexB).activities as Array<Record<string, unknown>>;
   assert.equal(activitiesB.some((activity) => activity.target === "session-b.txt"), true);
   assert.equal(activitiesB.some((activity) => activity.target === "session-a.txt"), false);
 
   const snapshotAAfterB = await call("activity_snapshot", { turnId: turnA }, sessionA);
-  const activitiesAAfterB = structuredContent(snapshotAAfterB).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(snapshotAAfterB).activities, undefined);
+  const indexAAfterB = await call("activity_index", { turnId: turnA }, sessionA);
+  const activitiesAAfterB = structuredContent(indexAAfterB).activities as Array<Record<string, unknown>>;
   assert.equal(activitiesAAfterB.some((activity) => activity.target === "session-b.txt"), false);
 
   const routeState = JSON.parse(

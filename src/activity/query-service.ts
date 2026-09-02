@@ -74,9 +74,9 @@ export class ActivityQueryService {
     private readonly outputs: BashOutputStore,
   ) {}
 
-  beginTurn(conversationScopeId: string | undefined, workspaceId: string): HostTurnSnapshot {
+  beginTurn(conversationScopeId: string | undefined, workspaceId: string): HostTurnState {
     const turn = this.turns.begin(conversationScopeId, workspaceId);
-    return this.index(turn.turnId);
+    return this.state(turn.turnId);
   }
 
   currentTurnId(

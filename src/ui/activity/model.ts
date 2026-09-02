@@ -33,13 +33,18 @@ export interface ActivitySummary {
   children?: ActivityChildSummary;
 }
 
-export interface HostTurnSnapshot {
+export interface HostTurnState {
   turnId: string;
   revision: number;
   changed: boolean;
   state: ActivitySummaryStatus;
+}
+
+export interface ActivityIndex extends HostTurnState {
   activities: ActivitySummary[];
 }
+
+export type HostTurnSnapshot = ActivityIndex;
 
 export interface ActivityDetail {
   activity: ActivitySummary;
@@ -97,18 +102,28 @@ export function routeActivityToolResult(
   panelActive: boolean,
   structuredContent: unknown,
 ): ActivityToolResultRoute {
-  if (isHostTurnSnapshot(structuredContent)) return "activity";
+  if (isHostTurnState(structuredContent)) return "activity";
   return panelActive ? "preserve-panel" : "tool-card";
 }
 
-export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {
+export function isHostTurnState(value: unknown): value is HostTurnState {
   if (!isRecord(value)) return false;
-  if (typeof value.turnId !== "string") return false;
-  if (!isNonnegativeInteger(value.revision)) return false;
-  if (typeof value.changed !== "boolean") return false;
-  if (!isActivityStatus(value.state)) return false;
+  return (
+    typeof value.turnId === "string" &&
+    isNonnegativeInteger(value.revision) &&
+    typeof value.changed === "boolean" &&
+    isActivityStatus(value.state)
+  );
+}
+
+export function isActivityIndex(value: unknown): value is ActivityIndex {
+  if (!isHostTurnState(value) || !isRecord(value)) return false;
   if (!Array.isArray(value.activities)) return false;
   return value.activities.every(isActivitySummary);
+}
+
+export function isHostTurnSnapshot(value: unknown): value is HostTurnSnapshot {
+  return isActivityIndex(value);
 }
 
 export function isActivityDetail(value: unknown): value is ActivityDetail {
@@ -134,21 +149,28 @@ export function isActivityBashOutput(value: unknown): value is ActivityBashOutpu
   return value.finishedAt === undefined || typeof value.finishedAt === "string";
 }
 
+export function applyActivityIndex(
+  current: ActivitySummary[],
+  incoming: ActivityIndex,
+): ActivitySummary[] {
+  if (!incoming.changed) return current;
+  const updates = new Map(incoming.activities.map((activity) => [activity.activityId, activity]));
+  const merged = current.map((activity) => updates.get(activity.activityId) ?? activity);
+  const existing = new Set(current.map((activity) => activity.activityId));
+  for (const activity of incoming.activities) {
+    if (!existing.has(activity.activityId)) merged.push(activity);
+  }
+  return merged;
+}
+
 export function applyActivitySnapshot(
   current: HostTurnSnapshot | null,
   incoming: HostTurnSnapshot,
 ): HostTurnSnapshot {
-  if (
-    current &&
-    current.turnId === incoming.turnId &&
-    incoming.changed === false
-  ) {
-    return {
-      ...incoming,
-      activities: current.activities,
-    };
-  }
-  return incoming;
+  return {
+    ...incoming,
+    activities: applyActivityIndex(current?.activities ?? [], incoming),
+  };
 }
 
 export function groupActivitySummaries(activities: ActivitySummary[]): ActivityGroup[] {

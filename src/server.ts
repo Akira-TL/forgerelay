@@ -3957,6 +3957,10 @@ export function createMcpServer(
         }
         return remoteWorkspaces.activitySnapshot(input, conversationScopeId);
       },
+      index: async (turnId, knownRevision, conversationScopeId) => {
+        const composite = await compositeActivity.index(turnId, knownRevision);
+        return composite ?? remoteWorkspaces.activityIndex(turnId, knownRevision, conversationScopeId);
+      },
       detail: async (turnId, activityId, conversationScopeId) => {
         const composite = await compositeActivity.detail(turnId, activityId);
         return composite ?? remoteWorkspaces.activityDetail(turnId, activityId, conversationScopeId);

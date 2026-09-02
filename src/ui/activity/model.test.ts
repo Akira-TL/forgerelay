@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityRefreshDelayMs,
+  applyActivityIndex,
   applyActivitySnapshot,
   groupActivitySummaries,
   isActivityBashOutput,
   isActivityDetail,
+  isActivityIndex,
   isHostTurnSnapshot,
+  isHostTurnState,
   readActivityPanelDefaultExpanded,
   routeActivityToolResult,
   shouldFollowActivityTail,
@@ -63,12 +66,15 @@ test("Activity Panel routing preserves an active Host Turn when ordinary tool re
   assert.equal(routeActivityToolResult(false, { result: "read result", path: "file.txt" }), "tool-card");
 });
 
-test("Activity Panel model recognizes Host Turn snapshots without mistaking tool cards for them", () => {
-  assert.equal(isHostTurnSnapshot(snapshot(0, [])), true);
+test("Activity Panel model separates state-only Host Turn updates from lazy Activity indexes", () => {
+  const stateOnly = { turnId: "turn_ui", revision: 0, changed: true, state: "working" as const };
+  assert.equal(isHostTurnState(stateOnly), true);
+  assert.equal(isActivityIndex(stateOnly), false);
+  assert.equal(isHostTurnSnapshot(stateOnly), false);
+  assert.equal(isActivityIndex(snapshot(0, [])), true);
   assert.equal(isHostTurnSnapshot(snapshot(1, [activity("act_member", { member: "code" })])), true);
-  assert.equal(isHostTurnSnapshot(snapshot(1, [activity("act_member", { member: 42 as unknown as string })])), false);
-  assert.equal(isHostTurnSnapshot({ result: "read result", path: "file.txt" }), false);
-  assert.equal(isHostTurnSnapshot({ turnId: "turn_ui", revision: 0, changed: true, state: "done" }), false);
+  assert.equal(isActivityIndex(snapshot(1, [activity("act_member", { member: 42 as unknown as string })])), false);
+  assert.equal(isHostTurnState({ result: "read result", path: "file.txt" }), false);
 });
 
 test("Activity Panel model validates durable Bash output independently from Activity lifecycle state", () => {
@@ -102,6 +108,22 @@ test("Activity Panel model accepts lazy detail only when it carries a valid Acti
   assert.equal(isActivityDetail({ activity: summary, result: "done", error: "failed" }), true);
   assert.equal(isActivityDetail({ request: { path: "detail.txt" } }), false);
   assert.equal(isActivityDetail({ activity: { activityId: "act_detail" } }), false);
+});
+
+test("Activity Panel model merges Activity index deltas without retransmitting unchanged rows", () => {
+  const current = [
+    activity("act_a", { target: "a-old.txt" }),
+    activity("act_b", { target: "b.txt" }),
+  ];
+  const delta = snapshot(5, [
+    activity("act_a", { target: "a-new.txt" }),
+    activity("act_c", { target: "c.txt" }),
+  ]);
+  assert.deepEqual(
+    applyActivityIndex(current, delta).map((entry) => [entry.activityId, entry.target]),
+    [["act_a", "a-new.txt"], ["act_b", "b.txt"], ["act_c", "c.txt"]],
+  );
+  assert.equal(applyActivityIndex(current, snapshot(4, [], { changed: false })), current);
 });
 
 test("Activity Panel model preserves summaries when an unchanged revision omits activities", () => {

@@ -2,17 +2,18 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   activityRefreshDelayMs,
-  applyActivitySnapshot,
+  applyActivityIndex,
   groupActivitySummaries,
   isActivityBashOutput,
   isActivityDetail,
-  isHostTurnSnapshot,
+  isActivityIndex,
+  isHostTurnState,
   readActivityPanelDefaultExpanded,
   shouldFollowActivityTail,
   type ActivityBashOutput,
   type ActivityDetail,
   type ActivitySummary,
-  type HostTurnSnapshot,
+  type HostTurnState,
 } from "./model.js";
 import { renderIcon, toolIcons, type ToolIcon } from "../icons.js";
 import "./panel.css";
@@ -21,7 +22,12 @@ const ACTIVITY_OUTPUT_REFRESH_INTERVAL_MS = 1_000;
 
 export class ActivityPanelController {
   private app: App | null = null;
-  private snapshot: HostTurnSnapshot | null = null;
+  private snapshot: HostTurnState | null = null;
+  private activities: ActivitySummary[] = [];
+  private indexRevision: number | undefined;
+  private indexLoading = false;
+  private indexInFlight = false;
+  private indexError: string | null = null;
   private expanded = false;
   private refreshTimer: number | null = null;
   private refreshInFlight = false;
@@ -49,7 +55,7 @@ export class ActivityPanelController {
       this.stopRefresh();
       this.scheduleRefresh(0, true);
     }
-    const selected = this.snapshot?.activities.find(
+    const selected = this.activities.find(
       (activity) => activity.activityId === this.selectedActivityId,
     );
     if (selected && isBashOutputActivity(selected)) {
@@ -69,22 +75,28 @@ export class ActivityPanelController {
 
   accept(result: CallToolResult): boolean {
     const incoming = result.structuredContent as unknown;
-    if (!isHostTurnSnapshot(incoming)) return false;
+    if (!isHostTurnState(incoming)) return false;
 
     const changedTurn = this.snapshot?.turnId !== incoming.turnId;
-    this.snapshot = applyActivitySnapshot(this.snapshot, incoming);
+    this.snapshot = incoming;
     this.refreshError = null;
     if (changedTurn) {
       this.unchangedRefreshes = 0;
       this.expanded = readActivityPanelDefaultExpanded(result._meta);
       this.followTail = true;
       this.scrollTop = 0;
+      this.activities = [];
+      this.indexRevision = undefined;
+      this.indexError = null;
       this.resetDetails();
     } else {
       this.unchangedRefreshes = incoming.changed ? 0 : this.unchangedRefreshes + 1;
     }
     this.stopRefresh();
     this.scheduleRefresh();
+    if (this.expanded && incoming.revision > 0 && this.indexRevision !== incoming.revision) {
+      void this.loadIndex(false);
+    }
     return true;
   }
 
@@ -100,6 +112,11 @@ export class ActivityPanelController {
   clear(): void {
     this.stopRefresh();
     this.snapshot = null;
+    this.activities = [];
+    this.indexRevision = undefined;
+    this.indexLoading = false;
+    this.indexInFlight = false;
+    this.indexError = null;
     this.refreshError = null;
     this.unchangedRefreshes = 0;
     this.expanded = false;
@@ -119,7 +136,7 @@ export class ActivityPanelController {
 
   render(): boolean {
     if (!this.snapshot) return false;
-    if (this.snapshot.activities.length === 0) {
+    if (this.snapshot.revision === 0) {
       this.root.replaceChildren();
       return true;
     }
@@ -168,17 +185,17 @@ export class ActivityPanelController {
       if (result.isError) throw new Error("Activity snapshot refresh failed.");
 
       const incoming = result.structuredContent as unknown;
-      if (!isHostTurnSnapshot(incoming) || incoming.turnId !== requestedTurnId) {
-        throw new Error("Activity snapshot refresh returned an invalid Host Turn snapshot.");
+      if (!isHostTurnState(incoming) || incoming.turnId !== requestedTurnId) {
+        throw new Error("Activity snapshot refresh returned an invalid Host Turn state.");
       }
       if (!this.snapshot || this.snapshot.turnId !== requestedTurnId) return;
 
-      const next = applyActivitySnapshot(this.snapshot, incoming);
       const shouldRender = incoming.changed || this.refreshError !== null;
-      this.snapshot = next;
+      this.snapshot = incoming;
       this.unchangedRefreshes = incoming.changed ? 0 : this.unchangedRefreshes + 1;
       this.refreshError = null;
       if (shouldRender) this.render();
+      if (incoming.changed && this.expanded && incoming.revision > 0) void this.loadIndex(false);
     } catch (refreshError) {
       this.unchangedRefreshes += 1;
       const message = refreshError instanceof Error
@@ -191,6 +208,60 @@ export class ActivityPanelController {
     } finally {
       this.refreshInFlight = false;
       this.scheduleRefresh();
+    }
+  }
+
+  private async loadIndex(showLoading: boolean): Promise<void> {
+    if (!this.app || !this.snapshot || !this.expanded || this.snapshot.revision === 0 || this.indexInFlight) return;
+    const turnId = this.snapshot.turnId;
+    const knownRevision = this.indexRevision;
+    this.indexInFlight = true;
+    if (showLoading) {
+      this.indexLoading = true;
+      this.indexError = null;
+      this.render();
+    }
+
+    try {
+      const result = await this.app.callServerTool({
+        name: "activity_index",
+        arguments: {
+          turnId,
+          ...(knownRevision !== undefined ? { knownRevision } : {}),
+        },
+      });
+      if (result.isError) throw new Error("Activity index request failed.");
+      const incoming = result.structuredContent as unknown;
+      if (!isActivityIndex(incoming) || incoming.turnId !== turnId) {
+        throw new Error("Activity index returned an invalid Activity index.");
+      }
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.activities = applyActivityIndex(this.activities, incoming);
+      this.indexRevision = incoming.revision;
+      if (incoming.revision >= this.snapshot.revision) {
+        this.snapshot = {
+          turnId: incoming.turnId,
+          revision: incoming.revision,
+          changed: incoming.changed,
+          state: incoming.state,
+        };
+      }
+      this.indexError = null;
+    } catch (indexError) {
+      if (!this.snapshot || this.snapshot.turnId !== turnId) return;
+      this.indexError = indexError instanceof Error
+        ? indexError.message
+        : "Activity index request failed.";
+    } finally {
+      this.indexLoading = false;
+      this.indexInFlight = false;
+      if (this.snapshot?.turnId === turnId) this.render();
+      if (
+        this.expanded && this.snapshot?.turnId === turnId &&
+        this.indexRevision !== undefined && this.indexRevision !== this.snapshot.revision
+      ) {
+        void this.loadIndex(false);
+      }
     }
   }
 
@@ -421,7 +492,7 @@ export class ActivityPanelController {
     return container;
   }
 
-  private renderPanel(snapshot: HostTurnSnapshot): void {
+  private renderPanel(snapshot: HostTurnState): void {
     const previousViewport = this.root.querySelector<HTMLElement>(".activity-viewport");
     if (previousViewport) this.scrollTop = previousViewport.scrollTop;
 
@@ -435,7 +506,13 @@ export class ActivityPanelController {
     });
     header.addEventListener("click", () => {
       this.expanded = !this.expanded;
+      if (!this.expanded) {
+        this.stopOutputRefresh();
+      }
       this.render();
+      if (this.expanded && snapshot.revision > 0 && this.indexRevision !== snapshot.revision) {
+        void this.loadIndex(true);
+      }
     });
 
     const status = element("span", {
@@ -450,10 +527,12 @@ export class ActivityPanelController {
         text: `Host Turn · revision ${snapshot.revision}`,
       }),
     );
-    const count = snapshot.activities.length;
+    const count = this.activities.length;
     const summary = element("span", {
-      className: "activity-panel-count",
-      text: `${count} ${count === 1 ? "activity" : "activities"}`,
+      className: `activity-panel-count state-${snapshot.state}`,
+      text: this.expanded && this.indexRevision !== undefined
+        ? `${count} ${count === 1 ? "activity" : "activities"}`
+        : activityStateLabel(snapshot.state),
     });
 
     header.append(
@@ -475,8 +554,18 @@ export class ActivityPanelController {
         this.followTail = shouldFollowActivityTail(viewport);
       });
 
-      const groups = groupActivitySummaries(snapshot.activities);
-      if (groups.length === 0) {
+      const groups = groupActivitySummaries(this.activities);
+      if (this.indexLoading && this.indexRevision === undefined) {
+        viewport.append(element("div", {
+          className: "activity-empty",
+          text: "Loading Activity index...",
+        }));
+      } else if (this.indexError) {
+        viewport.append(element("div", {
+          className: "activity-empty error",
+          text: this.indexError,
+        }));
+      } else if (groups.length === 0) {
         viewport.append(element("div", {
           className: "activity-empty",
           text: "Waiting for ForgeRelay activity...",
@@ -723,6 +812,17 @@ function activityPhase(activity: ActivitySummary): "executing" | "returned" | "d
   if (activity.status === "working") return "executing";
   if (activity.status === "error") return "error";
   return "done";
+}
+
+function activityStateLabel(state: HostTurnState["state"]): string {
+  switch (state) {
+    case "working":
+      return "Working";
+    case "done":
+      return "Done";
+    case "error":
+      return "Error";
+  }
 }
 
 function activityPhaseLabel(activity: ActivitySummary): string {

@@ -50,6 +50,11 @@ export interface ActivityQueryRelay {
     input: { turnId?: string; workspaceId?: string; knownRevision?: number },
     conversationScopeId: string,
   ): Promise<CallToolResult | undefined>;
+  index(
+    turnId: string,
+    knownRevision: number | undefined,
+    conversationScopeId: string,
+  ): Promise<CallToolResult | undefined>;
   detail(turnId: string, activityId: string, conversationScopeId: string): Promise<CallToolResult | undefined>;
   output(
     turnId: string,
@@ -59,13 +64,16 @@ export interface ActivityQueryRelay {
   ): Promise<CallToolResult | undefined>;
 }
 
-const snapshotOutputSchema = {
+const stateOutputSchema = {
   turnId: z.string(),
   revision: z.number().int().nonnegative(),
   changed: z.boolean(),
   state: z.enum(["working", "done", "error"]),
+};
+
+const indexOutputSchema = {
+  ...stateOutputSchema,
   activities: z.array(activitySummarySchema),
-  [ACTIVITY_PANEL_WORKSPACE_META_KEY]: z.record(z.string(), z.unknown()).optional(),
 };
 
 export function registerActivityQueryTools(
@@ -93,7 +101,7 @@ export function registerActivityQueryTools(
           "Workspace identifier returned by open_workspace for the project work in this Host Turn.",
         ),
       },
-      outputSchema: snapshotOutputSchema,
+      outputSchema: stateOutputSchema,
       _meta: {
         ...panelMeta,
         ui: {
@@ -135,7 +143,6 @@ export function registerActivityQueryTools(
           turnId: snapshot.turnId,
           revision: snapshot.revision,
           state: snapshot.state,
-          activities: snapshot.activities.length,
           workspaceId,
           transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
         });
@@ -159,7 +166,7 @@ export function registerActivityQueryTools(
     "activity_snapshot",
     {
       title: "Read Activity snapshot",
-      description: "App-only data source for lightweight Activity summaries in one durable Host Turn.",
+      description: "App-only state source for one durable Host Turn. Returns only revision/change/state; Activity rows are fetched separately through activity_index when the Panel is expanded.",
       inputSchema: {
         turnId: z.string().optional().describe(
           "Existing Host Turn identifier. Omit only for initial App bootstrap; ForgeRelay then resolves the current Host Turn from conversation metadata.",
@@ -169,7 +176,7 @@ export function registerActivityQueryTools(
         ),
         knownRevision: z.number().int().nonnegative().optional(),
       },
-      outputSchema: snapshotOutputSchema,
+      outputSchema: stateOutputSchema,
       _meta: { ui: { visibility: ["app"] } },
       annotations: READ_ONLY_ANNOTATIONS,
     },
@@ -205,7 +212,7 @@ export function registerActivityQueryTools(
           "Activity snapshot bootstrap could not resolve the current Host Turn from conversation and workspace metadata.",
         );
       }
-      const snapshot = queries.snapshot(resolvedTurnId, knownRevision);
+      const snapshot = queries.state(resolvedTurnId, knownRevision);
       if (logging) {
         logEvent(logging, "debug", "activity_snapshot_call", {
           turnId: resolvedTurnId,
@@ -214,7 +221,6 @@ export function registerActivityQueryTools(
           revision: snapshot.revision,
           changed: snapshot.changed,
           state: snapshot.state,
-          activities: snapshot.activities.length,
           transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
         });
       }
@@ -227,13 +233,49 @@ export function registerActivityQueryTools(
           [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
           ...(workspace ? { [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace } : {}),
         },
-        content: [{
-          type: "text" as const,
-          text: snapshot.changed
-            ? `Activity snapshot ${resolvedTurnId} revision ${snapshot.revision}.`
-            : `Activity snapshot ${resolvedTurnId} unchanged at revision ${snapshot.revision}.`,
-        }],
+        content: [],
         structuredContent: { ...snapshot },
+      };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "activity_index",
+    {
+      title: "Read Activity index",
+      description: "App-only lazy Activity-row source for an expanded Panel. Pass knownRevision to receive only rows changed since the previous index read.",
+      inputSchema: {
+        turnId: z.string(),
+        knownRevision: z.number().int().nonnegative().optional(),
+      },
+      outputSchema: indexOutputSchema,
+      _meta: { ui: { visibility: ["app"] } },
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    async ({ turnId, knownRevision }, extra) => {
+      const conversationScopeId = hostConversationScopeId(
+        extra._meta,
+        extra.sessionId,
+        connectionScopeId,
+      );
+      const relayed = await relay?.index(turnId, knownRevision, conversationScopeId);
+      if (relayed) return relayed;
+      const index = queries.index(turnId, knownRevision);
+      if (logging) {
+        logEvent(logging, "debug", "activity_index_call", {
+          turnId,
+          knownRevision,
+          revision: index.revision,
+          changed: index.changed,
+          state: index.state,
+          activities: index.activities.length,
+          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+        });
+      }
+      return {
+        content: [],
+        structuredContent: { ...index },
       };
     },
   );
@@ -277,7 +319,7 @@ export function registerActivityQueryTools(
         });
       }
       return {
-        content: [{ type: "text" as const, text: `Activity detail ${activityId}.` }],
+        content: [],
         structuredContent: { ...detail },
       };
     },
@@ -334,7 +376,7 @@ export function registerActivityQueryTools(
         });
       }
       return {
-        content: [{ type: "text" as const, text: `Bash output ${outputId}.` }],
+        content: [],
         structuredContent: { ...output },
       };
     },

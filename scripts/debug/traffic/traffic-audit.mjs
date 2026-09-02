@@ -185,6 +185,31 @@ async function auditLocalTraffic() {
     );
     const revision = changedSnapshot.result.structuredContent.revision;
     const state = changedSnapshot.result.structuredContent.state;
+    const stateStructured = changedSnapshot.result.structuredContent;
+    const stateOnlyRegression = Object.hasOwn(stateStructured, "activities")
+      || (changedSnapshot.result.content?.length ?? 0) !== 0;
+    const explicitIndex = callToolMeasured(
+      "http://127.0.0.1:7677/mcp",
+      host.accessToken,
+      sessionId,
+      id++,
+      "activity_index",
+      { turnId },
+      meta,
+    );
+    addFinding(
+      stateOnlyRegression ? "HIGH" : "LOW",
+      "Activity Panel state/index request tiers",
+      {
+        "state response body": formatBytes(changedSnapshot.http.sizeDownload),
+        "state carries Activity rows": String(Object.hasOwn(stateStructured, "activities")),
+        "state natural-language content items": String(changedSnapshot.result.content?.length ?? 0),
+        "explicit index response body": formatBytes(explicitIndex.http.sizeDownload),
+        "explicit index Activity rows": String(explicitIndex.result.structuredContent.activities?.length ?? 0),
+        note: "Collapsed/default refresh uses state only; Activity rows are an explicit expanded-panel request.",
+      },
+      stateOnlyRegression,
+    );
     const unchanged = [];
     for (let index = 0; index < 10; index += 1) {
       unchanged.push(callToolMeasured(
@@ -432,9 +457,57 @@ async function auditRelayTraffic() {
           .join(" -> "),
         "Execution activity_snapshot request body sizes": remoteSnapshotRequests.map((value) => `${value} B`).join(" -> "),
         "Execution /mcp HTTP requests for 2 Composite snapshots": String(compositeHttpRequests.length),
-        note: "Repeated member reads must carry the member revision or be skipped entirely.",
+        note: "Repeated member state reads must carry the member revision or be skipped entirely.",
       },
       compositeFullReadRegression,
+    );
+
+    const compositeIndexLogStart = jsonLogEntries(executionLog).length;
+    const compositeIndexFirst = callToolMeasured(
+      gatewayMcpUrl,
+      host.accessToken,
+      sessionId,
+      id++,
+      "activity_index",
+      { turnId: compositeTurnId },
+      compositeMeta,
+    );
+    const compositeIndexRevision = compositeIndexFirst.result.structuredContent.revision;
+    const compositeIndexSecond = callToolMeasured(
+      gatewayMcpUrl,
+      host.accessToken,
+      sessionId,
+      id++,
+      "activity_index",
+      { turnId: compositeTurnId, knownRevision: compositeIndexRevision },
+      compositeMeta,
+    );
+    await delay(150);
+    const compositeIndexLogs = jsonLogEntries(executionLog).slice(compositeIndexLogStart);
+    const remoteIndexRequests = requestBodiesForRpc(compositeIndexLogs, "activity_index");
+    const remoteIndexCalls = compositeIndexLogs.filter(
+      (entry) => entry.event === "activity_index_call",
+    );
+    const repeatedIndexReadsUseRevision = remoteIndexCalls.length < 2 || remoteIndexCalls
+      .slice(1)
+      .every((entry) => Number.isInteger(entry.knownRevision));
+    const compositeIndexRegression =
+      compositeIndexSecond.result.structuredContent.changed !== false || !repeatedIndexReadsUseRevision;
+    addFinding(
+      compositeIndexRegression ? "HIGH" : "LOW",
+      "Composite member Activity index delta reuse",
+      {
+        "Gateway first index rows": String(compositeIndexFirst.result.structuredContent.activities?.length ?? 0),
+        "Gateway second index changed": String(compositeIndexSecond.result.structuredContent.changed),
+        "Gateway second index rows": String(compositeIndexSecond.result.structuredContent.activities?.length ?? 0),
+        "Execution activity_index tool calls": String(remoteIndexRequests.length),
+        "Execution activity_index known revisions": remoteIndexCalls
+          .map((entry) => String(entry.knownRevision ?? "none"))
+          .join(" -> "),
+        "Execution activity_index request body sizes": remoteIndexRequests.map((value) => `${value} B`).join(" -> "),
+        note: "Expanded-panel member index reads must reuse member revisions instead of retransmitting unchanged rows.",
+      },
+      compositeIndexRegression,
     );
   } finally {
     if (gateway) await stopServer(gateway);

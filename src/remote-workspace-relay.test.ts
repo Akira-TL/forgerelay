@@ -639,7 +639,13 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
     arguments: { turnId: compositeTurnId },
   });
   assert.equal(activitySnapshot.isError, undefined, resultText(activitySnapshot));
-  const activities = structuredContent(activitySnapshot).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(activitySnapshot).activities, undefined);
+  const activityIndex = await client.callTool({
+    name: "activity_index",
+    arguments: { turnId: compositeTurnId },
+  });
+  assert.equal(activityIndex.isError, undefined, resultText(activityIndex));
+  const activities = structuredContent(activityIndex).activities as Array<Record<string, unknown>>;
   assert.equal(activities.length, 1);
   assert.equal(activities[0]?.member, "compute");
   assert.equal(activities[0]?.workspaceId, memberWorkspaceId);
@@ -936,10 +942,16 @@ void test("Composite Workspace routes Codex patch and process tools through a re
     arguments: { turnId },
   });
   assert.equal(activitySnapshot.isError, undefined, resultText(activitySnapshot));
-  const activities = structuredContent(activitySnapshot).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(activitySnapshot).activities, undefined);
+  const activityIndex = await client.callTool({
+    name: "activity_index",
+    arguments: { turnId },
+  });
+  assert.equal(activityIndex.isError, undefined, resultText(activityIndex));
+  const activities = structuredContent(activityIndex).activities as Array<Record<string, unknown>>;
   assert.ok(activities.some((activity) => activity.tool === "apply_patch" && activity.member === "compute"));
   assert.ok(activities.some((activity) => activity.tool === "exec_command" && activity.member === "compute"));
-  assert.doesNotMatch(JSON.stringify(activitySnapshot), /"ws_[0-9a-f]{10}"/);
+  assert.doesNotMatch(JSON.stringify(activityIndex), /"ws_[0-9a-f]{10}"/);
   t.after(() => rm(root, { recursive: true, force: true }));
 });
 

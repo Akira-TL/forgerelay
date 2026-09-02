@@ -1,5 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { ActivitySummary, HostTurnSnapshot } from "./activity/query-service.js";
+import type { ActivitySummary, HostTurnSnapshot, HostTurnState } from "./activity/query-service.js";
 import { ActivityQueryService } from "./activity/query-service.js";
 import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
@@ -8,7 +8,9 @@ interface RemoteMemberTurn {
   member: string;
   workspaceId: string;
   remoteTurnId: string;
-  revision?: number;
+  stateRevision?: number;
+  state?: HostTurnState["state"];
+  indexRevision?: number;
   activities?: ActivitySummary[];
 }
 
@@ -18,6 +20,8 @@ interface CompositeTurnState {
   remoteMembers: Map<string, RemoteMemberTurn>;
   remoteActivities: Map<string, RemoteMemberTurn>;
   remoteOutputs: Map<string, RemoteMemberTurn>;
+  localIndexRevision?: number;
+  lastIndexRevision?: number;
 }
 
 export class CompositeActivityCoordinator {
@@ -43,7 +47,7 @@ export class CompositeActivityCoordinator {
       remoteActivities: new Map(),
       remoteOutputs: new Map(),
     });
-    return snapshotResult(snapshot, `Started Composite Workspace Host Turn ${snapshot.turnId}.`);
+    return panelResult(snapshot, `Started Composite Workspace Host Turn ${snapshot.turnId}.`);
   }
 
   currentTurnId(
@@ -74,6 +78,8 @@ export class CompositeActivityCoordinator {
       member,
       workspaceId: executionWorkspaceId,
       remoteTurnId,
+      stateRevision: optionalNonnegativeInteger(panel.structuredContent, "revision"),
+      state: optionalActivityState(panel.structuredContent),
     });
     return turnId;
   }
@@ -85,58 +91,104 @@ export class CompositeActivityCoordinator {
     const state = this.turns.get(turnId);
     if (!state) return undefined;
 
-    const local = this.queries.snapshot(turnId);
+    const local = this.queries.state(turnId);
     const remoteSnapshots = await Promise.all(
       [...state.remoteMembers.values()].map(async (route) => ({
         route,
         snapshot: await this.remoteWorkspaces.activitySnapshot(
           {
             turnId: route.remoteTurnId,
-            ...(route.revision !== undefined ? { knownRevision: route.revision } : {}),
+            ...(route.stateRevision !== undefined ? { knownRevision: route.stateRevision } : {}),
           },
           state.conversationScopeId,
         ),
       })),
     );
 
-    state.remoteActivities.clear();
-    state.remoteOutputs.clear();
-    const remoteActivities: ActivitySummary[] = [];
     let revision = local.revision;
     for (const { route, snapshot } of remoteSnapshots) {
       if (!snapshot?.structuredContent) continue;
-      const structured = snapshot.structuredContent as Record<string, unknown>;
-      const remoteRevision = structured.revision;
-      if (typeof remoteRevision === "number" && Number.isInteger(remoteRevision) && remoteRevision >= 0) {
-        route.revision = remoteRevision;
-      }
-      if (route.revision !== undefined) revision += route.revision;
-      if (structured.changed !== false) {
-        route.activities = Array.isArray(structured.activities)
-          ? structured.activities as ActivitySummary[]
-          : [];
-      }
-      for (const activity of route.activities ?? []) {
-        const presented = { ...activity, member: route.member } as ActivitySummary;
-        remoteActivities.push(presented);
-        state.remoteActivities.set(activity.activityId, route);
-        if (activity.outputId) state.remoteOutputs.set(activity.outputId, route);
-      }
+      const remoteRevision = optionalNonnegativeInteger(snapshot.structuredContent, "revision");
+      const remoteState = optionalActivityState(snapshot.structuredContent);
+      if (remoteRevision !== undefined) route.stateRevision = remoteRevision;
+      if (remoteState !== undefined) route.state = remoteState;
+      revision += route.stateRevision ?? 0;
     }
 
-    const activities = [...local.activities, ...remoteActivities]
-      .sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+    const snapshot: HostTurnState = {
+      turnId,
+      revision,
+      changed: knownRevision === undefined || knownRevision !== revision,
+      state: aggregateSourceState(local, state.remoteMembers.values()),
+    };
+    return dataResult(snapshot);
+  }
+
+  async index(
+    turnId: string,
+    knownRevision: number | undefined,
+  ): Promise<CallToolResult | undefined> {
+    const state = this.turns.get(turnId);
+    if (!state) return undefined;
+
+    const incremental = knownRevision !== undefined && state.lastIndexRevision === knownRevision;
+    const local = this.queries.index(
+      turnId,
+      incremental ? state.localIndexRevision : undefined,
+    );
+    const remoteIndexes = await Promise.all(
+      [...state.remoteMembers.values()].map(async (route) => ({
+        route,
+        index: await this.remoteWorkspaces.activityIndex(
+          route.remoteTurnId,
+          incremental ? route.indexRevision : undefined,
+          state.conversationScopeId,
+        ),
+      })),
+    );
+
+    state.localIndexRevision = local.revision;
+    const returnedRemoteActivities: ActivitySummary[] = [];
+    for (const { route, index } of remoteIndexes) {
+      if (!index?.structuredContent) continue;
+      const structured = index.structuredContent as Record<string, unknown>;
+      const remoteRevision = optionalNonnegativeInteger(structured, "revision");
+      const remoteState = optionalActivityState(structured);
+      const incoming = Array.isArray(structured.activities)
+        ? structured.activities as ActivitySummary[]
+        : [];
+      if (remoteRevision !== undefined) {
+        route.indexRevision = remoteRevision;
+        route.stateRevision = remoteRevision;
+      }
+      if (remoteState !== undefined) route.state = remoteState;
+      route.activities = incremental
+        ? mergeActivities(route.activities ?? [], incoming)
+        : [...incoming];
+      returnedRemoteActivities.push(...(incremental ? incoming : route.activities).map((activity) => ({
+        ...activity,
+        member: route.member,
+      })));
+    }
+
+    rebuildRemoteRoutes(state);
+    const revision = local.revision + [...state.remoteMembers.values()]
+      .reduce((sum, route) => sum + (route.indexRevision ?? route.stateRevision ?? 0), 0);
     const changed = knownRevision === undefined || knownRevision !== revision;
-    const snapshot: HostTurnSnapshot = {
+    const activities = changed
+      ? [...local.activities, ...returnedRemoteActivities]
+        .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+      : [];
+    state.lastIndexRevision = revision;
+
+    const index: HostTurnSnapshot = {
       turnId,
       revision,
       changed,
-      state: aggregateState(activities),
-      activities: changed ? activities : [],
+      state: aggregateSourceState(local, state.remoteMembers.values()),
+      activities,
     };
-    return snapshotResult(snapshot, changed
-      ? `Composite Activity snapshot ${turnId} revision ${revision}.`
-      : `Composite Activity snapshot ${turnId} unchanged at revision ${revision}.`);
+    return dataResult(index);
   }
 
   async detail(
@@ -190,18 +242,78 @@ export class CompositeActivityCoordinator {
   }
 }
 
-function snapshotResult(snapshot: HostTurnSnapshot, text: string): CallToolResult {
+function panelResult(snapshot: HostTurnState, text: string): CallToolResult {
   return {
     content: [{ type: "text", text }],
     structuredContent: snapshot as unknown as Record<string, unknown>,
   };
 }
 
-function aggregateState(activities: ActivitySummary[]): HostTurnSnapshot["state"] {
-  if (activities.length === 0) return "working";
-  if (activities.some((activity) => activity.status === "working")) return "working";
-  if (activities.some((activity) => activity.status === "error")) return "error";
+function dataResult(snapshot: HostTurnState | HostTurnSnapshot): CallToolResult {
+  return {
+    content: [],
+    structuredContent: snapshot as unknown as Record<string, unknown>,
+  };
+}
+
+function aggregateSourceState(
+  local: HostTurnState,
+  remotes: Iterable<RemoteMemberTurn>,
+): HostTurnState["state"] {
+  const sources = [
+    ...(local.revision > 0 ? [{ revision: local.revision, state: local.state }] : []),
+    ...[...remotes].flatMap((route) => {
+      const revision = route.stateRevision ?? route.indexRevision ?? 0;
+      return revision > 0 && route.state ? [{ revision, state: route.state }] : [];
+    }),
+  ];
+  if (sources.length === 0) return "working";
+  if (sources.some((source) => source.state === "working")) return "working";
+  if (sources.some((source) => source.state === "error")) return "error";
   return "done";
+}
+
+function mergeActivities(
+  current: ActivitySummary[],
+  incoming: ActivitySummary[],
+): ActivitySummary[] {
+  const updates = new Map(incoming.map((activity) => [activity.activityId, activity]));
+  const merged = current.map((activity) => updates.get(activity.activityId) ?? activity);
+  const existing = new Set(current.map((activity) => activity.activityId));
+  for (const activity of incoming) {
+    if (!existing.has(activity.activityId)) merged.push(activity);
+  }
+  return merged;
+}
+
+function rebuildRemoteRoutes(state: CompositeTurnState): void {
+  state.remoteActivities.clear();
+  state.remoteOutputs.clear();
+  for (const route of state.remoteMembers.values()) {
+    for (const activity of route.activities ?? []) {
+      state.remoteActivities.set(activity.activityId, route);
+      if (activity.outputId) state.remoteOutputs.set(activity.outputId, route);
+    }
+  }
+}
+
+function optionalNonnegativeInteger(
+  value: unknown,
+  field: string,
+): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[field];
+  return typeof candidate === "number" && Number.isInteger(candidate) && candidate >= 0
+    ? candidate
+    : undefined;
+}
+
+function optionalActivityState(value: unknown): HostTurnState["state"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>).state;
+  return candidate === "working" || candidate === "done" || candidate === "error"
+    ? candidate
+    : undefined;
 }
 
 function requiredString(

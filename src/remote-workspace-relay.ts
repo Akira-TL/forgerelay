@@ -436,6 +436,19 @@ export class RemoteWorkspaceRelay {
     }
   }
 
+  async activityIndex(
+    turnId: string,
+    knownRevision: number | undefined,
+    conversationScopeId: string,
+  ): Promise<ToolCallResult | undefined> {
+    return this.callTurnTool(
+      turnId,
+      "activity_index",
+      { turnId, ...(knownRevision !== undefined ? { knownRevision } : {}) },
+      conversationScopeId,
+    );
+  }
+
   async activityDetail(
     turnId: string,
     activityId: string,

@@ -36,6 +36,7 @@ const canonicalToolNames = [
   "open_workspace",
   "activity_panel",
   "activity_snapshot",
+  "activity_index",
   "activity_detail",
   "activity_output",
   "capability",
@@ -56,7 +57,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.deepEqual(defaultTools.tools.map((tool) => tool.name), canonicalToolNames);
   const shellTool = defaultTools.tools.find((tool) => tool.name === "bash");
   const activityPanelTool = defaultTools.tools.find((tool) => tool.name === "activity_panel");
-  const activityDataTools = ["activity_snapshot", "activity_detail", "activity_output"].map((name) =>
+  const activityDataTools = ["activity_snapshot", "activity_index", "activity_detail", "activity_output"].map((name) =>
     defaultTools.tools.find((tool) => tool.name === name)
   );
   const readTool = defaultTools.tools.find((tool) => tool.name === "read");
@@ -81,6 +82,9 @@ test("MCP instructions separate capability contract from configurable workflow p
     properties?: Record<string, { description?: string }>;
   } | undefined;
   const activitySnapshotOutput = activityDataTools[0]?.outputSchema as {
+    properties?: Record<string, unknown>;
+  } | undefined;
+  const activityIndexOutput = activityDataTools[1]?.outputSchema as {
     properties?: {
       activities?: {
         items?: {
@@ -139,8 +143,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(activityPanelInput?.properties?.workspaceId?.description ?? "", /returned by open_workspace/);
   assert.match(activityPanelTool?.description ?? "", /If this Host Turn calls open_workspace, open_workspace must run first/);
   assert.match(activityPanelTool?.description ?? "", /single ForgeRelay UI render tool/);
-  assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.parentActivityId);
-  assert.ok(activitySnapshotOutput?.properties?.activities?.items?.properties?.children);
+  assert.equal(activitySnapshotOutput?.properties?.activities, undefined);
+  assert.ok(activityIndexOutput?.properties?.activities?.items?.properties?.parentActivityId);
+  assert.ok(activityIndexOutput?.properties?.activities?.items?.properties?.children);
   for (const tool of activityDataTools) {
     assert.ok(tool);
     assert.deepEqual((tool?._meta as { ui?: { visibility?: string[] } })?.ui?.visibility, ["app"]);
@@ -306,12 +311,21 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
   const firstTurnId = String(structuredContent(firstPanel).turnId);
   const firstWorkspace = (firstPanel._meta as Record<string, unknown> | undefined)?.[
     "forgerelay/activityPanelWorkspace"
-  ] as { workspaceId?: string; root?: string; mode?: string; presentationRevision?: string; agentsFiles?: unknown } | undefined;
+  ] as {
+    workspaceId?: string;
+    root?: string;
+    mode?: string;
+    presentationRevision?: string;
+    agentsFiles?: Array<{ path?: string; content?: string }>;
+    skills?: Array<{ name?: string; description?: string; path?: string }>;
+  } | undefined;
   assert.equal(firstWorkspace?.workspaceId, workspaceId);
   assert.equal(firstWorkspace?.root, context.project);
   assert.equal(firstWorkspace?.mode, "checkout");
   assert.equal(typeof firstWorkspace?.presentationRevision, "string");
-  assert.equal(firstWorkspace?.agentsFiles, undefined);
+  assert.ok((firstWorkspace?.agentsFiles?.length ?? 0) > 0);
+  assert.ok(firstWorkspace?.agentsFiles?.every((file) => typeof file.path === "string" && file.content === undefined));
+  assert.ok(firstWorkspace?.skills?.every((skill) => skill.path === undefined));
   assert.equal(structuredContent(firstPanel)["forgerelay/activityPanelWorkspace"], undefined);
 
   const otherProject = join(dirname(context.project), "other-panel-project");
@@ -373,12 +387,22 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
     ((secondBootstrap._meta as Record<string, unknown> | undefined)?.["forgerelay/activityPanelWorkspace"] as { workspaceId?: string })?.workspaceId,
     secondWorkspaceId,
   );
+  assert.equal(structuredContent(firstBootstrap).activities, undefined);
+  assert.equal(structuredContent(secondBootstrap).activities, undefined);
+  const firstIndex = await context.client.callTool({
+    name: "activity_index",
+    arguments: { turnId: firstTurnId },
+  });
+  const secondIndex = await context.client.callTool({
+    name: "activity_index",
+    arguments: { turnId: secondTurnId },
+  });
   assert.deepEqual(
-    (structuredContent(firstBootstrap).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
+    (structuredContent(firstIndex).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
     [workspaceId],
   );
   assert.deepEqual(
-    (structuredContent(secondBootstrap).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
+    (structuredContent(secondIndex).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
     [secondWorkspaceId],
   );
 });
@@ -407,8 +431,13 @@ test("transport session scopes Activity when openai/session metadata is absent",
   });
   assert.equal(snapshot.isError, undefined, allResponseText(snapshot));
   assert.ok(Number(structuredContent(snapshot).revision) > 0);
+  assert.equal(structuredContent(snapshot).activities, undefined);
+  const index = await context.client.callTool({
+    name: "activity_index",
+    arguments: { turnId },
+  });
   assert.deepEqual(
-    (structuredContent(snapshot).activities as Array<{ tool?: string; workspaceId?: string; target?: string }>).map(
+    (structuredContent(index).activities as Array<{ tool?: string; workspaceId?: string; target?: string }>).map(
       ({ tool, workspaceId: activityWorkspaceId, target }) => ({ tool, workspaceId: activityWorkspaceId, target }),
     ),
     [{ tool: "read", workspaceId, target: "transport-scope.txt" }],
@@ -818,15 +847,25 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(repeatedText, /capability guides/);
   assert.match(repeatedText, /not repeated here/);
 
-  const card = responseCard(repeated);
+  const card = responseCard(repeated) as {
+    workspaceReused?: boolean;
+    includeBootstrapContext?: boolean;
+    presentationRevision?: string;
+    agentsFiles?: Array<{ path?: string; content?: string }>;
+    availableAgentsFiles?: Array<{ path?: string }>;
+    skills?: Array<{ name?: string; description?: string; path?: string }>;
+    agentProviders?: Array<{ name?: string }>;
+    agents?: Array<{ name?: string }>;
+  };
   assert.equal(card.workspaceReused, true);
   assert.equal(card.includeBootstrapContext, false);
   assert.equal(typeof card.presentationRevision, "string");
-  assert.equal(card.agentsFiles, undefined);
-  assert.equal(card.availableAgentsFiles, undefined);
-  assert.equal(card.skills, undefined);
-  assert.equal(card.agentProviders, undefined);
-  assert.equal(card.agents, undefined);
+  assert.ok((card.agentsFiles?.length ?? 0) > 0);
+  assert.ok(card.agentsFiles?.every((file) => typeof file.path === "string" && file.content === undefined));
+  assert.ok(card.availableAgentsFiles?.every((file) => typeof file.path === "string"));
+  assert.ok(card.skills?.every((skill) => skill.path === undefined));
+  assert.ok(card.agentProviders?.every((provider) => provider.name !== undefined));
+  assert.ok(card.agents?.every((agent) => agent.name !== undefined));
 });
 
 test("open_workspace context policy suppresses, automatically delivers, and forces bootstrap context", async (t) => {
@@ -1220,7 +1259,13 @@ test("Composite Workspace aggregates member Activities into one Host Turn withou
     arguments: { turnId },
   });
   assert.equal(snapshotResult.isError, undefined, allResponseText(snapshotResult));
-  const activities = structuredContent(snapshotResult).activities as Array<Record<string, unknown>>;
+  assert.equal(structuredContent(snapshotResult).activities, undefined);
+  const indexResult = await context.client.callTool({
+    name: "activity_index",
+    arguments: { turnId },
+  });
+  assert.equal(indexResult.isError, undefined, allResponseText(indexResult));
+  const activities = structuredContent(indexResult).activities as Array<Record<string, unknown>>;
   assert.equal(activities.length, 2);
   assert.deepEqual(activities.map((activity) => activity.member), ["code", "data"]);
   assert.deepEqual(activities.map((activity) => activity.workspaceId), [codeWorkspaceId, dataWorkspaceId]);
@@ -2178,7 +2223,7 @@ test("Activity Panel exposes the default-expanded preference only through app re
   assert.equal(structuredContent(expandedPanel).activityPanelDefaultExpanded, undefined);
 });
 
-test("Activity Panel establishes one durable Host Turn with app-only summary, detail, and Bash output queries", async (t) => {
+test("Activity Panel establishes one durable Host Turn with state-only polling and lazy index, detail, and Bash output queries", async (t) => {
   const context = await fixture(t);
   const conversation = "chat-activity-query-contract";
   const opened = await callOpen(context.client, context.project, conversation);
@@ -2224,7 +2269,14 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   const snapshotStructured = structuredContent(snapshot);
   assert.equal(snapshotStructured.changed, true);
   assert.equal(snapshotStructured.state, "done");
-  const activities = snapshotStructured.activities as Array<Record<string, unknown>>;
+  assert.equal(snapshotStructured.activities, undefined);
+  assert.deepEqual(snapshot.content, []);
+
+  const index = await call("activity_index", { turnId });
+  assert.equal(index.isError, undefined);
+  const indexStructured = structuredContent(index);
+  assert.deepEqual(index.content, []);
+  const activities = indexStructured.activities as Array<Record<string, unknown>>;
   assert.equal(activities.length, 4);
   assert.deepEqual(activities.map((activity) => activity.activityId), [
     "act_test_1",
@@ -2236,7 +2288,7 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   assert.equal(activities.find((activity) => activity.activityId === "act_test_3")?.target, "query-write.txt → query-renamed.txt");
   assert.equal(activities.find((activity) => activity.activityId === "act_test_3")?.detailAvailable, false);
   assert.equal(activities.find((activity) => activity.activityId === "act_test_4")?.outputId, outputId);
-  const serializedSnapshot = JSON.stringify(snapshotStructured);
+  const serializedSnapshot = JSON.stringify(indexStructured);
   assert.doesNotMatch(serializedSnapshot, /READ-QUERY-SECRET/);
   assert.doesNotMatch(serializedSnapshot, /WRITE-QUERY-SECRET/);
   assert.doesNotMatch(serializedSnapshot, /BASH-QUERY-OUTPUT-SECRET/);
@@ -2266,16 +2318,20 @@ test("Activity Panel establishes one durable Host Turn with app-only summary, de
   const revision = Number(snapshotStructured.revision);
   const unchanged = await call("activity_snapshot", { turnId, knownRevision: revision });
   assert.equal(structuredContent(unchanged).changed, false);
-  assert.deepEqual(structuredContent(unchanged).activities, []);
+  assert.equal(structuredContent(unchanged).activities, undefined);
+  const unchangedIndex = await call("activity_index", { turnId, knownRevision: Number(indexStructured.revision) });
+  assert.equal(structuredContent(unchangedIndex).changed, false);
+  assert.deepEqual(structuredContent(unchangedIndex).activities, []);
 
   const secondPanel = await call("activity_panel", { workspaceId });
   const secondTurnId = String(structuredContent(secondPanel).turnId);
   assert.equal(secondTurnId, "turn_host_test_2");
   await call("read", { workspaceId, path: "AGENTS.md" });
   const secondSnapshot = await call("activity_snapshot", { turnId: secondTurnId });
-  assert.equal((structuredContent(secondSnapshot).activities as unknown[]).length, 1);
+  assert.equal(structuredContent(secondSnapshot).activities, undefined);
+  assert.equal((structuredContent(await call("activity_index", { turnId: secondTurnId })).activities as unknown[]).length, 1);
   assert.equal(context.auditStore.getActivity("act_test_5")?.turnId, secondTurnId);
-  assert.equal((structuredContent(await call("activity_snapshot", { turnId })).activities as unknown[]).length, 4);
+  assert.equal((structuredContent(await call("activity_index", { turnId })).activities as unknown[]).length, 4);
 });
 
 test("batch.execute runs heterogeneous core tasks with one parent Activity and ordered child results", async (t) => {
@@ -2363,7 +2419,7 @@ test("batch.execute runs heterogeneous core tasks with one parent Activity and o
   await assert.rejects(readFile(join(context.project, "batch-rename-before.txt"), "utf8"), /ENOENT/);
   await assert.rejects(readFile(join(context.project, "batch-delete.txt"), "utf8"), /ENOENT/);
 
-  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  const snapshot = structuredContent(await call("activity_index", { turnId }));
   const activities = snapshot.activities as Array<Record<string, unknown>>;
   assert.equal(activities.length, 8);
   const parent = activities.find((activity) => activity.tool === "batch");
@@ -2426,7 +2482,7 @@ test("batch.execute runs Capability children through declared batch policy and a
   assert.match(JSON.stringify(results[1]), /capability_batch_unsupported|not supported inside batch\.execute/);
   assert.match(JSON.stringify(results[2]), /BATCH-CAPABILITY-READ/);
 
-  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const activities = structuredContent(await call("activity_index", { turnId })).activities as Array<Record<string, unknown>>;
   const parent = activities.find((activity) => activity.tool === "batch");
   assert.deepEqual(parent?.children, { total: 3, working: 0, done: 2, error: 1 });
   const children = activities.filter((activity) => activity.parentActivityId === parent?.activityId);
@@ -2491,7 +2547,7 @@ test("Host cancellation stops queued batch tasks and creates no fake child Activ
   await assert.rejects(readFile(join(context.project, "batch-cancel-b.txt"), "utf8"), /ENOENT/);
 
   const snapshot = await context.client.callTool({
-    name: "activity_snapshot",
+    name: "activity_index",
     arguments: { turnId },
   });
   const activities = structuredContent(snapshot).activities as Array<Record<string, unknown>>;
@@ -2539,7 +2595,7 @@ test("batch.execute accepts 100 tasks and persists 100 child Activities", async 
   assert.equal(results.length, 100);
   assert.deepEqual(results.map((entry) => entry.id), Array.from({ length: 100 }, (_, index) => `hooks-${index}`));
 
-  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const activities = structuredContent(await call("activity_index", { turnId })).activities as Array<Record<string, unknown>>;
   const parent = activities.find((activity) => activity.tool === "batch");
   assert.equal(activities.length, 101);
   assert.deepEqual(parent?.children, { total: 100, working: 0, done: 100, error: 0 });
@@ -2593,7 +2649,7 @@ test("batch.execute rejects more than 100 tasks before creating a Batch Activity
   assert.equal(processControl.isError, true);
   assert.match(allResponseText(processControl), /invalid_arguments|unrecognized/i);
 
-  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  const snapshot = structuredContent(await call("activity_index", { turnId }));
   assert.deepEqual(snapshot.activities, []);
 });
 
@@ -2652,7 +2708,7 @@ test("bulk Read returns ordered per-file results and persists one parent Activit
   const empty = await call("read", { workspaceId, paths: [] });
   assert.equal(empty.isError, true);
 
-  const snapshot = structuredContent(await call("activity_snapshot", { turnId }));
+  const snapshot = structuredContent(await call("activity_index", { turnId }));
   const activities = snapshot.activities as Array<Record<string, unknown>>;
   assert.deepEqual(activities.map((activity) => activity.activityId), [
     "act_test_1",
@@ -2708,7 +2764,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   assert.equal(await readFile(join(context.project, paths[0]!), "utf8"), "before common after\n");
   assert.equal(await readFile(join(context.project, paths[1]!), "utf8"), "before common after\n");
   assert.equal(await readFile(join(context.project, paths[2]!), "utf8"), "common and common\n");
-  const failedActivities = structuredContent(await call("activity_snapshot", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
+  const failedActivities = structuredContent(await call("activity_index", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
   assert.equal(failedActivities.length, 1);
   assert.equal(failedActivities[0]?.target, "3 files");
   assert.equal(failedActivities[0]?.status, "error");
@@ -2724,7 +2780,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   assert.equal(duplicateFailure.isError, true);
   assert.match(allResponseText(duplicateFailure), /overlap|same file/i);
   assert.equal(await readFile(join(context.project, paths[0]!), "utf8"), "before common after\n");
-  const duplicateActivities = structuredContent(await call("activity_snapshot", { turnId: duplicateTurn })).activities as Array<Record<string, unknown>>;
+  const duplicateActivities = structuredContent(await call("activity_index", { turnId: duplicateTurn })).activities as Array<Record<string, unknown>>;
   assert.equal(duplicateActivities.length, 1);
 
   await writeFile(join(context.project, paths[2]!), "before common after\n");
@@ -2746,7 +2802,7 @@ test("bulk Edit preflights every target before mutation and records child edits 
   for (const path of paths) {
     assert.equal(await readFile(join(context.project, path), "utf8"), "before changed after\n");
   }
-  const successActivities = structuredContent(await call("activity_snapshot", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
+  const successActivities = structuredContent(await call("activity_index", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
   const parent = successActivities.find((activity) => activity.parentActivityId === undefined);
   assert.equal(parent?.target, "3 files");
   assert.deepEqual(parent?.children, { total: 3, working: 0, done: 3, error: 0 });
@@ -2792,7 +2848,7 @@ test("bulk Edit stops after a mutation-phase Hook failure and reports unexecuted
   assert.equal(await readFile(join(context.project, paths[1]!), "utf8"), "common\n");
   assert.equal(await readFile(join(context.project, paths[2]!), "utf8"), "common\n");
 
-  const activities = structuredContent(await call("activity_snapshot", { turnId })).activities as Array<Record<string, unknown>>;
+  const activities = structuredContent(await call("activity_index", { turnId })).activities as Array<Record<string, unknown>>;
   const parent = activities.find((activity) => activity.parentActivityId === undefined);
   assert.equal(parent?.status, "error");
   assert.deepEqual(parent?.children, { total: 2, working: 0, done: 1, error: 1 });
@@ -2824,7 +2880,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   assert.match(allResponseText(nonEmptyFailure), /not empty|non-empty/i);
   assert.equal(await readFile(join(context.project, "delete-a.txt"), "utf8"), "a\n");
   assert.equal(await readFile(join(context.project, "delete-dir", "child.txt"), "utf8"), "child\n");
-  const failedActivities = structuredContent(await call("activity_snapshot", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
+  const failedActivities = structuredContent(await call("activity_index", { turnId: failedTurn })).activities as Array<Record<string, unknown>>;
   assert.equal(failedActivities.length, 1);
   assert.equal(failedActivities[0]?.target, "2 paths");
   assert.equal(failedActivities[0]?.detailAvailable, false);
@@ -2838,7 +2894,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   assert.equal(overlapFailure.isError, true);
   assert.match(allResponseText(overlapFailure), /overlap|ancestor|descendant/i);
   assert.equal(await readFile(join(context.project, "delete-dir", "child.txt"), "utf8"), "child\n");
-  const overlapActivities = structuredContent(await call("activity_snapshot", { turnId: overlapTurn })).activities as Array<Record<string, unknown>>;
+  const overlapActivities = structuredContent(await call("activity_index", { turnId: overlapTurn })).activities as Array<Record<string, unknown>>;
   assert.equal(overlapActivities.length, 1);
 
   const successTurn = String(structuredContent(await call("activity_panel", { workspaceId })).turnId);
@@ -2853,7 +2909,7 @@ test("bulk Delete preflights all targets and rejects dangerous overlaps before d
   assert.equal(deletedResult.unexecuted, 0);
   await assert.rejects(readFile(join(context.project, "delete-a.txt"), "utf8"), /ENOENT/);
   await assert.rejects(readFile(join(context.project, "delete-b.txt"), "utf8"), /ENOENT/);
-  const successActivities = structuredContent(await call("activity_snapshot", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
+  const successActivities = structuredContent(await call("activity_index", { turnId: successTurn })).activities as Array<Record<string, unknown>>;
   const parent = successActivities.find((activity) => activity.parentActivityId === undefined);
   assert.equal(parent?.target, "2 paths");
   assert.deepEqual(parent?.children, { total: 2, working: 0, done: 2, error: 0 });
@@ -3100,7 +3156,7 @@ test("Composite Workspace routes Codex apply_patch and process tools through an 
   assert.equal(completedCard?.member, "code");
 
   const panel = await context.client.callTool({
-    name: "activity_snapshot",
+    name: "activity_index",
     arguments: { turnId },
     _meta: { "openai/session": "chat-codex-composite" },
   } as Parameters<Client["callTool"]>[0]);
@@ -5315,7 +5371,13 @@ test("checkout context and durable Activity queries survive a registry restart",
       arguments: { turnId },
     });
     assert.equal(restoredSnapshot.isError, undefined);
-    const restoredActivities = structuredContent(restoredSnapshot).activities as Array<Record<string, unknown>>;
+    assert.equal(structuredContent(restoredSnapshot).activities, undefined);
+    const restoredIndex = await restoredClient.callTool({
+      name: "activity_index",
+      arguments: { turnId },
+    });
+    assert.equal(restoredIndex.isError, undefined);
+    const restoredActivities = structuredContent(restoredIndex).activities as Array<Record<string, unknown>>;
     assert.equal(restoredActivities.length, 8);
     const restoredBash = restoredActivities.find((activity) => activity.tool === "bash");
     assert.equal(restoredBash?.outputId, outputId);

@@ -175,7 +175,20 @@
 }
 
 .activity-panel-count {
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.activity-panel-count.state-working {
+  color: var(--color-text-info, #38bdf8);
+}
+
+.activity-panel-count.state-done {
+  color: var(--color-success-text, #6fda83);
+}
+
+.activity-panel-count.state-error {
+  color: var(--color-danger-text, #ee7676);
 }
 
 .activity-panel-body {
@@ -304,6 +317,19 @@
 
 .activity-row.phase-error {
   --activity-phase: var(--color-danger-text, #ee7676);
+}
+
+.activity-row.phase-executing {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--activity-phase) 76%, transparent);
+  background: color-mix(in srgb, var(--activity-phase) 5%, transparent);
+}
+
+.activity-row.phase-returned {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--activity-phase) 68%, transparent);
+}
+
+.activity-row.phase-error {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--activity-phase) 72%, transparent);
 }
 
 .activity-row.shell-result {
