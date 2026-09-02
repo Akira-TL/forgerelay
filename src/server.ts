@@ -5154,7 +5154,7 @@ export function createMcpServer(
             .min(0)
             .max(300_000)
             .optional()
-            .describe("Feedback window before returning. For action=run, use 0 for immediate background handoff; otherwise defaults to 10000ms. For action=process, polling defaults to 5000ms and interaction to 250ms."),
+            .describe("Maximum feedback wait, not a minimum delay: if the process finishes sooner, the call returns immediately. For long-running commands or wait-only action=process calls, set a long window near the Host request deadline (60000ms when supported) instead of repeated short polling. For action=run, use 0 for immediate background handoff; otherwise defaults to 10000ms. For action=process, wait-only calls default to 5000ms and interaction to 250ms."),
           timeoutMs: z
             .number()
             .int()

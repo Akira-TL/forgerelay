@@ -112,6 +112,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(defaultInstructions, /\/etc\/sudoers/);
   assert.match(defaultInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
   assert.doesNotMatch(defaultInstructions, /Do not create or modify files with bash/);
+  assert.match(defaultInstructions, /For long bash commands or wait-only calls/);
+  assert.match(defaultInstructions, /do not poll every few seconds/);
+  assert.match(defaultInstructions, /Completion returns immediately if sooner/);
   assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
   assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
   assert.match(shellTool?.description ?? "", /local user's authority/);
@@ -120,6 +123,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.doesNotMatch(shellTool?.description ?? "", /configuration files through shell only when the user's request explicitly calls for that configuration change/);
   assert.doesNotMatch(shellTool?.description ?? "", /external device or hardware mutations/);
   assert.match(shellTool?.description ?? "", /action=process/);
+  assert.match(shellTool?.description ?? "", /long-running commands/);
+  assert.match(shellTool?.description ?? "", /60000ms when supported/);
+  assert.match(shellTool?.description ?? "", /process finishes sooner, the call returns immediately/);
   assert.doesNotMatch(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
   assert.doesNotMatch(shellTool?.description ?? "", /Use only for/);
@@ -128,7 +134,9 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellInputProperties?.input?.description ?? "", /action=process/);
   assert.match(shellInputProperties?.interrupt?.description ?? "", /SIGINT/);
   assert.equal(shellInputProperties?.timeout, undefined);
-  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /feedback window/i);
+  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /feedback wait/i);
+  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /returns immediately/);
+  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /60000ms when supported/);
   assert.match(shellInputProperties?.timeoutMs?.description ?? "", /total execution timeout/i);
   assert.equal(shellToolMeta?.ui?.resourceUri, undefined);
   assert.equal(openWorkspaceMeta?.ui?.resourceUri, undefined);

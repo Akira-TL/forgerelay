@@ -36,6 +36,9 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.match(result, /capability guide/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted content modifications/);
+  assert.match(result, /For long bash commands or wait-only calls/);
+  assert.match(result, /do not poll every few seconds/);
+  assert.match(result, /Completion returns immediately if sooner/);
   assert.match(result, /rename for path moves/);
   assert.match(result, /delete for removals/);
   assert.match(result, /Shell commands may modify ordinary project files/);
@@ -147,6 +150,9 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.match(descriptions.shell, /yieldTimeMs/);
   assert.match(descriptions.shell, /timeoutMs/);
   assert.match(descriptions.shell, /action=process/);
+  assert.match(descriptions.shell, /long-running commands or wait-only process calls/);
+  assert.match(descriptions.shell, /60000ms when supported/);
+  assert.match(descriptions.shell, /process finishes sooner, the call returns immediately/);
   assert.doesNotMatch(descriptions.shell, /write_stdin/);
   assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);
   assert.doesNotMatch(descriptions.shell, /\/etc\/sudoers/);

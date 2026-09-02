@@ -9,6 +9,7 @@ All notable ForgeRelay changes are documented here.
 ### Changed
 
 - `open_workspace(context="auto")` now tracks bootstrap delivery per component and returns only changed or removed AGENTS/nested-instruction, Skill/diagnostic, Capability-guide, and Subagent-profile domains after the first full delivery; `full`, `none`, Composite member, Relay, and legacy whole-fingerprint delivery behavior remain compatible.
+- Bash guidance now requires long `yieldTimeMs` waits for long-running or wait-only process operations, explicitly noting that completion returns immediately before the feedback window expires so Agents do not short-poll every few seconds.
 
 ## [0.8.6] - 2026-09-02
 
