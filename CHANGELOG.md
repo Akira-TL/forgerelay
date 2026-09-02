@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-09-02
+
 ### Changed
 
 - Removed the remaining DevSpace-era runtime compatibility identifiers and migration aliases while retaining upstream MIT attribution in `LICENSE`, `NOTICE.md`, and release provenance checks.
