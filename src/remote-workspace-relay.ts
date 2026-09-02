@@ -1,13 +1,10 @@
 import { randomBytes } from "node:crypto";
 import {
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +15,7 @@ import {
   refreshRemoteAuthentication,
 } from "./remote-auth.js";
 import { RemoteMcpConnectionPool, type RemoteMcpConnection } from "./remote-mcp-connection-pool.js";
+import { withFileLock } from "./state/file-lock.js";
 import { withRemoteServiceEndpoint } from "./remote-transport.js";
 import {
   loadForgeRelayFiles,
@@ -26,11 +24,6 @@ import {
 } from "./user-config.js";
 
 type ToolCallResult = CallToolResult;
-
-const ROUTE_LOCK_RETRY_MS = 10;
-const ROUTE_LOCK_TIMEOUT_MS = 5_000;
-const ROUTE_LOCK_STALE_MS = 30_000;
-const ROUTE_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 interface RelayedWorkspaceRoute {
   gatewayWorkspaceId: string;
@@ -206,7 +199,7 @@ export class RemoteWorkspaceRelay {
       throw new Error("Remote open_workspace response did not include a valid workspace mode.");
     }
     const sourceRoot = typeof structured?.sourceRoot === "string" ? structured.sourceRoot : undefined;
-    const route = this.findOrCreateRoute({
+    const route = await this.findOrCreateRoute({
       remoteInstanceId: resolved.remote.instanceId,
       remoteWorkspaceId,
       root,
@@ -275,7 +268,7 @@ export class RemoteWorkspaceRelay {
       ? structured.mode
       : route.mode;
     const sourceRoot = typeof structured?.sourceRoot === "string" ? structured.sourceRoot : route.sourceRoot;
-    this.findOrCreateRoute({
+    await this.findOrCreateRoute({
       remoteInstanceId: route.remoteInstanceId,
       remoteWorkspaceId: route.remoteWorkspaceId,
       root,
@@ -549,7 +542,7 @@ export class RemoteWorkspaceRelay {
     const remoteStructured = result.structuredContent as Record<string, unknown> | undefined;
     if (action === "delete") {
       this.routes.delete(gatewayWorkspaceId);
-      this.deletePersistedRoute(gatewayWorkspaceId);
+      await this.deletePersistedRoute(gatewayWorkspaceId);
     }
     for (const [turnId, routedWorkspaceId] of this.turnRoutes) {
       if (routedWorkspaceId === gatewayWorkspaceId) this.turnRoutes.delete(turnId);
@@ -615,12 +608,11 @@ export class RemoteWorkspaceRelay {
     }
   }
 
-  private findOrCreateRoute(
+  private async findOrCreateRoute(
     input: Omit<RelayedWorkspaceRoute, "gatewayWorkspaceId">,
-  ): RelayedWorkspaceRoute {
-    let selected: RelayedWorkspaceRoute | undefined;
+  ): Promise<RelayedWorkspaceRoute> {
     mkdirSync(this.routeStateDir, { recursive: true });
-    this.withRouteFileLock(() => {
+    const selected = await withFileLock(`${this.routeStatePath}.lock`, () => {
       const routes = this.readRoutesFromDisk();
       const existing = [...routes.values()]
         .filter((route) =>
@@ -628,27 +620,29 @@ export class RemoteWorkspaceRelay {
           route.remoteWorkspaceId === input.remoteWorkspaceId
         )
         .sort((left, right) => left.gatewayWorkspaceId.localeCompare(right.gatewayWorkspaceId))[0];
-      selected = {
+      const route = {
         gatewayWorkspaceId: existing?.gatewayWorkspaceId ?? this.allocateGatewayWorkspaceId(routes),
         ...input,
       };
-      routes.set(selected.gatewayWorkspaceId, selected);
+      routes.set(route.gatewayWorkspaceId, route);
       this.writeRoutesToDisk(routes);
+      return route;
     });
-    if (!selected) throw new Error("Failed to persist relayed Workspace route.");
     this.routes.set(selected.gatewayWorkspaceId, selected);
     return selected;
   }
 
-  private deletePersistedRoute(workspaceId: string): void {
-    this.updatePersistedRoutes((routes) => {
+  private async deletePersistedRoute(workspaceId: string): Promise<void> {
+    await this.updatePersistedRoutes((routes) => {
       routes.delete(workspaceId);
     });
   }
 
-  private updatePersistedRoutes(update: (routes: Map<string, RelayedWorkspaceRoute>) => void): void {
+  private async updatePersistedRoutes(
+    update: (routes: Map<string, RelayedWorkspaceRoute>) => void,
+  ): Promise<void> {
     mkdirSync(this.routeStateDir, { recursive: true });
-    this.withRouteFileLock(() => {
+    await withFileLock(`${this.routeStatePath}.lock`, () => {
       const routes = this.readRoutesFromDisk();
       update(routes);
       this.writeRoutesToDisk(routes);
@@ -685,39 +679,6 @@ export class RemoteWorkspaceRelay {
     }
   }
 
-  private withRouteFileLock<T>(operation: () => T): T {
-    const lockPath = `${this.routeStatePath}.lock`;
-    const deadline = Date.now() + ROUTE_LOCK_TIMEOUT_MS;
-    for (;;) {
-      try {
-        const fd = openSync(lockPath, "wx", 0o600);
-        closeSync(fd);
-        break;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== "EEXIST") throw error;
-        try {
-          if (Date.now() - statSync(lockPath).mtimeMs > ROUTE_LOCK_STALE_MS) {
-            rmSync(lockPath, { force: true });
-            continue;
-          }
-        } catch (statError) {
-          if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
-          throw statError;
-        }
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for relayed workspace route lock: ${lockPath}`);
-        }
-        Atomics.wait(ROUTE_LOCK_SLEEP, 0, 0, ROUTE_LOCK_RETRY_MS);
-      }
-    }
-
-    try {
-      return operation();
-    } finally {
-      rmSync(lockPath, { force: true });
-    }
-  }
 
   private remoteByAlias(aliasInput: string): { alias: string; remote: ForgeRelayRemoteRecord } {
     const alias = aliasInput.trim();
@@ -814,7 +775,7 @@ export class RemoteWorkspaceRelay {
     endpoint: string,
   ): Promise<ForgeRelayRemoteRecord> {
     const refreshed = await refreshRemoteAuthentication(remote, endpoint);
-    writeForgeRelayRemote(alias, refreshed, this.authEnv);
+    await writeForgeRelayRemote(alias, refreshed, this.authEnv);
     return refreshed;
   }
 

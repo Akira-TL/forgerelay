@@ -101,11 +101,11 @@ function normalizeCommand(command: string | undefined): Command {
 async function ensureConfigured(): Promise<void> {
   const files = loadForgeRelayFiles();
   if (files.configExists && files.authExists) {
-    ensureForgeRelayInstanceId();
+    await ensureForgeRelayInstanceId();
     return;
   }
   if (process.env.FORGERELAY_OAUTH_OWNER_TOKEN) {
-    ensureForgeRelayInstanceId();
+    await ensureForgeRelayInstanceId();
     return;
   }
 
@@ -197,7 +197,7 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
     };
 
     const configPath = writeForgeRelayConfig(config);
-    const authPath = writeForgeRelayAuth(auth);
+    const authPath = await writeForgeRelayAuth(auth);
 
     const lines = [
       `Config: ${configPath}`,
@@ -368,14 +368,14 @@ async function runAuthCommand(args: string[]): Promise<void> {
     if (!fromAlias || !toAlias || extra.length > 0) {
       throw new Error("Usage: forgerelay auth rename <old-alias> <new-alias>");
     }
-    renameForgeRelayRemote(fromAlias, toAlias);
+    await renameForgeRelayRemote(fromAlias, toAlias);
     console.log(`Renamed remote ${fromAlias} to ${toAlias}.`);
     return;
   }
   if (subcommand === "remove") {
     const [alias, ...extra] = rest;
     if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth remove <alias>");
-    removeForgeRelayRemote(alias);
+    await removeForgeRelayRemote(alias);
     console.log(`Removed remote ${alias}.`);
     return;
   }
@@ -391,7 +391,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
       let refreshed = false;
       if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
         remote = await refreshRemoteAuthentication(remote, endpoint);
-        writeForgeRelayRemote(alias, remote);
+        await writeForgeRelayRemote(alias, remote);
         refreshed = true;
       }
 
@@ -400,7 +400,7 @@ async function runAuthCommand(args: string[]): Promise<void> {
       } catch (error) {
         if (refreshed || !isRemoteMcpUnauthorized(error)) throw error;
         remote = await refreshRemoteAuthentication(remote, endpoint);
-        writeForgeRelayRemote(alias, remote);
+        await writeForgeRelayRemote(alias, remote);
         await verifyRemoteMcp(remote, endpoint);
       }
     });
@@ -434,9 +434,9 @@ async function runAuthCommand(args: string[]): Promise<void> {
     : defaultRemoteAlias(remote.target);
   const alias = parsed.alias?.trim() || existingAlias || defaultAlias;
   if (!files.auth.instanceId) {
-    ensureForgeRelayInstanceId();
+    await ensureForgeRelayInstanceId();
   }
-  writeForgeRelayRemote(alias, remote);
+  await writeForgeRelayRemote(alias, remote);
   console.log(`Authenticated remote ${alias} (${remote.instanceId}).`);
 }
 

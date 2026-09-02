@@ -1,18 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { withFileLock } from "./state/file-lock.js";
 import { expandHomePath } from "./roots.js";
 import type { LanguageServerConfigInput } from "./lsp/language-server-config.js";
 import {
@@ -21,11 +19,6 @@ import {
   type HookConfig,
   type HookConfigInput,
 } from "./hooks.js";
-
-const AUTH_LOCK_RETRY_MS = 10;
-const AUTH_LOCK_TIMEOUT_MS = 5_000;
-const AUTH_LOCK_STALE_MS = 30_000;
-const AUTH_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 
 export interface ForgeRelayUserConfig {
   host?: string;
@@ -142,13 +135,13 @@ export function writeForgeRelayConfig(
   return filePath;
 }
 
-export function writeForgeRelayAuth(
+export async function writeForgeRelayAuth(
   auth: ForgeRelayAuthConfig,
   env: NodeJS.ProcessEnv = process.env,
-): string {
+): Promise<string> {
   const filePath = forgerelayAuthPath(env);
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  return withAuthFileLock(filePath, () => {
+  return withFileLock(`${filePath}.lock`, () => {
     writeJsonFile(filePath, auth, 0o600);
     return filePath;
   });
@@ -162,12 +155,14 @@ export function generateInstanceId(): string {
   return `forge-${randomUUID()}`;
 }
 
-export function ensureForgeRelayInstanceId(env: NodeJS.ProcessEnv = process.env): string {
+export async function ensureForgeRelayInstanceId(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   const existing = loadForgeRelayFiles(env).auth.instanceId?.trim();
   if (existing) return existing;
 
   let resolved = "";
-  updateForgeRelayAuth((auth) => {
+  await updateForgeRelayAuth((auth) => {
     const current = auth.instanceId?.trim();
     if (current) {
       resolved = current;
@@ -187,11 +182,11 @@ function normalizeRemoteAlias(alias: string): string {
   return normalized;
 }
 
-export function writeForgeRelayRemote(
+export async function writeForgeRelayRemote(
   alias: string,
   remote: ForgeRelayRemoteRecord,
   env: NodeJS.ProcessEnv = process.env,
-): string {
+): Promise<string> {
   const normalizedAlias = normalizeRemoteAlias(alias);
   return updateForgeRelayAuth((auth) => {
     const remotes = { ...(auth.remotes ?? {}) };
@@ -211,11 +206,11 @@ export function writeForgeRelayRemote(
 }
 
 
-export function renameForgeRelayRemote(
+export async function renameForgeRelayRemote(
   fromAlias: string,
   toAlias: string,
   env: NodeJS.ProcessEnv = process.env,
-): string {
+): Promise<string> {
   const from = normalizeRemoteAlias(fromAlias);
   const to = normalizeRemoteAlias(toAlias);
   return updateForgeRelayAuth((auth) => {
@@ -229,10 +224,10 @@ export function renameForgeRelayRemote(
   }, env);
 }
 
-export function removeForgeRelayRemote(
+export async function removeForgeRelayRemote(
   alias: string,
   env: NodeJS.ProcessEnv = process.env,
-): string {
+): Promise<string> {
   const normalizedAlias = normalizeRemoteAlias(alias);
   return updateForgeRelayAuth((auth) => {
     const remotes = { ...(auth.remotes ?? {}) };
@@ -292,51 +287,17 @@ function readJsonFile<T>(filePath: string): T {
   }
 }
 
-function updateForgeRelayAuth(
+async function updateForgeRelayAuth(
   update: (auth: ForgeRelayAuthConfig) => ForgeRelayAuthConfig,
   env: NodeJS.ProcessEnv,
-): string {
+): Promise<string> {
   const filePath = forgerelayAuthPath(env);
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  return withAuthFileLock(filePath, () => {
+  return withFileLock(`${filePath}.lock`, () => {
     const auth = existsSync(filePath) ? readJsonFile<ForgeRelayAuthConfig>(filePath) : {};
     writeJsonFile(filePath, update(auth), 0o600);
     return filePath;
   });
-}
-
-function withAuthFileLock<T>(filePath: string, operation: () => T): T {
-  const lockPath = `${filePath}.lock`;
-  const deadline = Date.now() + AUTH_LOCK_TIMEOUT_MS;
-  for (;;) {
-    try {
-      const fd = openSync(lockPath, "wx", 0o600);
-      closeSync(fd);
-      break;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lockPath).mtimeMs > AUTH_LOCK_STALE_MS) {
-          rmSync(lockPath, { force: true });
-          continue;
-        }
-      } catch (statError) {
-        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw statError;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for ForgeRelay auth lock: ${lockPath}`);
-      }
-      Atomics.wait(AUTH_LOCK_SLEEP, 0, 0, AUTH_LOCK_RETRY_MS);
-    }
-  }
-
-  try {
-    return operation();
-  } finally {
-    rmSync(lockPath, { force: true });
-  }
 }
 
 function writeJsonFile(filePath: string, value: unknown, mode: number): void {
