@@ -21,11 +21,7 @@ import type { Request, Response } from "express";
 import * as z from "zod/v4";
 import { applyPatch } from "./apply-patch.js";
 import { ActivityAuditStore, type ActivityWorkspaceSnapshot } from "./activity/audit-store.js";
-import {
-  BashOutputStore,
-  type BashOutputMetadata,
-  type BashOutputRecord,
-} from "./activity/bash-output-store.js";
+import { BashOutputStore } from "./activity/bash-output-store.js";
 import { HostTurnStore } from "./activity/host-turn-store.js";
 import { registerActivityQueryTools } from "./activity/mcp-query-tools.js";
 import {
@@ -54,7 +50,6 @@ import { attachHookReports, HookRunner, runToolWithHooks, type ToolHookOptions }
 import { checkHookConfiguration } from "./hook-cli.js";
 import {
   buildServerInstructions,
-  buildShellMutationPolicy,
   buildToolDescriptions,
   toolNames,
 } from "./mcp/server-instructions.js";
@@ -97,13 +92,16 @@ import {
   McpTransportRegistry,
   type McpTransportCloseResult,
 } from "./mcp-sessions.js";
-import {
-  ProcessManager,
-  resolveProcessId,
-  type CompletedProcessSnapshot,
-  type ProcessSnapshot,
-} from "./process-sessions.js";
+import { ProcessManager } from "./process-sessions.js";
 import { createReviewCheckpointManager } from "./review-checkpoints.js";
+import { registerProcessTools, type ProcessExecutionTarget } from "./mcp/process/tools.js";
+import {
+  attachCompletedProcessNotices,
+  markReturnedOutput,
+  processActivityOutcome,
+  processToolResponse,
+  recordBashCompletion,
+} from "./mcp/process/runtime.js";
 import { CompositeActivityCoordinator } from "./composite-activity.js";
 import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
@@ -155,12 +153,6 @@ const EDIT_TOOL_ANNOTATIONS = {
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: false,
-};
-const SHELL_TOOL_ANNOTATIONS = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
 };
 
 interface RunningServer {
@@ -872,104 +864,6 @@ function readActivityPanelAppResource(
   });
 }
 
-const PROCESS_RESPONSE_OUTPUT_LINES = 10;
-
-function compactProcessOutput(output: string): { output: string; truncated: boolean } {
-  if (!output) return { output: "", truncated: false };
-  const trailingNewline = output.endsWith("\n");
-  const body = trailingNewline ? output.slice(0, -1) : output;
-  const lines = body.split("\n");
-  if (lines.length <= PROCESS_RESPONSE_OUTPUT_LINES) return { output, truncated: false };
-  const compact = lines.slice(-PROCESS_RESPONSE_OUTPUT_LINES).join("\n");
-  return {
-    output: trailingNewline ? `${compact}\n` : compact,
-    truncated: true,
-  };
-}
-
-function outputIdNotice(outputId: string | undefined): string {
-  return outputId ? `Full output ID: ${outputId}.` : "";
-}
-
-function processResult(snapshot: ProcessSnapshot): string {
-  const status = snapshot.running
-    ? `Process running with process ID ${snapshot.processId}.`
-    : snapshot.timedOut
-      ? "Process timed out and was terminated."
-      : snapshot.signal
-        ? `Process exited after signal ${snapshot.signal}.`
-        : `Process exited with code ${snapshot.exitCode ?? "unknown"}.`;
-  const compact = compactProcessOutput(snapshot.output).output.replace(/\n$/, "");
-  return [compact, status, outputIdNotice(snapshot.outputId)].filter(Boolean).join("\n");
-}
-
-function completedProcessResult(snapshot: CompletedProcessSnapshot): string {
-  const status = snapshot.timedOut
-    ? `Background process ${snapshot.processId} timed out and was terminated.`
-    : snapshot.signal
-      ? `Background process ${snapshot.processId} exited after signal ${snapshot.signal}.`
-      : `Background process ${snapshot.processId} exited with code ${snapshot.exitCode ?? "unknown"}.`;
-  const command = `Command: ${snapshot.command}`;
-  const output = compactProcessOutput(snapshot.output).output.replace(/\n$/, "");
-  return [status, command, output, outputIdNotice(snapshot.outputId)].filter(Boolean).join("\n");
-}
-
-function attachCompletedProcessNotices<T>(
-  processSessions: ProcessManager,
-  workspaceId: string,
-  result: T,
-  onCompleted?: (snapshot: CompletedProcessSnapshot) => void,
-): T {
-  if (result instanceof Error) {
-    const completed = processSessions.takeCompleted(workspaceId);
-    for (const snapshot of completed) onCompleted?.(snapshot);
-    if (completed.length > 0) {
-      result.message = [
-        result.message,
-        ...completed.map((snapshot) => completedProcessResult(snapshot)),
-      ].join("\n\n");
-    }
-    return result;
-  }
-  if (typeof result !== "object" || result === null) return result;
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content)) return result;
-
-  const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent;
-  const currentProcessId = structured?.running === true
-    ? typeof structured.processId === "number"
-      ? structured.processId
-      : typeof structured.sessionId === "number"
-        ? structured.sessionId
-        : undefined
-    : undefined;
-  const completed = processSessions.takeCompleted(workspaceId, undefined, currentProcessId);
-  for (const snapshot of completed) onCompleted?.(snapshot);
-  if (completed.length === 0) return result;
-
-  return {
-    ...result,
-    content: [
-      ...content,
-      ...completed.map((snapshot) => textBlock(completedProcessResult(snapshot))),
-    ],
-  } as T;
-}
-
-function processOutputSchema(): z.ZodRawShape {
-  return resultOutputSchema({
-    processId: z.number().int().positive().optional().describe("Canonical process handle for bash(action=\"process\") or the active command adapter."),
-    sessionId: z.number().int().positive().optional().describe("Deprecated alias of processId for compatibility."),
-    outputId: z.string().optional().describe("Stable local audit identifier for retrieving the complete original process output."),
-    running: z.boolean(),
-    exitCode: z.number().int().optional(),
-    signal: z.string().optional(),
-    timedOut: z.boolean(),
-    wallTimeMs: z.number().nonnegative(),
-    outputTruncated: z.boolean(),
-  });
-}
-
 function readForgeRelayVersion(): string {
   const packageJson = JSON.parse(
     readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -978,146 +872,6 @@ function readForgeRelayVersion(): string {
     throw new Error("Unable to read ForgeRelay package version.");
   }
   return packageJson.version;
-}
-
-function processToolResponse(
-  tool: "bash" | "exec_command" | "write_stdin",
-  workspaceId: string,
-  snapshot: ProcessSnapshot,
-  summary: Record<string, unknown>,
-) {
-  const compact = compactProcessOutput(snapshot.output);
-  const result = processResult(snapshot);
-  const content = [textBlock(result)];
-  const outputSummary = textSummary(compact.output ? [textBlock(compact.output)] : []);
-  return {
-    content,
-    _meta: {
-      tool,
-      card: {
-        workspaceId,
-        summary: { ...summary, ...outputSummary },
-        payload: { content },
-      },
-    },
-    structuredContent: {
-      result,
-      processId: snapshot.processId,
-      sessionId: snapshot.sessionId,
-      outputId: snapshot.outputId,
-      running: snapshot.running,
-      exitCode: snapshot.exitCode,
-      signal: snapshot.signal,
-      timedOut: snapshot.timedOut,
-      wallTimeMs: snapshot.wallTimeMs,
-      outputTruncated: snapshot.outputTruncated || compact.truncated,
-    },
-  };
-}
-
-function durableOutputResult(record: BashOutputRecord): string {
-  const status = record.status === "running"
-    ? `Process ${record.processId} is still running.`
-    : record.timedOut
-      ? `Process ${record.processId} timed out and was terminated.`
-      : record.signal
-        ? `Process ${record.processId} exited after signal ${record.signal}.`
-        : `Process ${record.processId} exited with code ${record.exitCode ?? "unknown"}.`;
-  return [record.output.replace(/\n$/, ""), status, `Full output ID: ${record.outputId}.`]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function durableOutputResponse(
-  tool: "bash" | "write_stdin",
-  workspaceId: string,
-  record: BashOutputRecord,
-) {
-  const result = durableOutputResult(record);
-  const content = [textBlock(result)];
-  const finishedAt = record.finishedAt ? Date.parse(record.finishedAt) : Date.now();
-  const startedAt = Date.parse(record.startedAt);
-  return {
-    content,
-    _meta: {
-      tool,
-      card: {
-        workspaceId,
-        summary: textSummary(record.output ? [textBlock(record.output)] : []),
-        payload: { content },
-      },
-    },
-    structuredContent: {
-      result,
-      processId: record.processId,
-      sessionId: record.processId,
-      outputId: record.outputId,
-      running: record.status === "running",
-      exitCode: record.exitCode,
-      signal: record.signal,
-      timedOut: record.timedOut,
-      wallTimeMs: Math.max(0, Number.isFinite(finishedAt - startedAt) ? finishedAt - startedAt : 0),
-      outputTruncated: false,
-    },
-  };
-}
-
-function markReturnedOutput(store: BashOutputStore, result: unknown): void {
-  if (typeof result !== "object" || result === null) return;
-  const structured = (result as { structuredContent?: unknown }).structuredContent;
-  if (typeof structured !== "object" || structured === null) return;
-  const record = structured as { running?: unknown; outputId?: unknown };
-  if (record.running === true && typeof record.outputId === "string") {
-    store.markReturned(record.outputId);
-  }
-}
-
-function readWorkspaceBashOutput(
-  store: BashOutputStore,
-  workspaceId: string,
-  outputId: string,
-): BashOutputRecord {
-  const record = store.read(outputId);
-  if (!record) throw new Error(`Unknown Bash output: ${outputId}`);
-  if (record.workspaceId !== workspaceId) {
-    throw new Error(`Bash output ${outputId} does not belong to workspace ${workspaceId}.`);
-  }
-  return record;
-}
-
-function bashCompletionError(record: BashOutputMetadata): string {
-  if (record.error) return record.error;
-  if (record.timedOut) return `Background process ${record.processId} timed out.`;
-  if (record.signal) return `Background process ${record.processId} exited after signal ${record.signal}.`;
-  return `Background process ${record.processId} exited with code ${record.exitCode ?? "unknown"}.`;
-}
-
-function recordBashCompletion(
-  lifecycle: ActivityLifecycle,
-  store: BashOutputStore,
-  outputId: string | undefined,
-): void {
-  if (!outputId) return;
-  const completion = store.claimCompletion(outputId);
-  if (!completion) return;
-  lifecycle.recordLinked({
-    sourceActivityId: completion.activityId,
-    tool: "bash_result",
-    request: {
-      processId: completion.processId,
-      outputId: completion.outputId,
-    },
-    result: {
-      processId: completion.processId,
-      outputId: completion.outputId,
-      exitCode: completion.exitCode,
-      signal: completion.signal,
-      timedOut: completion.timedOut,
-    },
-    outcome: completion.status === "failed"
-      ? { type: "failed", error: bashCompletionError(completion) }
-      : { type: "succeeded" },
-  });
 }
 
 function workspaceHookInvocation(workspace: Workspace) {
@@ -1344,28 +1098,6 @@ function standardActivityOutcome(result: unknown): ActivityOutcome {
     : { type: "succeeded" };
 }
 
-function processActivityOutcome(result: unknown): ActivityOutcome {
-  if (toolResultIsError(result)) return { type: "failed", error: activityFailureMessage(result) };
-  if (typeof result !== "object" || result === null) return { type: "succeeded" };
-  const structured = (result as { structuredContent?: unknown }).structuredContent;
-  if (typeof structured !== "object" || structured === null) return { type: "succeeded" };
-  const process = structured as {
-    running?: unknown;
-    exitCode?: unknown;
-    signal?: unknown;
-    timedOut?: unknown;
-  };
-  if (process.running === true) return { type: "returned" };
-  if (
-    process.timedOut === true ||
-    typeof process.signal === "string" ||
-    (typeof process.exitCode === "number" && process.exitCode !== 0)
-  ) {
-    return { type: "failed", error: activityFailureMessage(result) };
-  }
-  return { type: "succeeded" };
-}
-
 interface ActivityRelationContext {
   parentActivityId?: string;
   turnId?: string;
@@ -1427,272 +1159,6 @@ function runActivityToolWithHooks<T>(
     () => runToolWithHooks(hooks, hookOptions),
     standardActivityOutcome,
     relation,
-  );
-}
-
-type SharedShellRun = (
-  input: ShellRunOperationInput,
-  context: CoreOperationContext,
-) => Promise<ReturnType<typeof processToolResponse> & { isError?: true }>;
-
-type ProcessExecutionTarget =
-  | {
-      executionWorkspaceId: string;
-      compositeWorkspaceId?: undefined;
-      memberName?: undefined;
-    }
-  | {
-      executionWorkspaceId: string;
-      compositeWorkspaceId: string;
-      memberName: string;
-    };
-
-interface ProcessToolRouting {
-  resolve: (workspaceId: string, member?: string) => ProcessExecutionTarget;
-  prepare: (
-    target: ProcessExecutionTarget,
-    requestMeta: unknown,
-    signal: AbortSignal | undefined,
-    sessionId: string | undefined,
-  ) => Promise<CoreOperationContext>;
-  present: <T>(result: T, target: ProcessExecutionTarget) => T;
-  presentSemantic: <T>(result: T, target: ProcessExecutionTarget) => T;
-  isRemote: (workspaceId: string) => boolean;
-  execCommandRemote: (
-    workspaceId: string,
-    input: Record<string, unknown>,
-    conversationScopeId: string,
-  ) => Promise<Awaited<ReturnType<RemoteWorkspaceRelay["execCommand"]>>>;
-  writeStdinRemote: (
-    workspaceId: string,
-    input: Record<string, unknown>,
-    conversationScopeId: string,
-  ) => Promise<Awaited<ReturnType<RemoteWorkspaceRelay["writeStdin"]>>>;
-  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
-}
-
-function registerProcessTools(
-  server: McpServer,
-  config: ServerConfig,
-  workspaces: WorkspaceRegistry,
-  processSessions: ProcessManager,
-  hooks: HookRunner,
-  activityLifecycle: ActivityLifecycle,
-  bashOutputStore: BashOutputStore,
-  shellRun: SharedShellRun,
-  routing: ProcessToolRouting,
-): void {
-  if (config.toolMode === "codex") {
-    registerAppTool(
-      server,
-      "exec_command",
-    {
-      title: "Execute command",
-      description:
-        `Run a command inside an open workspace. Returns its result when it exits during the yield window, otherwise returns a processId for write_stdin. Use this for file inspection, tests, builds, package scripts, generators, formatters, and long-running processes. ${buildShellMutationPolicy()} Call open_workspace first and pass workspaceId.`,
-      inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
-        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this process."),
-        cmd: z.string().min(1).describe("Shell command to execute."),
-        tty: z
-          .boolean()
-          .optional()
-          .describe("Allocate a pseudo-terminal for interactive commands. Defaults to false."),
-        columns: z.number().int().min(1).max(1_000).optional().describe("Initial PTY width. Defaults to 80."),
-        rows: z.number().int().min(1).max(1_000).optional().describe("Initial PTY height. Defaults to 24."),
-        workingDirectory: z
-          .string()
-          .optional()
-          .describe("Working directory relative to the workspace root. Defaults to the workspace root."),
-        yieldTimeMs: z
-          .number()
-          .int()
-          .min(0)
-          .max(300_000)
-          .optional()
-          .describe("Feedback window before returning a processId. Use 0 for immediate background handoff. Defaults to 10000ms."),
-        timeoutMs: z
-          .number()
-          .int()
-          .min(1)
-          .max(86_400_000)
-          .optional()
-          .describe("Total execution timeout from process start. On expiry ForgeRelay terminates the process. Omit for no ForgeRelay execution deadline."),
-        maxOutputTokens: z
-          .number()
-          .int()
-          .positive()
-          .max(100_000)
-          .optional()
-          .describe("Approximate output token budget. Defaults to 10000."),
-      },
-      outputSchema: processOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "shell"),
-      annotations: SHELL_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId, member, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
-      const target = routing.resolve(workspaceId, member);
-      const context = await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
-      if (routing.isRemote(target.executionWorkspaceId)) {
-        return routing.presentSemantic(await routing.execCommandRemote(
-          target.executionWorkspaceId,
-          {
-            cmd,
-            ...(tty !== undefined ? { tty } : {}),
-            ...(columns !== undefined ? { columns } : {}),
-            ...(rows !== undefined ? { rows } : {}),
-            ...(workingDirectory !== undefined ? { workingDirectory } : {}),
-            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
-            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          },
-          routing.hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
-      }
-      return routing.presentSemantic(await shellRun(
-        {
-          workspaceId: target.executionWorkspaceId,
-          command: cmd,
-          surface: "exec_command",
-          tty,
-          columns,
-          rows,
-          workingDirectory,
-          yieldTimeMs,
-          timeoutMs,
-          maxOutputTokens,
-        },
-        context,
-      ), target);
-    },
-    );
-  }
-
-  if (config.toolMode !== "codex") return;
-
-  registerAppTool(
-    server,
-    "write_stdin",
-    {
-      title: "Write to process",
-      description:
-        "Poll or write characters to a running process returned by exec_command, or retrieve complete durable process output by outputId. Omit chars or pass an empty string to poll. Waiting never kills the process; pass \\u0003 to explicitly send Ctrl-C.",
-      inputSchema: {
-        workspaceId: z.string().describe("Workspace identifier used to start the process."),
-        member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns the process."),
-        processId: z.number().int().positive().optional().describe("Canonical process identifier returned by bash or exec_command."),
-        sessionId: z.number().int().positive().optional().describe("Deprecated alias for processId. Retained for compatibility."),
-        outputId: z.string().optional().describe("Stable output identifier returned by exec_command. When supplied, retrieve the complete durable output instead of controlling a process."),
-        chars: z.string().optional().describe("Characters to write. Omit or pass an empty string to poll."),
-        columns: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this width."),
-        rows: z.number().int().min(1).max(1_000).optional().describe("Resize a PTY to this height."),
-        yieldTimeMs: z
-          .number()
-          .int()
-          .min(0)
-          .max(300_000)
-          .optional()
-          .describe("Milliseconds to keep waiting before returning again, max 300000. Polling defaults to 5000; interaction defaults to 250."),
-        maxOutputTokens: z
-          .number()
-          .int()
-          .positive()
-          .max(100_000)
-          .optional()
-          .describe("Approximate output token budget. Defaults to 10000."),
-      },
-      outputSchema: processOutputSchema(),
-      ...toolWidgetDescriptorMeta(config, "shell"),
-      annotations: SHELL_TOOL_ANNOTATIONS,
-    },
-    async ({ workspaceId, member, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
-      const target = routing.resolve(workspaceId, member);
-      await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
-      if (routing.isRemote(target.executionWorkspaceId)) {
-        return routing.present(await routing.writeStdinRemote(
-          target.executionWorkspaceId,
-          {
-            ...(processId !== undefined ? { processId } : {}),
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            ...(outputId !== undefined ? { outputId } : {}),
-            ...(chars !== undefined ? { chars } : {}),
-            ...(columns !== undefined ? { columns } : {}),
-            ...(rows !== undefined ? { rows } : {}),
-            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
-            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          },
-          routing.hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
-      }
-      const executionWorkspaceId = target.executionWorkspaceId;
-      const workspace = workspaces.getWorkspace(executionWorkspaceId);
-      if (outputId !== undefined) {
-        if (
-          processId !== undefined || sessionId !== undefined || chars !== undefined || columns !== undefined ||
-          rows !== undefined || yieldTimeMs !== undefined || maxOutputTokens !== undefined
-        ) {
-          throw new Error("write_stdin outputId lookup cannot be combined with process control fields.");
-        }
-        return runToolWithHooks(hooks, {
-          signal: extra.signal,
-          tool: "write_stdin",
-          invocation: workspaceHookInvocation(workspace),
-          payload: { outputId },
-          operation: async () => durableOutputResponse(
-            "write_stdin",
-            executionWorkspaceId,
-            readWorkspaceBashOutput(bashOutputStore, executionWorkspaceId, outputId),
-          ),
-        });
-      }
-      const resolvedProcessId = resolveProcessId(processId, sessionId);
-      return runToolWithHooks(hooks, {
-        signal: extra.signal,
-        tool: "write_stdin",
-        invocation: workspaceHookInvocation(workspace),
-        payload: {
-          processId: resolvedProcessId,
-          charactersWritten: chars?.length ?? 0,
-          columns,
-          rows,
-        },
-        operation: async () => {
-          const startedAt = performance.now();
-          const snapshot = await processSessions.write({
-            workspaceId: executionWorkspaceId,
-            processId: resolvedProcessId,
-            chars,
-            columns,
-            rows,
-            yieldTimeMs,
-            maxOutputTokens,
-            signal: extra.signal,
-          });
-
-          logToolCall(config, {
-            tool: "write_stdin",
-            ...workspaceLogContext(workspace, extra.sessionId),
-            exitCode: snapshot.exitCode,
-            running: snapshot.running,
-            processId: snapshot.processId,
-            success: snapshot.running || snapshot.exitCode === 0,
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-
-          const response = processToolResponse("write_stdin", executionWorkspaceId, snapshot, {
-            processId: resolvedProcessId,
-            charactersWritten: chars?.length ?? 0,
-            running: snapshot.running,
-            exitCode: snapshot.exitCode,
-            wallTimeMs: snapshot.wallTimeMs,
-          });
-          if (!snapshot.running) {
-            recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId);
-          }
-          return response;
-        },
-      }).then((result) => routing.present(result, target));
-    },
   );
 }
 
@@ -4990,239 +4456,7 @@ export function createMcpServer(
     );
   }
 
-  if (config.toolMode !== "codex") {
-    registerAppTool(
-      server,
-      toolNames.shell,
-      {
-        title: "Bash",
-        description: toolDescriptions.shell,
-        inputSchema: {
-          workspaceId: z
-            .string()
-            .describe("Workspace identifier returned by open_workspace."),
-          member: z.string().optional().describe("Required for a Composite Workspace; explicit member name that owns this process operation."),
-          action: z
-            .enum(["run", "process", "output"])
-            .optional()
-            .describe("Defaults to run. Use process with a returned processId to poll/interact, or output with outputId to retrieve complete durable output."),
-          command: z
-            .string()
-            .optional()
-            .describe(`${toolDescriptions.shellCommand} Required for action=run.`),
-          processId: z
-            .number()
-            .int()
-            .positive()
-            .optional()
-            .describe("Process identifier returned by a previous bash action=run call. Required for action=process."),
-          outputId: z
-            .string()
-            .optional()
-            .describe("Stable output identifier returned by a Bash run. Required for action=output."),
-          input: z
-            .string()
-            .optional()
-            .describe("Characters to write for action=process. Omit to poll/wait without input."),
-          interrupt: z
-            .boolean()
-            .optional()
-            .describe("For action=process, send SIGINT to the process. Cannot be combined with input."),
-          tty: z
-            .boolean()
-            .optional()
-            .describe("For action=run, allocate a pseudo-terminal for interactive commands. Defaults to false."),
-          columns: z
-            .number()
-            .int()
-            .min(1)
-            .max(1_000)
-            .optional()
-            .describe("Initial PTY width for action=run, or resize width for action=process."),
-          rows: z
-            .number()
-            .int()
-            .min(1)
-            .max(1_000)
-            .optional()
-            .describe("Initial PTY height for action=run, or resize height for action=process."),
-          workingDirectory: z
-            .string()
-            .optional()
-            .describe("For action=run, working directory relative to the workspace root. Defaults to the workspace root."),
-          yieldTimeMs: z
-            .number()
-            .int()
-            .min(0)
-            .max(300_000)
-            .optional()
-            .describe("Maximum feedback wait, not a minimum delay: if the process finishes sooner, the call returns immediately. For long-running commands or wait-only action=process calls, set a long window near the Host request deadline (60000ms when supported) instead of repeated short polling. For action=run, use 0 for immediate background handoff; otherwise defaults to 10000ms. For action=process, wait-only calls default to 5000ms and interaction to 250ms."),
-          timeoutMs: z
-            .number()
-            .int()
-            .min(1)
-            .max(86_400_000)
-            .optional()
-            .describe("For action=run, total execution timeout from process start. On expiry ForgeRelay terminates the process. Omit for no ForgeRelay execution deadline."),
-          maxOutputTokens: z
-            .number()
-            .int()
-            .positive()
-            .max(100_000)
-            .optional()
-            .describe("Approximate output token budget. Defaults to 10000."),
-        },
-        outputSchema: processOutputSchema(),
-        ...toolWidgetDescriptorMeta(config, "shell"),
-        annotations: SHELL_TOOL_ANNOTATIONS,
-      },
-      async ({
-        workspaceId,
-        member,
-        action = "run",
-        command,
-        processId,
-        outputId,
-        input,
-        interrupt,
-        tty,
-        columns,
-        rows,
-        workingDirectory,
-        yieldTimeMs,
-        timeoutMs,
-        maxOutputTokens,
-      }, extra) => {
-        const target = resolveExecutionTarget(workspaceId, member);
-        const executionWorkspaceId = target.executionWorkspaceId;
-        const executionContext = await prepareExecutionContext(target, extra._meta, extra.signal, extra.sessionId);
-        if (remoteWorkspaces.has(executionWorkspaceId)) {
-          const response = await remoteWorkspaces.bash(executionWorkspaceId, {
-            action,
-            ...(command !== undefined ? { command } : {}),
-            ...(processId !== undefined ? { processId } : {}),
-            ...(outputId !== undefined ? { outputId } : {}),
-            ...(input !== undefined ? { input } : {}),
-            ...(interrupt !== undefined ? { interrupt } : {}),
-            ...(tty !== undefined ? { tty } : {}),
-            ...(columns !== undefined ? { columns } : {}),
-            ...(rows !== undefined ? { rows } : {}),
-            ...(workingDirectory !== undefined ? { workingDirectory } : {}),
-            ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
-            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-            ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-          }, hostScopeIdFor(extra._meta, extra.sessionId));
-          return action === "run"
-            ? presentSemanticWorkResult(response, target)
-            : presentExecutionResult(response, target);
-        }
-        const workspace = workspaces.getWorkspace(executionWorkspaceId);
-        if (action === "run") {
-          if (!command) throw new Error("bash action=run requires command.");
-          if (processId !== undefined || outputId !== undefined || input !== undefined || interrupt !== undefined) {
-            throw new Error("bash action=run does not accept processId, outputId, input, or interrupt.");
-          }
-          return presentSemanticWorkResult(await coreOperations.shellRun(
-            {
-              workspaceId: executionWorkspaceId,
-              command,
-              surface: "bash",
-              tty,
-              columns,
-              rows,
-              workingDirectory,
-              yieldTimeMs,
-              timeoutMs,
-              maxOutputTokens,
-            },
-            executionContext,
-          ), target);
-        }
-
-        if (action === "output") {
-          if (!outputId) throw new Error("bash action=output requires outputId.");
-          if (
-            command !== undefined || processId !== undefined || input !== undefined || interrupt !== undefined ||
-            tty !== undefined || columns !== undefined || rows !== undefined || workingDirectory !== undefined ||
-            yieldTimeMs !== undefined || timeoutMs !== undefined || maxOutputTokens !== undefined
-          ) {
-            throw new Error("bash action=output accepts only workspaceId and outputId.");
-          }
-          return runToolWithHooks(hooks, {
-            signal: extra.signal,
-            tool: toolNames.shell,
-            invocation: workspaceHookInvocation(workspace),
-            payload: { action, outputId },
-            operation: async () => durableOutputResponse(
-              toolNames.shell,
-              executionWorkspaceId,
-              readWorkspaceBashOutput(bashOutputStore, executionWorkspaceId, outputId),
-            ),
-          }).then((result) => presentExecutionResult(result, target));
-        }
-
-        if (outputId !== undefined) throw new Error("bash action=process does not accept outputId.");
-        if (command !== undefined || workingDirectory !== undefined || tty !== undefined || timeoutMs !== undefined) {
-          throw new Error("bash action=process does not accept command, workingDirectory, tty, or timeoutMs.");
-        }
-        if (processId === undefined) throw new Error("bash action=process requires processId.");
-        if (interrupt && input !== undefined) {
-          throw new Error("bash action=process cannot combine interrupt with input.");
-        }
-        return runToolWithHooks(hooks, {
-          signal: extra.signal,
-          tool: toolNames.shell,
-          invocation: workspaceHookInvocation(workspace),
-          payload: {
-            action,
-            processId,
-            inputLength: input?.length ?? 0,
-            interrupt: interrupt ?? false,
-            columns,
-            rows,
-          },
-          isFailure: toolResultIsError,
-          operation: async () => {
-            const startedAt = performance.now();
-            const snapshot = await processSessions.write({
-              workspaceId: executionWorkspaceId,
-              processId,
-              chars: interrupt ? "\u0003" : input,
-              columns,
-              rows,
-              yieldTimeMs,
-              maxOutputTokens,
-              signal: extra.signal,
-            });
-            logToolCall(config, {
-              tool: toolNames.shell,
-              ...workspaceLogContext(workspace, extra.sessionId),
-              exitCode: snapshot.exitCode,
-              running: snapshot.running,
-              processId: snapshot.processId,
-              success: snapshot.running || snapshot.exitCode === 0,
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-            const response = processToolResponse(toolNames.shell, executionWorkspaceId, snapshot, {
-              action,
-              processId,
-              inputLength: input?.length ?? 0,
-              interrupt: interrupt ?? false,
-              running: snapshot.running,
-              exitCode: snapshot.exitCode,
-              wallTimeMs: snapshot.wallTimeMs,
-            });
-            if (!snapshot.running) {
-              recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId);
-            }
-            return presentExecutionResult(response, target);
-          },
-        });
-      },
-    );
-  }
-
-  registerProcessTools(
+  registerProcessTools({
     server,
     config,
     workspaces,
@@ -5230,20 +4464,26 @@ export function createMcpServer(
     hooks,
     activityLifecycle,
     bashOutputStore,
-    (input, context) => coreOperations.shellRun(input, context),
-    {
+    shellRun: (input, context) => coreOperations.shellRun(input, context),
+    routing: {
       resolve: resolveExecutionTarget,
       prepare: prepareExecutionContext,
       present: presentExecutionResult,
       presentSemantic: presentSemanticWorkResult,
       isRemote: (workspaceId) => remoteWorkspaces.has(workspaceId),
+      bashRemote: (workspaceId, input, conversationScopeId) =>
+        remoteWorkspaces.bash(workspaceId, input, conversationScopeId),
       execCommandRemote: (workspaceId, input, conversationScopeId) =>
         remoteWorkspaces.execCommand(workspaceId, input, conversationScopeId),
       writeStdinRemote: (workspaceId, input, conversationScopeId) =>
         remoteWorkspaces.writeStdin(workspaceId, input, conversationScopeId),
       hostScopeIdFor,
     },
-  );
+    descriptions: {
+      shell: toolDescriptions.shell,
+      shellCommand: toolDescriptions.shellCommand,
+    },
+  });
 
   if (ownsRemoteWorkspaces) {
     const closeServer = server.close.bind(server);
