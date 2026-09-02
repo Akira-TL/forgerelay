@@ -25,6 +25,7 @@ const canonicalToolNames = [
   "open_workspace",
   "activity_panel",
   "activity_snapshot",
+  "activity_index",
   "activity_detail",
   "activity_output",
   "capability",
