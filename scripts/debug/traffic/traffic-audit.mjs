@@ -403,20 +403,31 @@ async function auditRelayTraffic() {
     await delay(150);
     const compositeLogs = jsonLogEntries(executionLog).slice(compositeLogStart);
     const remoteSnapshotRequests = requestBodiesForRpc(compositeLogs, "activity_snapshot");
+    const remoteSnapshotCalls = compositeLogs.filter(
+      (entry) => entry.event === "activity_snapshot_call",
+    );
+    const repeatedMemberReadsUseRevision = remoteSnapshotCalls.length < 2 || remoteSnapshotCalls
+      .slice(1)
+      .every((entry) => Number.isInteger(entry.knownRevision));
     const compositeHttpRequests = compositeLogs.filter(
       (entry) => entry.event === "http_request" && entry.path === "/mcp",
     );
+    const compositeFullReadRegression =
+      compositeSecond.result.structuredContent.changed === false && !repeatedMemberReadsUseRevision;
     addFinding(
-      compositeSecond.result.structuredContent.changed === false && remoteSnapshotRequests.length >= 2 ? "HIGH" : "MED",
-      "Composite unchanged snapshot still fans out to Relay member",
+      compositeFullReadRegression ? "HIGH" : "LOW",
+      "Composite member snapshot delta reuse",
       {
         "Gateway second snapshot changed": String(compositeSecond.result.structuredContent.changed),
         "Execution activity_snapshot tool calls": String(remoteSnapshotRequests.length),
+        "Execution activity_snapshot known revisions": remoteSnapshotCalls
+          .map((entry) => String(entry.knownRevision ?? "none"))
+          .join(" -> "),
         "Execution activity_snapshot request body sizes": remoteSnapshotRequests.map((value) => `${value} B`).join(" -> "),
         "Execution /mcp HTTP requests for 2 Composite snapshots": String(compositeHttpRequests.length),
-        note: "Gateway suppresses unchanged activities only after each remote member has already been queried.",
+        note: "Repeated member reads must carry the member revision or be skipped entirely.",
       },
-      compositeSecond.result.structuredContent.changed === false && remoteSnapshotRequests.length >= 2,
+      compositeFullReadRegression,
     );
   } finally {
     if (gateway) await stopServer(gateway);

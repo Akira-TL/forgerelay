@@ -8,6 +8,8 @@ interface RemoteMemberTurn {
   member: string;
   workspaceId: string;
   remoteTurnId: string;
+  revision?: number;
+  activities?: ActivitySummary[];
 }
 
 interface CompositeTurnState {
@@ -88,7 +90,10 @@ export class CompositeActivityCoordinator {
       [...state.remoteMembers.values()].map(async (route) => ({
         route,
         snapshot: await this.remoteWorkspaces.activitySnapshot(
-          { turnId: route.remoteTurnId },
+          {
+            turnId: route.remoteTurnId,
+            ...(route.revision !== undefined ? { knownRevision: route.revision } : {}),
+          },
           state.conversationScopeId,
         ),
       })),
@@ -103,12 +108,15 @@ export class CompositeActivityCoordinator {
       const structured = snapshot.structuredContent as Record<string, unknown>;
       const remoteRevision = structured.revision;
       if (typeof remoteRevision === "number" && Number.isInteger(remoteRevision) && remoteRevision >= 0) {
-        revision += remoteRevision;
+        route.revision = remoteRevision;
       }
-      const activities = Array.isArray(structured.activities)
-        ? structured.activities as ActivitySummary[]
-        : [];
-      for (const activity of activities) {
+      if (route.revision !== undefined) revision += route.revision;
+      if (structured.changed !== false) {
+        route.activities = Array.isArray(structured.activities)
+          ? structured.activities as ActivitySummary[]
+          : [];
+      }
+      for (const activity of route.activities ?? []) {
         const presented = { ...activity, member: route.member } as ActivitySummary;
         remoteActivities.push(presented);
         state.remoteActivities.set(activity.activityId, route);
