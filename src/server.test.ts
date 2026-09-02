@@ -3746,7 +3746,11 @@ test("attached background completion creates one Bash result Activity on a later
   });
   assert.equal(structuredContent(shell).running, true);
   assert.equal(context.auditStore.getActivity("act_test_1")?.state, "returned");
-  await new Promise((resolve) => setTimeout(resolve, 130));
+  const completionDeadline = performance.now() + 5_000;
+  while (context.processSessions.stats().completed === 0 && performance.now() < completionDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(context.processSessions.stats().completed, 1);
   const secondPanel = await context.client.callTool({
     name: "activity_panel",
     arguments: { workspaceId },

@@ -2777,7 +2777,13 @@ export function createMcpServer(
       // Keep the logical root when the backing path cannot be canonicalized.
     }
     const filesystemPathKey = (path: string): string => {
-      const normalized = resolve(path);
+      let canonicalPath = path;
+      try {
+        canonicalPath = realpathSync(path);
+      } catch {
+        // Fall back to the supplied path when the file is no longer available.
+      }
+      const normalized = resolve(canonicalPath);
       return process.platform === "win32" ? normalized.toLowerCase() : normalized;
     };
     const knownInstructionEntries = [...new Set(
