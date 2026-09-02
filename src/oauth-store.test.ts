@@ -24,6 +24,7 @@ try {
   testPersistenceAndTokenHashing(join(root, "persistence"));
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
+  testRedirectUriSchemeValidation(join(root, "redirect-validation"));
   await testProviderPrunesExpiredAuthorizationCodes(join(root, "authorization-code-pruning"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
   await testCliTokenIssueAndRefresh(join(root, "cli-provider"));
@@ -60,6 +61,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
       { version: 15, name: "subagent-run-ownership" },
       { version: 16, name: "workspace-session-aliases" },
       { version: 17, name: "workspace-context-components" },
+      { version: 18, name: "file-backed-activity-audit" },
     ]);
   } finally {
     database.close();
@@ -194,6 +196,26 @@ function testTransactionalTokenRotation(stateDir: string): void {
     );
     assert.equal(store.getAccessToken("losing-access-hash"), undefined);
     assert.equal(store.getRefreshToken("losing-refresh-hash"), undefined);
+  } finally {
+    store.close();
+  }
+}
+
+function testRedirectUriSchemeValidation(stateDir: string): void {
+  const store = new SqliteOAuthStore(stateDir);
+  const clients = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts);
+  try {
+    assert.throws(
+      () => clients.registerClient({ redirect_uris: ["http://chatgpt.com/callback"] }),
+      /redirect_uri is not allowed/i,
+    );
+    assert.throws(
+      () => clients.registerClient({ redirect_uris: ["custom://chatgpt.com/callback"] }),
+      /redirect_uri is not allowed/i,
+    );
+    assert.ok(clients.registerClient({ redirect_uris: ["https://chatgpt.com/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["http://127.0.0.1:3456/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["https://localhost/callback"] }));
   } finally {
     store.close();
   }
