@@ -74,6 +74,18 @@ export interface ActivityScrollState {
   scrollHeight: number;
 }
 
+export function activityRefreshDelayMs(
+  state: ActivitySummaryStatus,
+  unchangedRefreshes: number,
+  visible: boolean,
+): number | null {
+  if (!visible || state !== "working") return null;
+  if (unchangedRefreshes <= 0) return 1_000;
+  if (unchangedRefreshes === 1) return 2_000;
+  if (unchangedRefreshes === 2) return 5_000;
+  return 10_000;
+}
+
 export function readActivityPanelDefaultExpanded(meta: unknown): boolean {
   if (!isRecord(meta)) return false;
   return meta[ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY] === true;

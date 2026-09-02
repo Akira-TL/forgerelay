@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { activityRefreshDelayMs } from "../../../src/ui/activity/model.ts";
 import { debugRoot, repoRoot } from "../runtime.mjs";
 
 const mode = process.argv[2] ?? "all";
@@ -201,20 +202,26 @@ async function auditLocalTraffic() {
       (sum, item) => sum + item.http.sizeRequest + item.http.sizeHeader + item.http.sizeDownload,
       0,
     ) / unchanged.length;
-    const hourlySnapshotBodyBytes = averageSnapshotBytes * 3600;
     const hourlySnapshotHttpBytes = averageSnapshotHttpBytes * 3600;
+    const workingBackoff = [0, 1, 2, 3].map((count) => activityRefreshDelayMs("working", count, true));
+    const terminalDelay = activityRefreshDelayMs("done", 0, true);
+    const hiddenDelay = activityRefreshDelayMs("working", 0, false);
+    const pollingRegression = JSON.stringify(workingBackoff) !== JSON.stringify([1_000, 2_000, 5_000, 10_000])
+      || terminalDelay !== null
+      || hiddenDelay !== null;
     addFinding(
-      state !== "working" ? "HIGH" : "MED",
-      "activity_snapshot stable-turn polling cost",
+      pollingRegression ? "HIGH" : "LOW",
+      "Activity Panel adaptive polling policy",
       {
-        "turn state": String(state),
+        "turn state after Bash completion": String(state),
         "unchanged response body avg": formatBytes(averageSnapshotBytes),
         "unchanged HTTP avg": formatBytes(averageSnapshotHttpBytes),
-        "at 1 request/sec (bodies only)": `${formatBytes(hourlySnapshotBodyBytes)}/hour per live Panel`,
-        "at 1 request/sec (HTTP)": `${formatBytes(hourlySnapshotHttpBytes)}/hour per live Panel`,
-        requests: "3,600/hour per live Panel",
+        "working unchanged delays": workingBackoff.map((value) => `${value}ms`).join(" -> "),
+        "terminal next poll": terminalDelay === null ? "stopped" : `${terminalDelay}ms`,
+        "hidden next poll": hiddenDelay === null ? "stopped" : `${hiddenDelay}ms`,
+        "legacy 1Hz HTTP cost avoided": `${formatBytes(hourlySnapshotHttpBytes)}/hour per live Panel`,
       },
-      state !== "working",
+      pollingRegression,
     );
 
     const assetFinding = auditActivityAssets();

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  activityRefreshDelayMs,
   applyActivitySnapshot,
   groupActivitySummaries,
   isActivityBashOutput,
@@ -144,6 +145,17 @@ test("Activity Panel model groups Bulk and Batch children under their parent in 
     { activity: parent, children: [first, second, third] },
     { activity: orphan, children: [] },
   ]);
+});
+
+test("Activity Panel refresh policy backs off unchanged work and stops terminal or hidden polling", () => {
+  assert.equal(activityRefreshDelayMs("working", 0, true), 1_000);
+  assert.equal(activityRefreshDelayMs("working", 1, true), 2_000);
+  assert.equal(activityRefreshDelayMs("working", 2, true), 5_000);
+  assert.equal(activityRefreshDelayMs("working", 3, true), 10_000);
+  assert.equal(activityRefreshDelayMs("working", 99, true), 10_000);
+  assert.equal(activityRefreshDelayMs("done", 0, true), null);
+  assert.equal(activityRefreshDelayMs("error", 0, true), null);
+  assert.equal(activityRefreshDelayMs("working", 0, false), null);
 });
 
 test("Activity Panel model follows new rows only while the viewport is at the tail", () => {

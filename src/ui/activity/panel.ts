@@ -1,6 +1,7 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
+  activityRefreshDelayMs,
   applyActivitySnapshot,
   groupActivitySummaries,
   isActivityBashOutput,
@@ -16,7 +17,7 @@ import {
 import { renderIcon, toolIcons, type ToolIcon } from "../icons.js";
 import "./panel.css";
 
-const ACTIVITY_REFRESH_INTERVAL_MS = 1_000;
+const ACTIVITY_OUTPUT_REFRESH_INTERVAL_MS = 1_000;
 
 export class ActivityPanelController {
   private app: App | null = null;
@@ -25,6 +26,8 @@ export class ActivityPanelController {
   private refreshTimer: number | null = null;
   private refreshInFlight = false;
   private refreshError: string | null = null;
+  private unchangedRefreshes = 0;
+  private visibilityListenerAttached = false;
   private followTail = true;
   private scrollTop = 0;
   private selectedActivityId: string | null = null;
@@ -35,6 +38,25 @@ export class ActivityPanelController {
   private readonly outputLoading = new Set<string>();
   private readonly outputErrors = new Map<string, string>();
   private outputRefreshTimer: number | null = null;
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.stopRefresh();
+      this.stopOutputRefresh();
+      return;
+    }
+
+    if (this.snapshot) {
+      this.stopRefresh();
+      this.scheduleRefresh(0, true);
+    }
+    const selected = this.snapshot?.activities.find(
+      (activity) => activity.activityId === this.selectedActivityId,
+    );
+    if (selected && isBashOutputActivity(selected)) {
+      const output = this.outputs.get(selected.outputId);
+      if (output?.status === "running") this.scheduleOutputRefresh(selected, 0);
+    }
+  };
 
   constructor(
     private readonly root: HTMLElement,
@@ -53,17 +75,25 @@ export class ActivityPanelController {
     this.snapshot = applyActivitySnapshot(this.snapshot, incoming);
     this.refreshError = null;
     if (changedTurn) {
+      this.unchangedRefreshes = 0;
       this.expanded = readActivityPanelDefaultExpanded(result._meta);
       this.followTail = true;
       this.scrollTop = 0;
       this.resetDetails();
+    } else {
+      this.unchangedRefreshes = incoming.changed ? 0 : this.unchangedRefreshes + 1;
     }
+    this.stopRefresh();
     this.scheduleRefresh();
     return true;
   }
 
   attach(app: App): void {
     this.app = app;
+    if (!this.visibilityListenerAttached) {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+      this.visibilityListenerAttached = true;
+    }
     this.scheduleRefresh();
   }
 
@@ -71,6 +101,7 @@ export class ActivityPanelController {
     this.stopRefresh();
     this.snapshot = null;
     this.refreshError = null;
+    this.unchangedRefreshes = 0;
     this.expanded = false;
     this.followTail = true;
     this.scrollTop = 0;
@@ -79,6 +110,10 @@ export class ActivityPanelController {
 
   detach(): void {
     this.clear();
+    if (this.visibilityListenerAttached) {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+      this.visibilityListenerAttached = false;
+    }
     this.app = null;
   }
 
@@ -92,8 +127,15 @@ export class ActivityPanelController {
     return true;
   }
 
-  private scheduleRefresh(delayMs = ACTIVITY_REFRESH_INTERVAL_MS): void {
-    if (!this.app || !this.snapshot || this.refreshTimer !== null) return;
+  private scheduleRefresh(delayMs?: number, force = false): void {
+    if (!this.app || !this.snapshot || this.refreshTimer !== null || document.hidden) return;
+    const resolvedDelay = delayMs ?? activityRefreshDelayMs(
+      this.snapshot.state,
+      this.unchangedRefreshes,
+      true,
+    );
+    if (!force && resolvedDelay === null) return;
+    if (resolvedDelay === null) return;
     if (!this.app.getHostCapabilities()?.serverTools) {
       this.refreshError = "Live Activity refresh is unavailable in this host.";
       this.render();
@@ -102,7 +144,7 @@ export class ActivityPanelController {
     this.refreshTimer = window.setTimeout(() => {
       this.refreshTimer = null;
       void this.refreshSnapshot();
-    }, delayMs);
+    }, resolvedDelay);
   }
 
   private stopRefresh(): void {
@@ -134,9 +176,11 @@ export class ActivityPanelController {
       const next = applyActivitySnapshot(this.snapshot, incoming);
       const shouldRender = incoming.changed || this.refreshError !== null;
       this.snapshot = next;
+      this.unchangedRefreshes = incoming.changed ? 0 : this.unchangedRefreshes + 1;
       this.refreshError = null;
       if (shouldRender) this.render();
     } catch (refreshError) {
+      this.unchangedRefreshes += 1;
       const message = refreshError instanceof Error
         ? refreshError.message
         : "Activity snapshot refresh failed.";
@@ -229,13 +273,16 @@ export class ActivityPanelController {
     }
   }
 
-  private scheduleOutputRefresh(activity: ActivitySummary): void {
-    if (!isBashOutputActivity(activity) || this.outputRefreshTimer !== null) return;
+  private scheduleOutputRefresh(
+    activity: ActivitySummary,
+    delayMs = ACTIVITY_OUTPUT_REFRESH_INTERVAL_MS,
+  ): void {
+    if (!isBashOutputActivity(activity) || this.outputRefreshTimer !== null || document.hidden) return;
     if (this.selectedActivityId !== activity.activityId) return;
     this.outputRefreshTimer = window.setTimeout(() => {
       this.outputRefreshTimer = null;
       if (this.selectedActivityId === activity.activityId) void this.loadOutput(activity, false);
-    }, ACTIVITY_REFRESH_INTERVAL_MS);
+    }, delayMs);
   }
 
   private async loadOutput(activity: ActivitySummary, showLoading: boolean): Promise<void> {
