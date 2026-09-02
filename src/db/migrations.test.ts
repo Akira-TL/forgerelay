@@ -241,6 +241,7 @@ test("database migration repairs a partial historical Bash output schema before 
 
   assert.equal(claimed?.status, "done");
   assert.equal(claimed?.returned, true);
-  assert.equal(claimed?.output, "legacy\n");
+  assert.equal(claimed?.outputBytes, Buffer.byteLength("legacy\n"));
+  assert.equal(store.read(outputId)?.output, "legacy\n");
   assert.equal(store.claimCompletion(outputId), undefined);
 });

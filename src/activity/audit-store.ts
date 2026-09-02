@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { openDatabase, type DatabaseHandle } from "../db/client.js";
 import type { WorkspaceMode } from "../workspace-store.js";
+import { SegmentedLogStore, type SegmentedLogReference } from "./storage/segmented-log.js";
+import { activityEventLogPrefix } from "./storage/paths.js";
 
 export type ActivityAuditJsonValue =
   | null
@@ -94,6 +96,12 @@ export interface ActivityAuditStoreOptions {
   now?: () => Date;
 }
 
+interface ActivityEventPayload {
+  request?: ActivityAuditJsonValue;
+  result?: ActivityAuditJsonValue;
+  error?: string;
+}
+
 interface ActivityAuditEventRow {
   id: string;
   activity_id: string;
@@ -112,16 +120,24 @@ interface ActivityAuditEventRow {
   request_json: string | null;
   result_json: string | null;
   error: string | null;
+  payload_file: string | null;
+  payload_offset: number | null;
+  payload_length: number | null;
   created_at: string;
 }
 
 export class ActivityAuditStore {
   private readonly database: DatabaseHandle;
   private readonly now: () => Date;
+  private readonly stateDir: string;
+  private readonly payloads: SegmentedLogStore;
 
   constructor(stateDir: string, options: ActivityAuditStoreOptions = {}) {
     this.database = openDatabase(stateDir);
     this.now = options.now ?? (() => new Date());
+    this.stateDir = stateDir;
+    this.payloads = new SegmentedLogStore(stateDir);
+    this.migrateLegacyPayloads();
   }
 
   append(input: AppendActivityAuditEventInput): ActivityAuditEvent {
@@ -149,7 +165,17 @@ export class ActivityAuditStore {
       const sequence = existing.length + 1;
       const id = `evt_${randomUUID().replaceAll("-", "")}`;
       const createdAt = this.now().toISOString();
-      const row = eventInputToRow(input, { id, sequence, createdAt });
+      const workspace = input.type === "started"
+        ? input.workspace
+        : workspaceFromStartedRow(existing[0]!);
+      const payload = eventPayload(input);
+      const payloadRef = payload === undefined
+        ? undefined
+        : this.payloads.append(
+            activityEventLogPrefix(this.stateDir, workspace),
+            Buffer.from(JSON.stringify(payload), "utf8"),
+          );
+      const row = eventInputToRow(input, { id, sequence, createdAt }, payloadRef);
 
       this.database.sqlite.prepare(
         `insert into activity_audit_events (
@@ -170,8 +196,11 @@ export class ActivityAuditStore {
           request_json,
           result_json,
           error,
+          payload_file,
+          payload_offset,
+          payload_length,
           created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         row.id,
         row.activity_id,
@@ -190,15 +219,18 @@ export class ActivityAuditStore {
         row.request_json,
         row.result_json,
         row.error,
+        row.payload_file,
+        row.payload_offset,
+        row.payload_length,
         row.created_at,
       );
 
-      return rowToEvent(row);
+      return this.rowToEvent(row);
     })();
   }
 
   listEvents(activityId: string): ActivityAuditEvent[] {
-    return this.readRows(activityId).map(rowToEvent);
+    return this.readRows(activityId).map((row) => this.rowToEvent(row));
   }
 
   listActivitiesByTurn(turnId: string): ActivityRecord[] {
@@ -342,11 +374,66 @@ export class ActivityAuditStore {
        order by sequence asc`,
     ).all(activityId) as ActivityAuditEventRow[];
   }
+
+  private rowToEvent(row: ActivityAuditEventRow): ActivityAuditEvent {
+    return rowToEvent(row, this.readPayload(row));
+  }
+
+  private readPayload(row: ActivityAuditEventRow): ActivityEventPayload | undefined {
+    if (row.payload_file !== null && row.payload_offset !== null && row.payload_length !== null) {
+      return JSON.parse(this.payloads.read({
+        prefix: row.payload_file,
+        offset: row.payload_offset,
+        length: row.payload_length,
+      }).toString("utf8")) as ActivityEventPayload;
+    }
+    return legacyPayload(row);
+  }
+
+  private migrateLegacyPayloads(): void {
+    const rows = this.database.sqlite.prepare(
+      `select * from activity_audit_events
+       where payload_file is null
+         and (request_json is not null or result_json is not null or error is not null)
+       order by rowid asc`,
+    );
+
+    const workspaceByActivity = new Map<string, ActivityWorkspaceSnapshot>();
+    const update = this.database.sqlite.prepare(
+      `update activity_audit_events
+          set payload_file = ?, payload_offset = ?, payload_length = ?,
+              request_json = null, result_json = null, error = null
+        where id = ?`,
+    );
+    for (const row of rows.iterate() as Iterable<ActivityAuditEventRow>) {
+      const payload = legacyPayload(row);
+      if (payload === undefined) continue;
+      let workspace = workspaceByActivity.get(row.activity_id);
+      if (!workspace) {
+        const started = row.event_type === "started"
+          ? row
+          : this.database.sqlite.prepare(
+              `select * from activity_audit_events
+               where activity_id = ? and event_type = 'started'
+               order by sequence asc limit 1`,
+            ).get(row.activity_id) as ActivityAuditEventRow | undefined;
+        if (!started) continue;
+        workspace = workspaceFromStartedRow(started);
+        workspaceByActivity.set(row.activity_id, workspace);
+      }
+      const reference = this.payloads.append(
+        activityEventLogPrefix(this.stateDir, workspace),
+        Buffer.from(JSON.stringify(payload), "utf8"),
+      );
+      update.run(reference.prefix, reference.offset, reference.length, row.id);
+    }
+  }
 }
 
 function eventInputToRow(
   input: AppendActivityAuditEventInput,
   identity: { id: string; sequence: number; createdAt: string },
+  payloadRef: SegmentedLogReference | undefined,
 ): ActivityAuditEventRow {
   if (input.type === "started") {
     return {
@@ -364,9 +451,12 @@ function eventInputToRow(
       workspace_source_root: input.workspace.sourceRoot ?? null,
       workspace_branch: input.workspace.branch ?? null,
       workspace_target_branch: input.workspace.targetBranch ?? null,
-      request_json: serializeJson(input.request),
+      request_json: null,
       result_json: null,
       error: null,
+      payload_file: payloadRef?.prefix ?? null,
+      payload_offset: payloadRef?.offset ?? null,
+      payload_length: payloadRef?.length ?? null,
       created_at: identity.createdAt,
     };
   }
@@ -387,13 +477,19 @@ function eventInputToRow(
     workspace_branch: null,
     workspace_target_branch: null,
     request_json: null,
-    result_json: "result" in input ? serializeJson(input.result) : null,
-    error: "error" in input ? input.error : null,
+    result_json: null,
+    error: null,
+    payload_file: payloadRef?.prefix ?? null,
+    payload_offset: payloadRef?.offset ?? null,
+    payload_length: payloadRef?.length ?? null,
     created_at: identity.createdAt,
   };
 }
 
-function rowToEvent(row: ActivityAuditEventRow): ActivityAuditEvent {
+function rowToEvent(
+  row: ActivityAuditEventRow,
+  payload: ActivityEventPayload | undefined,
+): ActivityAuditEvent {
   const base = {
     id: row.id,
     activityId: row.activity_id,
@@ -421,46 +517,81 @@ function rowToEvent(row: ActivityAuditEventRow): ActivityAuditEvent {
           ...(row.workspace_branch ? { branch: row.workspace_branch } : {}),
           ...(row.workspace_target_branch ? { targetBranch: row.workspace_target_branch } : {}),
         },
-        ...(row.request_json !== null ? { request: parseJson(row.request_json) } : {}),
+        ...(payload?.request !== undefined ? { request: payload.request } : {}),
       };
     case "succeeded":
       return {
         ...base,
         type: "succeeded",
-        result: parseJson(row.result_json),
+        ...(payload?.result !== undefined ? { result: payload.result } : {}),
       };
     case "returned":
       return {
         ...base,
         type: "returned",
-        result: parseJson(row.result_json),
+        ...(payload?.result !== undefined ? { result: payload.result } : {}),
       };
     case "failed":
-      if (!row.error) throw new Error(`Activity audit failed event ${row.id} is missing an error.`);
+      if (!payload?.error) throw new Error(`Activity audit failed event ${row.id} is missing an error.`);
       return {
         ...base,
         type: "failed",
-        result: parseJson(row.result_json),
-        error: row.error,
+        ...(payload.result !== undefined ? { result: payload.result } : {}),
+        error: payload.error,
       };
     case "blocked":
-      if (!row.error) throw new Error(`Activity audit blocked event ${row.id} is missing an error.`);
+      if (!payload?.error) throw new Error(`Activity audit blocked event ${row.id} is missing an error.`);
       return {
         ...base,
         type: "blocked",
-        error: row.error,
+        error: payload.error,
       };
     default:
       throw new Error(`Unknown Activity audit event type: ${row.event_type}`);
   }
 }
 
-function isWorkspaceMode(value: string | null): value is WorkspaceMode {
-  return value === "checkout" || value === "worktree";
+function eventPayload(input: AppendActivityAuditEventInput): ActivityEventPayload | undefined {
+  if (input.type === "started") {
+    return input.request === undefined ? undefined : { request: input.request };
+  }
+  if (input.type === "blocked") return { error: input.error };
+  if (input.type === "failed") {
+    return {
+      ...(input.result !== undefined ? { result: input.result } : {}),
+      error: input.error,
+    };
+  }
+  return input.result === undefined ? undefined : { result: input.result };
 }
 
-function serializeJson(value: ActivityAuditJsonValue | undefined): string | null {
-  return value === undefined ? null : JSON.stringify(value);
+function legacyPayload(row: ActivityAuditEventRow): ActivityEventPayload | undefined {
+  const request = parseJson(row.request_json);
+  const result = parseJson(row.result_json);
+  if (request === undefined && result === undefined && row.error === null) return undefined;
+  return {
+    ...(request !== undefined ? { request } : {}),
+    ...(result !== undefined ? { result } : {}),
+    ...(row.error !== null ? { error: row.error } : {}),
+  };
+}
+
+function workspaceFromStartedRow(row: ActivityAuditEventRow): ActivityWorkspaceSnapshot {
+  if (!row.workspace_root || !isWorkspaceMode(row.workspace_mode)) {
+    throw new Error(`Activity audit start event ${row.id} is missing Workspace context.`);
+  }
+  return {
+    ...(row.workspace_id ? { id: row.workspace_id } : {}),
+    root: row.workspace_root,
+    mode: row.workspace_mode,
+    ...(row.workspace_source_root ? { sourceRoot: row.workspace_source_root } : {}),
+    ...(row.workspace_branch ? { branch: row.workspace_branch } : {}),
+    ...(row.workspace_target_branch ? { targetBranch: row.workspace_target_branch } : {}),
+  };
+}
+
+function isWorkspaceMode(value: string | null): value is WorkspaceMode {
+  return value === "checkout" || value === "worktree";
 }
 
 function parseJson(value: string | null): ActivityAuditJsonValue | undefined {

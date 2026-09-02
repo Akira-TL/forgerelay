@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import Database from "better-sqlite3";
 import { SqliteWorkspaceStore } from "../workspace-store.js";
 import { ActivityAuditStore } from "./audit-store.js";
 
@@ -83,6 +84,64 @@ test("Activity audit survives restart and Workspace deletion", async (t) => {
   assert.equal(restored?.workspace.root, "/tmp/forgerelay-audit-workspace");
   assert.deepEqual(restored?.request, { path: "README.md" });
   assert.deepEqual(restored?.result, { lines: 12 });
+});
+
+test("Activity audit stores payloads in Workspace log shards instead of SQLite text columns", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-activity-file-backed-test-"));
+  const auditStore = new ActivityAuditStore(stateDir);
+  t.after(async () => {
+    auditStore.close();
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  const request = { path: "src/large.ts", content: "request payload".repeat(1_000) };
+  const result = { content: "result payload".repeat(1_000) };
+  auditStore.append({
+    type: "started",
+    activityId: "act_file_backed",
+    turnId: "turn_file_backed",
+    tool: "write",
+    workspace: {
+      id: "ws_filebacked",
+      root: "/tmp/forgerelay-file-backed",
+      mode: "checkout",
+    },
+    request,
+  });
+  auditStore.append({
+    type: "succeeded",
+    activityId: "act_file_backed",
+    result,
+  });
+
+  const sqlite = new Database(join(stateDir, "forgerelay.sqlite"), { readonly: true });
+  try {
+    const rows = sqlite.prepare(
+      `select request_json, result_json, error, payload_file, payload_offset, payload_length
+       from activity_audit_events where activity_id = ? order by sequence`,
+    ).all("act_file_backed") as Array<{
+      request_json: string | null;
+      result_json: string | null;
+      error: string | null;
+      payload_file: string | null;
+      payload_offset: number | null;
+      payload_length: number | null;
+    }>;
+    assert.equal(rows.length, 2);
+    for (const row of rows) {
+      assert.equal(row.request_json, null);
+      assert.equal(row.result_json, null);
+      assert.equal(row.error, null);
+      assert.ok(row.payload_file?.includes("workspaces/ws_filebacked/activity/events"));
+      assert.ok((row.payload_offset ?? -1) >= 0);
+      assert.ok((row.payload_length ?? 0) > 0);
+    }
+  } finally {
+    sqlite.close();
+  }
+
+  assert.deepEqual(auditStore.getActivity("act_file_backed")?.request, request);
+  assert.deepEqual(auditStore.getActivity("act_file_backed")?.result, result);
 });
 
 test("Activity audit represents failed and hook-blocked outcomes without rewriting earlier facts", async (t) => {

@@ -770,14 +770,6 @@ function currentActivityPanelAppIdentity(
   return identity;
 }
 
-function getWorkspaceAppManifestEntry(): WorkspaceAppManifestEntry {
-  return readWorkspaceAppManifestEntry(uiManifestUrl());
-}
-
-function getWorkspaceLifecycleAppManifestEntry(): WorkspaceAppManifestEntry {
-  return readWorkspaceLifecycleAppManifestEntry(uiManifestUrl());
-}
-
 function getActivityPanelAppManifestEntry(): WorkspaceAppManifestEntry {
   return readActivityPanelAppManifestEntry(uiManifestUrl());
 }

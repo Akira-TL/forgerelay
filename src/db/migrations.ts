@@ -92,6 +92,11 @@ const migrations: Migration[] = [
     name: "workspace-context-components",
     up: migrateWorkspaceContextComponents,
   },
+  {
+    version: 18,
+    name: "file-backed-activity-audit",
+    up: migrateFileBackedActivityAudit,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {
@@ -457,6 +462,18 @@ function migrateActivityHostTurnWorkspace(sqlite: Database.Database): void {
   `);
 }
 
+function migrateFileBackedActivityAudit(sqlite: Database.Database): void {
+  if (tableExists(sqlite, "activity_audit_events")) {
+    addColumnIfMissing(sqlite, "activity_audit_events", "payload_file", "text");
+    addColumnIfMissing(sqlite, "activity_audit_events", "payload_offset", "integer");
+    addColumnIfMissing(sqlite, "activity_audit_events", "payload_length", "integer");
+  }
+  if (tableExists(sqlite, "bash_output_streams")) {
+    addColumnIfMissing(sqlite, "bash_output_streams", "log_file", "text");
+    addColumnIfMissing(sqlite, "bash_output_streams", "output_bytes", "integer not null default 0");
+  }
+}
+
 function tableExists(sqlite: Database.Database, table: string): boolean {
   return Boolean(
     sqlite.prepare("select 1 from sqlite_master where type = 'table' and name = ?").get(table),
@@ -470,7 +487,8 @@ function addColumnIfMissing(
     | "local_agent_sessions"
     | "bash_output_streams"
     | "activity_host_turns"
-    | "workspace_context_deliveries",
+    | "workspace_context_deliveries"
+    | "activity_audit_events",
   column: string,
   definition: string,
 ): void {

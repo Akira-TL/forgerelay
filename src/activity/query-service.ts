@@ -149,7 +149,7 @@ export class ActivityQueryService {
 
   bashOutput(turnId: string, outputId: string, cursor = 0): ActivityBashOutput {
     this.requireTurn(turnId);
-    const output = this.outputs.read(outputId);
+    const output = this.outputs.readSince(outputId, cursor);
     if (!output) throw new Error(`Unknown Bash output: ${outputId}.`);
     const activities = this.audit.listActivitiesByTurn(turnId);
     const visible = activities.some((activity) =>
@@ -158,17 +158,13 @@ export class ActivityQueryService {
     if (!visible) {
       throw new Error(`Bash output ${outputId} is not part of Host Turn ${turnId}.`);
     }
-    const latestCursor = output.chunks.at(-1)?.sequence ?? 0;
     return {
       outputId: output.outputId,
       activityId: output.activityId,
       processId: output.processId,
       command: output.command,
-      output: output.chunks
-        .filter((chunk) => chunk.sequence > cursor)
-        .map((chunk) => chunk.data)
-        .join(""),
-      cursor: latestCursor,
+      output: output.output,
+      cursor: output.cursor,
       status: output.status,
       ...(output.exitCode !== undefined ? { exitCode: output.exitCode } : {}),
       ...(output.signal !== undefined ? { signal: output.signal } : {}),
