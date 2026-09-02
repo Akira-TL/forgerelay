@@ -5,13 +5,12 @@ import { join } from "node:path";
 import { loadConfig } from "../config.js";
 import { loadSubagentProfiles, summarizeSubagentProfile } from "./profiles.js";
 
-const root = await mkdtemp(join(tmpdir(), "devspace-agent-profiles-test-"));
+const root = await mkdtemp(join(tmpdir(), "forgerelay-agent-profiles-test-"));
 
 try {
-  const configDir = join(root, ".devspace-home");
+  const configDir = join(root, "config-home");
   const workspaceRoot = join(root, "project");
   await mkdir(join(configDir, "agents"), { recursive: true });
-  await mkdir(join(workspaceRoot, ".devspace", "agents"), { recursive: true });
   await mkdir(join(workspaceRoot, ".forgerelay", "agents"), { recursive: true });
 
   await writeFile(
@@ -29,21 +28,6 @@ try {
     ].join("\n"),
   );
   await writeFile(
-    join(workspaceRoot, ".devspace", "agents", "reviewer.md"),
-    [
-      "---",
-      "name: reviewer",
-      'description: "Project reviewer #1."',
-      "provider: claude",
-      "model: sonnet",
-      "thinking: high",
-      "---",
-      "",
-      "Project body.",
-      "",
-    ].join("\n"),
-  );
-  await writeFile(
     join(workspaceRoot, ".forgerelay", "agents", "reviewer.md"),
     [
       "---",
@@ -55,20 +39,6 @@ try {
       "---",
       "",
       "ForgeRelay project body.",
-      "",
-    ].join("\n"),
-  );
-  await writeFile(
-    join(workspaceRoot, ".devspace", "agents", "disabled.md"),
-    [
-      "---",
-      "name: disabled",
-      "description: Disabled agent.",
-      "provider: codex",
-      "disabled: true",
-      "---",
-      "",
-      "Disabled body.",
       "",
     ].join("\n"),
   );
@@ -97,7 +67,7 @@ try {
   });
 
   await writeFile(
-    join(workspaceRoot, ".devspace", "agents", "custom.md"),
+    join(workspaceRoot, ".forgerelay", "agents", "custom.md"),
     [
       "---",
       "name: custom",

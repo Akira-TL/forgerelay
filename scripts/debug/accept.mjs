@@ -1136,7 +1136,7 @@ function authorizeDebugClient(metadata) {
     redirect_uri: redirectUri,
     code_challenge: challenge,
     code_challenge_method: "S256",
-    scope: "devspace",
+    scope: "forgerelay",
     resource: debugMcpUrl,
     state: "forgerelay-debug-acceptance",
     owner_token: ownerToken,
@@ -1168,7 +1168,7 @@ function authorizeDebugClient(metadata) {
   });
   assert.equal(token.status, 200);
   assert.equal(token.json.token_type, "bearer");
-  assert.equal(token.json.scope, "devspace");
+  assert.equal(token.json.scope, "forgerelay");
   assert.ok(token.json.access_token);
   return { accessToken: token.json.access_token };
 }

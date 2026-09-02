@@ -616,7 +616,7 @@ function authorizeHost(baseUrl, mcpUrl, ownerToken) {
       redirect_uri: redirectUri,
       code_challenge: challenge,
       code_challenge_method: "S256",
-      scope: "devspace",
+      scope: "forgerelay",
       resource: mcpUrl,
       state: "forgerelay-relay-acceptance",
       owner_token: ownerToken,

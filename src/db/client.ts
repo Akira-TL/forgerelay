@@ -15,7 +15,7 @@ export interface DatabaseHandle {
 }
 
 export function databasePath(stateDir: string): string {
-  return join(stateDir, "devspace.sqlite");
+  return join(stateDir, "forgerelay.sqlite");
 }
 
 export function openDatabase(stateDir: string): DatabaseHandle {

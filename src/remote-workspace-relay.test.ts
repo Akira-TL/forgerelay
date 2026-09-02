@@ -1533,7 +1533,7 @@ void test("relayed open failures are explicit and never fall back to the gateway
         accessToken: "offline-access-token",
         refreshToken: "offline-refresh-token",
         accessTokenExpiresAt: Math.floor(Date.now() / 1000) + 3600,
-        scope: "devspace",
+        scope: "forgerelay",
       },
     },
   }, null, 2), { mode: 0o600 });

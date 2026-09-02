@@ -6,18 +6,18 @@ import { assertAllowedPath, expandHomePath, resolveAllowedPath } from "./roots.j
 const home = homedir();
 
 assert.equal(expandHomePath("~"), home);
-assert.equal(expandHomePath("~/personal/devspace"), resolve(home, "personal", "devspace"));
+assert.equal(expandHomePath("~/personal/forgerelay"), resolve(home, "personal", "forgerelay"));
 assert.equal(expandHomePath("~user/project"), "~user/project");
 assert.equal(expandHomePath("$HOME/project"), "$HOME/project");
 
 assert.equal(
-  assertAllowedPath("~/personal/devspace", [join(home, "personal")]),
-  resolve(home, "personal", "devspace"),
+  assertAllowedPath("~/personal/forgerelay", [join(home, "personal")]),
+  resolve(home, "personal", "forgerelay"),
 );
 
 assert.equal(
-  assertAllowedPath("~/personal/devspace", ["~/personal"]),
-  resolve(home, "personal", "devspace"),
+  assertAllowedPath("~/personal/forgerelay", ["~/personal"]),
+  resolve(home, "personal", "forgerelay"),
 );
 
 assert.equal(
@@ -31,7 +31,7 @@ assert.throws(
 
 if (process.platform === "win32") {
   assert.throws(
-    () => assertAllowedPath("C:\\Users\\Administrator", ["G:\\Projects\\Dev\\Github\\devspace"]),
+    () => assertAllowedPath("C:\\Users\\Administrator", ["G:\\Projects\\Dev\\Github\\forgerelay"]),
     /Path is outside allowed roots/,
   );
 }

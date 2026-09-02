@@ -8,12 +8,12 @@ import { databasePath, openDatabase } from "./db/client.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import { SqliteOAuthClientsStore, SqliteOAuthStore } from "./oauth-store.js";
 
-const root = await mkdtemp(join(tmpdir(), "devspace-oauth-test-"));
+const root = await mkdtemp(join(tmpdir(), "forgerelay-oauth-test-"));
 const oauthConfig = {
   ownerToken: "test-owner-token-that-is-long-enough",
   accessTokenTtlSeconds: 3600,
   refreshTokenTtlSeconds: 2592000,
-  scopes: ["devspace"],
+  scopes: ["forgerelay"],
   allowedRedirectHosts: ["chatgpt.com"],
 };
 const mcpUrl = new URL("https://agent.example.com/mcp");
@@ -40,7 +40,7 @@ async function testDatabaseConfiguration(stateDir: string): Promise<void> {
     assert.equal(database.sqlite.pragma("foreign_keys", { simple: true }), 1);
 
     const migrations = database.sqlite
-      .prepare("select version, name from devspace_schema_migrations order by version")
+      .prepare("select version, name from forgerelay_schema_migrations order by version")
       .all();
     assert.deepEqual(migrations, [
       { version: 1, name: "workspace-state" },
@@ -85,14 +85,14 @@ function testPersistenceAndTokenHashing(stateDir: string): void {
     accessTokenHash: hashToken(accessToken),
     accessToken: {
       clientId: client.client_id,
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       expiresAt: Math.floor(Date.now() / 1000) + 3600,
       resource: mcpUrl.href,
     },
     refreshTokenHash: hashToken(refreshToken),
     refreshToken: {
       clientId: client.client_id,
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       expiresAt: Math.floor(Date.now() / 1000) + 2592000,
       resource: mcpUrl.href,
     },
@@ -136,9 +136,9 @@ function testExpiredTokenCleanup(stateDir: string): void {
   const expiredAt = Math.floor(Date.now() / 1000) - 1;
   store.saveTokenPair({
     accessTokenHash: "expired-access-hash",
-    accessToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt: expiredAt },
+    accessToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt: expiredAt },
     refreshTokenHash: "expired-refresh-hash",
-    refreshToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt: expiredAt },
+    refreshToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt: expiredAt },
   });
   store.close();
 
@@ -160,7 +160,7 @@ function testTransactionalTokenRotation(stateDir: string): void {
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
     store.saveRefreshToken("old-refresh-hash", {
       clientId: client.client_id,
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       expiresAt,
     });
 
@@ -168,9 +168,9 @@ function testTransactionalTokenRotation(stateDir: string): void {
       store.saveTokenPair(
         {
           accessTokenHash: "new-access-hash",
-          accessToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt },
+          accessToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt },
           refreshTokenHash: "new-refresh-hash",
-          refreshToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt },
+          refreshToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt },
         },
         "old-refresh-hash",
       ),
@@ -184,9 +184,9 @@ function testTransactionalTokenRotation(stateDir: string): void {
       store.saveTokenPair(
         {
           accessTokenHash: "losing-access-hash",
-          accessToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt },
+          accessToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt },
           refreshTokenHash: "losing-refresh-hash",
-          refreshToken: { clientId: client.client_id, scopes: ["devspace"], expiresAt },
+          refreshToken: { clientId: client.client_id, scopes: ["forgerelay"], expiresAt },
         },
         "old-refresh-hash",
       ),
@@ -214,7 +214,7 @@ async function testProviderPrunesExpiredAuthorizationCodes(stateDir: string): Pr
     params: {
       redirectUri,
       codeChallenge: "expired-challenge",
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       resource: mcpUrl,
     },
     expiresAtMs: Date.now() - 1,
@@ -224,7 +224,7 @@ async function testProviderPrunesExpiredAuthorizationCodes(stateDir: string): Pr
     params: {
       redirectUri,
       codeChallenge: "active-challenge",
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       resource: mcpUrl,
     },
     expiresAtMs: Date.now() + 60_000,
@@ -245,7 +245,7 @@ async function testProviderPrunesExpiredAuthorizationCodes(stateDir: string): Pr
     params: {
       redirectUri,
       codeChallenge: "close-challenge",
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       resource: mcpUrl,
     },
     expiresAtMs: Date.now() + 60_000,
@@ -268,7 +268,7 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
     params: {
       redirectUri,
       codeChallenge: "challenge",
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       resource: mcpUrl,
     },
     expiresAtMs: Date.now() + 60_000,
@@ -291,14 +291,14 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
     const refreshed = await secondProvider.exchangeRefreshToken(
       client,
       issued.refresh_token,
-      ["devspace"],
+      ["forgerelay"],
       mcpUrl,
     );
     assert.ok(refreshed.refresh_token);
     assert.notEqual(refreshed.access_token, issued.access_token);
 
     await assert.rejects(
-      secondProvider.exchangeRefreshToken(client, issued.refresh_token, ["devspace"], mcpUrl),
+      secondProvider.exchangeRefreshToken(client, issued.refresh_token, ["forgerelay"], mcpUrl),
       InvalidGrantError,
     );
 
@@ -307,7 +307,7 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
 
     await secondProvider.revokeToken(client, { token: refreshed.refresh_token });
     await assert.rejects(
-      secondProvider.exchangeRefreshToken(client, refreshed.refresh_token, ["devspace"], mcpUrl),
+      secondProvider.exchangeRefreshToken(client, refreshed.refresh_token, ["forgerelay"], mcpUrl),
       InvalidGrantError,
     );
   } finally {
@@ -327,7 +327,7 @@ async function testCliTokenIssueAndRefresh(stateDir: string): Promise<void> {
 
     const verified = await provider.verifyAccessToken(issued.access_token);
     assert.equal(verified.clientId, "forgerelay-cli");
-    assert.deepEqual(verified.scopes, ["devspace"]);
+    assert.deepEqual(verified.scopes, ["forgerelay"]);
     assert.equal(verified.resource?.href, mcpUrl.href);
 
     const refreshed = provider.exchangeCliRefreshToken(issued.refresh_token);

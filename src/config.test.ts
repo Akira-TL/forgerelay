@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { ensureForgeRelayDefaultSkills, forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
 
-const emptyConfigDir = mkdtempSync(join(tmpdir(), "devspace-empty-config-test-"));
+const emptyConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-empty-config-test-"));
 const baseEnv = {
   FORGERELAY_CONFIG_DIR: emptyConfigDir,
   FORGERELAY_ALLOWED_ROOTS: process.cwd(),
@@ -94,16 +94,6 @@ assert.deepEqual(
 assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
 assert.equal(forgeRelayConfig.configAgentsDir, join(forgeRelayConfigDir, "agents"));
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
-assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off", DEVSPACE_TOOL_MODE: "full" }).widgets,
-  "full",
-);
-assert.equal(
-  loadConfig({ ...baseEnv, DEVSPACE_WIDGETS: "off", DEVSPACE_TOOL_MODE: "full" }).toolMode,
-  "minimal",
-);
-assert.equal(resolveSubagentsFlag({ subagents: true }, { DEVSPACE_SUBAGENTS: "0" }), true);
-
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
 assert.equal(
   loadConfig({ ...baseEnv, FORGERELAY_WORKFLOW_INSTRUCTIONS: "Use repository-defined Git workflows." })
@@ -128,10 +118,6 @@ assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
 assert.equal(loadConfig(baseEnv).stateDir, join(homedir(), ".local", "share", "forgerelay"));
 assert.equal(loadConfig(baseEnv).worktreeRoot, join(homedir(), ".forgerelay", "worktrees"));
-assert.equal(
-  forgerelayConfigDir({ DEVSPACE_CONFIG_DIR: join(tmpdir(), "legacy-devspace-config") }),
-  join(homedir(), ".forgerelay"),
-);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "0" }).taskReminderInterval, 0);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "45" }).taskReminderInterval, 45);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_ARTIFACTS: "1" }).artifactsEnabled, true);
@@ -150,7 +136,7 @@ assert.equal(resolveSubagentsFlag({ subagents: true }, {}), true);
 assert.equal(resolveSubagentsFlag({ subagents: true }, { FORGERELAY_SUBAGENTS: "0" }), false);
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 
-const seededConfigDir = mkdtempSync(join(tmpdir(), "devspace-seeded-skills-test-"));
+const seededConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-seeded-skills-test-"));
 const seededSkillPaths = ensureForgeRelayDefaultSkills({ FORGERELAY_CONFIG_DIR: seededConfigDir });
 assert.deepEqual(seededSkillPaths, [join(seededConfigDir, "skills", "subagent-delegation", "SKILL.md")]);
 assert.equal(existsSync(seededSkillPaths[0]), true);
@@ -232,7 +218,7 @@ assert.throws(
 );
 
 assert.equal(loadConfig(baseEnv).oauth.ownerToken, "test-owner-token-that-is-long-enough");
-assert.deepEqual(loadConfig(baseEnv).oauth.scopes, ["devspace"]);
+assert.deepEqual(loadConfig(baseEnv).oauth.scopes, ["forgerelay"]);
 assert.deepEqual(loadConfig(baseEnv).oauth.allowedRedirectHosts, [
   "chatgpt.com",
   "localhost",
@@ -242,8 +228,8 @@ assert.equal(loadConfig(baseEnv).oauth.accessTokenTtlSeconds, 3600);
 assert.equal(loadConfig(baseEnv).oauth.refreshTokenTtlSeconds, 2592000);
 
 assert.deepEqual(
-  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_SCOPES: "devspace,admin" }).oauth.scopes,
-  ["devspace", "admin"],
+  loadConfig({ ...baseEnv, FORGERELAY_OAUTH_SCOPES: "forgerelay,admin" }).oauth.scopes,
+  ["forgerelay", "admin"],
 );
 assert.deepEqual(
   loadConfig({ ...baseEnv, FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS: "chatgpt.com,example.com" }).oauth
@@ -339,15 +325,15 @@ assert.deepEqual(
   ["*"],
 );
 
-const configDir = mkdtempSync(join(tmpdir(), "devspace-config-test-"));
+const configDir = mkdtempSync(join(tmpdir(), "forgerelay-config-test-"));
 writeFileSync(
   join(configDir, "config.json"),
   JSON.stringify({
     port: 8787,
     allowedRoots: [process.cwd()],
     publicBaseUrl: [
-      "https://devspace.example.com/forgerelay/main",
-      "https://devspace-alt.example.com/alternate",
+      "https://forgerelay.example.com/forgerelay/main",
+      "https://forgerelay-alt.example.com/alternate",
     ],
     subagents: true,
     artifactsEnabled: true,
@@ -372,10 +358,10 @@ writeFileSync(
 const fileConfig = loadConfig({ FORGERELAY_CONFIG_DIR: configDir });
 assert.equal(fileConfig.port, 8787);
 assert.equal(fileConfig.oauth.ownerToken, "persisted-owner-token-long-enough");
-assert.equal(fileConfig.publicBaseUrl, "https://devspace.example.com/forgerelay/main");
+assert.equal(fileConfig.publicBaseUrl, "https://forgerelay.example.com/forgerelay/main");
 assert.deepEqual(fileConfig.publicBaseUrls, [
-  "https://devspace.example.com/forgerelay/main",
-  "https://devspace-alt.example.com/alternate",
+  "https://forgerelay.example.com/forgerelay/main",
+  "https://forgerelay-alt.example.com/alternate",
 ]);
 assert.equal(fileConfig.subagents, true);
 assert.equal(fileConfig.artifactsEnabled, true);
@@ -406,8 +392,8 @@ assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",
   "::1",
-  "devspace.example.com",
-  "devspace-alt.example.com",
+  "forgerelay.example.com",
+  "forgerelay-alt.example.com",
 ]);
 
 const invalidHooksConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-invalid-hooks-test-"));

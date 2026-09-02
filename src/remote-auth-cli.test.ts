@@ -37,7 +37,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
       ownerToken,
       accessTokenTtlSeconds: 3600,
       refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       allowedRedirectHosts: ["chatgpt.com"],
     },
     remoteResourceUrl,
@@ -52,7 +52,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
     instanceId: "forge-remote-test",
     issuerUrl: new URL("https://remote.example.test"),
     resourceServerUrl: remoteResourceUrl,
-    scopesSupported: ["devspace"],
+    scopesSupported: ["forgerelay"],
     resourceName: "ForgeRelay",
   } as Parameters<typeof createForgeRelayAuthRouter>[0] & { instanceId: string }));
 
@@ -99,7 +99,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
   assert.notEqual(remote.accessToken, ownerToken);
   assert.ok(remote.refreshToken);
   assert.ok(remote.accessTokenExpiresAt > Math.floor(Date.now() / 1000));
-  assert.equal(remote.scope, "devspace");
+  assert.equal(remote.scope, "forgerelay");
 
   const verified = await provider.verifyAccessToken(remote.accessToken);
   assert.equal(verified.clientId, "forgerelay-cli");
@@ -186,7 +186,7 @@ void test("concurrent remote authentication preserves both remote records", asyn
         ownerToken,
         accessTokenTtlSeconds: 3600,
         refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
-        scopes: ["devspace"],
+        scopes: ["forgerelay"],
         allowedRedirectHosts: ["chatgpt.com"],
       },
       new URL(`https://${name}.example.test/mcp`),
@@ -208,7 +208,7 @@ void test("concurrent remote authentication preserves both remote records", asyn
       instanceId,
       issuerUrl: new URL(`https://${name}.example.test`),
       resourceServerUrl: new URL(`https://${name}.example.test/mcp`),
-      scopesSupported: ["devspace"],
+      scopesSupported: ["forgerelay"],
       resourceName: "ForgeRelay",
     } as Parameters<typeof createForgeRelayAuthRouter>[0] & { instanceId: string }));
     const server = app.listen(0, "127.0.0.1");
@@ -321,7 +321,7 @@ void test("forgerelay auth management commands do not expose stored secrets", as
           accessToken: "access-secret-value",
           refreshToken: "refresh-secret-value",
           accessTokenExpiresAt: 4_102_444_800,
-          scope: "devspace",
+          scope: "forgerelay",
         },
       },
     }, null, 2),
@@ -375,7 +375,7 @@ void test("forgerelay auth test persists rotated credentials before MCP verifica
       ownerToken,
       accessTokenTtlSeconds: 3600,
       refreshTokenTtlSeconds: 30 * 24 * 60 * 60,
-      scopes: ["devspace"],
+      scopes: ["forgerelay"],
       allowedRedirectHosts: ["chatgpt.com"],
     },
     remoteResourceUrl,
@@ -390,7 +390,7 @@ void test("forgerelay auth test persists rotated credentials before MCP verifica
     instanceId: "forge-refresh-persist-test",
     issuerUrl: new URL("https://remote.example.test"),
     resourceServerUrl: remoteResourceUrl,
-    scopesSupported: ["devspace"],
+    scopesSupported: ["forgerelay"],
     resourceName: "ForgeRelay",
   } as Parameters<typeof createForgeRelayAuthRouter>[0] & { instanceId: string }));
   app.all("/mcp", (_req, res) => res.status(503).json({ error: "offline" }));

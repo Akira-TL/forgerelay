@@ -20,7 +20,7 @@ test("pretty tool logs emphasize workspace, operation, target, and result", () =
     ts: timestamp,
     level: "info",
     event: "tool_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     session: "7f7ce1d1",
     tool: "bash",
     commandPreview: "git push origin v0.2.0",
@@ -29,7 +29,7 @@ test("pretty tool logs emphasize workspace, operation, target, and result", () =
     durationMs: 21,
   }, { colorize: false });
 
-  assert.match(line, /^08-09 20:41:03 \[INFO\] devspace\/ws_a20bade4 \| /);
+  assert.match(line, /^08-09 20:41:03 \[INFO\] forgerelay\/ws_a20bade4 \| /);
   assert.doesNotMatch(line, /session:/);
   assert.match(line, /bash git push origin v0\.2\.0 -> exit=0$/);
   assert.doesNotMatch(line, /durationMs|event=|success=/);
@@ -40,7 +40,7 @@ test("pretty file logs use ok or error rather than fake process exit codes", () 
     ts: timestamp,
     level: "info",
     event: "tool_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     session: "7f7ce1d1",
     tool: "write",
     path: "src/hooks.ts",
@@ -50,7 +50,7 @@ test("pretty file logs use ok or error rather than fake process exit codes", () 
     ts: timestamp,
     level: "warn",
     event: "tool_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     tool: "edit",
     path: "src/hooks.ts",
     success: false,
@@ -67,7 +67,7 @@ test("pretty hook logs remain compact and preserve process exit status", () => {
     ts: timestamp,
     level: "info",
     event: "hook_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     hookName: "release-tag-local-ci",
     hookEvent: "BeforeTool",
     success: true,
@@ -76,7 +76,7 @@ test("pretty hook logs remain compact and preserve process exit status", () => {
     ts: timestamp,
     level: "warn",
     event: "hook_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     hookName: "release-tag-local-ci",
     hookEvent: "BeforeTool",
     success: false,
@@ -185,7 +185,7 @@ test("pretty logs can emit ANSI styles without a third-party logger", () => {
     ts: timestamp,
     level: "warn",
     event: "tool_call",
-    workspace: "devspace/ws_a20bade4",
+    workspace: "forgerelay/ws_a20bade4",
     tool: "edit",
     path: "src/hooks.ts",
     success: false,

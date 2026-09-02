@@ -260,7 +260,7 @@ function parseOAuthConfig(env: NodeJS.ProcessEnv, ownerToken: string | undefined
       DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
       "FORGERELAY_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
     ),
-    scopes: parseStringList(productEnv(env, "OAUTH_SCOPES"), ["devspace"]),
+    scopes: parseStringList(productEnv(env, "OAUTH_SCOPES"), ["forgerelay"]),
     allowedRedirectHosts: parseStringList(productEnv(env, "OAUTH_ALLOWED_REDIRECT_HOSTS"), [
       "chatgpt.com",
       "localhost",

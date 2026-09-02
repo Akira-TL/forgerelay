@@ -87,14 +87,14 @@ assert.match(regularEnvironment.output, /unset/);
 
 const environment = await manager.start({
   workspaceId: "workspace-a",
-  workspaceRoot: "/tmp/devspace-workspace-a",
+  workspaceRoot: "/tmp/forgerelay-workspace-a",
   cwd: process.cwd(),
   codexCi: true,
   command: `${node} -e "console.log([process.env.NO_COLOR, process.env.TERM, process.env.PAGER, process.env.GIT_PAGER, process.env.GH_PAGER, process.env.CODEX_CI, process.env.FORGERELAY_WORKSPACE_ID, process.env.FORGERELAY_WORKSPACE_ROOT].join(','))"`,
   yieldTimeMs: 2_000,
 });
 assert.equal(environment.running, false);
-assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/devspace-workspace-a/);
+assert.match(environment.output, /1,dumb,cat,cat,cat,1,workspace-a,\/tmp\/forgerelay-workspace-a/);
 
 const background = await manager.start({
   workspaceId: "workspace-a",

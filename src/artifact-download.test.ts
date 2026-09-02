@@ -25,7 +25,7 @@ import {
   type IncomingArtifactAdapter,
 } from "./incoming-artifacts.js";
 
-const root = await mkdtemp(join(tmpdir(), "devspace-artifact-download-test-"));
+const root = await mkdtemp(join(tmpdir(), "forgerelay-artifact-download-test-"));
 
 try {
   testPlatformSupportContract();

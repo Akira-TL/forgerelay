@@ -875,7 +875,7 @@ async function fixture(
   t: TestContext,
   options: { git?: boolean } = {},
 ): Promise<WorkspaceFixture> {
-  const root = await mkdtemp(join(tmpdir(), "devspace-workspace-conversation-test-"));
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-conversation-test-"));
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
@@ -945,8 +945,8 @@ async function restoreAgentsDirectory(agentsDir: string, backupDir: string): Pro
 async function initializeGitRepository(root: string): Promise<void> {
   await writeFile(join(root, "README.md"), "hello\n");
   await git(root, ["init"]);
-  await git(root, ["config", "user.email", "devspace@example.com"]);
-  await git(root, ["config", "user.name", "DevSpace Test"]);
+  await git(root, ["config", "user.email", "forgerelay@example.com"]);
+  await git(root, ["config", "user.name", "ForgeRelay Test"]);
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "Initial commit"]);
 }

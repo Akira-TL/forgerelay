@@ -10,10 +10,10 @@ import { openDatabase } from "./client.js";
 
 test("database migration backfills Host Turn workspace identity when historical Activity data is available", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-host-turn-workspace-test-"));
-  const databasePath = join(stateDir, "devspace.sqlite");
+  const databasePath = join(stateDir, "forgerelay.sqlite");
   const legacy = new Database(databasePath);
   legacy.exec(`
-    create table devspace_schema_migrations (
+    create table forgerelay_schema_migrations (
       version integer primary key,
       name text not null,
       applied_at text not null
@@ -39,7 +39,7 @@ test("database migration backfills Host Turn workspace identity when historical 
       values ('turn_backfilled', 'ws_backfilled', '2026-08-15T00:00:01.000Z');
   `);
   const recordMigration = legacy.prepare(
-    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+    "insert into forgerelay_schema_migrations (version, name, applied_at) values (?, ?, ?)",
   );
   for (let version = 1; version <= 12; version += 1) {
     recordMigration.run(version, `legacy-${version}`, "2026-08-15T00:00:00.000Z");
@@ -62,10 +62,10 @@ test("database migration backfills Host Turn workspace identity when historical 
 
 test("database migration adds persistent Workspace alias storage after the v0.7.4 schema", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-workspace-alias-test-"));
-  const databasePath = join(stateDir, "devspace.sqlite");
+  const databasePath = join(stateDir, "forgerelay.sqlite");
   const legacy = new Database(databasePath);
   legacy.exec(`
-    create table devspace_schema_migrations (
+    create table forgerelay_schema_migrations (
       version integer primary key,
       name text not null,
       applied_at text not null
@@ -87,7 +87,7 @@ test("database migration adds persistent Workspace alias storage after the v0.7.
     );
   `);
   const recordMigration = legacy.prepare(
-    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+    "insert into forgerelay_schema_migrations (version, name, applied_at) values (?, ?, ?)",
   );
   for (let version = 1; version <= 15; version += 1) {
     recordMigration.run(version, `legacy-${version}`, "2026-08-30T00:00:00.000Z");
@@ -105,17 +105,17 @@ test("database migration adds persistent Workspace alias storage after the v0.7.
   ).get() as { name?: string } | undefined;
   assert.equal(table?.name, "workspace_session_aliases");
   const migration = migrated.sqlite.prepare(
-    "select name from devspace_schema_migrations where version = 16",
+    "select name from forgerelay_schema_migrations where version = 16",
   ).get() as { name?: string } | undefined;
   assert.equal(migration?.name, "workspace-session-aliases");
 });
 
 test("database migration adds component fingerprints to historical Workspace context deliveries", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-context-components-test-"));
-  const databasePath = join(stateDir, "devspace.sqlite");
+  const databasePath = join(stateDir, "forgerelay.sqlite");
   const legacy = new Database(databasePath);
   legacy.exec(`
-    create table devspace_schema_migrations (
+    create table forgerelay_schema_migrations (
       version integer primary key,
       name text not null,
       applied_at text not null
@@ -137,7 +137,7 @@ test("database migration adds component fingerprints to historical Workspace con
     ) values ('chat-legacy', '/project', 'legacy-fingerprint', '2026-08-31T00:00:00.000Z');
   `);
   const recordMigration = legacy.prepare(
-    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+    "insert into forgerelay_schema_migrations (version, name, applied_at) values (?, ?, ?)",
   );
   for (let version = 1; version <= 16; version += 1) {
     recordMigration.run(version, `legacy-${version}`, "2026-08-31T00:00:00.000Z");
@@ -162,17 +162,17 @@ test("database migration adds component fingerprints to historical Workspace con
   assert.equal(historical?.context_fingerprint, "legacy-fingerprint");
   assert.equal(historical?.component_fingerprints_json, null);
   const migration = migrated.sqlite.prepare(
-    "select name from devspace_schema_migrations where version = 17",
+    "select name from forgerelay_schema_migrations where version = 17",
   ).get() as { name?: string } | undefined;
   assert.equal(migration?.name, "workspace-context-components");
 });
 
 test("database migration repairs a partial historical Bash output schema before completion writes", async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-migration-bash-output-test-"));
-  const databasePath = join(stateDir, "devspace.sqlite");
+  const databasePath = join(stateDir, "forgerelay.sqlite");
   const legacy = new Database(databasePath);
   legacy.exec(`
-    create table devspace_schema_migrations (
+    create table forgerelay_schema_migrations (
       version integer primary key,
       name text not null,
       applied_at text not null
@@ -206,7 +206,7 @@ test("database migration repairs a partial historical Bash output schema before 
     );
   `);
   const recordMigration = legacy.prepare(
-    "insert into devspace_schema_migrations (version, name, applied_at) values (?, ?, ?)",
+    "insert into forgerelay_schema_migrations (version, name, applied_at) values (?, ?, ?)",
   );
   for (let version = 1; version <= 11; version += 1) {
     recordMigration.run(version, `legacy-${version}`, "2026-08-15T00:00:00.000Z");

@@ -52,9 +52,9 @@ test("a checkout loads one configured system instruction plus project context", 
     await symlink(join(context.outsideRoot, "secret.txt"), join(unsafeAgentDir, "AGENTS.md"));
 
     const unsafeConfig = loadConfig({
-      FORGERELAY_CONFIG_DIR: join(context.root, ".devspace-unsafe-home"),
+      FORGERELAY_CONFIG_DIR: join(context.root, ".forgerelay-unsafe-home"),
       FORGERELAY_ALLOWED_ROOTS: context.root,
-      FORGERELAY_WORKTREE_ROOT: join(context.root, ".devspace", "unsafe-worktrees"),
+      FORGERELAY_WORKTREE_ROOT: join(context.root, ".forgerelay", "unsafe-worktrees"),
       FORGERELAY_AGENT_DIR: unsafeAgentDir,
       FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
       FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
@@ -354,7 +354,7 @@ test("a symlinked allowed root preserves checkout and worktree path behavior", {
 
   const aliasConfig = loadConfig({
     FORGERELAY_ALLOWED_ROOTS: aliasRoot,
-    FORGERELAY_WORKTREE_ROOT: join(aliasRoot, ".devspace", "alias-worktrees"),
+    FORGERELAY_WORKTREE_ROOT: join(aliasRoot, ".forgerelay", "alias-worktrees"),
     FORGERELAY_AGENT_DIR: context.agentDir,
     FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: context.systemInstructionsPath,
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
@@ -385,8 +385,8 @@ interface WorkspaceFixture {
 }
 
 async function fixture(t: TestContext): Promise<WorkspaceFixture> {
-  const root = await mkdtemp(join(tmpdir(), "devspace-workspace-test-"));
-  const outsideRoot = await mkdtemp(join(tmpdir(), "devspace-workspace-outside-test-"));
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-test-"));
+  const outsideRoot = await mkdtemp(join(tmpdir(), "forgerelay-workspace-outside-test-"));
   const agentDir = join(root, ".pi", "agent");
   const systemInstructionsPath = join(root, ".agents", "AGENTS.md");
 
@@ -424,9 +424,9 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   await writeFile(join(root, "nested", "file.txt"), "hello\n");
 
   const config = loadConfig({
-    FORGERELAY_CONFIG_DIR: join(root, ".devspace-home"),
+    FORGERELAY_CONFIG_DIR: join(root, ".forgerelay-home"),
     FORGERELAY_ALLOWED_ROOTS: root,
-    FORGERELAY_WORKTREE_ROOT: join(root, ".devspace", "worktrees"),
+    FORGERELAY_WORKTREE_ROOT: join(root, ".forgerelay", "worktrees"),
     FORGERELAY_AGENT_DIR: agentDir,
     FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: systemInstructionsPath,
     FORGERELAY_SUBAGENTS: "1",
@@ -455,8 +455,8 @@ async function createGitProject(parent: string): Promise<string> {
   await writeFile(join(gitRoot, "AGENTS.md"), "git root instructions\n");
   await writeFile(join(gitRoot, "README.md"), "hello\n");
   await git(gitRoot, ["init"]);
-  await git(gitRoot, ["config", "user.email", "devspace@example.com"]);
-  await git(gitRoot, ["config", "user.name", "DevSpace Test"]);
+  await git(gitRoot, ["config", "user.email", "forgerelay@example.com"]);
+  await git(gitRoot, ["config", "user.name", "ForgeRelay Test"]);
   await git(gitRoot, ["add", "."]);
   await git(gitRoot, ["commit", "-m", "Initial commit"]);
   return gitRoot;

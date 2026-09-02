@@ -5529,7 +5529,7 @@ test("checkout context and durable Activity queries survive a registry restart",
     restoredActivityQueries,
   );
   const [restoredClientTransport, restoredServerTransport] = InMemoryTransport.createLinkedPair();
-  const restoredClient = new Client({ name: "devspace-restored-test-client", version: "1.0.0" });
+  const restoredClient = new Client({ name: "forgerelay-restored-test-client", version: "1.0.0" });
   let restoredClosed = false;
   const closeRestored = async () => {
     if (restoredClosed) return;
@@ -5705,7 +5705,7 @@ async function fixture(
     incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
   } = {},
 ): Promise<ServerFixture> {
-  const root = await mkdtemp(join(tmpdir(), "devspace-server-test-"));
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-server-test-"));
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
@@ -5726,8 +5726,8 @@ async function fixture(
   if (options.git) {
     await writeFile(join(project, "README.md"), "hello\n");
     await git(project, ["init"]);
-    await git(project, ["config", "user.email", "devspace@example.com"]);
-    await git(project, ["config", "user.name", "DevSpace Test"]);
+    await git(project, ["config", "user.email", "forgerelay@example.com"]);
+    await git(project, ["config", "user.name", "ForgeRelay Test"]);
     await git(project, ["add", "."]);
     await git(project, ["commit", "-m", "Initial commit"]);
   }
@@ -5779,7 +5779,7 @@ async function fixture(
     activityQueries,
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "devspace-test-client", version: "1.0.0" });
+  const client = new Client({ name: "forgerelay-test-client", version: "1.0.0" });
   await Promise.all([
     client.connect(clientTransport),
     server.connect(serverTransport),

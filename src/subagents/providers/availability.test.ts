@@ -16,7 +16,7 @@ assert.deepEqual(
 {
   const availability = checkSubagentProviderAvailability("pi", {
     ...process.env,
-    PI_COMMAND: "/definitely/missing/devspace-pi",
+    PI_COMMAND: "/definitely/missing/forgerelay-pi",
   });
   assert.equal(availability.available, false);
   assert.match(availability.reason ?? "", /executable not found/);
@@ -25,7 +25,7 @@ assert.deepEqual(
 {
   const snapshot = getSubagentProviderAvailabilitySnapshot({
     ...process.env,
-    PI_COMMAND: "/definitely/missing/devspace-pi",
+    PI_COMMAND: "/definitely/missing/forgerelay-pi",
   });
   assert.deepEqual(
     snapshot.map((provider) => provider.name),

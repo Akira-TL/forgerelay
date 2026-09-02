@@ -48,7 +48,7 @@ test("OAuth router preserves SDK HTTPS issuer validation", () => {
       provider,
       issuerUrl: new URL("http://forge.example.com/forgerelay/main"),
       resourceServerUrl: new URL("http://forge.example.com/forgerelay/main/mcp"),
-      scopesSupported: ["devspace"],
+      scopesSupported: ["forgerelay"],
       resourceName: "ForgeRelay",
     }),
     /Issuer URL must be HTTPS/,
@@ -68,7 +68,7 @@ test("OAuth metadata preserves an instance path prefix", async (t) => {
     provider,
     issuerUrl,
     resourceServerUrl,
-    scopesSupported: ["devspace"],
+    scopesSupported: ["forgerelay"],
     resourceName: "ForgeRelay",
   }));
 
@@ -113,7 +113,7 @@ test("CLI authentication route issues and refreshes tokens without OAuth browser
         token_type: "bearer" as const,
         expires_in: 3600,
         refresh_token: "refresh-one",
-        scope: "devspace",
+        scope: "forgerelay",
       };
     },
     exchangeCliRefreshToken(refreshToken: string) {
@@ -124,7 +124,7 @@ test("CLI authentication route issues and refreshes tokens without OAuth browser
         token_type: "bearer" as const,
         expires_in: 3600,
         refresh_token: "refresh-two",
-        scope: "devspace",
+        scope: "forgerelay",
       };
     },
   };
@@ -135,7 +135,7 @@ test("CLI authentication route issues and refreshes tokens without OAuth browser
     cliAuthenticationProvider,
     issuerUrl,
     resourceServerUrl: publicEndpointUrl(issuerUrl, "mcp"),
-    scopesSupported: ["devspace"],
+    scopesSupported: ["forgerelay"],
   }));
 
   const server = app.listen(0, "127.0.0.1");
@@ -172,7 +172,7 @@ test("CLI authentication route issues and refreshes tokens without OAuth browser
     token_type: "bearer",
     expires_in: 3600,
     refresh_token: "refresh-one",
-    scope: "devspace",
+    scope: "forgerelay",
   });
 
   const refreshed = await fetch(`${baseUrl}/auth/cli`, {
@@ -187,6 +187,6 @@ test("CLI authentication route issues and refreshes tokens without OAuth browser
     token_type: "bearer",
     expires_in: 3600,
     refresh_token: "refresh-two",
-    scope: "devspace",
+    scope: "forgerelay",
   });
 });

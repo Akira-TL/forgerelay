@@ -52,7 +52,7 @@ export interface ReviewCheckpointManagerOptions {
   maxWorkspaceStates?: number;
 }
 
-const REVIEW_REF_PREFIX = "refs/devspace/review";
+const REVIEW_REF_PREFIX = "refs/forgerelay/review";
 const DEFAULT_MAX_REVIEW_WORKSPACE_STATES = 128;
 
 export function createReviewCheckpointManager(

@@ -9,7 +9,7 @@ import {
   buildToolDescriptions,
 } from "./server-instructions.js";
 
-const configDir = mkdtempSync(join(tmpdir(), "devspace-server-instructions-test-"));
+const configDir = mkdtempSync(join(tmpdir(), "forgerelay-server-instructions-test-"));
 const baseEnv = {
   FORGERELAY_CONFIG_DIR: configDir,
   FORGERELAY_ALLOWED_ROOTS: process.cwd(),

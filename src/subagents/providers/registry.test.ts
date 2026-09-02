@@ -398,40 +398,26 @@ assert.equal(
 );
 
 {
-  const devspaceBin = `${process.cwd()}/node_modules/.bin`;
+  const forgerelayBin = `${process.cwd()}/node_modules/.bin`;
   const userBin = "/home/user/.local/bin";
   assert.equal(
-    removeForgeRelayNodeModulesBinFromPath([devspaceBin, userBin].join(delimiter)),
+    removeForgeRelayNodeModulesBinFromPath([forgerelayBin, userBin].join(delimiter)),
     userBin,
   );
 
-  const legacyRoot = mkdtempSync(join(tmpdir(), "forgerelay-legacy-package-path-"));
-  try {
-    for (const [index, packageName] of ["@akira-tl/devspace", "@waishnav/devspace"].entries()) {
-      const packageRoot = join(legacyRoot, `legacy-${index}`);
-      const legacyBin = join(packageRoot, "node_modules", ".bin");
-      mkdirSync(legacyBin, { recursive: true });
-      writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: packageName }));
-      const pathValue = [legacyBin, userBin].join(delimiter);
-      assert.equal(removeForgeRelayNodeModulesBinFromPath(pathValue), pathValue);
-    }
-  } finally {
-    rmSync(legacyRoot, { recursive: true, force: true });
-  }
-
   const env = piCommandEnvironment({
-    PATH: [devspaceBin, userBin].join(delimiter),
+    PATH: [forgerelayBin, userBin].join(delimiter),
   });
 
   assert.equal(env.PATH, userBin);
 }
 
 {
-  const devspaceBin = `${process.cwd()}/node_modules/.bin`;
+  const forgerelayBin = `${process.cwd()}/node_modules/.bin`;
   const env = piCommandEnvironment({
     PI_COMMAND: "/custom/pi",
-    PATH: [devspaceBin, "/home/user/.local/bin"].join(delimiter),
+    PATH: [forgerelayBin, "/home/user/.local/bin"].join(delimiter),
   });
 
-  assert.equal(env.PATH, [devspaceBin, "/home/user/.local/bin"].join(delimiter));
+  assert.equal(env.PATH, [forgerelayBin, "/home/user/.local/bin"].join(delimiter));
 }

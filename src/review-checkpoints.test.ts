@@ -221,11 +221,11 @@ test("an unborn repository becomes reviewable after its first commit", async (t)
 });
 
 async function committedRepository(t: TestContext): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "devspace-review-checkpoints-test-"));
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-review-checkpoints-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await git(root, ["init"]);
-  await git(root, ["config", "user.email", "devspace@example.com"]);
-  await git(root, ["config", "user.name", "DevSpace Test"]);
+  await git(root, ["config", "user.email", "forgerelay@example.com"]);
+  await git(root, ["config", "user.name", "ForgeRelay Test"]);
   await writeFile(join(root, "README.md"), "hello\n");
   await git(root, ["add", "README.md"]);
   await git(root, ["commit", "-m", "Initial commit"]);
@@ -233,11 +233,11 @@ async function committedRepository(t: TestContext): Promise<string> {
 }
 
 async function unbornRepository(t: TestContext): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "devspace-review-unborn-test-"));
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-review-unborn-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await git(root, ["init"]);
-  await git(root, ["config", "user.email", "devspace@example.com"]);
-  await git(root, ["config", "user.name", "DevSpace Test"]);
+  await git(root, ["config", "user.email", "forgerelay@example.com"]);
+  await git(root, ["config", "user.name", "ForgeRelay Test"]);
   return root;
 }
 
@@ -246,7 +246,7 @@ async function deleteReviewRef(
   workspaceId: string,
   checkpoint: "open" | "baseline",
 ): Promise<void> {
-  await git(root, ["update-ref", "-d", `refs/devspace/review/${workspaceId}/${checkpoint}`]);
+  await git(root, ["update-ref", "-d", `refs/forgerelay/review/${workspaceId}/${checkpoint}`]);
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
