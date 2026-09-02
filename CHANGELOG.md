@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-09-02
+
 ### Fixed
 
 - Restored the full lightweight Workspace overview across fresh MCP connections and brought rich Read/Edit/Write Activity details back behind lazy per-Activity loading, without reintroducing heavy default polling payloads.
