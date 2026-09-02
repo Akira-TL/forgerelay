@@ -155,6 +155,7 @@ try {
     "open_workspace",
     "activity_panel",
     "activity_snapshot",
+    "activity_index",
     "activity_detail",
     "activity_output",
     "capability",
@@ -694,8 +695,13 @@ try {
     });
     assert.equal(inspectorSnapshot.isError, undefined);
     assert.ok(inspectorSnapshot.structuredContent.revision > 0);
+    assert.equal(inspectorSnapshot.structuredContent.activities, undefined);
+    const inspectorIndex = callTool(oauth.accessToken, sessionId, 93, "activity_index", {
+      turnId: inspectorTurnId,
+    });
+    assert.equal(inspectorIndex.isError, undefined);
     assert.deepEqual(
-      inspectorSnapshot.structuredContent.activities.map(({ tool, workspaceId: activityWorkspaceId, target }) => ({
+      inspectorIndex.structuredContent.activities.map(({ tool, workspaceId: activityWorkspaceId, target }) => ({
         tool,
         workspaceId: activityWorkspaceId,
         target,
