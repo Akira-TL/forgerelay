@@ -63,7 +63,9 @@ test("activity_panel owns one runtime containing permanent Workspace and collaps
   assert.match(unifiedSource, /forgerelay-panel/);
   assert.doesNotMatch(unifiedSource, /workspace-panel-pending-dot/);
   assert.doesNotMatch(unifiedSource, /renderActivityPending/);
-  assert.match(activityPanelSource, /this\.snapshot\.activities\.length === 0/);
+  assert.match(activityPanelSource, /this\.snapshot\.revision === 0/);
+  assert.match(activityPanelSource, /private activities: ActivitySummary\[\] = \[\]/);
+  assert.match(activityPanelSource, /name: "activity_index"/);
   assert.match(activityPanelSource, /this\.root\.replaceChildren\(\)/);
 });
 
