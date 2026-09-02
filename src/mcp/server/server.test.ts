@@ -1,0 +1,10 @@
+import "./contract.test.js";
+import "./workspace/workspace-open.test.js";
+import "./workspace/workspace-inventory.test.js";
+import "./workspace/workspace-context.test.js";
+import "./workspace/tasks-inspect.test.js";
+import "./workspace/tasks-lifecycle.test.js";
+import "./workspace/worktree-restart.test.js";
+import "./operations/activity-batch.test.js";
+import "./operations/filesystem.test.js";
+import "./operations/hooks.test.js";
