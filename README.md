@@ -231,7 +231,8 @@ forgerelay hooks list --project /path/to/project
 
 ForgeRelay can delegate work to local coding runtimes through user-defined
 profiles. The current adapter layer supports Codex, Claude, OpenCode, Pi,
-Cursor, and Copilot where the corresponding local integration is available.
+Cursor, and Copilot when the corresponding CLI is installed on the server.
+ForgeRelay does not install or bundle those coding runtimes.
 
 Profiles can live in:
 
@@ -248,12 +249,12 @@ forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
 
-A first-class MCP subagent interface is planned so a parent agent can use the
-same runtime without going through the CLI.
+MCP hosts delegate through the `subagent.session` Capability Gateway; the CLI
+remains useful for local diagnostics and manual session inspection.
 
 See [Agent Profile Schema](docs/agent-profile-schema.md) for the profile format.
 
-## Configuration and upgrades from DevSpace
+## Configuration
 
 Configuration uses the `FORGERELAY_*` prefix. For example:
 
@@ -262,15 +263,6 @@ FORGERELAY_ALLOWED_ROOTS="$HOME/projects" \
 FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com" \
 forgerelay serve
 ```
-
-The rename-era automatic compatibility window has ended. `DEVSPACE_*`
-environment variables are ignored, ForgeRelay no longer auto-selects
-`~/.devspace`, and project `.devspace/agents` profiles are not discovered.
-
-If an older installation still has data under DevSpace-named directories,
-migrate it explicitly or point the canonical ForgeRelay settings at those paths
-while moving the data. Persisted internal identifiers that would otherwise
-orphan existing state remain compatible and are not product-facing configuration.
 
 See [Configuration Reference](docs/configuration.md) for all supported options.
 

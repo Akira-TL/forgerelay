@@ -28,27 +28,6 @@ npm rebuild better-sqlite3
 npx @akira-tl/forgerelay doctor
 ```
 
-## Existing DevSpace config stopped being used
-
-The automatic rename-era fallback has ended. ForgeRelay now defaults to
-`~/.forgerelay` and ignores `DEVSPACE_*` environment variables.
-
-Check the resolved directory:
-
-```bash
-forgerelay doctor
-```
-
-If an older installation still needs data from a DevSpace-named directory,
-point the canonical setting at it explicitly while migrating:
-
-```bash
-FORGERELAY_CONFIG_DIR="$HOME/.forgerelay" forgerelay init
-```
-
-Do not delete the old directory until you have confirmed which persisted state,
-worktrees, skills, and profiles you still need.
-
 ## Public base URL includes `/mcp`
 
 Store the public base URL *before* the final `/mcp`. A routed deployment keeps
@@ -135,10 +114,6 @@ New installs normally use:
 ~/.forgerelay/auth.json
 ```
 
-ForgeRelay no longer discovers `~/.devspace/auth.json` automatically. Move the
-credential file to the active ForgeRelay config directory or explicitly set
-`FORGERELAY_CONFIG_DIR` while migrating.
-
 Regenerate setup intentionally with:
 
 ```bash
@@ -167,8 +142,6 @@ New managed branches use:
 ```text
 forgerelay/*
 ```
-
-Legacy persisted `devspace/*` branches remain valid and closable.
 
 Uncommitted source-checkout changes are not automatically copied into a newly
 created worktree.
@@ -228,9 +201,6 @@ New profile locations include:
 ~/.forgerelay/agents/*.md
 .forgerelay/agents/*.md
 ```
-
-Legacy `.devspace/agents` paths are no longer scanned automatically. Move
-profiles into one of the canonical locations before upgrading.
 
 `forgerelay agents ls` lists sessions, not profile definitions. The compact
 profile catalog is returned through `open_workspace`.

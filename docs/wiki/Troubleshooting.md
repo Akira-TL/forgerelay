@@ -73,24 +73,6 @@ npm rebuild better-sqlite3
 npx @akira-tl/forgerelay doctor
 ```
 
-## 升级后为什么不再使用 `~/.devspace`
-
-rename 阶段的自动目录回退已经结束。ForgeRelay 默认使用 `~/.forgerelay`，不会因为旧 `~/.devspace` 仍存在就自动接管它。
-
-用：
-
-```bash
-forgerelay doctor
-```
-
-确认真实目录。迁移旧安装时，可以临时显式指定：
-
-```bash
-FORGERELAY_CONFIG_DIR="$HOME/.devspace" forgerelay doctor
-```
-
-然后把需要的配置、认证、profile 与显式 state/worktree 路径迁到 ForgeRelay 命名。不要在确认旧 state 不再需要之前直接删除 `~/.devspace`。
-
 ## Public Base URL 写成了 `/mcp`
 
 错误：
@@ -176,14 +158,6 @@ FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay ser
 ```text
 ~/.forgerelay/auth.json
 ```
-
-ForgeRelay 不再自动发现：
-
-```text
-~/.devspace/auth.json
-```
-
-旧认证需要移动到当前 config directory，或在迁移期间通过 `FORGERELAY_CONFIG_DIR` 显式选择旧目录。
 
 确实需要重新初始化时：
 
@@ -336,8 +310,6 @@ Profile 常见位置：
 ~/.forgerelay/agents/*.md
 <project>/.forgerelay/agents/*.md
 ```
-
-旧 `.devspace/agents` 不再自动读取；请把 profile 移到规范 ForgeRelay 路径。
 
 注意 `forgerelay agents ls` 主要查看 Subagent Session，不等于“列出所有 profile definition”。Host 获取 compact profile catalog 的路径与 CLI session list 不完全相同。
 

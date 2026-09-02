@@ -18,11 +18,6 @@ Override the directory with:
 FORGERELAY_CONFIG_DIR=/path/to/config npx @akira-tl/forgerelay serve
 ```
 
-The rename-era automatic fallback has ended. `DEVSPACE_CONFIG_DIR` is ignored,
-and the default directory is always `~/.forgerelay`. If an older installation
-still has data in a DevSpace-named directory, migrate it explicitly or point
-`FORGERELAY_CONFIG_DIR` at that directory during the migration.
-
 ## Commands
 
 ```bash
@@ -35,9 +30,7 @@ npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forg
 
 ## Environment variables
 
-The public prefix is `FORGERELAY_*`. Rename-era `DEVSPACE_*` environment
-variables are no longer read. Migrate automation, service files, shell profiles,
-and CI configuration to the canonical ForgeRelay names.
+The public environment-variable prefix is `FORGERELAY_*`.
 
 ## Core variables
 
@@ -79,11 +72,6 @@ A single persisted string remains fully supported, so existing configs require n
 migration. For environment configuration, use a comma-separated list in
 `FORGERELAY_PUBLIC_BASE_URL`.
 
-ForgeRelay no longer auto-detects DevSpace-named state or worktree directories.
-Persisted `stateDir` and `worktreeRoot` values in `config.json` continue to win
-over defaults, so an explicit configuration may temporarily point at an older
-location while data is migrated.
-
 ## Native artifact download
 
 Native-file download is disabled by default. Enable it with:
@@ -111,12 +99,8 @@ ForgeRelay uses a single-user Owner-password OAuth approval flow.
 | --- | --- |
 | `FORGERELAY_OAUTH_ACCESS_TOKEN_TTL_SECONDS` | `3600` |
 | `FORGERELAY_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` |
-| `FORGERELAY_OAUTH_SCOPES` | legacy-compatible internal scope `devspace` |
+| `FORGERELAY_OAUTH_SCOPES` | `forgerelay` |
 | `FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS` | `chatgpt.com,localhost,127.0.0.1` |
-
-The default OAuth scope intentionally remains the legacy internal value during
-the rename so existing registrations/state do not need a destructive migration.
-This is a protocol compatibility identifier, not product branding.
 
 MCP clients discover metadata from:
 
@@ -136,7 +120,7 @@ MCP clients discover metadata from:
 | `codex` | Experimental Codex-shaped compatibility adapter using `open_workspace`, `close_workspace`, `read`, `rename`, `delete`, `apply_patch`, `exec_command`, `write_stdin`, and `capability`. It does not define the ForgeRelay canonical interface. |
 
 `FORGERELAY_MINIMAL_TOOLS` remains a compatibility-style boolean alias when the
-explicit tool mode is unset. DevSpace-prefixed equivalents are no longer read.
+explicit tool mode is unset.
 
 `minimal` and `full` now resolve to the same regular 9-tool `tools/list`; `full`
 is retained only as a configuration-compatibility value. `codex` selects a
@@ -581,7 +565,7 @@ directories; deeper instruction files are discovered lazily when a workspace pat
 is first accessed. Reads surface newly discovered instructions inline, while
 side-effecting file/shell operations stop before execution and require a retry if
 that access discovers new local instructions. `FORGERELAY_AGENT_DIR` does not
-select a global instruction file; it remains a compatibility path for Agent Skills.
+select a global instruction file; its `skills` child is an additional Agent Skills source.
 
 ## Skills and subagents
 
@@ -589,7 +573,7 @@ select a global instruction file; it remains a compatibility path for Agent Skil
 | --- | --- |
 | `FORGERELAY_SKILLS` | Set to `0` to hide skills. Enabled by default. |
 | `FORGERELAY_SUBAGENTS` | Set to `1` to expose configured subagent profiles. |
-| `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; its `skills` child is loaded for compatibility. |
+| `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; its `skills` child is included as an additional Skill source. |
 | `FORGERELAY_SKILL_PATHS` | Optional comma-separated additional skill directories. |
 
 Standard Agent Skills are discovered from:
@@ -605,9 +589,12 @@ When subagents are enabled, profiles are discovered from:
 - the active ForgeRelay config directory's `agents/*.md`;
 - project `.forgerelay/agents/*.md`.
 
-DevSpace-named profile directories are no longer discovered automatically. Move
-those profiles or explicitly select their parent with `FORGERELAY_CONFIG_DIR`
-during migration.
+
+ForgeRelay does not install or bundle coding-agent executors. Subagent providers
+are available only when the corresponding user-installed executable can be found
+on the server. The default commands are `codex`, `claude`, `opencode`, `pi`,
+`cursor-agent`, and `copilot`. Override the first four when needed with
+`CODEX_COMMAND`, `CLAUDE_COMMAND`, `OPENCODE_COMMAND`, or `PI_COMMAND`.
 
 The ForgeRelay-owned `subagents` capability guide teaches the current CLI
 workflow on demand:

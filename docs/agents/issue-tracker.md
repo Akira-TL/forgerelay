@@ -1,7 +1,7 @@
 # Issue tracker: GitHub
 
 Issues and specs for this repo live as GitHub issues in `Akira-TL/forgerelay`.
-Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository selector) to `gh` operations. Do not rely on remote inference because this checkout also carries the provenance-only `upstream` remote.
+Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository selector) to `gh` operations so automation never depends on Git remote inference.
 
 ## Conventions
 

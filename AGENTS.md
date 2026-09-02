@@ -2,7 +2,7 @@
 
 ForgeRelay is a local development execution layer for MCP hosts such as ChatGPT and Claude. It gives a remote host workspace-scoped tools for reading, editing, searching, running commands, managing Git worktrees, reviewing changes, and coordinating bounded subagents on the user's machine.
 
-Pi's SDK currently provides mature local coding primitives. ForgeRelay wraps those primitives in a Streamable HTTP MCP server and adds the product-specific boundaries around them: approved roots, workspace state, instructions, process sessions, worktrees, artifacts, review checkpoints, widgets, and subagent execution.
+ForgeRelay owns its local coding primitives and exposes them through a Streamable HTTP MCP server, adding product-specific boundaries around approved roots, workspace state, instructions, process sessions, worktrees, artifacts, review checkpoints, widgets, and subagent execution. Optional coding runtimes stay outside ForgeRelay and are reached only through provider adapters when the corresponding user-installed CLI is available.
 
 ForgeRelay owns tooling mechanics. The model receives only meaningful and actionable choices. The user sees outcomes. Tool definitions should not leak internal implementation or expose choices the tooling can resolve itself.
 
@@ -14,7 +14,7 @@ These ideas should stay true as the project evolves:
 2. **Everything happens in a workspace.** A workspace represents one local project directory or worktree plus the instructions and state accumulated while operating in it.
 3. **Local authority stays explicit.** ForgeRelay runs with access to the user's machine. Roots, paths, commands, processes, credentials, and destructive operations must be treated as product boundaries.
 4. **Subagents are bounded workers.** A subagent should have an explicit task, profile, working context, lifecycle, and result that the host can inspect and coordinate.
-5. **Adapters stay at the edges.** Pi, MCP hosts, and model providers each have their own terminology and capabilities. Provider-specific behavior should not become the core domain model.
+5. **Adapters stay at the edges.** External coding runtimes, MCP hosts, and model providers each have their own terminology and capabilities. Provider-specific behavior should not become the core domain model.
 6. **Prefer composable primitives.** Build a small set of reliable operations that can be combined into larger workflows instead of baking every workflow into the server.
 
 ## Glossary
@@ -41,7 +41,7 @@ Use these terms precisely. In particular, do not use workspace, allowed root, ch
 
 ### GitHub repository target
 
-`origin` / `Akira-TL/forgerelay` is the canonical GitHub repository for Issues, Actions, Releases, and other `gh` API operations. The `upstream` remote exists only for syncing `Waishnav/devspace` provenance and upstream changes. Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository flag) to `gh` commands instead of relying on remote inference.
+`origin` / `Akira-TL/forgerelay` is the canonical GitHub repository for Issues, Actions, Releases, and other `gh` API operations. Always pass `-R Akira-TL/forgerelay` (or the command's equivalent explicit repository flag) to `gh` commands instead of relying on remote inference.
 
 ### Issue tracker
 
@@ -65,7 +65,7 @@ Keep tunnel ownership and credentials with the user. ForgeRelay may operate thro
 
 ## Diagnose the correct layer
 
-A failure may belong to the host, MCP transport, ForgeRelay, a Pi adapter, a provider, a model, a tool implementation, or the target project. Preserve the original error and identify the failing boundary before changing code.
+A failure may belong to the host, MCP transport, ForgeRelay, a provider adapter, an external coding runtime, a model, a tool implementation, or the target project. Preserve the original error and identify the failing boundary before changing code.
 
 An adapter exception is not evidence that a model failed. A successful command is not evidence that a GUI opened, a host refreshed, or a user-visible workflow succeeded.
 

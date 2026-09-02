@@ -1,6 +1,6 @@
 # 配置指南
 
-这篇页面只覆盖日常最常用的 ForgeRelay 配置。完整字段、兼容规则和低频选项请查主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
+这篇页面只覆盖日常最常用的 ForgeRelay 配置。完整字段和低频选项请查主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
 
 ## 配置来源
 
@@ -18,8 +18,6 @@ ForgeRelay 可以通过：
 ~/.forgerelay/config.json
 ~/.forgerelay/auth.json
 ```
-
-旧 DevSpace 自动目录回退已经结束。ForgeRelay 默认只使用 `~/.forgerelay`；升级旧安装时需要显式迁移数据，或临时使用 `FORGERELAY_CONFIG_DIR` 指向旧目录。
 
 ## 常用 CLI
 
@@ -246,8 +244,6 @@ FORGERELAY_SUBAGENTS=1
 <project>/.forgerelay/agents/*.md
 ```
 
-旧 `.devspace/agents` 路径不再自动扫描；升级前请把 profile 移到规范路径。
-
 本地 CLI diagnostics：
 
 ```bash
@@ -316,9 +312,3 @@ FORGERELAY_TOOL_MODE="minimal" \
 FORGERELAY_WIDGETS="full" \
 npx @akira-tl/forgerelay serve
 ```
-
-## 旧 DevSpace 环境变量
-
-rename 阶段的 `DEVSPACE_*` fallback 已结束，这些变量不再参与配置解析。
-
-服务文件、shell profile、CI 与脚本应全部迁移到 `FORGERELAY_*`。

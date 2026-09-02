@@ -192,14 +192,3 @@ upstream provenance:
 - the npm package must include `NOTICE.md`.
 
 Do not weaken these checks as part of ordinary branding or release work.
-
-## Compatibility identifiers
-
-The ForgeRelay rename does not require destructive migration of internal state.
-Some persisted identifiers deliberately keep historical DevSpace names when
-changing them would orphan existing data, including older SQLite schema/file
-identifiers and review Git refs. These are storage compatibility details, not
-public product branding.
-
-New user-facing configuration, managed branches, CLI output, package metadata,
-and release names use ForgeRelay.

@@ -60,10 +60,6 @@ FORGERELAY_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)"
 
 The token must be at least 16 characters.
 
-Rename-era `DEVSPACE_*` environment-variable and automatic `~/.devspace`
-configuration fallbacks have ended. Use canonical `FORGERELAY_*` settings and
-explicit paths when migrating older installations.
-
 ## Public URL and tunnels
 
 ForgeRelay needs `FORGERELAY_PUBLIC_BASE_URL` when an MCP client reaches it

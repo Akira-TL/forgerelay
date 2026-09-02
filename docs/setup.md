@@ -119,17 +119,6 @@ New installations use:
 
 Keep `auth.json` private.
 
-### Existing DevSpace configuration
-
-Automatic DevSpace directory fallback has ended. ForgeRelay defaults to
-`~/.forgerelay` and ignores `DEVSPACE_CONFIG_DIR`.
-
-Before upgrading an older installation, move or copy the needed configuration
-and credentials into the ForgeRelay directory, or temporarily point
-`FORGERELAY_CONFIG_DIR` at the old directory. If state or managed worktrees live
-under older paths, preserve them with explicit `stateDir` / `worktreeRoot`
-configuration until migration is complete.
-
 ## Check the setup
 
 ```bash

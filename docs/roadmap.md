@@ -55,8 +55,7 @@ The initial independent release establishes:
 - branch-backed managed worktrees using `forgerelay/*` branches;
 - safe `close_worktree` fast-forward lifecycle;
 - persisted worktree branch/target metadata;
-- existing local coding-agent profile/provider integration;
-- compatibility with legacy DevSpace configuration/state identifiers.
+- existing local coding-agent profile/provider integration.
 
 ## 0.2 — Hooks v1
 
@@ -358,9 +357,10 @@ Task is a checklist/continuation primitive rather than an execution scheduler:
 Subagent coordination can reference Task content when useful, but ForgeRelay does
 not bind Tasks to Subagent Sessions or infer Task completion from execution facts.
 
-## Compatibility policy
+## Project identity
 
-New public names use ForgeRelay:
+ForgeRelay uses its own package, CLI, configuration, state, project-directory,
+and managed-branch namespaces:
 
 - `@akira-tl/forgerelay`
 - `forgerelay`
@@ -369,9 +369,5 @@ New public names use ForgeRelay:
 - `.forgerelay`
 - `forgerelay/*` managed branches
 
-Rename-era public compatibility adapters have a bounded migration window rather
-than permanent support. `DEVSPACE_*`, automatic `~/.devspace` reuse, legacy
-`.devspace/agents` discovery, and old package-path special cases are retired once
-they are outside that window. Persisted internal identifiers remain compatible
-when removing them would orphan real user state; those are storage/protocol
-migration concerns, not public product aliases.
+Upstream attribution is preserved separately through `LICENSE`, `NOTICE.md`, and
+release provenance checks; it is not a runtime compatibility surface.

@@ -6,17 +6,12 @@ runtime to use and what prompt prefix/configuration to apply.
 
 ## Locations
 
-New locations:
+Locations:
 
 ```text
 ~/.forgerelay/agents/*.md
 .forgerelay/agents/*.md
 ```
-
-Rename-era DevSpace profile discovery has ended. `~/.devspace/agents/*.md` and
-`.devspace/agents/*.md` are not scanned automatically. Move older profiles into
-a canonical ForgeRelay location, or temporarily point `FORGERELAY_CONFIG_DIR`
-at the old global config directory while migrating.
 
 ## Example
 
@@ -63,7 +58,11 @@ copilot
 ```
 
 Custom provider strings are rejected. ForgeRelay maps these identifiers through
-its local provider adapter registry.
+its local provider adapter registry and invokes the corresponding user-installed
+CLI. ForgeRelay does not install or bundle Codex, Claude Code, OpenCode, Pi,
+Cursor, or Copilot. The default executable names are `codex`, `claude`,
+`opencode`, `pi`, `cursor-agent`, and `copilot`; `CODEX_COMMAND`,
+`CLAUDE_COMMAND`, `OPENCODE_COMMAND`, and `PI_COMMAND` can override the first four.
 
 ### `model`
 
@@ -106,9 +105,8 @@ forgerelay agents run <profile> --thinking <level> "<prompt>"
 not the profile-definition catalog. The compact profile catalog is returned by
 `open_workspace` when subagents are enabled.
 
-## MCP direction
+## MCP use
 
-Profiles and provider execution are intentionally independent of the current
-CLI transport. A planned first-class MCP subagent tool will wrap the same
-provider adapter/session registry rather than introducing a second agent
-runtime.
+Profiles and provider execution are independent of the CLI transport. MCP hosts
+use the `subagent.session` Capability Gateway over the same provider adapter and
+session registry; the CLI is a local diagnostic and manual-control surface.

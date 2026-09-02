@@ -164,9 +164,6 @@ same safe finalize/integrate/cleanup lifecycle before ForgeRelay deletes its ide
 For an already-closed managed-worktree Workspace, delete removes only ForgeRelay-owned
 state and does not recreate the physical backing.
 
-Legacy `devspace/*` managed branches remain closable when they are already stored
-in workspace metadata; only new managed branches use `forgerelay/*`.
-
 ## Instructions
 
 When a workspace opens, ForgeRelay first loads exactly one global system-instructions
@@ -252,8 +249,6 @@ global config directory plus:
 ```text
 .forgerelay/agents/*.md
 ```
-
-Rename-era `.devspace/agents` discovery has ended.
 
 The workspace result exposes only compact profile metadata so the host can
 choose a provider/profile without loading full provider launch details. Read the
@@ -350,10 +345,7 @@ and keeps widget usage focused on workspace/change review.
 
 `FORGERELAY_WIDGETS=off` disables widget UI.
 
-## Legacy configuration
+## Configuration
 
-`FORGERELAY_*` is the canonical environment-variable prefix. Rename-era
-`DEVSPACE_*` fallbacks and automatic `~/.devspace` reuse have ended. Migrate
-older installations explicitly; persisted internal identifiers that would
-otherwise orphan state remain compatible. See
-[Configuration Reference](configuration.md) for the current rules.
+`FORGERELAY_*` is the canonical environment-variable prefix. See
+[Configuration Reference](configuration.md) for the current settings.

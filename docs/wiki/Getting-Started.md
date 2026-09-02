@@ -151,10 +151,4 @@ open_workspace(path="~/project", mode="worktree")
 
 继续阅读：[核心概念](Core-Concepts) 和 [Workspace 生命周期](Workspace-Lifecycle)。
 
-## 从旧 DevSpace 配置升级
-
-rename 阶段的自动兼容窗口已经结束。ForgeRelay 不再自动复用 `~/.devspace`，也不再读取 `DEVSPACE_*` 环境变量。
-
-升级旧安装时，请先把需要的配置、认证与 profile 显式迁移到 ForgeRelay 路径；若旧 state/worktree 尚未迁走，可暂时通过规范的 `FORGERELAY_*` 设置或持久配置指向旧路径。
-
 完整字段见主仓库的 [Setup Guide](https://github.com/Akira-TL/forgerelay/blob/main/docs/setup.md) 与 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。

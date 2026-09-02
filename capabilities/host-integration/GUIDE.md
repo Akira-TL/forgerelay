@@ -25,7 +25,7 @@ ForgeRelay 本地监听一个 HTTP origin，MCP endpoint 是 `/mcp`。当 Host �
 
 ## OAuth owner flow
 
-ForgeRelay 使用 single-user Owner-password OAuth approval flow。新安装的 owner secret 通常保存在 `~/.forgerelay/auth.json`；迁移安装可能继续使用旧 `.devspace` 配置目录。不要把 owner token、refresh token 或 `auth.json` 内容放进 Agent 输出、项目文件或日志。
+ForgeRelay 使用 single-user Owner-password OAuth approval flow。owner secret 通常保存在 `~/.forgerelay/auth.json`。不要把 owner token、refresh token 或 `auth.json` 内容放进 Agent 输出、项目文件或日志。
 
 Host 可通过这些 metadata endpoint 发现授权配置：
 
@@ -34,7 +34,7 @@ Host 可通过这些 metadata endpoint 发现授权配置：
 /.well-known/oauth-authorization-server
 ```
 
-默认 redirect hosts 包含 `chatgpt.com`、`localhost`、`127.0.0.1`。其他 MCP client 需要显式加入 `FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS`。OAuth scope 默认仍使用 legacy-compatible internal identifier `devspace`，这是协议兼容值，不是产品名回退。
+默认 redirect hosts 包含 `chatgpt.com`、`localhost`、`127.0.0.1`。其他 MCP client 需要显式加入 `FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS`。OAuth scope 默认使用 `forgerelay`。
 
 Owner password 不被接受时先用 `forgerelay doctor` 确认实际 auth/config 路径；只有用户明确要重建配置时才使用 `forgerelay init --force`。
 

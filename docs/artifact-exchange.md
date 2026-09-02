@@ -9,9 +9,6 @@ Enable the capability with:
 FORGERELAY_ARTIFACTS=1 forgerelay serve
 ```
 
-Use the canonical `FORGERELAY_ARTIFACTS` variable; the old
-`DEVSPACE_ARTIFACTS` name is no longer read.
-
 ## Workflow
 
 1. Open the destination project with `open_workspace`.

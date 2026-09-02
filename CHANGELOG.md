@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the remaining DevSpace-era runtime compatibility identifiers and migration aliases while retaining upstream MIT attribution in `LICENSE`, `NOTICE.md`, and release provenance checks.
+- Removed bundled Codex, Claude, OpenCode, and Pi executor packages; subagent providers now invoke user-installed external CLIs, while ForgeRelay keeps only protocol/runtime infrastructure it owns.
+- Upgraded `better-sqlite3` to 13.0.3 and replaced Pi-owned file/Skill helpers with ForgeRelay implementations.
+
+### Fixed
+
+- Eliminated the install-time `prebuild-install` and `node-domexception` deprecation chains without dependency overrides.
+
 ## [0.8.8] - 2026-09-02
 
 ### Fixed
