@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { withFileLock } from "../state/lock/file-lock.js";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
@@ -235,16 +235,6 @@ export async function removeForgeRelayRemote(
     delete remotes[normalizedAlias];
     return { ...auth, remotes };
   }, env);
-}
-
-export function ensureForgeRelayDefaultSkills(env: NodeJS.ProcessEnv = process.env): string[] {
-  const targetPath = join(forgerelaySkillsDir(env), "subagent-delegation", "SKILL.md");
-  if (existsSync(targetPath)) return [];
-
-  const sourcePath = new URL("../../../skills/subagent-delegation/SKILL.md", import.meta.url);
-  mkdirSync(dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, readFileSync(sourcePath, "utf8"), { mode: 0o644 });
-  return [targetPath];
 }
 
 export function resolveSubagentsFlag(

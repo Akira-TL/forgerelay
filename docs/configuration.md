@@ -605,10 +605,10 @@ forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
 
-0.3 no longer auto-discovers or seeds the package's historical bundled
-`subagent-delegation` Skill for new setups. An existing or user-authored Skill
-with that name remains an ordinary Skill and is still discovered from the normal
-Skill paths when subagents are enabled; ForgeRelay does not delete or rewrite it.
+ForgeRelay no longer ships or seeds the historical bundled `subagent-delegation` Skill.
+The official delegation rules live in the `subagents` capability guide and MCP
+contract. A user-authored Skill with that name is an ordinary Skill discovered
+from the normal Skill paths; ForgeRelay does not reserve, delete, or rewrite it.
 
 ## Logging
 

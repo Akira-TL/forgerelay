@@ -23,7 +23,6 @@
     "docs/*.md",
     "examples",
     "scripts",
-    "skills",
     "capabilities",
     "README.md",
     "CHANGELOG.md",

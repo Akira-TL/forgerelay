@@ -170,7 +170,7 @@ try {
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-global-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-project-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "project-skill"), false);
-  assert.equal(loaded.skills.some((skill) => skill.name === "subagent-delegation"), false);
+  assert.equal(loaded.skills.some((skill) => skill.name === "subagent-delegation"), true);
   assert.equal(loaded.skills.filter((skill) => skill.name === "duplicate-skill").length, 1);
   assert.equal(loaded.skills.some((skill) => skill.name === "hidden-skill"), true);
   assert.equal(loaded.diagnostics.some((diagnostic) => diagnostic.type === "collision"), true);
@@ -178,7 +178,7 @@ try {
     loaded.diagnostics.some(
       (diagnostic) => diagnostic.collision?.name === "subagent-delegation",
     ),
-    false,
+    true,
   );
 
   const cleanAgentDir = join(root, "clean-agent");

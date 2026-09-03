@@ -84,7 +84,7 @@ test("subagent.session tracer launches through capability without persisting con
   const subagentCapability = catalog.find((entry) => entry.name === "subagent.session");
   assert.deepEqual(subagentCapability, {
     name: "subagent.session",
-    description: "Coordinate provider-backed Subagent Sessions in the current Execution Workspace.",
+    description: "Delegate explicit work to provider-backed Subagent Sessions in the current Execution Workspace; disclose delegation and verify returned results before presenting them as final.",
     available: true,
     batchPolicy: "unsupported",
     guide: {

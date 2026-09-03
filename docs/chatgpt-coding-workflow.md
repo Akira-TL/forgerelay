@@ -253,9 +253,10 @@ global config directory plus:
 The workspace result exposes only compact profile metadata so the host can
 choose a provider/profile without loading full provider launch details. Read the
 ForgeRelay-owned `subagents` capability guide when delegation is actually needed;
-0.3 no longer auto-loads the historical bundled `subagent-delegation` Skill for
-new setups. Existing user-authored or previously seeded Skills remain normal
-user configuration and are not deleted.
+ForgeRelay no longer ships or auto-loads the historical bundled `subagent-delegation` Skill.
+Official delegation behavior lives in the `subagents` capability guide/MCP contract;
+existing user-authored or previously seeded Skills remain normal user configuration
+and are not deleted.
 
 Host 正常委派通过现有 `capability` Gateway 中的 `subagent.session` 完成，不增加新的 Core MCP tool。支持的生命周期操作包括 `start`、`resume`、`status`、`list`、`stop` 和 `delete`；具体参数与 provider continuation 能力以 `subagents` capability guide 为准。
 

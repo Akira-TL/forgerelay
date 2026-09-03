@@ -49,6 +49,12 @@ export interface SkillReadResolution {
   isSkillFile: boolean;
 }
 
+export interface SkillSummary {
+  name: string;
+  description: string;
+  disableModelInvocation: boolean;
+}
+
 interface ParsedSkillFrontmatter {
   name?: string;
   description?: string;
@@ -60,7 +66,6 @@ interface SkillCandidate {
   source: string;
 }
 
-const SUBAGENT_DELEGATION_NAME = "subagent-delegation";
 const FRONTMATTER_DELIMITER = "---";
 
 export function effectiveSkillPaths(config: ServerConfig, cwd: string): string[] {
@@ -121,13 +126,7 @@ export function loadWorkspaceSkills(config: ServerConfig, cwd: string): LoadedSk
 
   if (config.subagents) return { skills, diagnostics };
 
-  return {
-    skills: skills.filter((skill) => skill.name !== SUBAGENT_DELEGATION_NAME),
-    diagnostics: diagnostics.filter((diagnostic) => {
-      const collision = diagnostic.collision;
-      return !(collision?.resourceType === "skill" && collision.name === SUBAGENT_DELEGATION_NAME);
-    }),
-  };
+  return { skills, diagnostics };
 }
 
 function discoverSkills(sourcePath: string, diagnostics: SkillDiagnostic[]): Skill[] {
@@ -223,8 +222,8 @@ function loadSkillFile(filePath: string, diagnostics: SkillDiagnostic[]): Skill 
   }
 
   const baseDir = dirname(filePath);
-  const name = normalizedSkillName(frontmatter.name, filePath);
-  if (!name) {
+  const summary = skillSummaryFromFrontmatter(frontmatter, filePath);
+  if (!summary.name) {
     diagnostics.push({
       type: "error",
       message: `Skill ${filePath} has an invalid or empty name.`,
@@ -233,14 +232,21 @@ function loadSkillFile(filePath: string, diagnostics: SkillDiagnostic[]): Skill 
     return undefined;
   }
 
-  const description = typeof frontmatter.description === "string"
-    ? frontmatter.description.trim()
-    : "";
   return {
-    name,
-    description,
+    ...summary,
     filePath: resolve(filePath),
     baseDir: resolve(baseDir),
+  };
+}
+
+export function skillSummaryFromContent(content: string, filePath: string): SkillSummary {
+  return skillSummaryFromFrontmatter(parseSkillFrontmatter(content), filePath);
+}
+
+function skillSummaryFromFrontmatter(frontmatter: ParsedSkillFrontmatter, filePath: string): SkillSummary {
+  return {
+    name: normalizedSkillName(frontmatter.name, filePath),
+    description: typeof frontmatter.description === "string" ? frontmatter.description.trim() : "",
     disableModelInvocation: frontmatter["disable-model-invocation"] === true,
   };
 }

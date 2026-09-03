@@ -599,7 +599,7 @@ export function createCapabilityRegistry(
     ...(dependencies.subagentSession
       ? [{
           name: "subagent.session",
-          description: "Coordinate provider-backed Subagent Sessions in the current Execution Workspace.",
+          description: "Delegate explicit work to provider-backed Subagent Sessions in the current Execution Workspace; disclose delegation and verify returned results before presenting them as final.",
           guideName: "subagents",
           readGuideBeforeFirstUse: true,
           batchPolicy: "unsupported",

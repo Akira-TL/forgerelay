@@ -2,6 +2,15 @@
 
 当任务需要委派给另一个本地 coding agent、获取第二意见、并行调查，或用户明确点名 Subagent/provider 时读取本指南。
 
+## 委派策略与透明性
+
+- 只在用户明确要求委派、点名 Subagent/provider、要求第二意见或并行调查，或任务本身明确需要另一个独立 coding agent 时使用 Subagent；不要因为 profile 存在就静默委派普通工作。
+- 使用 Subagent 时应让用户知道正在委派给哪个 profile/provider；不要隐藏 Subagent 的参与。
+- 不要通过 `bash` 直接启动 `codex`、`claude`、`opencode`、`pi`、`cursor-agent` 或 `copilot` 来绕过 ForgeRelay 的 Session ownership、审计与结果交付。正常 Host 委派使用 `subagent.session`。
+- delegated prompt 必须自包含：说明目标、相关 Workspace/文件、关键约束与验收标准。Subagent 不会自动继承主 Agent 未显式传递的隐含上下文。
+- `reviewer` 适合第二意见/风险/测试缺口，`explorer` 适合只读调查，`implementer` 只在用户允许委派写入工作时使用。
+- Subagent 返回值不是已经验证的最终答案。主 Agent 必须核对关键事实；写入任务检查真实 diff 并运行相关测试，只读调查核对关键路径/符号证据。最终向用户说明使用的 profile/provider、结论、已做验证与剩余风险。
+
 ## 当前接口
 
 启用 Subagent 后，`open_workspace` 会在 `capabilityCatalog` 中公开 `subagent.session`，同时返回紧凑的 provider/profile 元数据。不要为 Subagent 寻找或假设额外的 Core MCP tool；长期可见 Core tool surface 保持不变。

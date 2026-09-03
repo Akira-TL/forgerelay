@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
-import { ensureForgeRelayDefaultSkills, forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
+import { forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-empty-config-test-"));
 const baseEnv = {
@@ -135,13 +135,6 @@ assert.equal(resolveSubagentsFlag({}, {}), undefined);
 assert.equal(resolveSubagentsFlag({ subagents: true }, {}), true);
 assert.equal(resolveSubagentsFlag({ subagents: true }, { FORGERELAY_SUBAGENTS: "0" }), false);
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
-
-const seededConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-seeded-skills-test-"));
-const seededSkillPaths = ensureForgeRelayDefaultSkills({ FORGERELAY_CONFIG_DIR: seededConfigDir });
-assert.deepEqual(seededSkillPaths, [join(seededConfigDir, "skills", "subagent-delegation", "SKILL.md")]);
-assert.equal(existsSync(seededSkillPaths[0]), true);
-assert.match(readFileSync(seededSkillPaths[0], "utf8"), /name: subagent-delegation/);
-assert.deepEqual(ensureForgeRelayDefaultSkills({ FORGERELAY_CONFIG_DIR: seededConfigDir }), []);
 
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "invalid" }),
