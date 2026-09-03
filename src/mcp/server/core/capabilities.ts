@@ -36,6 +36,7 @@ type CapabilityGuideDefinition = {
   name: string;
   description: string;
   whenToRead: string;
+  directory?: string;
   enabled?: (config: CapabilityGuideConfig) => boolean;
 };
 
@@ -47,6 +48,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   },
   {
     name: "managed-worktrees",
+    directory: "workspace/managed-worktrees",
     description: "Managed-worktree lifecycle, close safety, and recovery.",
     whenToRead: "Read for advanced mode=\"worktree\" flows.",
   },
@@ -79,6 +81,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   },
   {
     name: "workspace-tasks",
+    directory: "workspace/workspace-tasks",
     description: "Persistent Task Lists owned by the current Workspace.",
     whenToRead: "Read before creating or maintaining Workspace Tasks.",
   },
@@ -99,7 +102,7 @@ export function loadCapabilityGuides(config: CapabilityGuideConfig): CapabilityG
   return CAPABILITY_GUIDE_DEFINITIONS
     .filter((definition) => definition.enabled?.(config) ?? true)
     .map((definition) => {
-      const baseDir = join(root, definition.name);
+      const baseDir = join(root, definition.directory ?? definition.name);
       return {
         name: definition.name,
         description: definition.description,
