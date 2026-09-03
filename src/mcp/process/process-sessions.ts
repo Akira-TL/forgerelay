@@ -4,7 +4,7 @@ import { resolveShellCommand, terminateProcessTree } from "./process-platform.js
 
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
-const DEFAULT_POLL_YIELD_MS = 5_000;
+export const DEFAULT_POLL_YIELD_MS = 60_000;
 const MAX_START_YIELD_MS = 300_000;
 const MAX_COMMAND_YIELD_MS = 300_000;
 const MAX_POLL_YIELD_MS = 300_000;

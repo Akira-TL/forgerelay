@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  DEFAULT_POLL_YIELD_MS,
   HeadTailBuffer,
   ProcessManager,
   ProcessSessionManager,
@@ -33,6 +34,7 @@ assert.equal(unicodeResult.truncated, true);
 assert.match(unicodeResult.output, /^a🙂/);
 assert.match(unicodeResult.output, /🙂c$/);
 
+assert.equal(DEFAULT_POLL_YIELD_MS, 60_000);
 assert.equal(ProcessSessionManager, ProcessManager);
 assert.equal(resolveProcessId(7, undefined), 7);
 assert.equal(resolveProcessId(undefined, 7), 7);
