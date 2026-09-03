@@ -91,7 +91,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
 ];
 
 function capabilityGuidesDir(): string {
-  return fileURLToPath(new URL("../capabilities", import.meta.url));
+  return fileURLToPath(new URL("../../../../capabilities", import.meta.url));
 }
 
 export function loadCapabilityGuides(config: CapabilityGuideConfig): CapabilityGuide[] {

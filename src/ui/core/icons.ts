@@ -53,12 +53,12 @@ export const toolIcons = {
 export type ToolIcon = IconNode;
 
 const providerLogos = {
-  claude: new URL("./assets/provider-logos/claude.svg", import.meta.url).href,
-  codex: new URL("./assets/provider-logos/openai-dark.svg", import.meta.url).href,
-  copilot: new URL("./assets/provider-logos/copilot-dark.svg", import.meta.url).href,
-  cursor: new URL("./assets/provider-logos/cursor-dark.svg", import.meta.url).href,
-  opencode: new URL("./assets/provider-logos/opencode-dark.svg", import.meta.url).href,
-  pi: new URL("./assets/provider-logos/pi-on-dark.svg", import.meta.url).href,
+  claude: new URL("../assets/provider-logos/claude.svg", import.meta.url).href,
+  codex: new URL("../assets/provider-logos/openai-dark.svg", import.meta.url).href,
+  copilot: new URL("../assets/provider-logos/copilot-dark.svg", import.meta.url).href,
+  cursor: new URL("../assets/provider-logos/cursor-dark.svg", import.meta.url).href,
+  opencode: new URL("../assets/provider-logos/opencode-dark.svg", import.meta.url).href,
+  pi: new URL("../assets/provider-logos/pi-on-dark.svg", import.meta.url).href,
 } as const;
 
 export function getProviderLogo(name: string): string | undefined {

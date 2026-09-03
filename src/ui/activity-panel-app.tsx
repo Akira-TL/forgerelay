@@ -9,6 +9,7 @@ import type { HostContext } from "./core/card-types.js";
 import { ActivityPanelController } from "./activity/panel.js";
 import { WorkspacePanelController } from "./workspace/panel.js";
 import "./workspace/panel.css";
+import "./review/panel.css";
 
 document.documentElement.dataset.forgerelayApp = "panel";
 
