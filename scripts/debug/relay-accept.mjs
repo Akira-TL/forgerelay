@@ -14,24 +14,14 @@ import {
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { debugRoot, repoRoot } from "./runtime.mjs";
+import { relayAcceptanceTopology, assertPortsFree, setupGitProject, runGit, taskStateFiles, findTaskStateFile, assertTaskBodyAbsentFromGateway, assertSafeRelayInspection, assertToolOk, toolText, pass } from "./relay-accept/support.mjs";
 
-const gatewayPort = 7677;
-const executionPort = 7678;
-const gatewayBaseUrl = `http://127.0.0.1:${gatewayPort}`;
-const gatewayMcpUrl = `${gatewayBaseUrl}/mcp`;
-const executionBaseUrl = `http://127.0.0.1:${executionPort}`;
-const acceptanceRoot = resolve(debugRoot, "relay-acceptance");
-const gatewayConfigDir = join(acceptanceRoot, "gateway", "config");
-const gatewayStateDir = join(acceptanceRoot, "gateway", "state");
-const gatewayWorktreeRoot = join(acceptanceRoot, "gateway", "worktrees");
-const gatewayProjects = join(acceptanceRoot, "gateway-projects");
-const gatewayLocalProject = join(gatewayProjects, "local");
-const executionConfigDir = join(acceptanceRoot, "execution", "config");
-const executionStateDir = join(acceptanceRoot, "execution", "state");
-const executionWorktreeRoot = join(acceptanceRoot, "execution", "worktrees");
-const executionProjects = join(acceptanceRoot, "execution-projects");
-const executionCheckout = join(executionProjects, "checkout");
-const executionWorktreeSource = join(executionProjects, "worktree-source");
+const {
+  gatewayPort, executionPort, gatewayBaseUrl, gatewayMcpUrl, executionBaseUrl,
+  acceptanceRoot, gatewayConfigDir, gatewayStateDir, gatewayWorktreeRoot,
+  gatewayProjects, gatewayLocalProject, executionConfigDir, executionStateDir,
+  executionWorktreeRoot, executionProjects, executionCheckout, executionWorktreeSource,
+} = relayAcceptanceTopology();
 const gatewayOwnerToken = randomBytes(32).toString("base64url");
 const executionOwnerToken = randomBytes(32).toString("base64url");
 const bootstrapSecret = "RELAY_ACCEPTANCE_BOOTSTRAP_SECRET";
@@ -152,7 +142,7 @@ try {
   assert.ok(checkoutTaskFile, "Execution Task state file was not found");
   const checkoutExecutionWorkspaceId = checkoutTaskFile.split("/").at(-2);
   assert.match(checkoutExecutionWorkspaceId, /^ws_[0-9a-f]{10}$/);
-  assertTaskBodyAbsentFromGateway(checkoutTaskBody);
+  assertTaskBodyAbsentFromGateway(gatewayStateDir, checkoutTaskBody);
   pass("Execution-owned Task truth", `${checkoutExecutionWorkspaceId} owns the Task state; Gateway has no shadow copy`);
 
   for (let index = 0; index < 2; index += 1) {
@@ -188,6 +178,10 @@ try {
   assert.equal(inspectedCheckout.structuredContent.inspection.taskSummary.lists[0].unfinishedTaskCount, 1);
   assertSafeRelayInspection(inspectedCheckout, {
     executionWorkspaceId: checkoutExecutionWorkspaceId,
+    executionBaseUrl,
+    executionPort,
+    executionOwnerToken,
+    bootstrapSecret,
     remoteRecord,
     taskBodies: [checkoutTaskBody],
   });
@@ -269,7 +263,7 @@ try {
   const worktreeTaskFile = findTaskStateFile(executionStateDir, worktreeTaskBody);
   assert.ok(worktreeTaskFile, "Execution managed-worktree Task state file was not found");
   const worktreeExecutionWorkspaceId = worktreeTaskFile.split("/").at(-2);
-  assertTaskBodyAbsentFromGateway(worktreeTaskBody);
+  assertTaskBodyAbsentFromGateway(gatewayStateDir, worktreeTaskBody);
 
   const worktreeWrite = callTool(gatewayMcpUrl, oauth.accessToken, sessionA, nextId(), "write", {
     workspaceId: worktreeRelayId,
@@ -298,6 +292,10 @@ try {
   assert.equal(inspectedWorktree.structuredContent.inspection.rootValid, false);
   assertSafeRelayInspection(inspectedWorktree, {
     executionWorkspaceId: worktreeExecutionWorkspaceId,
+    executionBaseUrl,
+    executionPort,
+    executionOwnerToken,
+    bootstrapSecret,
     remoteRecord,
     taskBodies: [worktreeTaskBody],
   });
@@ -364,7 +362,7 @@ try {
   const memberTaskFile = findTaskStateFile(executionStateDir, compositeMemberTaskBody);
   assert.ok(memberTaskFile, "Execution Composite-member Task state file was not found");
   const memberExecutionWorkspaceId = memberTaskFile.split("/").at(-2);
-  assertTaskBodyAbsentFromGateway(compositeMemberTaskBody);
+  assertTaskBodyAbsentFromGateway(gatewayStateDir, compositeMemberTaskBody);
 
   const compositeOpened = callTool(gatewayMcpUrl, oauth.accessToken, sessionA, nextId(), "open_workspace", {
     kind: "composite",
@@ -445,6 +443,10 @@ try {
   assertToolOk(memberInspection, "inspect relayed Composite member");
   assertSafeRelayInspection(memberInspection, {
     executionWorkspaceId: memberExecutionWorkspaceId,
+    executionBaseUrl,
+    executionPort,
+    executionOwnerToken,
+    bootstrapSecret,
     remoteRecord,
     taskBodies: [compositeMemberTaskBody],
   });
@@ -489,7 +491,7 @@ try {
   }, conversationB);
   assertToolOk(restoredMemberTasks, "restore relayed Composite member Tasks");
   assert.equal(restoredMemberTasks.structuredContent.result.lists[0].tasks[0].subject, "Remote Composite member Task");
-  assertTaskBodyAbsentFromGateway(compositeMemberTaskBody);
+  assertTaskBodyAbsentFromGateway(gatewayStateDir, compositeMemberTaskBody);
   pass("Composite local + Relay member", "member execution/lifecycle/Task truth stayed with owning Workspace");
 
   const deleteComposite = callTool(gatewayMcpUrl, oauth.accessToken, sessionA, nextId(), "close_workspace", {
@@ -799,91 +801,4 @@ async function stopServer(child) {
       if (child.exitCode === null) child.kill("SIGKILL");
     }),
   ]);
-}
-
-async function assertPortsFree(ports) {
-  for (const port of ports) {
-    const occupied = await new Promise((resolvePromise) => {
-      const socket = connect({ host: "127.0.0.1", port });
-      socket.once("connect", () => {
-        socket.destroy();
-        resolvePromise(true);
-      });
-      socket.once("error", () => resolvePromise(false));
-    });
-    assert.equal(occupied, false, `reserved debug port ${port} is already in use; refusing to touch the existing process`);
-  }
-}
-
-function setupGitProject(root) {
-  mkdirSync(root, { recursive: true });
-  writeFileSync(join(root, "README.md"), "Relay managed worktree acceptance\n");
-  runGit(root, ["init"]);
-  runGit(root, ["config", "user.email", "forgerelay-debug@example.com"]);
-  runGit(root, ["config", "user.name", "ForgeRelay Debug"]);
-  runGit(root, ["add", "."]);
-  runGit(root, ["commit", "-m", "Initial Relay acceptance commit"]);
-}
-
-function runGit(cwd, args) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    throw new Error(`git ${args.join(" ")} failed: ${result.stderr.trim() || result.stdout.trim()}`);
-  }
-}
-
-function taskStateFiles(stateDir) {
-  const workspacesDir = join(stateDir, "workspaces");
-  if (!existsSync(workspacesDir)) return [];
-  const files = [];
-  for (const entry of readdirSync(workspacesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const candidate = join(workspacesDir, entry.name, "tasks.json");
-    if (existsSync(candidate)) files.push(candidate);
-  }
-  return files;
-}
-
-function findTaskStateFile(stateDir, needle) {
-  return taskStateFiles(stateDir).find((path) => readFileSync(path, "utf8").includes(needle));
-}
-
-function assertTaskBodyAbsentFromGateway(body) {
-  const leaked = taskStateFiles(gatewayStateDir).filter((path) => readFileSync(path, "utf8").includes(body));
-  assert.deepEqual(leaked, [], `Gateway stored an Execution-owned Task body in: ${leaked.join(", ")}`);
-}
-
-function assertSafeRelayInspection(result, { executionWorkspaceId, remoteRecord, taskBodies }) {
-  const json = JSON.stringify(result);
-  for (const forbidden of [
-    executionWorkspaceId,
-    executionBaseUrl,
-    `127.0.0.1:${executionPort}`,
-    executionOwnerToken,
-    remoteRecord.accessToken,
-    remoteRecord.refreshToken,
-    bootstrapSecret,
-    "remoteInstanceId",
-    "remoteWorkspaceId",
-    "sshRoute",
-    ...taskBodies,
-  ]) {
-    assert.equal(json.includes(forbidden), false, `Relay inspection leaked ${forbidden}`);
-  }
-  assert.doesNotMatch(json, /"ws_[0-9a-f]{10}"/);
-}
-
-function assertToolOk(result, label) {
-  assert.equal(result.isError, undefined, `${label}: ${toolText(result)}`);
-}
-
-function toolText(result) {
-  return (result.content ?? [])
-    .filter((entry) => entry.type === "text")
-    .map((entry) => entry.text)
-    .join("\n");
-}
-
-function pass(label, detail) {
-  console.log(`PASS ${label}: ${detail}`);
 }
