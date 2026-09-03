@@ -165,7 +165,8 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.doesNotMatch(descriptions.write, /Prefer edit/);
   assert.doesNotMatch(descriptions.edit, /Prefer this over write/);
   assert.doesNotMatch(descriptions.applyPatch, /Use this for all file modifications/);
-  assert.match(descriptions.read, /OS temp directory/);
+  assert.match(descriptions.read, /read-only inspection before opening a Workspace/);
+  assert.match(descriptions.read, /configured allowedRoots/);
   assert.match(descriptions.write, /OS temp directory/);
   assert.match(descriptions.edit, /OS temp directory/);
   assert.match(descriptions.rename, /OS temp directory/);

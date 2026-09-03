@@ -295,7 +295,7 @@ test("checkout opened after a worktree receives its own complete context", async
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
-test("open_workspace auto returns only changed bootstrap components", async (t) => {
+test("open_workspace auto returns live instruction deltas without repeating unchanged bootstrap components", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-incremental-bootstrap");
   const firstContent = structuredContent(first);
@@ -306,13 +306,9 @@ test("open_workspace auto returns only changed bootstrap components", async (t) 
 
   const updated = await callOpen(context.client, context.project, "chat-incremental-bootstrap");
   const updatedContent = structuredContent(updated);
-  const updatedAgentsFiles = updatedContent.agentsFiles as Array<{ path?: string; content?: string }>;
-  assert.equal(
-    updatedAgentsFiles.some((file) =>
-      file.path === "AGENTS.md" && file.content === "updated project instructions only\n"
-    ),
-    true,
-  );
+  assert.match(allResponseText(updated), /Workspace instruction delta: AGENTS\.md/);
+  assert.match(allResponseText(updated), /\+updated project instructions only/);
+  assert.equal(updatedContent.agentsFiles, undefined);
   assert.equal(updatedContent.availableAgentsFiles, undefined);
   assert.equal(updatedContent.skills, undefined);
   assert.equal(updatedContent.skillDiagnostics, undefined);
@@ -340,7 +336,9 @@ test("open_workspace context none does not acknowledge changed bootstrap compone
     _meta: { "openai/session": "chat-incremental-none" },
   } as Parameters<Client["callTool"]>[0]);
   const automaticContent = structuredContent(automatic);
-  assert.match(JSON.stringify(automaticContent.agentsFiles), /changed while bootstrap is suppressed/);
+  assert.match(allResponseText(automatic), /Workspace instruction delta: AGENTS\.md/);
+  assert.match(allResponseText(automatic), /\+changed while bootstrap is suppressed/);
+  assert.equal(automaticContent.agentsFiles, undefined);
   assert.equal(automaticContent.skills, undefined);
   assert.equal(automaticContent.capabilityGuides, undefined);
   assert.equal(automaticContent.agents, undefined);

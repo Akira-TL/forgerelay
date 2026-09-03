@@ -251,7 +251,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   });
   assert.deepEqual(catalog[1], {
     name: "code.intelligence",
-    description: "Read semantic code information through an available Language server without changing the Workspace.",
+    description: "Read semantic code information and, when explicitly enabled by the user, manage ForgeRelay-owned Language Servers for this instance.",
     available: true,
     batchPolicy: "parallel",
     guide: {
