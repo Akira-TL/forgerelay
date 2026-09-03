@@ -29,13 +29,42 @@ export async function readRemoteOwnerToken(sshRoute: string[]): Promise<string> 
   const result = await runSshCommand([
     ...prefix,
     target,
-    "forgerelay",
-    "auth",
-    "__owner-token",
+    remoteOwnerTokenCommand(),
   ]);
   const token = result.stdout.trim();
   if (!token) throw new Error("SSH owner-token command returned an empty token.");
   return token;
+}
+
+function remoteOwnerTokenCommand(): string {
+  const script = [
+    "set -u",
+    "try_forgerelay() {",
+    "  candidate=\"$1\"",
+    "  [ -x \"$candidate\" ] || return 1",
+    "  token=$(\"$candidate\" auth __owner-token 2>/dev/null) || token=",
+    "  if [ -z \"$token\" ]; then",
+    "    sibling_node=$(dirname \"$candidate\")/node",
+    "    [ -x \"$sibling_node\" ] || return 1",
+    "    token=$(\"$sibling_node\" \"$candidate\" auth __owner-token 2>/dev/null) || return 1",
+    "  fi",
+    "  [ -n \"$token\" ] || return 1",
+    "  printf '%s\\n' \"$token\"",
+    "  exit 0",
+    "}",
+    "path_candidate=$(command -v forgerelay 2>/dev/null || true)",
+    "[ -n \"$path_candidate\" ] && try_forgerelay \"$path_candidate\"",
+    "for candidate in \"$HOME/.local/bin/forgerelay\" \"$HOME/.npm-global/bin/forgerelay\" \"$HOME/.volta/bin/forgerelay\" \"$HOME/.local/share/pnpm/forgerelay\" \"$HOME/.bun/bin/forgerelay\" \"$HOME\"/.nvm/versions/node/*/bin/forgerelay; do",
+    "  try_forgerelay \"$candidate\"",
+    "done",
+    "printf '%s\\n' 'ForgeRelay CLI was not found in the non-interactive SSH environment or supported user-local install paths.' >&2",
+    "exit 127",
+  ].join("\n");
+  return `sh -c ${shellQuote(script)}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
 export interface RemoteServiceEndpointLease {

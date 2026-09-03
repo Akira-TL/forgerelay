@@ -112,7 +112,7 @@ void sshProcessTest("forgerelay auth uses an SSH route for token retrieval and p
     .map((line) => JSON.parse(line) as string[]);
   assert.equal(invocations.length, 2);
 
-  const tokenInvocation = invocations.find((args) => args.includes("__owner-token"));
+  const tokenInvocation = invocations.find((args) => args.some((arg) => arg.includes("__owner-token")));
   assert.ok(tokenInvocation);
   assert.deepEqual(tokenInvocation.slice(0, 2), ["-J", "jump@example.test"]);
   assert.ok(tokenInvocation.includes("target@example.test"));
@@ -403,7 +403,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.TEST_SSH_LOG, JSON.stringify(args) + "\\n");
-if (args.includes("__owner-token")) {
+if (args.some((arg) => arg.includes("__owner-token"))) {
   if (process.env.TEST_SSH_FAIL_OWNER_TOKEN === "1") {
     process.stderr.write("simulated owner-token failure\\n");
     process.exit(41);
