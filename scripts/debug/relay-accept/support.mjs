@@ -33,11 +33,17 @@ export function relayAcceptanceTopology() {
   const executionProjects = join(acceptanceRoot, "execution-projects");
   const executionCheckout = join(executionProjects, "checkout");
   const executionWorktreeSource = join(executionProjects, "worktree-source");
+  const bootstrapSecret = "RELAY_ACCEPTANCE_BOOTSTRAP_SECRET";
+  const checkoutTaskBody = "RELAY_ACCEPTANCE_EXECUTION_TASK_BODY";
+  const worktreeTaskBody = "RELAY_ACCEPTANCE_WORKTREE_TASK_BODY";
+  const compositeMemberTaskBody = "RELAY_ACCEPTANCE_COMPOSITE_MEMBER_TASK_BODY";
+  const compositeTaskBody = "RELAY_ACCEPTANCE_COMPOSITE_OWN_TASK_BODY";
   return {
     gatewayPort, executionPort, gatewayBaseUrl, gatewayMcpUrl, executionBaseUrl,
     acceptanceRoot, gatewayConfigDir, gatewayStateDir, gatewayWorktreeRoot,
     gatewayProjects, gatewayLocalProject, executionConfigDir, executionStateDir,
     executionWorktreeRoot, executionProjects, executionCheckout, executionWorktreeSource,
+    bootstrapSecret, checkoutTaskBody, worktreeTaskBody, compositeMemberTaskBody, compositeTaskBody,
   };
 }
 

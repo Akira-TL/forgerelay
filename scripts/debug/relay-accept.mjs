@@ -21,14 +21,10 @@ const {
   acceptanceRoot, gatewayConfigDir, gatewayStateDir, gatewayWorktreeRoot,
   gatewayProjects, gatewayLocalProject, executionConfigDir, executionStateDir,
   executionWorktreeRoot, executionProjects, executionCheckout, executionWorktreeSource,
+  bootstrapSecret, checkoutTaskBody, worktreeTaskBody, compositeMemberTaskBody, compositeTaskBody,
 } = relayAcceptanceTopology();
 const gatewayOwnerToken = randomBytes(32).toString("base64url");
 const executionOwnerToken = randomBytes(32).toString("base64url");
-const bootstrapSecret = "RELAY_ACCEPTANCE_BOOTSTRAP_SECRET";
-const checkoutTaskBody = "RELAY_ACCEPTANCE_EXECUTION_TASK_BODY";
-const worktreeTaskBody = "RELAY_ACCEPTANCE_WORKTREE_TASK_BODY";
-const compositeMemberTaskBody = "RELAY_ACCEPTANCE_COMPOSITE_MEMBER_TASK_BODY";
-const compositeTaskBody = "RELAY_ACCEPTANCE_COMPOSITE_OWN_TASK_BODY";
 
 await assertPortsFree([gatewayPort, executionPort]);
 rmSync(acceptanceRoot, { recursive: true, force: true });
