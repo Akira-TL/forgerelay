@@ -588,7 +588,7 @@ export class ProcessManager {
   private startPipe(processEntry: ProcessEntry, input: StartCommandInput): void {
     const shell = resolveShellCommand(input.command);
     const detached = process.platform !== "win32";
-    const child = spawn(input.command, {
+    const child = spawn(shell.executable, shell.args, {
       cwd: input.cwd,
       env: processEnvironment({
         workspaceId: input.workspaceId,
@@ -597,8 +597,8 @@ export class ProcessManager {
       }),
       stdio: "pipe",
       windowsHide: true,
+      windowsVerbatimArguments: shell.windowsVerbatimArguments,
       detached,
-      shell: shell.executable,
     });
 
     processEntry.process = {

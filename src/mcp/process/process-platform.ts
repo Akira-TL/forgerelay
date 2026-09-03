@@ -30,8 +30,7 @@ const defaultProcessTreeRuntime: ProcessTreeRuntime = {
   },
 };
 
-const LOGIN_SHELLS = new Set(["bash", "ksh", "zsh"]);
-const POSIX_SHELLS = new Set(["ash", "dash", "sh"]);
+const POSIX_SHELLS = new Set(["ash", "dash", "ksh", "sh"]);
 
 export function resolveShellCommand(
   command: string,
@@ -46,13 +45,23 @@ export function resolveShellCommand(
     };
   }
 
-  const configuredShell = environment.SHELL;
-  const shellName = configuredShell ? basename(configuredShell) : "";
-  if (configuredShell && LOGIN_SHELLS.has(shellName)) {
-    return { executable: configuredShell, args: ["-lc", command] };
+  // Agent and Hook commands must not source the user's interactive/login shell
+  // configuration. ForgeRelay already inherits PATH and other environment from
+  // the process that launched the server; re-running zsh/bash as a login shell
+  // can inject prompts, banners, aliases, plugins, or other user-only behavior.
+  const configuredShell = environment.FORGERELAY_COMMAND_SHELL?.trim();
+  const executable = configuredShell || (platform === "linux" || platform === "darwin"
+    ? "/bin/bash"
+    : "/bin/sh");
+  const shellName = basename(executable);
+  if (shellName === "bash") {
+    return { executable, args: ["--noprofile", "--norc", "-c", command] };
   }
-  if (configuredShell && POSIX_SHELLS.has(shellName)) {
-    return { executable: configuredShell, args: ["-c", command] };
+  if (shellName === "zsh") {
+    return { executable, args: ["-f", "-c", command] };
+  }
+  if (POSIX_SHELLS.has(shellName)) {
+    return { executable, args: ["-c", command] };
   }
 
   return { executable: "/bin/sh", args: ["-c", command] };
