@@ -4,11 +4,19 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { languageServerCommandRequiresShell } from "./runtime/process-launch.js";
 import {
   callOpen,
   createCodeIntelligenceServerFixture as fixture,
   structuredContent,
 } from "./test-support/server-fixture.js";
+
+test("Windows Language-server command shims use a shell only when required", () => {
+  assert.equal(languageServerCommandRequiresShell("C:\\tools\\typescript-language-server.cmd", "win32"), true);
+  assert.equal(languageServerCommandRequiresShell("C:\\tools\\server.bat", "win32"), true);
+  assert.equal(languageServerCommandRequiresShell("C:\\tools\\server.exe", "win32"), false);
+  assert.equal(languageServerCommandRequiresShell("/usr/local/bin/server.cmd", "darwin"), false);
+});
 
 test("code.intelligence definition resolves through a real stdio LSP child process", async (t) => {
   const context = await fixture(t);

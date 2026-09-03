@@ -94,8 +94,9 @@ export function managedLanguageServerRuntimeIdentity(
 
 export function withManagedLanguageServerPath(
   env: NodeJS.ProcessEnv,
-  configDir: string,
+  configDir: string | undefined,
 ): NodeJS.ProcessEnv {
+  if (!configDir) return { ...env };
   const bin = managedLanguageServerBinDir(configDir);
   return {
     ...env,

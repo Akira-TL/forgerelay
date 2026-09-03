@@ -87,7 +87,7 @@ export class CodeIntelligenceManager {
   private readonly crashCooldownMs: number;
 
   constructor(
-    private readonly config: Pick<ServerConfig, "languageServers" | "configDir">,
+    private readonly config: Pick<ServerConfig, "languageServers"> & Partial<Pick<ServerConfig, "configDir">>,
     options: CodeIntelligenceManagerOptions = {},
   ) {
     this.crashCooldownMs = positiveInteger(
@@ -434,8 +434,9 @@ export class CodeIntelligenceManager {
 
 function withManagedLanguageServerRuntime(
   project: ResolvedLanguageProject,
-  configDir: string,
+  configDir: string | undefined,
 ): ResolvedLanguageProject {
+  if (!configDir) return project;
   const managedId = managedLanguageServerIdForCommand(
     configDir,
     project.definition.command,

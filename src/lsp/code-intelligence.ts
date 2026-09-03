@@ -58,6 +58,7 @@ import {
 import { lspPositionFromUser, rangeFromLsp } from "./position-encoding.js";
 import { DiagnosticSnapshotStore } from "./runtime/diagnostic-snapshots.js";
 import { DocumentSynchronizer, type OpenDocument } from "./runtime/document-synchronizer.js";
+import { languageServerCommandRequiresShell } from "./runtime/process-launch.js";
 import { SemanticRequestCoordinator } from "./runtime/semantic-requests.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
@@ -539,7 +540,7 @@ export class LanguageService {
         stdio: "pipe",
         windowsHide: true,
         detached,
-        shell: false,
+        shell: languageServerCommandRequiresShell(definition.command),
       });
     } catch (error) {
       throw new CodeIntelligenceError(

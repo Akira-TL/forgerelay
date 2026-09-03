@@ -27,6 +27,10 @@ test("managed Language Servers use a private config-local npm prefix", async (t)
   assert.equal(managedLanguageServerBinDir(configDir), join(configDir, "language-servers", "node_modules", ".bin"));
   const env = withManagedLanguageServerPath({ PATH: "/usr/bin" }, configDir);
   assert.equal(env.PATH?.split(delimiter)[0], managedLanguageServerBinDir(configDir));
+  assert.deepEqual(
+    withManagedLanguageServerPath({ PATH: "/usr/bin", FORGERELAY_TEST: "1" }, undefined),
+    { PATH: "/usr/bin", FORGERELAY_TEST: "1" },
+  );
   assert.deepEqual(managedLanguageServerPackages(["typescript", "pyright"]), [
     "typescript-language-server@6",
     "typescript@6",

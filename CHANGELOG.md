@@ -20,6 +20,7 @@ All notable ForgeRelay changes are documented here.
 ### Fixed
 
 - Increased the default foreground process wait and stabilized cancellation/concurrency behavior around Language Server diagnostics.
+- Fixed Windows `.cmd`/`.bat` Language Server launchers and kept ordinary external LSP interoperability independent of ForgeRelay's managed-LSP config directory.
 - Hardened release verification with pinned publishing tooling and dedicated per-version release notes.
 
 ## [0.8.9] - 2026-09-02
