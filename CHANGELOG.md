@@ -4,6 +4,24 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.8.10] - 2026-09-03
+
+### Added
+
+- Added user-controlled managed Language Server installation for TypeScript/JavaScript code intelligence, including private TypeScript SDK wiring, live runtime refresh, and post-mutation diagnostics without restarting ForgeRelay.
+- Added explicit setup flows for local/SSH-only use versus network-exposed ForgeRelay deployments.
+
+### Changed
+
+- Workspace instructions and Skills now stream bounded live deltas after a Workspace is opened, while Agents are prompted to maintain `workspace.tasks` proactively for long-running work instead of querying Tasks mechanically on every open.
+- Agent Bash execution now uses an isolated non-interactive shell environment, and SSH-assisted authentication no longer sources the user's interactive shell configuration.
+- Retired the bundled `subagent-delegation` Skill; required delegation behavior remains in the Subagent capability contract and guide.
+
+### Fixed
+
+- Increased the default foreground process wait and stabilized cancellation/concurrency behavior around Language Server diagnostics.
+- Hardened release verification with pinned publishing tooling and dedicated per-version release notes.
+
 ## [0.8.9] - 2026-09-02
 
 ### Changed
