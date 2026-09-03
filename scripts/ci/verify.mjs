@@ -9,6 +9,7 @@ if (!npmCli) {
 
 console.log(`CI environment: ${process.platform}/${process.arch} ${process.version}`);
 runNpm(["--version"], "npm version");
+runNpm(["run", "architecture:check"], "Architecture");
 runNpm(["run", "release:check"], "Release metadata");
 runNpm(["run", "typecheck"], "Typecheck");
 runNpm(["test"], "Full test suite");
