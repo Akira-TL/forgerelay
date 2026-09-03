@@ -4,6 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../runtime/config/config.js";
+import {
+  classifyClientFacingBaseUrl,
+  hasInsecureLanBaseUrl,
+  validateBindAddress,
+  validateClientFacingBaseUrls,
+} from "./setup-support.js";
 import { SubagentSessionStore } from "../subagents/sessions/store.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
@@ -14,6 +20,20 @@ const cleanProductEnv = Object.fromEntries(
     !name.startsWith("FORGERELAY_")
   ),
 ) as NodeJS.ProcessEnv;
+
+assert.equal(classifyClientFacingBaseUrl("https://forge.example.com"), "secure");
+assert.equal(classifyClientFacingBaseUrl("http://192.168.1.20:7676"), "insecure-lan");
+assert.equal(classifyClientFacingBaseUrl("http://S256C:7676"), "insecure-lan");
+assert.equal(classifyClientFacingBaseUrl("http://relay.home.arpa:7676"), "insecure-lan");
+assert.throws(() => classifyClientFacingBaseUrl("http://forge.example.com"), /Use HTTPS for public addresses/);
+assert.throws(() => classifyClientFacingBaseUrl("ftp://192.168.1.20"), /http:\/\/ or https:\/\//);
+assert.equal(validateClientFacingBaseUrls("http://10.0.0.8:7676,https://forge.example.com"), undefined);
+assert.match(validateClientFacingBaseUrls("http://203.0.113.8:7676") ?? "", /Use HTTPS/);
+assert.equal(hasInsecureLanBaseUrl(["https://forge.example.com"]), false);
+assert.equal(hasInsecureLanBaseUrl(["http://10.0.0.8:7676"]), true);
+assert.equal(validateBindAddress("0.0.0.0"), undefined);
+assert.equal(validateBindAddress("127.0.0.1"), undefined);
+assert.match(validateBindAddress("http://0.0.0.0") ?? "", /not a URL/);
 
 for (const flag of ["-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
@@ -58,10 +78,10 @@ try {
 
   assert.match(
     output,
-    /Public base URLs: https:\/\/forge\.example\.com\/base\/path, https:\/\/forge-alt\.example\.com\/alternate\/path/,
+    /Client-facing base URLs: https:\/\/forge\.example\.com\/base\/path, https:\/\/forge-alt\.example\.com\/alternate\/path/,
   );
-  assert.match(output, /Public base URL: https:\/\/forge\.example\.com\/base\/path/);
-  assert.match(output, /Public MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
+  assert.match(output, /Client-facing base URL: https:\/\/forge\.example\.com\/base\/path/);
+  assert.match(output, /Client-facing MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
   assert.match(output, /Trust proxy: one hop/);

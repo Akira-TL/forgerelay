@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { createRequire } from "node:module";
 import * as prompts from "@clack/prompts";
 import { satisfies } from "semver";
@@ -38,6 +39,59 @@ export function normalizePublicBaseUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+export type ClientFacingUrlSecurity = "secure" | "insecure-lan";
+
+export function classifyClientFacingBaseUrl(value: string): ClientFacingUrlSecurity {
+  const parsed = new URL(normalizePublicBaseUrl(value));
+  if (parsed.protocol === "https:") return "secure";
+  if (parsed.protocol !== "http:") {
+    throw new Error("Client-facing base URLs must use http:// or https://.");
+  }
+  if (!isPrivateNetworkHost(parsed.hostname)) {
+    throw new Error("Plain HTTP is allowed only for local/LAN addresses. Use HTTPS for public addresses.");
+  }
+  return "insecure-lan";
+}
+
+export function validateClientFacingBaseUrls(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "Enter at least one client-facing base URL.";
+  try {
+    for (const baseUrl of normalizePublicBaseUrlsInput(trimmed)) classifyClientFacingBaseUrl(baseUrl);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+export function hasInsecureLanBaseUrl(baseUrls: readonly string[]): boolean {
+  return baseUrls.some((baseUrl) => classifyClientFacingBaseUrl(baseUrl) === "insecure-lan");
+}
+
+function isPrivateNetworkHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || !host.includes(".") || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home.arpa")) {
+    return true;
+  }
+  const family = isIP(host);
+  if (family === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 10
+      || a === 127
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 169 && b === 254)
+      || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (family === 6) {
+    return host === "::1"
+      || host.startsWith("fc")
+      || host.startsWith("fd")
+      || /^fe[89ab]/.test(host);
+  }
+  return false;
+}
+
 type TextPromptOptions = Omit<Parameters<typeof prompts.text>[0], "validate"> & {
   defaultValue: string;
   validate?: (value: string | undefined) => string | Error | undefined;
@@ -58,6 +112,20 @@ export function validatePort(value: string | undefined): string | undefined {
   return Number.isInteger(port) && port >= 1 && port <= 65535
     ? undefined
     : "Enter a port between 1 and 65535.";
+}
+
+export function isLoopbackBindAddress(value: string): boolean {
+  const host = value.trim().toLowerCase();
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+export function validateBindAddress(value: string | undefined): string | undefined {
+  const host = value?.trim() ?? "";
+  if (!host) return "Enter a bind address.";
+  if (/\s|:\/\//.test(host) || host.includes("/")) {
+    return "Enter only a host or IP address, not a URL.";
+  }
+  return undefined;
 }
 
 export function validateRequiredPublicBaseUrls(value: string | undefined): string | undefined {

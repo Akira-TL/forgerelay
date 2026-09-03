@@ -45,7 +45,27 @@ import {
   parseSshRoute,
   readRemoteOwnerToken,
   withRemoteServiceEndpoint,
-} from "./workspaces/relay/transport/remote-transport.js";import { isNullConfigValue, normalizeOptionalPublicBaseUrl, normalizePublicBaseUrlsInput, compactPublicBaseUrlConfig, normalizePublicBaseUrl, textPrompt, validatePort, validateRequiredPublicBaseUrls, assertSupportedNode, nodeVersionStatus, SetupCancelledError, checkSqliteNative, checkGitAvailable, checkBashShell } from "./cli/setup-support.js";
+} from "./workspaces/relay/transport/remote-transport.js";
+import {
+  assertSupportedNode,
+  checkBashShell,
+  checkGitAvailable,
+  checkSqliteNative,
+  classifyClientFacingBaseUrl,
+  compactPublicBaseUrlConfig,
+  hasInsecureLanBaseUrl,
+  isLoopbackBindAddress,
+  isNullConfigValue,
+  nodeVersionStatus,
+  normalizeOptionalPublicBaseUrl,
+  normalizePublicBaseUrl,
+  normalizePublicBaseUrlsInput,
+  SetupCancelledError,
+  textPrompt,
+  validateBindAddress,
+  validateClientFacingBaseUrls,
+  validatePort,
+} from "./cli/setup-support.js";
 
 
 type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "help" | "version";
@@ -156,31 +176,79 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
     });
     const port = Number(portAnswer);
 
-    prompts.note(
-      [
-        "ForgeRelay needs one or more public base URLs so ChatGPT or Claude can reach this MCP server.",
-        "Create a tunnel or reverse proxy with Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own HTTPS proxy.",
-        "Each URL may include its own route prefix. Separate multiple URLs with commas; the first is canonical.",
-        "",
-        "Example: https://forge.example.com/forgerelay/main, https://alias.example.com/relay",
-      ].join("\n"),
-      "Public URL required",
-    );
-    const defaultPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
-      ? files.config.publicBaseUrl.join(", ")
-      : files.config.publicBaseUrl ?? "";
-    const publicBaseUrls = normalizePublicBaseUrlsInput(await textPrompt({
-      message: defaultPublicBaseUrls
-        ? `What are the public base URLs? Press Enter to keep ${defaultPublicBaseUrls}`
-        : "What are the public base URLs?",
-      placeholder: defaultPublicBaseUrls || "https://your-tunnel-host.example.com",
-      defaultValue: defaultPublicBaseUrls,
-      validate: validateRequiredPublicBaseUrls,
-    }));
-    const publicBaseUrl = compactPublicBaseUrlConfig(publicBaseUrls);
+    const existingPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
+      ? files.config.publicBaseUrl
+      : files.config.publicBaseUrl ? [files.config.publicBaseUrl] : [];
+    const defaultNetworkMode = !isLoopbackBindAddress(files.config.host ?? "127.0.0.1") || existingPublicBaseUrls.length > 0
+      ? "network"
+      : "local";
+    const selectedMode = await prompts.select({
+      message: "How should clients reach this ForgeRelay instance?",
+      initialValue: defaultNetworkMode,
+      options: [
+        {
+          value: "local",
+          label: "Local only",
+          hint: "Bind to loopback; local clients only. Client-facing URL is derived automatically.",
+        },
+        {
+          value: "ssh",
+          label: "SSH relay",
+          hint: "Bind to loopback; another ForgeRelay reaches it through an SSH tunnel.",
+        },
+        {
+          value: "network",
+          label: "LAN / HTTPS proxy",
+          hint: "Expose through a LAN address or an HTTPS reverse proxy/tunnel.",
+        },
+      ],
+    });
+    if (prompts.isCancel(selectedMode)) throw new SetupCancelledError();
+    const networkMode = selectedMode as "local" | "ssh" | "network";
+
+    let host = "127.0.0.1";
+    let publicBaseUrl: ForgeRelayUserConfig["publicBaseUrl"] = null;
+    let clientFacingBaseUrls = [`http://127.0.0.1:${port}`];
+
+    if (networkMode === "network") {
+      const defaultHost = files.config.host && !isLoopbackBindAddress(files.config.host)
+        ? files.config.host
+        : "0.0.0.0";
+      host = await textPrompt({
+        message: "Which address should ForgeRelay bind to? Use 0.0.0.0 for direct LAN, or 127.0.0.1 behind a local reverse proxy.",
+        placeholder: defaultHost,
+        defaultValue: defaultHost,
+        validate: validateBindAddress,
+      });
+      const defaultClientFacing = existingPublicBaseUrls.join(", ");
+      clientFacingBaseUrls = normalizePublicBaseUrlsInput(await textPrompt({
+        message: defaultClientFacing
+          ? `What client-facing base URLs should clients use? Press Enter to keep ${defaultClientFacing}`
+          : "What client-facing base URL should clients use?",
+        placeholder: defaultClientFacing || `http://192.168.1.20:${port} or https://forge.example.com`,
+        defaultValue: defaultClientFacing,
+        validate: validateClientFacingBaseUrls,
+      }));
+      for (const baseUrl of clientFacingBaseUrls) classifyClientFacingBaseUrl(baseUrl);
+      if (hasInsecureLanBaseUrl(clientFacingBaseUrls)) {
+        prompts.note(
+          [
+            "Plain HTTP does not encrypt the ForgeRelay Owner approval flow or MCP bearer tokens.",
+            "Use this only on a trusted private LAN. Prefer SSH relay or HTTPS when the network is not fully trusted.",
+          ].join("\n"),
+          "Unencrypted LAN access",
+        );
+        const approved = await prompts.confirm({
+          message: "Allow unencrypted HTTP access on this private network?",
+          initialValue: false,
+        });
+        if (prompts.isCancel(approved) || approved !== true) throw new SetupCancelledError();
+      }
+      publicBaseUrl = compactPublicBaseUrlConfig(clientFacingBaseUrls);
+    }
 
     const config: ForgeRelayUserConfig = {
-      host: files.config.host ?? "127.0.0.1",
+      host,
       port,
       allowedRoots,
       publicBaseUrl,
@@ -197,15 +265,17 @@ async function runInit({ force }: { force: boolean }): Promise<void> {
 
     const configPath = writeForgeRelayConfig(config);
     const authPath = await writeForgeRelayAuth(auth);
-
     const lines = [
       `Config: ${configPath}`,
       `Auth: ${authPath}`,
-      `Local MCP URL: http://${config.host}:${config.port}/mcp`,
-      ...publicBaseUrls.map((baseUrl, index) =>
-        `${index === 0 ? "Public MCP URL" : "Public MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
+      `Bind: http://${config.host}:${config.port}`,
+      ...clientFacingBaseUrls.map((baseUrl, index) =>
+        `${index === 0 ? "Client-facing MCP URL" : "Client-facing MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
       ),
     ];
+    if (networkMode === "ssh") {
+      lines.push(`SSH relay: forgerelay auth -J <ssh-host> 127.0.0.1:${port} --ssh-auth`);
+    }
     prompts.note(lines.join("\n"), "ForgeRelay configured");
     prompts.note(
       [
@@ -244,7 +314,7 @@ async function serve(): Promise<void> {
   const { app, close, subagentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(`forgerelay listening on http://${config.host}:${config.port}/mcp`);
-    console.log(`public base url: ${config.publicBaseUrl}`);
+    console.log(`client-facing base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
     if (config.allowedHosts.includes("*")) {
@@ -453,10 +523,10 @@ async function runDoctor(): Promise<void> {
 
   try {
     const config = loadConfig();
-    console.log(`Local MCP URL: http://${config.host}:${config.port}/mcp`);
-    console.log(`Public base URLs: ${config.publicBaseUrls.join(", ")}`);
-    console.log(`Public base URL: ${config.publicBaseUrl}`);
-    console.log(`Public MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
+    console.log(`Bind MCP URL: http://${config.host}:${config.port}/mcp`);
+    console.log(`Client-facing base URLs: ${config.publicBaseUrls.join(", ")}`);
+    console.log(`Client-facing base URL: ${config.publicBaseUrl}`);
+    console.log(`Client-facing MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
     console.log(`Tool mode: ${config.toolMode}`);
     console.log(`Widgets: ${config.widgets}`);
     console.log(`Trust proxy: ${config.logging.trustProxy ? "one hop" : "off"}`);
