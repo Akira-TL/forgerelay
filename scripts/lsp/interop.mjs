@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CodeIntelligenceManager } from "../dist/lsp/runtime/manager.js";
+import { CodeIntelligenceManager } from "../../dist/lsp/runtime/manager.js";
 import { findExecutable, probeExecutable } from "./interop-support.mjs";
 
-const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const interopRoot = resolve(repoRoot, ".forgerelay-debug", "lsp-interop");
 const fixtures = [
   {
