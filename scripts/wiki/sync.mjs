@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {
-  cpSync,
+  copyFileSync,
   existsSync,
   mkdtempSync,
   readdirSync,
@@ -49,7 +49,13 @@ function validateWikiSource(directory) {
   }
 
   const files = listFiles(directory);
-  const names = new Set(files.map((file) => file.relativePath));
+  const destinationNames = files.map((file) => wikiDestinationName(file.relativePath));
+  const names = new Set(destinationNames);
+  if (names.size !== destinationNames.length) {
+    const duplicates = destinationNames.filter((name, index) => destinationNames.indexOf(name) !== index);
+    fail(`Wiki source contains duplicate flattened page names:
+${[...new Set(duplicates)].map((name) => `- ${name}`).join("\n")}`);
+  }
 
   for (const required of ["Home.md", "_Sidebar.md"]) {
     if (!names.has(required)) {
@@ -59,7 +65,7 @@ function validateWikiSource(directory) {
 
   const invalidNames = files
     .map((file) => file.relativePath)
-    .filter((name) => !isSafeWikiPath(name));
+    .filter((name) => !isSafeWikiSourcePath(name));
   if (invalidNames.length > 0) {
     fail(`Wiki source contains unsupported paths:\n${invalidNames.map((name) => `- ${name}`).join("\n")}`);
   }
@@ -67,7 +73,7 @@ function validateWikiSource(directory) {
   const markdownNames = new Set(
     files
       .filter((file) => file.relativePath.endsWith(".md"))
-      .map((file) => file.relativePath),
+      .map((file) => wikiDestinationName(file.relativePath)),
   );
   const brokenLinks = [];
 
@@ -86,7 +92,7 @@ function validateWikiSource(directory) {
       }
 
       const candidate = target.endsWith(".md") ? target : `${target}.md`;
-      if (!markdownNames.has(candidate)) {
+      if (!markdownNames.has(wikiDestinationName(candidate))) {
         brokenLinks.push(`${file.relativePath}: ${rawTarget}`);
       }
     }
@@ -169,8 +175,8 @@ function mirrorSource(source, destination) {
     rmSync(join(destination, entry), { recursive: true, force: true });
   }
 
-  for (const entry of readdirSync(source)) {
-    cpSync(join(source, entry), join(destination, entry), { recursive: true });
+  for (const file of listFiles(source)) {
+    copyFileSync(file.absolutePath, join(destination, wikiDestinationName(file.relativePath)));
   }
 }
 
@@ -191,10 +197,15 @@ function listFiles(directory, prefix = "") {
   return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
-function isSafeWikiPath(relativePath) {
+function wikiDestinationName(relativePath) {
+  return basename(relativePath);
+}
+
+function isSafeWikiSourcePath(relativePath) {
   if (!relativePath.endsWith(".md")) return false;
-  if (relativePath.includes("/")) return false;
-  return !/[\\:*?"<>|]/.test(relativePath) && basename(relativePath) === relativePath;
+  return relativePath
+    .split("/")
+    .every((segment) => segment.length > 0 && !/[\\:*?"<>|]/.test(segment));
 }
 
 function isExternalOrAnchorLink(target) {

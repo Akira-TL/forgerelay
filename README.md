@@ -252,7 +252,7 @@ forgerelay agents show <id>
 MCP hosts delegate through the `subagent.session` Capability Gateway; the CLI
 remains useful for local diagnostics and manual session inspection.
 
-See [Agent Profile Schema](docs/agent-profile-schema.md) for the profile format.
+See [Agent Profile Schema](docs/agents/profile-schema.md) for the profile format.
 
 ## Configuration
 
@@ -333,7 +333,7 @@ after all platforms succeed. `npm run release:verify` remains available only whe
 cloud failure needs local reproduction against the pinned Node runtime; it is not a
 release prerequisite.
 
-See [Versioning and Release Management](docs/versioning.md) for the bootstrap and
+See [Versioning and Release Management](docs/reference/versioning.md) for the bootstrap and
 Trusted Publishing setup.
 
 ## Documentation
@@ -343,12 +343,12 @@ Trusted Publishing setup.
 - [Local Debugging and 7677 Acceptance](docs/debugging.md)
 - [ChatGPT Coding Workflow](docs/chatgpt-coding-workflow.md)
 - [Configuration Reference](docs/configuration.md)
-- [Agent Profile Schema](docs/agent-profile-schema.md)
-- [Native File Download](docs/artifact-exchange.md)
+- [Agent Profile Schema](docs/agents/profile-schema.md)
+- [Native File Download](docs/reference/artifact-exchange.md)
 - [Security Model](docs/security.md)
 - [Troubleshooting](docs/gotchas.md)
 - [Roadmap](docs/roadmap.md)
-- [Versioning and Release Management](docs/versioning.md)
+- [Versioning and Release Management](docs/reference/versioning.md)
 - [GitHub Wiki Maintenance](docs/maintenance/wiki.md)
 - [Changelog](CHANGELOG.md)
 - [Attribution Notice](NOTICE.md)

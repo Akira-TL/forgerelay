@@ -182,7 +182,7 @@ not accept arbitrary signed URLs, local paths,
 embedded credentials, or base64 strings as substitutes.
 
 Downloads are streamed, size-limited, created without overwrite, and published
-as owner-only files. See [Native File Download](artifact-exchange.md).
+as owner-only files. See [Native File Download](reference/artifact-exchange.md).
 
 ## Logging
 

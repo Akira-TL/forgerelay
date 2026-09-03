@@ -89,7 +89,7 @@ The same settings may be persisted as `artifactsEnabled` and
 `artifactMaxFileBytes` in `config.json`.
 
 The tool currently supports the secure native-file publication path on Linux.
-See [Native File Download](artifact-exchange.md).
+See [Native File Download](reference/artifact-exchange.md).
 
 ## OAuth
 

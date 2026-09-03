@@ -52,7 +52,7 @@ GitHub 只有在网页上创建第一张 Wiki 页面后，才会建立可 clone 
 2. 创建并保存任意初始页面（可以只是临时 Home）；
 3. 回到主仓库运行 Wiki workflow，或本地运行 `npm run wiki:publish`。
 
-第一次发布会用 `docs/wiki/` 完整镜像替换这张临时页面。
+第一次发布会用 `docs/wiki/` 完整镜像替换这张临时页面。 Source 可以按主题放进子目录，但所有 Markdown basename 必须唯一，因为 GitHub Wiki 发布面保持扁平。
 
 如果 Wiki 尚未初始化，发布脚本返回专用状态码 `2`；GitHub Actions 会把它显示为 bootstrap notice，而不是把主分支标记成失败。
 
@@ -100,7 +100,7 @@ Wiki 未初始化时 workflow 只给出 bootstrap notice。完成一次网页初
 1. clone 当前 `.wiki.git`；
 2. 保留 `.git`；
 3. 删除其余 Wiki working tree 内容；
-4. 复制 `docs/wiki/`；
+4. 递归读取 `docs/wiki/`，按页面 basename 扁平镜像到 GitHub Wiki 根目录；
 5. `git add --all`；
 6. 没有变化则直接结束；
 7. 有变化则创建同步提交并 push 当前 Wiki 默认分支。
@@ -111,7 +111,7 @@ Wiki 未初始化时 workflow 只给出 bootstrap notice。完成一次网页初
 
 普通 Wiki 修改建议：
 
-1. 在主仓库修改 `docs/wiki/*.md`；
+1. 在主仓库修改 `docs/wiki/` 下对应的 Markdown source；子目录只用于仓库内组织，发布后的 Wiki 页面名仍取文件 basename；
 2. 运行 `npm run wiki:check`；
 3. 核对内容是否仍与当前已发布 ForgeRelay 行为一致；
 4. 按项目 Git 规范提交；
