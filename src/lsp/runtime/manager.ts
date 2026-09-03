@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { ServerConfig } from "../../runtime/config/config.js";
@@ -13,7 +14,12 @@ import {
   resolveLanguageProject,
   type ResolvedLanguageProject,
 } from "../language-server-config.js";
-import { withManagedLanguageServerPath } from "./managed-language-servers.js";
+import {
+  managedLanguageServerIdForCommand,
+  managedLanguageServerRuntimeIdentity,
+  managedTypeScriptTsserverPath,
+  withManagedLanguageServerPath,
+} from "./managed-language-servers.js";
 
 const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
 const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
@@ -117,12 +123,12 @@ export class CodeIntelligenceManager {
     try {
       canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
       this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
-      project = await resolveLanguageProject({
+      project = withManagedLanguageServerRuntime(await resolveLanguageProject({
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
         globalConfig: this.config.languageServers,
         env: withManagedLanguageServerPath(process.env, this.config.configDir),
-      });
+      }), this.config.configDir);
     } catch (error) {
       if (error instanceof LanguageServerConfigurationError) {
         throw new CodeIntelligenceError(error.code, error.message);
@@ -424,6 +430,43 @@ export class CodeIntelligenceManager {
     this.services.delete(candidate[0]);
     await candidate[1].shutdown();
   }
+}
+
+function withManagedLanguageServerRuntime(
+  project: ResolvedLanguageProject,
+  configDir: string,
+): ResolvedLanguageProject {
+  const managedId = managedLanguageServerIdForCommand(
+    configDir,
+    project.definition.command,
+  );
+  if (!managedId) return project;
+  const runtimeIdentity = managedLanguageServerRuntimeIdentity(configDir, managedId);
+  if (!runtimeIdentity) return project;
+
+  let initializationOptions = project.definition.initializationOptions;
+  if (managedId === "typescript") {
+    const tsserverPath = managedTypeScriptTsserverPath(configDir);
+    if (!tsserverPath) return project;
+    initializationOptions = { tsserver: { path: tsserverPath } };
+  }
+
+  const fingerprint = createHash("sha256")
+    .update(project.definition.fingerprint)
+    .update("\0")
+    .update(runtimeIdentity)
+    .update("\0")
+    .update(JSON.stringify(initializationOptions ?? null))
+    .digest("hex");
+
+  return {
+    ...project,
+    definition: {
+      ...project.definition,
+      ...(initializationOptions === undefined ? {} : { initializationOptions }),
+      fingerprint,
+    },
+  };
 }
 
 function identityBelongsToWorkspaceRoot(identity: string, workspaceRoot: string): boolean {

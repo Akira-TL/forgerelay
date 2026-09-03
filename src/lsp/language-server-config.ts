@@ -27,6 +27,7 @@ export interface ResolvedLanguageServerDefinition {
   languageIdByExtension: Record<string, string>;
   projectMarkers: string[];
   source: "builtin" | "global" | "project";
+  initializationOptions?: Record<string, unknown>;
   fingerprint: string;
 }
 

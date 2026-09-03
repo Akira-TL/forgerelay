@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { CodeIntelligenceError } from "../code-intelligence-error.js";
 import {
   callOpen,
   createCodeIntelligenceServerFixture,
@@ -15,6 +16,8 @@ async function configureProject(
   project: string,
   diagnosticsMode: string,
   diagnosticCount = 1,
+  diagnosticDelayMs = 0,
+  logPath?: string,
 ): Promise<void> {
   await mkdir(join(project, ".forgerelay"), { recursive: true });
   await mkdir(join(project, "src"), { recursive: true });
@@ -30,6 +33,8 @@ async function configureProject(
         env: {
           FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE: diagnosticsMode,
           FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT: String(diagnosticCount),
+          FORGERELAY_FAKE_LSP_DIAGNOSTIC_DELAY_MS: String(diagnosticDelayMs),
+          FORGERELAY_FAKE_LSP_LOG: logPath,
         },
         languages: ["typescript"],
         extensions: [".ts"],
@@ -56,6 +61,19 @@ async function callCode(
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+
+async function waitForLog(logPath: string, pattern: RegExp): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      if (pattern.test(await readFile(logPath, "utf8"))) return;
+    } catch {
+      // The fake server may not have created its log yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${pattern} in ${logPath}`);
+}
 
 test("push diagnostics retain only the latest normalized snapshot", async (t) => {
   const context = await createCodeIntelligenceServerFixture(t);
@@ -108,6 +126,49 @@ test("push diagnostics become stale after a filesystem change until refreshed", 
   assert.equal((structuredContent(result).result as any).freshness.state, "stale");
   assert.equal((structuredContent(result).result as any).freshness.documentVersion, 2);
   assert.equal((structuredContent(result).result as any).freshness.publishedVersion, 1);
+});
+
+test("push diagnostics wait for delayed publish notifications after open and change", async (t) => {
+  const context = await createCodeIntelligenceServerFixture(t);
+  await configureProject(context.project, "push", 1, 75);
+  const opened = await callOpen(context.client, context.project, "push-diagnostics-delayed");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+
+  const openedDiagnostics = structuredContent(await callCode(context, workspaceId, {
+    operation: "diagnostics",
+    path: "src/main.ts",
+  })).result as any;
+  assert.equal(openedDiagnostics.freshness.state, "fresh");
+  assert.equal(openedDiagnostics.freshness.publishedVersion, 1);
+  assert.match(openedDiagnostics.diagnostics[0]?.message ?? "", /diagnostic 1/);
+
+  await writeFile(join(context.project, "src", "main.ts"), "const changed = target();\n");
+  const changedDiagnostics = structuredContent(await callCode(context, workspaceId, {
+    operation: "diagnostics",
+    path: "src/main.ts",
+  })).result as any;
+  assert.equal(changedDiagnostics.freshness.state, "fresh");
+  assert.equal(changedDiagnostics.freshness.documentVersion, 2);
+  assert.equal(changedDiagnostics.freshness.publishedVersion, 2);
+});
+
+test("Host cancellation interrupts a delayed push-diagnostics wait", async (t) => {
+  const context = await createCodeIntelligenceServerFixture(t);
+  const logPath = join(context.project, ".push-diagnostics-cancel.log");
+  await configureProject(context.project, "push", 1, 5_000, logPath);
+  const controller = new AbortController();
+  const pending = context.codeIntelligence.run(
+    context.project,
+    { operation: "diagnostics", path: "src/main.ts" },
+    { signal: controller.signal },
+  );
+
+  await waitForLog(logPath, /"method":"textDocument\/didOpen"/);
+  controller.abort();
+  await assert.rejects(
+    pending,
+    (error: unknown) => error instanceof CodeIntelligenceError && error.code === "code.request_cancelled",
+  );
 });
 
 test("push diagnostics clearing replaces the prior snapshot with an empty fresh snapshot", async (t) => {

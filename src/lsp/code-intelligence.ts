@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc/node";
 import {
   DefinitionRequest,
+  DiagnosticTag,
   DocumentDiagnosticReportKind,
   DocumentDiagnosticRequest,
   DocumentSymbolRequest,
@@ -63,6 +64,7 @@ export { CodeIntelligenceError } from "./code-intelligence-error.js";
 export type * from "./code-intelligence-types.js";
 
 const STDERR_TAIL_BYTES = 64 * 1024;
+const PUSH_DIAGNOSTIC_WAIT_MS = 1_000;
 
 export interface CodeIntelligenceRuntimePolicy {
   idleMs: number;
@@ -434,7 +436,18 @@ export class LanguageService {
         };
       }
 
-      const snapshot = this.diagnosticSnapshots.readPush(document, limit);
+      const snapshot = await this.diagnosticSnapshots.waitForFreshPush(
+        document,
+        limit,
+        Math.min(PUSH_DIAGNOSTIC_WAIT_MS, this.policy.requestTimeoutMs),
+        signal,
+      );
+      if (signal?.aborted) {
+        throw new CodeIntelligenceError(
+          "code.request_cancelled",
+          `Diagnostic request for ${input.path} was cancelled by the Host.`,
+        );
+      }
       if (snapshot.freshness.state === "missing" && !this.diagnosticSnapshots.hasObservedPushDiagnostics()) {
         throw new CodeIntelligenceError(
           "code.operation_unsupported",
@@ -566,6 +579,9 @@ export class LanguageService {
       clientInfo: { name: "forgerelay" },
       rootUri,
       workspaceFolders: [{ uri: rootUri, name: basename(this.project.projectRoot) }],
+      ...(definition.initializationOptions === undefined
+        ? {}
+        : { initializationOptions: definition.initializationOptions }),
       capabilities: {
         general: {
           positionEncodings: [
@@ -600,6 +616,12 @@ export class LanguageService {
           documentSymbol: {
             dynamicRegistration: false,
             hierarchicalDocumentSymbolSupport: true,
+          },
+          publishDiagnostics: {
+            relatedInformation: true,
+            tagSupport: {
+              valueSet: [DiagnosticTag.Unnecessary, DiagnosticTag.Deprecated],
+            },
           },
           diagnostic: {
             dynamicRegistration: false,

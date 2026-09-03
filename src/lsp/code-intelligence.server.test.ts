@@ -79,6 +79,7 @@ test("code.intelligence definition resolves through a real stdio LSP child proce
   assert.ok(fakeLog.includes('"method":"initialize"'));
   assert.ok(fakeLog.includes('"synchronization":{"dynamicRegistration":false'));
   assert.ok(fakeLog.includes('"definition":{"dynamicRegistration":false,"linkSupport":true}'));
+  assert.ok(fakeLog.includes('"publishDiagnostics":{"relatedInformation":true,"tagSupport":{"valueSet":[1,2]}}'));
   assert.ok(fakeLog.includes('"method":"textDocument/didOpen"'));
   assert.ok(fakeLog.includes('"method":"textDocument/definition"'));
   assert.ok(fakeLog.includes('"position":{"line":0,"character":8}'));

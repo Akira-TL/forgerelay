@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { delimiter, join, resolve } from "node:path";
 import type { ManagedLanguageServerId } from "../code-intelligence-types.js";
 
 export type { ManagedLanguageServerId } from "../code-intelligence-types.js";
@@ -17,7 +17,7 @@ const MANAGED_LANGUAGE_SERVERS: Record<ManagedLanguageServerId, ManagedLanguageS
     id: "typescript",
     label: "TypeScript / JavaScript",
     executable: "typescript-language-server",
-    packages: ["typescript-language-server@6", "typescript@7"],
+    packages: ["typescript-language-server@6", "typescript@6"],
   },
   pyright: {
     id: "pyright",
@@ -41,6 +41,55 @@ export function managedLanguageServerRoot(configDir: string): string {
 
 export function managedLanguageServerBinDir(configDir: string): string {
   return join(managedLanguageServerRoot(configDir), "node_modules", ".bin");
+}
+
+export function managedLanguageServerExecutablePath(
+  configDir: string,
+  id: ManagedLanguageServerId,
+): string | undefined {
+  const bin = managedLanguageServerBinDir(configDir);
+  const executable = MANAGED_LANGUAGE_SERVERS[id].executable;
+  const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+  return extensions
+    .map((extension) => join(bin, `${executable}${extension}`))
+    .find((path) => existsSync(path));
+}
+
+export function managedLanguageServerIdForCommand(
+  configDir: string,
+  command: string,
+): ManagedLanguageServerId | undefined {
+  return supportedManagedLanguageServers().find((id) => {
+    const executable = managedLanguageServerExecutablePath(configDir, id);
+    return executable !== undefined && resolve(executable) === resolve(command);
+  });
+}
+
+export function managedTypeScriptTsserverPath(configDir: string): string | undefined {
+  const path = join(managedLanguageServerRoot(configDir), "node_modules", "typescript", "lib", "tsserver.js");
+  return existsSync(path) ? path : undefined;
+}
+
+export function managedLanguageServerRuntimeIdentity(
+  configDir: string,
+  id: ManagedLanguageServerId,
+): string | undefined {
+  const packageNames = id === "typescript"
+    ? ["typescript-language-server", "typescript"]
+    : ["pyright"];
+  try {
+    const versions = packageNames.map((name) => {
+      const packageJson = JSON.parse(readFileSync(
+        join(managedLanguageServerRoot(configDir), "node_modules", name, "package.json"),
+        "utf8",
+      )) as { version?: string };
+      if (!packageJson.version) throw new Error(`Missing version for ${name}`);
+      return [name, packageJson.version] as const;
+    });
+    return JSON.stringify(versions);
+  } catch {
+    return undefined;
+  }
 }
 
 export function withManagedLanguageServerPath(
@@ -119,7 +168,20 @@ export async function installManagedLanguageServers(
     "--no-fund",
     ...packages,
   ]);
+  for (const id of selected) assertManagedLanguageServerInstall(configDir, id);
   return { installed: selected, packages, root };
+}
+
+function assertManagedLanguageServerInstall(configDir: string, id: ManagedLanguageServerId): void {
+  if (!managedLanguageServerExecutablePath(configDir, id)) {
+    throw new Error(`Managed Language Server ${id} installed without its expected executable.`);
+  }
+  if (id === "typescript" && !managedTypeScriptTsserverPath(configDir)) {
+    throw new Error(
+      "Managed TypeScript Language Server installed without a compatible TypeScript tsserver.js. " +
+      "ForgeRelay requires a tsserver-based TypeScript package for typescript-language-server.",
+    );
+  }
 }
 
 function managedExecutableExists(configDir: string, executable: string): boolean {

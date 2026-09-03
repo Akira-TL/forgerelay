@@ -24,6 +24,7 @@ const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_M
 const workspaceSymbolCount = Number(process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOL_COUNT ?? "1");
 const diagnosticsMode = process.env.FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE ?? "none";
 const diagnosticCount = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT ?? "1");
+const diagnosticDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_DELAY_MS ?? "0");
 
 function log(event) {
   if (!logPath) return;
@@ -75,7 +76,9 @@ function fakePullDiagnostics(count) {
 }
 
 function publishDiagnostics(uri, version, diagnostics) {
-  notify("textDocument/publishDiagnostics", { uri, version, diagnostics });
+  const publish = () => notify("textDocument/publishDiagnostics", { uri, version, diagnostics });
+  if (diagnosticDelayMs > 0) setTimeout(publish, diagnosticDelayMs);
+  else publish();
 }
 
 function crashCount() {
