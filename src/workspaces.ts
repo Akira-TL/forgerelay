@@ -25,7 +25,7 @@ import {
 import { canonicalPath, ensureCheckoutWorkspaceRoot } from "./workspaces/paths.js";
 import { WorkspaceInventoryService } from "./workspaces/inventory.js";
 import { WorkspaceSessionService } from "./workspaces/sessions.js";
-import { HookRunner, type HookReportContainer } from "./hooks.js";
+import { HookRunner, type HookReportContainer } from "./mcp/hooks/hooks.js";
 import {
   closeManagedWorktree,
   createManagedWorktree,

@@ -1,5 +1,5 @@
 import type { ServerConfig } from "../../runtime/config/config.js";
-import { HookRunner } from "../../hooks.js";
+import { HookRunner } from "../../mcp/hooks/hooks.js";
 import {
   isSubagentProvider,
   loadSubagentProfiles,

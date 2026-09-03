@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { HookExecutionError } from "../../hooks.js";
+import { HookExecutionError } from "../../mcp/hooks/hooks.js";
 import { ActivityAuditStore } from "../history/audit-store.js";
 import { ActivityLifecycle } from "./lifecycle.js";
 

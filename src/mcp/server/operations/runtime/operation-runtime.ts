@@ -4,7 +4,7 @@ import { CapabilityError, createCapabilityRegistry } from "../../core/capability
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { deletePath, renamePath } from "../../../filesystem/file-mutations.js";
 import { editFileTool, readFileTool, writeFileTool } from "../../../filesystem/filesystem-tools.js";
-import { HookRunner, runToolWithHooks } from "../../../../hooks.js";
+import { HookRunner, runToolWithHooks } from "../../../hooks/hooks.js";
 import { toolNames } from "../../../server-instructions.js";
 import { BatchExecutor } from "../../../operations/batch/executor.js";
 import { NativeBulkMutationExecutor } from "../../../operations/native-bulk-mutations.js";

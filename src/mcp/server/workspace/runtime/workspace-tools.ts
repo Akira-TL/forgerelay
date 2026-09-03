@@ -7,7 +7,7 @@ import { loadCapabilityGuides } from "../../core/capabilities.js";
 import { CapabilityError, createCapabilityRegistry } from "../../core/capability-registry.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js";
-import { attachHookReports, HookRunner, runToolWithHooks } from "../../../../hooks.js";
+import { attachHookReports, HookRunner, runToolWithHooks } from "../../../hooks/hooks.js";
 import { toolNames } from "../../../server-instructions.js";
 import { CoreOperationExecutor, type CoreOperationContext } from "../../../operations/core-operation-executor.js";
 import { ProcessManager } from "../../../process/process-sessions.js";

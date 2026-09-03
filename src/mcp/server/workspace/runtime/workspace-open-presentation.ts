@@ -2,7 +2,7 @@ import { buildCapabilityFingerprint } from "../../core/capabilities.js";
 import { createCapabilityRegistry } from "../../core/capability-registry.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { isArtifactDownloadSupportedPlatform } from "../../../artifacts/artifact-tools.js";
-import { HookRunner, attachHookReports } from "../../../../hooks.js";
+import { HookRunner, attachHookReports } from "../../../hooks/hooks.js";
 import { createReviewCheckpointManager } from "../../../../workspaces/review/review-checkpoints.js";
 import { formatPathForPrompt } from "../../../../workspaces/resources/skills.js";
 import { compactWorkspacePresentation } from "../../../../workspaces/presentation/workspace-presentation.js";

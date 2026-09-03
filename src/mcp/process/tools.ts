@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import type { BashOutputStore } from "../../activity/history/bash-output-store.js";
 import type { ServerConfig } from "../../runtime/config/config.js";
-import { HookRunner, runToolWithHooks } from "../../hooks.js";
+import { HookRunner, runToolWithHooks } from "../hooks/hooks.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../runtime/logging/logger.js";
 import type {
   CoreOperationContext,

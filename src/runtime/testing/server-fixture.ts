@@ -13,7 +13,7 @@ import { HostTurnStore } from "../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../config/config.js";
-import { parseHookConfig, type HookConfigInput } from "../../hooks.js";
+import { parseHookConfig, type HookConfigInput } from "../../mcp/hooks/hooks.js";
 import type { IncomingArtifactAdapter } from "../../mcp/artifacts/incoming-artifacts.js";
 import { CodeIntelligenceManager } from "../../lsp/runtime/manager.js";
 import { ProcessManager } from "../../mcp/process/process-sessions.js";

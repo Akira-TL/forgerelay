@@ -7,7 +7,7 @@ import {
   type HookConfig,
   type HookEvent,
   type HookMatcher,
-} from "../../hooks.js";
+} from "./hooks.js";
 import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
 
 type HookScope = "global" | "project";

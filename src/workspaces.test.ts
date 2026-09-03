@@ -7,7 +7,7 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
 import { GitWorktreeError } from "./workspaces/git/git-worktrees.js";
-import { parseHookConfig } from "./hooks.js";
+import { parseHookConfig } from "./mcp/hooks/hooks.js";
 import { SqliteWorkspaceStore } from "./workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 

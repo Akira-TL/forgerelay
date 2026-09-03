@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { HookExecutionError, HookRunner, parseHookConfig } from "../../hooks.js";
+import { HookExecutionError, HookRunner, parseHookConfig } from "./hooks.js";
 import type { LoggingConfig } from "../../runtime/logging/logger.js";
 
 const silentLogging: LoggingConfig = {

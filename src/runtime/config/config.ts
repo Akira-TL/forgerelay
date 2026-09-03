@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "../logging/logger.js";
 import type { OAuthConfig } from "../../mcp/oauth/oauth-provider.js";
-import { mergeHookConfigs, parseHookConfig, type HookConfig } from "../../hooks.js";
+import { mergeHookConfigs, parseHookConfig, type HookConfig } from "../../mcp/hooks/hooks.js";
 import {
   forgerelayAgentsDir,
   forgerelaySkillsDir,

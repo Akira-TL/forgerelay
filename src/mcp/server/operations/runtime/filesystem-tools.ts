@@ -7,7 +7,7 @@ import { applyPatch } from "../../../filesystem/apply-patch.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
-import { HookRunner } from "../../../../hooks.js";
+import { HookRunner } from "../../../hooks/hooks.js";
 import { buildToolDescriptions, toolNames } from "../../../server-instructions.js";
 import { executeBulkRead } from "../../../operations/bulk-read.js";
 import { NativeBulkMutationExecutor } from "../../../operations/native-bulk-mutations.js";

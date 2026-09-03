@@ -1,6 +1,6 @@
 import type { ActivityWorkspaceSnapshot } from "../../../activity/history/audit-store.js";
 import { ActivityLifecycle, type ActivityExecutionContext, type ActivityOutcome } from "../../../activity/runtime/lifecycle.js";
-import { HookRunner, runToolWithHooks, type ToolHookOptions } from "../../../hooks.js";
+import { HookRunner, runToolWithHooks, type ToolHookOptions } from "../../hooks/hooks.js";
 import type { CoreOperationContext } from "../../operations/core-operation-executor.js";
 import type { Workspace } from "../../../workspaces.js";
 import { toolResultIsError } from "./tool-support.js";

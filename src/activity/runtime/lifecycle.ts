@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { HookExecutionError } from "../../hooks.js";
+import { HookExecutionError } from "../../mcp/hooks/hooks.js";
 import {
   ActivityAuditStore,
   type ActivityAuditJsonValue,

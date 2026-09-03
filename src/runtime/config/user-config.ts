@@ -18,7 +18,7 @@ import {
   parseHookFile,
   type HookConfig,
   type HookConfigInput,
-} from "../../hooks.js";
+} from "../../mcp/hooks/hooks.js";
 
 export interface ForgeRelayUserConfig {
   host?: string;

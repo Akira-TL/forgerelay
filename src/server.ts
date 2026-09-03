@@ -14,7 +14,7 @@ import { ArtifactError } from "./mcp/artifacts/artifact-error.js";
 import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
 import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
-import { HookRunner } from "./hooks.js";
+import { HookRunner } from "./mcp/hooks/hooks.js";
 import { checkHookConfiguration } from "./mcp/hooks/hook-cli.js";
 import { buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
 import { IncomingArtifactAdapterRegistry, type IncomingArtifactAdapter } from "./mcp/artifacts/incoming-artifacts.js";
