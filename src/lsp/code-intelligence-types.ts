@@ -42,6 +42,17 @@ export interface CodeIntelligenceDiagnosticsInput {
   limit?: number;
 }
 
+export type ManagedLanguageServerId = "typescript" | "pyright";
+
+export interface CodeIntelligenceManagedStatusInput {
+  operation: "managed.status";
+}
+
+export interface CodeIntelligenceManagedInstallInput {
+  operation: "managed.install";
+  servers: ManagedLanguageServerId[];
+}
+
 export type CodeIntelligenceInput =
   | CodeIntelligenceDefinitionInput
   | CodeIntelligenceHoverInput
@@ -49,6 +60,11 @@ export type CodeIntelligenceInput =
   | CodeIntelligenceDocumentSymbolsInput
   | CodeIntelligenceWorkspaceSymbolsInput
   | CodeIntelligenceDiagnosticsInput;
+
+export type CodeIntelligenceCapabilityInput =
+  | CodeIntelligenceInput
+  | CodeIntelligenceManagedStatusInput
+  | CodeIntelligenceManagedInstallInput;
 
 export interface CodeIntelligencePosition {
   line: number;

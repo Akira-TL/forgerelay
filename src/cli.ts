@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { loadConfig } from "./runtime/config/config.js";
+import { runInit } from "./cli/init.js";
 import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
 import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
@@ -18,18 +19,12 @@ import { parseSubagentRunArgs } from "./subagents/cli-target.js";
 import type { SubagentSession } from "./subagents/sessions/store.js";
 import {
   ensureForgeRelayInstanceId,
-  generateInstanceId,
-  generateOwnerToken,
   loadForgeRelayFiles,
   removeForgeRelayRemote,
   renameForgeRelayRemote,
-  resolveSubagentsFlag,
-  writeForgeRelayAuth,
   writeForgeRelayConfig,
   writeForgeRelayRemote,
-  type ForgeRelayUserConfig,
 } from "./runtime/config/user-config.js";
-import { expandHomePath } from "./mcp/filesystem/roots.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { publicEndpointUrl } from "./mcp/oauth/public-url.js";
 import {
@@ -51,20 +46,8 @@ import {
   checkBashShell,
   checkGitAvailable,
   checkSqliteNative,
-  classifyClientFacingBaseUrl,
-  compactPublicBaseUrlConfig,
-  hasInsecureLanBaseUrl,
-  isLoopbackBindAddress,
-  isNullConfigValue,
   nodeVersionStatus,
   normalizeOptionalPublicBaseUrl,
-  normalizePublicBaseUrl,
-  normalizePublicBaseUrlsInput,
-  SetupCancelledError,
-  textPrompt,
-  validateBindAddress,
-  validateClientFacingBaseUrls,
-  validatePort,
 } from "./cli/setup-support.js";
 
 
@@ -142,157 +125,6 @@ async function ensureConfigured(): Promise<void> {
   }
 
   await runInit({ force: false });
-}
-
-async function runInit({ force }: { force: boolean }): Promise<void> {
-  const files = loadForgeRelayFiles();
-  if (!force && files.configExists && files.authExists) {
-    prompts.log.info(`ForgeRelay is already configured at ${files.dir}`);
-    prompts.log.info("Run `forgerelay init --force` to update it.");
-    return;
-  }
-
-  try {
-    prompts.intro("ForgeRelay setup");
-
-    const defaultRoots = files.config.allowedRoots?.join(", ") || process.cwd();
-    const rootsAnswer = await textPrompt({
-      message: `Where are your projects located? Press Enter to use ${defaultRoots}`,
-      placeholder: defaultRoots,
-      defaultValue: defaultRoots,
-      validate: (value) => value?.trim() ? undefined : "Enter at least one project root.",
-    });
-    const allowedRoots = rootsAnswer
-      .split(",")
-      .map((root) => resolve(expandHomePath(root.trim())))
-      .filter(Boolean);
-
-    const defaultPort = String(files.config.port ?? 7676);
-    const portAnswer = await textPrompt({
-      message: `Which local port should ForgeRelay use? Press Enter to use ${defaultPort}`,
-      placeholder: defaultPort,
-      defaultValue: defaultPort,
-      validate: validatePort,
-    });
-    const port = Number(portAnswer);
-
-    const existingPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
-      ? files.config.publicBaseUrl
-      : files.config.publicBaseUrl ? [files.config.publicBaseUrl] : [];
-    const defaultNetworkMode = !isLoopbackBindAddress(files.config.host ?? "127.0.0.1") || existingPublicBaseUrls.length > 0
-      ? "network"
-      : "local";
-    const selectedMode = await prompts.select({
-      message: "How should clients reach this ForgeRelay instance?",
-      initialValue: defaultNetworkMode,
-      options: [
-        {
-          value: "local",
-          label: "Local only",
-          hint: "Bind to loopback; local clients only. Client-facing URL is derived automatically.",
-        },
-        {
-          value: "ssh",
-          label: "SSH relay",
-          hint: "Bind to loopback; another ForgeRelay reaches it through an SSH tunnel.",
-        },
-        {
-          value: "network",
-          label: "LAN / HTTPS proxy",
-          hint: "Expose through a LAN address or an HTTPS reverse proxy/tunnel.",
-        },
-      ],
-    });
-    if (prompts.isCancel(selectedMode)) throw new SetupCancelledError();
-    const networkMode = selectedMode as "local" | "ssh" | "network";
-
-    let host = "127.0.0.1";
-    let publicBaseUrl: ForgeRelayUserConfig["publicBaseUrl"] = null;
-    let clientFacingBaseUrls = [`http://127.0.0.1:${port}`];
-
-    if (networkMode === "network") {
-      const defaultHost = files.config.host && !isLoopbackBindAddress(files.config.host)
-        ? files.config.host
-        : "0.0.0.0";
-      host = await textPrompt({
-        message: "Which address should ForgeRelay bind to? Use 0.0.0.0 for direct LAN, or 127.0.0.1 behind a local reverse proxy.",
-        placeholder: defaultHost,
-        defaultValue: defaultHost,
-        validate: validateBindAddress,
-      });
-      const defaultClientFacing = existingPublicBaseUrls.join(", ");
-      clientFacingBaseUrls = normalizePublicBaseUrlsInput(await textPrompt({
-        message: defaultClientFacing
-          ? `What client-facing base URLs should clients use? Press Enter to keep ${defaultClientFacing}`
-          : "What client-facing base URL should clients use?",
-        placeholder: defaultClientFacing || `http://192.168.1.20:${port} or https://forge.example.com`,
-        defaultValue: defaultClientFacing,
-        validate: validateClientFacingBaseUrls,
-      }));
-      for (const baseUrl of clientFacingBaseUrls) classifyClientFacingBaseUrl(baseUrl);
-      if (hasInsecureLanBaseUrl(clientFacingBaseUrls)) {
-        prompts.note(
-          [
-            "Plain HTTP does not encrypt the ForgeRelay Owner approval flow or MCP bearer tokens.",
-            "Use this only on a trusted private LAN. Prefer SSH relay or HTTPS when the network is not fully trusted.",
-          ].join("\n"),
-          "Unencrypted LAN access",
-        );
-        const approved = await prompts.confirm({
-          message: "Allow unencrypted HTTP access on this private network?",
-          initialValue: false,
-        });
-        if (prompts.isCancel(approved) || approved !== true) throw new SetupCancelledError();
-      }
-      publicBaseUrl = compactPublicBaseUrlConfig(clientFacingBaseUrls);
-    }
-
-    const config: ForgeRelayUserConfig = {
-      host,
-      port,
-      allowedRoots,
-      publicBaseUrl,
-      allowedHosts: files.config.allowedHosts,
-      workflowInstructions: files.config.workflowInstructions,
-      appendInstructions: files.config.appendInstructions,
-      subagents: resolveSubagentsFlag(files.config),
-    };
-    const auth = {
-      ...files.auth,
-      ownerToken: files.auth.ownerToken ?? generateOwnerToken(),
-      instanceId: files.auth.instanceId ?? generateInstanceId(),
-    };
-
-    const configPath = writeForgeRelayConfig(config);
-    const authPath = await writeForgeRelayAuth(auth);
-    const lines = [
-      `Config: ${configPath}`,
-      `Auth: ${authPath}`,
-      `Bind: http://${config.host}:${config.port}`,
-      ...clientFacingBaseUrls.map((baseUrl, index) =>
-        `${index === 0 ? "Client-facing MCP URL" : "Client-facing MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
-      ),
-    ];
-    if (networkMode === "ssh") {
-      lines.push(`SSH relay: forgerelay auth -J <ssh-host> 127.0.0.1:${port} --ssh-auth`);
-    }
-    prompts.note(lines.join("\n"), "ForgeRelay configured");
-    prompts.note(
-      [
-        `Owner password: ${auth.ownerToken}`,
-        "Use this when ChatGPT or Claude asks you to approve ForgeRelay access.",
-        `Stored at: ${authPath}`,
-      ].join("\n"),
-      "Owner password",
-    );
-    prompts.outro("Run `forgerelay serve` to start the MCP server.");
-  } catch (error) {
-    if (error instanceof SetupCancelledError) {
-      prompts.cancel("Setup cancelled");
-      return;
-    }
-    throw error;
-  }
 }
 
 async function serve(): Promise<void> {
@@ -533,6 +365,7 @@ async function runDoctor(): Promise<void> {
     console.log(`Artifacts: ${config.artifactsEnabled ? "enabled" : "disabled"}`);
     console.log(`Subagents: ${config.subagents ? "enabled" : "disabled"}`);
     console.log(`Skills: ${config.skillsEnabled ? "enabled" : "disabled"}`);
+    console.log(`Agent-managed Language Server install: ${config.allowAgentLanguageServerInstall ? "enabled" : "disabled"}`);
     console.log(`Allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`Allowed hosts: ${config.allowedHosts.join(", ")}`);
   } catch (error) {

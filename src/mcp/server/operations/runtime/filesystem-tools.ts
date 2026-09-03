@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 import { applyPatch } from "../../../filesystem/apply-patch.js";
 import { readFileTool } from "../../../filesystem/filesystem-tools.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
+import type { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { HookRunner } from "../../../hooks/hooks.js";
@@ -38,6 +39,7 @@ import {
   workspaceLogContext,
   type ToolContent,
 } from "../../core/tool-support.js";
+import { appendAutomaticMutationDiagnostics } from "./mutation-diagnostics.js";
 
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
@@ -62,6 +64,7 @@ export interface RegisterFilesystemToolsOptions {
   coreOperations: CoreOperationExecutor<any>;
   nativeBulkMutations: NativeBulkMutationExecutor;
   activityLifecycle: ActivityLifecycle;
+  codeIntelligence: CodeIntelligenceManager;
   hooks: HookRunner;
   toolDescriptions: ReturnType<typeof buildToolDescriptions>;
   resolveExecutionTarget: (workspaceId: string, member?: string) => ProcessExecutionTarget;
@@ -78,7 +81,7 @@ export interface RegisterFilesystemToolsOptions {
 export function registerFilesystemTools(options: RegisterFilesystemToolsOptions): void {
   const {
     server, config, workspaces, compositeWorkspaces, compositeTaskGuides, remoteWorkspaces,
-    coreOperations, nativeBulkMutations, activityLifecycle, hooks, toolDescriptions,
+    coreOperations, nativeBulkMutations, activityLifecycle, codeIntelligence, hooks, toolDescriptions,
     resolveExecutionTarget, prepareExecutionContext, presentSemanticWorkResult, hostScopeIdFor,
   } = options;
   registerAppTool(
@@ -593,6 +596,9 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
             const displayPath = applied.files.length === 1
               ? applied.files[0]?.path
               : `${applied.files.length} files`;
+            const diagnosticPaths = applied.files
+              .filter((file) => file.operation !== "delete")
+              .map((file) => file.path);
 
             logToolCall(config, {
               tool: "apply_patch",
@@ -602,7 +608,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
               durationMs: Math.round(performance.now() - startedAt),
             });
 
-            return {
+            return appendAutomaticMutationDiagnostics({
               content,
               _meta: {
                 tool: "apply_patch",
@@ -624,7 +630,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
                 removals: applied.removals,
                 files: applied.files,
               },
-            };
+            }, codeIntelligence, workspace.root, diagnosticPaths, extra.signal);
           },
         },
         activityRelationFor(executionContext),

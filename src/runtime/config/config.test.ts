@@ -329,6 +329,7 @@ writeFileSync(
       "https://forgerelay-alt.example.com/alternate",
     ],
     subagents: true,
+    allowAgentLanguageServerInstall: true,
     artifactsEnabled: true,
     artifactMaxFileBytes: 321,
     taskReminderInterval: 12,
@@ -357,6 +358,7 @@ assert.deepEqual(fileConfig.publicBaseUrls, [
   "https://forgerelay-alt.example.com/alternate",
 ]);
 assert.equal(fileConfig.subagents, true);
+assert.equal(fileConfig.allowAgentLanguageServerInstall, true);
 assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
 assert.equal(fileConfig.taskReminderInterval, 12);

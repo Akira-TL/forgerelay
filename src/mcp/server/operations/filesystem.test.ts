@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -93,6 +94,75 @@ test("read permits absolute allowed-root inspection without opening a Workspace"
   assert.match(allResponseText(outside), /outside allowed roots|access denied|not allowed/i);
   assert.doesNotMatch(allResponseText(outside), /OUTSIDE-SENTINEL/);
   assert.equal(context.workspaces.cachedWorkspaceCount, 0);
+});
+
+test("file mutations automatically return Language Server diagnostics without a second Activity", async (t) => {
+  const context = await fixture(t);
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("../../../lsp/test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      "automatic-test": {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: {
+          FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE: "pull",
+          FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT: "1",
+        },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const conversation = "chat-automatic-diagnostics";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  const written = await call("write", {
+    workspaceId,
+    path: "src/main.ts",
+    content: "const value: string = 1;\n",
+  });
+  assert.equal(written.isError, undefined);
+  assert.match(allResponseText(written), /Automatic Language Server validation/);
+  assert.match(allResponseText(written), /automatic-test · src\/main\.ts/);
+  assert.match(allResponseText(written), /pulled diagnostic 1/);
+  assert.equal(context.auditStore.getActivity("act_test_1")?.tool, "write");
+  assert.equal(context.auditStore.getActivity("act_test_2"), undefined);
+
+  const edited = await call("edit", {
+    workspaceId,
+    path: "src/main.ts",
+    edits: [{ oldText: "1", newText: "2" }],
+  });
+  assert.equal(edited.isError, undefined);
+  assert.match(allResponseText(edited), /pulled diagnostic 1/);
+
+  const renamed = await call("rename", {
+    workspaceId,
+    path: "src/main.ts",
+    newPath: "src/renamed.ts",
+  });
+  assert.equal(renamed.isError, undefined);
+  assert.match(allResponseText(renamed), /automatic-test · src\/renamed\.ts/);
+
+  const plainText = await call("write", {
+    workspaceId,
+    path: "notes.txt",
+    content: "no language server should match\n",
+  });
+  assert.equal(plainText.isError, undefined);
+  assert.doesNotMatch(allResponseText(plainText), /Automatic Language Server validation|diagnostics warning/);
 });
 
 test("bulk Read returns ordered per-file results and persists one parent Activity with child Reads", async (t) => {

@@ -14,6 +14,13 @@ import { ArtifactError } from "./mcp/artifacts/artifact-error.js";
 import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
 import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
+import {
+  installManagedLanguageServers,
+  installedManagedLanguageServers,
+  supportedManagedLanguageServers,
+  type ManagedLanguageServerInstallResult,
+  type ManagedLanguageServerId,
+} from "./lsp/runtime/managed-language-servers.js";
 import { HookRunner } from "./mcp/hooks/hooks.js";
 import { checkHookConfiguration } from "./mcp/hooks/hook-cli.js";
 import { buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
@@ -51,6 +58,10 @@ interface CreateMcpServerOptions extends SubagentMcpRuntimeOptions {
   taskReminders?: WorkspaceTaskReminderTracker;
   remoteWorkspaces?: RemoteWorkspaceRelay;
   compositeWorkspaces?: CompositeWorkspaceRegistry;
+  managedLanguageServerInstaller?: (
+    ids: readonly ManagedLanguageServerId[],
+    configDir: string,
+  ) => Promise<ManagedLanguageServerInstallResult>;
 }
 
 export function createMcpServer(
@@ -220,10 +231,36 @@ export function createMcpServer(
     },
     codeIntelligence: {
       available: true,
-      run: async (input, context, options) => {
+      run: async (input, context, runOptions) => {
+        if (input.operation === "managed.status") {
+          return {
+            value: {
+              supported: supportedManagedLanguageServers(),
+              installed: installedManagedLanguageServers(config.configDir),
+              agentInstallAllowed: config.allowAgentLanguageServerInstall,
+            },
+          };
+        }
+        if (input.operation === "managed.install") {
+          if (!config.allowAgentLanguageServerInstall) {
+            throw new CapabilityError(
+              "code.managed_install_disabled",
+              "Agent-managed Language Server installation is disabled. Enable it explicitly with forgerelay init --force.",
+            );
+          }
+          const install = options.managedLanguageServerInstaller ?? installManagedLanguageServers;
+          const installed = await install(input.servers, config.configDir);
+          return {
+            value: {
+              ...installed,
+              availableNow: installedManagedLanguageServers(config.configDir),
+              restartRequired: false,
+            },
+          };
+        }
         try {
           return {
-            value: await codeIntelligence.run(requireCapabilityWorkspaceRoot(context), input, { signal: options.signal }),
+            value: await codeIntelligence.run(requireCapabilityWorkspaceRoot(context), input, { signal: runOptions.signal }),
           };
         } catch (error) {
           if (error instanceof CodeIntelligenceError) {
@@ -371,7 +408,8 @@ export function createMcpServer(
     };
   };
   const operationRuntime = createOperationRuntime({
-    config, workspaces, activityLifecycle, hooks, processSessions, bashOutputStore, capabilityRegistry, hostScopeIdFor,
+    config, workspaces, activityLifecycle, hooks, processSessions, bashOutputStore,
+    capabilityRegistry, codeIntelligence, hostScopeIdFor,
   });
   batchExecutor = operationRuntime.batchExecutor;
   const { coreOperations, nativeBulkMutations } = operationRuntime;
@@ -543,6 +581,7 @@ export function createMcpServer(
     coreOperations,
     nativeBulkMutations,
     activityLifecycle,
+    codeIntelligence,
     hooks,
     toolDescriptions,
     resolveExecutionTarget,

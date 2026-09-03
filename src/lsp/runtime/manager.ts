@@ -13,6 +13,7 @@ import {
   resolveLanguageProject,
   type ResolvedLanguageProject,
 } from "../language-server-config.js";
+import { withManagedLanguageServerPath } from "./managed-language-servers.js";
 
 const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
 const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
@@ -80,7 +81,7 @@ export class CodeIntelligenceManager {
   private readonly crashCooldownMs: number;
 
   constructor(
-    private readonly config: Pick<ServerConfig, "languageServers">,
+    private readonly config: Pick<ServerConfig, "languageServers" | "configDir">,
     options: CodeIntelligenceManagerOptions = {},
   ) {
     this.crashCooldownMs = positiveInteger(
@@ -120,6 +121,7 @@ export class CodeIntelligenceManager {
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
         globalConfig: this.config.languageServers,
+        env: withManagedLanguageServerPath(process.env, this.config.configDir),
       });
     } catch (error) {
       if (error instanceof LanguageServerConfigurationError) {

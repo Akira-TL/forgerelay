@@ -48,6 +48,7 @@ export interface ServerConfig {
   configAgentsDir: string;
   subagents: boolean;
   languageServers: LanguageServerConfigInput;
+  allowAgentLanguageServerInstall: boolean;
   agentDir: string;
   systemInstructionsPath: string;
   hooks: HookConfig;
@@ -395,6 +396,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         ? files.config.subagents === true
         : parseBoolean(productEnv(env, "SUBAGENTS")),
     languageServers: files.config.languageServers ?? {},
+    allowAgentLanguageServerInstall: files.config.allowAgentLanguageServerInstall === true,
     agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
     systemInstructionsPath: parseSystemInstructionsPath(
       productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,

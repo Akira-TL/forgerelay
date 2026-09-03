@@ -17,17 +17,29 @@ import { createMcpServer } from "../../server.js";
 import { SqliteWorkspaceStore } from "../../workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "../../workspaces.js";
 import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "../runtime/manager.js";
+import type {
+  ManagedLanguageServerId,
+  ManagedLanguageServerInstallResult,
+} from "../runtime/managed-language-servers.js";
 
 export interface CodeIntelligenceServerFixture {
   client: Client;
   project: string;
+  config: ServerConfig;
   codeIntelligence: CodeIntelligenceManager;
   close: () => Promise<void>;
 }
 
 export async function createCodeIntelligenceServerFixture(
   t: TestContext,
-  options: { codeIntelligenceOptions?: CodeIntelligenceManagerOptions } = {},
+  options: {
+    codeIntelligenceOptions?: CodeIntelligenceManagerOptions;
+    allowAgentLanguageServerInstall?: boolean;
+    managedLanguageServerInstaller?: (
+      ids: readonly ManagedLanguageServerId[],
+      configDir: string,
+    ) => Promise<ManagedLanguageServerInstallResult>;
+  } = {},
 ): Promise<CodeIntelligenceServerFixture> {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-code-intelligence-server-test-"));
   const project = join(root, "project");
@@ -48,6 +60,7 @@ export async function createCodeIntelligenceServerFixture(
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
+  config.allowAgentLanguageServerInstall = options.allowAgentLanguageServerInstall === true;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const auditStore = new ActivityAuditStore(stateDir);
@@ -71,6 +84,9 @@ export async function createCodeIntelligenceServerFixture(
     activityLifecycle,
     bashOutputStore,
     activityQueries,
+    options.managedLanguageServerInstaller
+      ? { managedLanguageServerInstaller: options.managedLanguageServerInstaller }
+      : {},
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "forgerelay-code-intelligence-test-client", version: "1.0.0" });
@@ -100,7 +116,7 @@ export async function createCodeIntelligenceServerFixture(
     });
   });
 
-  return { client, project, codeIntelligence, close };
+  return { client, project, config, codeIntelligence, close };
 }
 
 export async function callOpen(

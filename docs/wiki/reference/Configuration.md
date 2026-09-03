@@ -162,10 +162,11 @@ Language Server definition 按优先级读取：
 ```text
 <project>/.forgerelay/language-servers.json
 ~/.forgerelay/config.json -> languageServers
-built-in executable discovery
+ForgeRelay-managed private npm executables
+inherited PATH built-in discovery
 ```
 
-ForgeRelay 不安装 Language Server。
+`forgerelay init` 可以私有安装 TypeScript/JavaScript 与 Pyright Language Servers。Agent 按需安装默认关闭；只有配置 `allowAgentLanguageServerInstall: true` 后，`code.intelligence` 的 `managed.install` 才允许产生网络下载和持久化安装。安装后下一次 semantic request 即可使用，无需重启 Server。
 
 详见 [代码智能](Code-Intelligence)。
 

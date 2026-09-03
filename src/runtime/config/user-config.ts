@@ -38,6 +38,7 @@ export interface ForgeRelayUserConfig {
   systemInstructionsPath?: string;
   subagents?: boolean;
   languageServers?: LanguageServerConfigInput;
+  allowAgentLanguageServerInstall?: boolean;
   hooks?: HookConfigInput;
 }
 

@@ -1,6 +1,7 @@
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { BashOutputStore } from "../../../../activity/history/bash-output-store.js";
 import { CapabilityError, createCapabilityRegistry } from "../../core/capability-registry.js";
+import type { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { deletePath, renamePath } from "../../../filesystem/file-mutations.js";
 import { editFileTool, readFileTool, writeFileTool } from "../../../filesystem/filesystem-tools.js";
@@ -51,6 +52,7 @@ import {
   toolResultText,
   workspaceLogContext,
 } from "../../core/tool-support.js";
+import { appendAutomaticMutationDiagnostics } from "./mutation-diagnostics.js";
 
 export interface CreateOperationRuntimeOptions {
   config: ServerConfig;
@@ -60,11 +62,15 @@ export interface CreateOperationRuntimeOptions {
   processSessions: ProcessManager;
   bashOutputStore: BashOutputStore;
   capabilityRegistry: ReturnType<typeof createCapabilityRegistry>;
+  codeIntelligence: CodeIntelligenceManager;
   hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
 }
 
 export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
-  const { config, workspaces, activityLifecycle, hooks, processSessions, bashOutputStore, capabilityRegistry, hostScopeIdFor } = options;
+  const {
+    config, workspaces, activityLifecycle, hooks, processSessions, bashOutputStore,
+    capabilityRegistry, codeIntelligence, hostScopeIdFor,
+  } = options;
   const coreOperations = createCoreOperationExecutor({
     read: async (input: ReadOperationInput, context: CoreOperationContext) => {
       const { workspaceId, ...readInput } = input;
@@ -208,7 +214,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
               durationMs: Math.round(performance.now() - startedAt),
             });
 
-            return {
+            return appendAutomaticMutationDiagnostics({
               ...response,
               _meta: {
                 tool: toolNames.write,
@@ -225,7 +231,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
               structuredContent: {
                 result: contentText(response.content),
               },
-            };
+            }, codeIntelligence, workspace.root, [writeInput.path], context.signal);
           },
         },
         activityRelationFor(context),
@@ -286,7 +292,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
               durationMs: Math.round(performance.now() - startedAt),
             });
 
-            return {
+            return appendAutomaticMutationDiagnostics({
               content: editContent,
               _meta: {
                 tool: toolNames.edit,
@@ -304,7 +310,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                 status: "applied" as const,
                 result: contentText(editContent),
               },
-            };
+            }, codeIntelligence, workspace.root, [editInput.path], context.signal);
           },
         },
         activityRelationFor(context),
@@ -346,7 +352,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                 success: true,
                 durationMs: Math.round(performance.now() - startedAt),
               });
-              return {
+              return appendAutomaticMutationDiagnostics({
                 content,
                 _meta: {
                   tool: toolNames.rename,
@@ -363,7 +369,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                   path,
                   newPath,
                 },
-              };
+              }, codeIntelligence, workspace.root, [newPath], context.signal);
             } catch (error) {
               logToolCall(config, {
                 tool: toolNames.rename,

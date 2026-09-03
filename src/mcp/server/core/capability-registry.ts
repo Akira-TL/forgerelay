@@ -1,7 +1,7 @@
 import { z, type ZodType } from "zod";
 import {
   MAX_CODE_INTELLIGENCE_RESULT_LIMIT,
-  type CodeIntelligenceInput,
+  type CodeIntelligenceCapabilityInput,
 } from "../../../lsp/code-intelligence-types.js";
 import {
   batchExecuteInputSchema,
@@ -213,7 +213,7 @@ export interface CapabilityRegistryDependencies {
     available: boolean;
     unavailableReason?: string;
     run: (
-      input: CodeIntelligenceInput,
+      input: CodeIntelligenceCapabilityInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -521,6 +521,11 @@ export function createCapabilityRegistry(
       path: z.string().min(1),
       limit: z.number().int().min(1).max(MAX_CODE_INTELLIGENCE_RESULT_LIMIT).optional(),
     }).strict(),
+    z.object({ operation: z.literal("managed.status") }).strict(),
+    z.object({
+      operation: z.literal("managed.install"),
+      servers: z.array(z.enum(["typescript", "pyright"])).min(1),
+    }).strict(),
   ]);
 
   return new CapabilityRegistry([
@@ -558,7 +563,7 @@ export function createCapabilityRegistry(
     ...(dependencies.codeIntelligence
       ? [{
           name: "code.intelligence",
-          description: "Read semantic code information through an available Language server without changing the Workspace.",
+          description: "Read semantic code information and, when explicitly enabled by the user, manage ForgeRelay-owned Language Servers for this instance.",
           guideName: "code-intelligence",
           readGuideBeforeFirstUse: true,
           batchPolicy: "parallel",
@@ -570,7 +575,7 @@ export function createCapabilityRegistry(
           ),
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.codeIntelligence!.run(
-              input as CodeIntelligenceInput,
+              input as CodeIntelligenceCapabilityInput,
               context,
               options,
             ),

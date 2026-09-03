@@ -60,6 +60,7 @@ try {
       ],
       subagents: true,
       artifactsEnabled: true,
+      allowAgentLanguageServerInstall: true,
     }),
   );
 
@@ -87,6 +88,7 @@ try {
   assert.match(output, /Trust proxy: one hop/);
   assert.match(output, /Artifacts: enabled/);
   assert.match(output, /Subagents: enabled/);
+  assert.match(output, /Agent-managed Language Server install: enabled/);
   assert.match(output, /Skills: disabled/);
 } finally {
   rmSync(doctorRoot, { recursive: true, force: true });

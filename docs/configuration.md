@@ -224,7 +224,7 @@ use structured process launch and never go through a shell:
 }
 ```
 
-Global configuration uses the same definition shape under `languageServers`:
+Global configuration uses the same definition shape under `languageServers`. ForgeRelay can also keep optional npm-managed Language Servers under its private config directory. Agent-triggered installation is disabled by default and must be explicitly enabled:
 
 ```json
 {
@@ -233,9 +233,12 @@ Global configuration uses the same definition shape under `languageServers`:
       "command": "/absolute/path/to/typescript-language-server",
       "args": ["--stdio"]
     }
-  }
+  },
+  "allowAgentLanguageServerInstall": false
 }
 ```
+
+`forgerelay init` can manage TypeScript/JavaScript and Pyright installations without touching global npm. When `allowAgentLanguageServerInstall` is `true`, an Agent may use `code.intelligence` operations `managed.status` and `managed.install`; successful installs become discoverable by the same running ForgeRelay process on the next semantic request, with no restart required. Rust Analyzer, `gopls`, and `clangd` remain external toolchain/system installations.
 
 Explicit configuration can set `"enabled": false` to suppress the matching
 built-in definition. Project values override global values, and both override
@@ -246,10 +249,12 @@ not recursively scan the Workspace.
 Code-intelligence input positions are 1-based line and 1-based Unicode code-point
 column values. The Workspace filesystem is the only v1 document source of truth.
 
+Successful `write`, `edit`, `rename`, and Codex `apply_patch` mutations automatically request Language Server diagnostics for affected code files. Non-empty diagnostics are appended to the same mutation response; missing Language Servers are skipped without turning a successful file mutation into a failure.
+
 For contributor/release interoperability checks, run `npm run lsp:interop`. The
-command tests each supported real Language server that is already on `PATH` through
-ForgeRelay built-in discovery and stdio LSP, reports a clear skip when an executable
-is absent, and never installs external dependencies.
+command tests each supported real Language server that is already discoverable through
+ForgeRelay built-in resolution and stdio LSP, reports a clear skip when an executable
+is absent, and never installs external dependencies itself.
 Definition results may point outside the Workspace and are then marked
 `external: true`; this is informational only and does not expand allowed roots or
 file-tool authority.

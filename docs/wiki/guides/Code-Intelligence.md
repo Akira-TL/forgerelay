@@ -19,21 +19,25 @@ diagnostics
 
 这些结果由 ForgeRelay 归一化成稳定的 location、range、symbol、hover 和 diagnostic 结构，而不是把各语言服务器原始 wire format 直接交给 Agent。
 
-## ForgeRelay 不会自动安装 Language Server
+## Language Server 安装与发现
 
-Language Server 是外部依赖。
+Language Server 仍然是独立运行的外部进程，但 ForgeRelay 可以托管一部分安装。
 
-ForgeRelay 可以发现机器上已经存在的：
+`forgerelay init` 可以把下面两组 npm Language Server 安装到 ForgeRelay 自己的配置目录，而不是全局 npm：
 
-- `typescript-language-server`
-- `pyright-langserver`
-- `rust-analyzer`
-- `gopls`
-- `clangd`
+- TypeScript / JavaScript：`typescript-language-server` + TypeScript；
+- Python：Pyright。
 
-但不会下载或安装它们。
+`rust-analyzer`、`gopls` 和 `clangd` 仍由各自 toolchain / 系统包提供，ForgeRelay 只负责发现。
 
-如果某项 code-intelligence operation 不可用，先检查目标语言服务器是否真实存在于 ForgeRelay Server 的运行环境中。
+Agent 按需安装默认关闭。用户在 init 中显式允许后，Agent 可以调用：
+
+```text
+code.intelligence { operation: "managed.status" }
+code.intelligence { operation: "managed.install", servers: ["typescript"] }
+```
+
+安装成功后不需要重启 ForgeRelay。下一次 semantic request 会重新解析可执行文件；如果 Language Service 的 command/fingerprint 变化，旧 idle service 会被替换。
 
 ## 什么时候用 Code Intelligence
 
@@ -50,8 +54,7 @@ ForgeRelay 可以发现机器上已经存在的：
 
 - 通用全文搜索；
 - Git history 查询；
-- 自动重构器；
-- Language Server 安装器。
+- 自动重构器。
 
 普通文本检索仍可以通过 `bash` 使用 `rg`、`find` 等本机工具。
 
@@ -175,6 +178,8 @@ ForgeRelay 不会静默把多个嵌套 Language Service 的 workspace-symbol 结
 ForgeRelay 优先使用 Language Server 的 pull diagnostics；如果服务器不支持，则读取最新有界 `publishDiagnostics` snapshot。
 
 结果会包含 provider、返回数量、是否截断以及 freshness metadata，帮助 Agent 判断当前诊断是否对应已同步的文件版本。
+
+成功的 `write`、`edit`、`rename` 和 Codex `apply_patch` 会自动对受影响的代码文件执行 diagnostics，并把非空诊断直接追加到**同一次 mutation response**。这不会额外创建一个 Activity；没有匹配 Language Server 的文件会静默跳过，LSP 自身校验失败也不会回滚已经成功的文件修改，而是返回有界 warning 让 Agent 继续处理。
 
 Code Intelligence 的 Workspace filesystem 是 v1 的 document source of truth。
 
