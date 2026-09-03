@@ -15,6 +15,7 @@ async function configureProject(
   project: string,
   options: {
     referenceDelayMs?: number;
+    referenceGatePath?: string;
     cancellationMode?: "aware" | "ignore";
     logPath?: string;
   } = {},
@@ -33,6 +34,7 @@ async function configureProject(
         env: {
           FORGERELAY_FAKE_LSP_REFERENCE_DELAY_MS: String(options.referenceDelayMs ?? 0),
           FORGERELAY_FAKE_LSP_CANCELLATION_MODE: options.cancellationMode ?? "aware",
+          ...(options.referenceGatePath ? { FORGERELAY_FAKE_LSP_REFERENCE_GATE_PATH: options.referenceGatePath } : {}),
           ...(options.logPath ? { FORGERELAY_FAKE_LSP_LOG: options.logPath } : {}),
         },
         languages: ["typescript"],
@@ -133,7 +135,8 @@ test("a server that ignores cancellation cannot block all semantic request slots
     },
   });
   const logPath = join(context.project, ".cancel-ignore.log");
-  await configureProject(context.project, { referenceDelayMs: 1_500, cancellationMode: "ignore", logPath });
+  const referenceGatePath = join(context.project, ".cancel-ignore-release");
+  await configureProject(context.project, { referenceGatePath, cancellationMode: "ignore", logPath });
   const opened = await callOpen(context.client, context.project, "request-cancel-ignore");
   const workspaceId = structuredContent(opened).workspaceId as string;
   const primed = await context.client.callTool(capabilityCall(workspaceId, {
@@ -143,6 +146,7 @@ test("a server that ignores cancellation cannot block all semantic request slots
     column: 15,
   }));
   assert.equal(primed.isError, undefined);
+  await writeFile(logPath, "");
   const controller = new AbortController();
   const pending = context.client.callTool(
     capabilityCall(workspaceId, {
@@ -158,15 +162,16 @@ test("a server that ignores cancellation cannot block all semantic request slots
   controller.abort();
   await assert.rejects(pending);
 
-  const started = Date.now();
-  const hover = await context.client.callTool(capabilityCall(workspaceId, {
+  const hoverPending = context.client.callTool(capabilityCall(workspaceId, {
     operation: "hover",
     path: "src/main.ts",
     line: 1,
     column: 15,
   }));
+  await waitForLog(logPath, /"method":"textDocument\/hover"/);
+  await writeFile(referenceGatePath, "release\n");
+  const hover = await hoverPending;
   assert.equal(hover.isError, undefined);
-  assert.ok(Date.now() - started < 1_000, "a second semantic slot should remain available before the ignored request completes");
   const log = await waitForLog(logPath, /"method":"\$\/cancelRequest"/);
   assert.match(log, /"method":"\$\/cancelRequest"/);
 });

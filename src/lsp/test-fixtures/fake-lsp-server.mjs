@@ -13,6 +13,7 @@ const hoverMode = process.env.FORGERELAY_FAKE_LSP_HOVER_MODE ?? "markdown";
 const hoverText = process.env.FORGERELAY_FAKE_LSP_HOVER_TEXT ?? "**target**: `() => void`";
 const referenceCount = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_COUNT ?? "1");
 const referenceDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_REFERENCE_DELAY_MS ?? "0");
+const referenceGatePath = process.env.FORGERELAY_FAKE_LSP_REFERENCE_GATE_PATH;
 const cancellationMode = process.env.FORGERELAY_FAKE_LSP_CANCELLATION_MODE ?? "aware";
 const crashMode = process.env.FORGERELAY_FAKE_LSP_CRASH_MODE ?? "none";
 const crashStatePath = process.env.FORGERELAY_FAKE_LSP_CRASH_STATE_PATH;
@@ -318,7 +319,14 @@ function handle(message) {
       pendingRequests.delete(message.id);
       respond(message.id, locations);
     };
-    if (referenceDelayMs > 0) {
+    if (referenceGatePath) {
+      const gatePoll = setInterval(() => {
+        if (!existsSync(referenceGatePath)) return;
+        clearInterval(gatePoll);
+        finish();
+      }, 10);
+      pendingRequests.set(message.id, gatePoll);
+    } else if (referenceDelayMs > 0) {
       pendingRequests.set(message.id, setTimeout(finish, referenceDelayMs));
     } else {
       finish();
