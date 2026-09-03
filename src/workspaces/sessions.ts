@@ -196,6 +196,7 @@ export class WorkspaceSessionService {
       if (!isIdle(session)) continue;
       if (protectedWorkspaceIds.has(session.id) || boundWorkspaceIds.has(session.id)) continue;
       if (session.mode === "worktree" && worktreeAnchors.get(resolve(session.root))?.id === session.id) continue;
+      this.context.forgetWorkspaceResources(session.id);
       this.workspaces.delete(session.id);
     }
   }
@@ -335,6 +336,7 @@ export class WorkspaceSessionService {
     workspace.loadedInstructionPaths.clear();
     const agentsFiles = await this.context.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.context.findAvailableAgentsFiles(workspace, agentsFiles);
+    this.context.trackWorkspaceResources(workspace, agentsFiles, availableAgentsFiles);
     const {
       contextFingerprint,
       componentFingerprints: bootstrapComponentFingerprints,
@@ -418,6 +420,7 @@ export class WorkspaceSessionService {
       });
       return context;
     } catch (error) {
+      this.context.forgetWorkspaceResources(session.id);
       this.workspaces.delete(session.id);
       try {
         await discardFreshManagedWorktree({ worktree, config: this.config });

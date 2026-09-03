@@ -267,6 +267,7 @@ export class WorkspaceRegistry {
     openOptions: OpenWorkspaceOptions = {},
   ): Promise<WorkspaceContext> {
     this.sessions.pruneIdleWorkspaceSessions(openOptions.protectedWorkspaceIds ?? new Set());
+    this.context.pruneWorkspaceResources(this.workspaces.keys());
     const workspaceInput = typeof input === "string" ? { path: input } : input;
 
     const bootstrapContext = workspaceInput.context ?? "auto";
@@ -399,6 +400,7 @@ export class WorkspaceRegistry {
       this.sessions.deleteConversationBindingsForWorkspace(canonicalWorkspaceId);
       this.store.setSessionStatus(canonicalWorkspaceId, "closed");
     }
+    this.context.forgetWorkspaceResources(canonicalWorkspaceId);
     this.workspaces.delete(canonicalWorkspaceId);
   }
 
@@ -412,6 +414,7 @@ export class WorkspaceRegistry {
 
     this.sessions.deleteConversationBindingsForWorkspace(session.id);
     this.store?.deleteSession(session.id);
+    this.context.forgetWorkspaceResources(session.id);
     this.workspaces.delete(session.id);
   }
 
@@ -525,6 +528,7 @@ export class WorkspaceRegistry {
     for (const aliasedWorkspaceId of aliasedWorkspaceIds) {
       this.sessions.deleteConversationBindingsForWorkspace(aliasedWorkspaceId);
       this.store?.setSessionStatus(aliasedWorkspaceId, "closed");
+      this.context.forgetWorkspaceResources(aliasedWorkspaceId);
       this.workspaces.delete(aliasedWorkspaceId);
     }
     return { ...result, hookReports };
@@ -759,6 +763,7 @@ export class WorkspaceRegistry {
     });
     const agentsFiles = await this.context.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.context.findAvailableAgentsFiles(workspace, agentsFiles);
+    this.context.trackWorkspaceResources(workspace, agentsFiles, availableAgentsFiles);
     const {
       contextFingerprint,
       componentFingerprints: bootstrapComponentFingerprints,
@@ -777,15 +782,19 @@ export class WorkspaceRegistry {
     };
   }
 
-  discoverPathInstructions(
-    workspace: Workspace,
-    inputPath: string,
-  ): Promise<LoadedAgentsFile[]> {
+  discoverPathInstructions(workspace: Workspace, inputPath: string): Promise<LoadedAgentsFile[]> {
     return this.context.discoverPathInstructions(workspace, inputPath);
   }
 
-}
+  claimResourceUpdates(workspaceId: string, conversationScopeId: string | undefined) {
+    return this.context.claimResourceUpdates(workspaceId, conversationScopeId);
+  }
 
+  acknowledgeResourceUpdates(workspaceId: string, conversationScopeId: string | undefined): void {
+    this.context.acknowledgeResourceUpdates(workspaceId, conversationScopeId);
+  }
+
+}
 
 export { formatAgentsPath };
 export { ensureCheckoutWorkspaceRoot } from "./workspaces/paths.js";

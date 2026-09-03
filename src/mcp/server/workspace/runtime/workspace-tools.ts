@@ -68,7 +68,7 @@ export interface RegisterWorkspaceAuxiliaryToolsOptions {
   prepareExecutionContext: (target: ProcessExecutionTarget, requestMeta: unknown, signal: AbortSignal | undefined, sessionId: string | undefined) => Promise<CoreOperationContext>;
   hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
   presentExecutionResult: <T>(result: T, target: ProcessExecutionTarget) => T;
-  presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget) => T;
+  presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
 }
 
 export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxiliaryToolsOptions): void {
@@ -266,7 +266,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           ...(file !== undefined ? { file } : {}),
         }, hostScopeIdFor(extra._meta, extra.sessionId));
         return action === "run" && name !== "workspace.tasks"
-          ? presentSemanticWorkResult(response, target)
+          ? presentSemanticWorkResult(response, target, hostScopeIdFor(extra._meta, extra.sessionId))
           : presentExecutionResult(response, target);
       }
       if (action === "run" && name === "batch.execute") {
@@ -296,7 +296,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
-          return presentSemanticWorkResult(result, target);
+          return presentSemanticWorkResult(result, target, hostScopeIdFor(extra._meta, extra.sessionId));
         } catch (error) {
           if (extra.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
@@ -331,7 +331,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         );
         return name === "workspace.tasks"
           ? presentExecutionResult(response, target)
-          : presentSemanticWorkResult(response, target);
+          : presentSemanticWorkResult(response, target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);

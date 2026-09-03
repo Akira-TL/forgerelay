@@ -60,6 +60,41 @@ const canonicalToolNames = [
   "bash",
 ] as const;
 
+test("read permits absolute allowed-root inspection without opening a Workspace", async (t) => {
+  const context = await fixture(t);
+  const inspectPath = join(context.project, "unscoped-inspect.txt");
+  await writeFile(inspectPath, "UNSCOPED-READ-SENTINEL\n");
+
+  assert.equal(context.workspaces.cachedWorkspaceCount, 0);
+  const read = await context.client.callTool({
+    name: "read",
+    arguments: { path: inspectPath },
+  });
+  assert.equal(read.isError, undefined);
+  assert.match(allResponseText(read), /UNSCOPED-READ-SENTINEL/);
+  assert.equal(context.workspaces.cachedWorkspaceCount, 0);
+
+  const relative = await context.client.callTool({
+    name: "read",
+    arguments: { path: "unscoped-inspect.txt" },
+  });
+  assert.equal(relative.isError, true);
+  assert.match(allResponseText(relative), /absolute paths inside configured allowedRoots/i);
+
+  const outsideRoot = await mkdtemp(join(tmpdir(), "forgerelay-unscoped-outside-"));
+  t.after(() => rm(outsideRoot, { recursive: true, force: true }));
+  const outsidePath = join(outsideRoot, "outside.txt");
+  await writeFile(outsidePath, "OUTSIDE-SENTINEL\n");
+  const outside = await context.client.callTool({
+    name: "read",
+    arguments: { path: outsidePath },
+  });
+  assert.equal(outside.isError, true);
+  assert.match(allResponseText(outside), /outside allowed roots|access denied|not allowed/i);
+  assert.doesNotMatch(allResponseText(outside), /OUTSIDE-SENTINEL/);
+  assert.equal(context.workspaces.cachedWorkspaceCount, 0);
+});
+
 test("bulk Read returns ordered per-file results and persists one parent Activity with child Reads", async (t) => {
   const context = await fixture(t, {
     hooks: {

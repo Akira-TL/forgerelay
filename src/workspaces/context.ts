@@ -16,6 +16,10 @@ import {
   markSkillActivated,
   resolveSkillReadPath,
 } from "./resources/skills.js";
+import {
+  WorkspaceResourceMonitor,
+  type WorkspaceResourceUpdate,
+} from "./resources/resource-monitor.js";
 import type { WorkspaceMode } from "./state/workspace-store.js";
 import type {
   AdvertisedWorkspaceInstruction,
@@ -46,6 +50,8 @@ const SKIPPED_CONTEXT_DIRS = new Set([
  * lifecycle code from accidentally bypassing the same security rules.
  */
 export class WorkspaceContextService {
+  private readonly resourceMonitor = new WorkspaceResourceMonitor();
+
   constructor(private readonly config: ServerConfig) {}
 
   fileToolRoots(workspace: Workspace): string[] {
@@ -117,6 +123,7 @@ export class WorkspaceContextService {
   markReadPathLoaded(workspace: Workspace, readPath: WorkspaceReadPath): void {
     if (readPath.skillRead?.isSkillFile) {
       markSkillActivated(workspace.activatedSkillDirs, readPath.skillRead.skill);
+      this.resourceMonitor.markSkillActivated(workspace.id, readPath.skillRead.skill.filePath);
     }
     if (readPath.capabilityGuideRead?.isGuideFile) {
       markCapabilityGuideActivated(
@@ -254,8 +261,54 @@ export class WorkspaceContextService {
       await this.discoverInstructionTree(workspace, directory, 0);
       loaded.push(...await this.loadKnownInstructionsInDirectory(workspace, directory));
     }
+    for (const file of loaded) {
+      this.resourceMonitor.trackLoadedInstruction(workspace.id, workspace.root, file.path);
+    }
     return loaded;
   }
+
+  trackWorkspaceResources(
+    workspace: Workspace,
+    agentsFiles: LoadedAgentsFile[],
+    availableAgentsFiles: AvailableAgentsFile[],
+  ): void {
+    this.resourceMonitor.trackWorkspace({
+      workspaceId: workspace.id,
+      root: workspace.root,
+      loadedInstructions: agentsFiles.map((file) => file.path),
+      availableInstructions: availableAgentsFiles.map((file) => file.path),
+      skills: workspace.skills.map((skill) => ({
+        name: skill.name,
+        filePath: skill.filePath,
+        baseDir: skill.baseDir,
+        activated: workspace.activatedSkillDirs.has(resolve(skill.baseDir)),
+      })),
+    });
+  }
+
+  claimResourceUpdates(
+    workspaceId: string,
+    conversationScopeId: string | undefined,
+  ): WorkspaceResourceUpdate | undefined {
+    return this.resourceMonitor.claim(workspaceId, conversationScopeId);
+  }
+
+  acknowledgeResourceUpdates(workspaceId: string, conversationScopeId: string | undefined): void {
+    this.resourceMonitor.acknowledge(workspaceId, conversationScopeId);
+  }
+
+  resourceUpdatesCurrent(workspaceId: string, conversationScopeId: string | undefined): boolean {
+    return this.resourceMonitor.isCurrentForScope(workspaceId, conversationScopeId);
+  }
+
+  forgetWorkspaceResources(workspaceId: string): void {
+    this.resourceMonitor.forgetWorkspace(workspaceId);
+  }
+
+  pruneWorkspaceResources(activeWorkspaceIds: Iterable<string>): void {
+    this.resourceMonitor.pruneWorkspaces(activeWorkspaceIds);
+  }
+
 
   private async discoverInstructionTree(
     workspace: Workspace,

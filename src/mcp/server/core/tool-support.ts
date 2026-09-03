@@ -118,13 +118,18 @@ export function textBlock(text: string): ToolContent {
 }
 
 export function attachWorkspaceTaskReminder<T>(result: T, reminder: string | undefined): T {
-  if (!reminder || toolResultIsError(result) || typeof result !== "object" || result === null) return result;
+  return attachWorkspaceNotice(result, reminder);
+}
+
+export function attachWorkspaceContextUpdate<T>(result: T, update: string | undefined): T {
+  return attachWorkspaceNotice(result, update);
+}
+
+function attachWorkspaceNotice<T>(result: T, notice: string | undefined): T {
+  if (!notice || toolResultIsError(result) || typeof result !== "object" || result === null) return result;
   const content = (result as { content?: unknown }).content;
   if (!Array.isArray(content)) return result;
-  return {
-    ...result,
-    content: [...content, textBlock(reminder)],
-  } as T;
+  return { ...result, content: [...content, textBlock(notice)] } as T;
 }
 
 export function textSummary(content: ToolContent[]): {

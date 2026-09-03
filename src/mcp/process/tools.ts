@@ -51,7 +51,7 @@ export interface ProcessToolRouting {
     sessionId: string | undefined,
   ) => Promise<CoreOperationContext>;
   present: <T>(result: T, target: ProcessExecutionTarget) => T;
-  presentSemantic: <T>(result: T, target: ProcessExecutionTarget) => T;
+  presentSemantic: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
   isRemote: (workspaceId: string) => boolean;
   bashRemote: (
     workspaceId: string,
@@ -183,7 +183,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
         }, routing.hostScopeIdFor(extra._meta, extra.sessionId));
         return action === "run"
-          ? routing.presentSemantic(response, target)
+          ? routing.presentSemantic(response, target, routing.hostScopeIdFor(extra._meta, extra.sessionId))
           : routing.present(response, target);
       }
 
@@ -204,7 +204,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           yieldTimeMs,
           timeoutMs,
           maxOutputTokens,
-        }, executionContext), target);
+        }, executionContext), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
       }
 
       if (action === "output") {
@@ -343,7 +343,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           },
           routing.hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
       }
       return routing.presentSemantic(await shellRun({
         workspaceId: target.executionWorkspaceId,
@@ -356,7 +356,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
         yieldTimeMs,
         timeoutMs,
         maxOutputTokens,
-      }, context), target);
+      }, context), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
 

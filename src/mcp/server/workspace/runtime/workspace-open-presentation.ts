@@ -49,7 +49,6 @@ export async function presentLocalWorkspaceOpen(
         availableAgentsFiles,
         hookReports,
         workspaceReused,
-        includeBootstrapContext,
         bootstrapContextComponents,
         contextFingerprint,
       } = await workspaces.openWorkspace(
@@ -60,6 +59,19 @@ export async function presentLocalWorkspaceOpen(
         },
       );
       workspaceTasks.initializeWorkspace(workspace.id);
+      const requestedContext = context ?? "auto";
+      const resourceUpdate = workspaceReused && requestedContext === "auto"
+        ? workspaces.claimResourceUpdates(workspace.id, conversationScopeId)
+        : undefined;
+      if (requestedContext === "full" || (!workspaceReused && requestedContext !== "none")) {
+        workspaces.acknowledgeResourceUpdates(workspace.id, conversationScopeId);
+      }
+      const effectiveBootstrapContextComponents = resourceUpdate
+        ? bootstrapContextComponents.filter((component) =>
+            !resourceUpdate.coveredComponents.includes(component as "agentsFiles" | "skills")
+          )
+        : bootstrapContextComponents;
+      const effectiveIncludeBootstrapContext = effectiveBootstrapContextComponents.length > 0 || Boolean(resourceUpdate);
       const knownWorktrees = await workspaces.listKnownWorktrees(workspace);
       const staleWorkspaces = await workspaces.listStaleWorkspaces(workspace);
       const capabilityFingerprint = buildCapabilityFingerprint(config, FORGERELAY_VERSION, {
@@ -101,7 +113,7 @@ export async function presentLocalWorkspaceOpen(
       const cardAvailableAgentsFiles = availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
       }));
-      const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(bootstrapContextComponents);
+      const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(effectiveBootstrapContextComponents);
       const visibleSkills = bootstrapComponents.has("skills") ? cardSkills : [];
       const visibleSkillDiagnostics = bootstrapComponents.has("skillDiagnostics")
         ? redactSkillDiagnosticPaths(workspace.skillDiagnostics)
@@ -121,11 +133,13 @@ export async function presentLocalWorkspaceOpen(
         ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
         : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
       const instruction = workspaceReused
-        ? includeBootstrapContext
+        ? effectiveIncludeBootstrapContext
           ? [
               `Workspace already exists as ${workspace.id} for this directory.`,
               "Reuse this workspaceId for subsequent tool calls.",
-              `Project bootstrap context components included in this response: ${bootstrapContextComponents.join(", ")}. Components not listed are unchanged and are not repeated.`,
+              effectiveBootstrapContextComponents.length > 0
+                ? `Project bootstrap context components included in this response: ${effectiveBootstrapContextComponents.join(", ")}. Components not listed are unchanged and are not repeated.`
+                : "Only Workspace context deltas are included in this response; unchanged bootstrap context is not repeated.",
               workspaceContextInstruction,
               workspaceManagementInstruction,
             ].join("\n\n")
@@ -182,6 +196,7 @@ export async function presentLocalWorkspaceOpen(
               : undefined,
             `ForgeRelay ${capabilityFingerprint.version} capabilities: ${capabilityFingerprint.capabilities.join(", ")}`,
             instruction,
+            resourceUpdate?.text,
           ].filter(Boolean).join("\n"),
         },
       ];
@@ -200,7 +215,7 @@ export async function presentLocalWorkspaceOpen(
         path: workspace.root,
         mode: workspace.mode,
         workspaceReused,
-        includeBootstrapContext,
+        includeBootstrapContext: effectiveIncludeBootstrapContext,
         sourceRoot: workspace.sourceRoot,
         worktree: workspace.worktree,
         worktrees: knownWorktrees,
@@ -228,7 +243,7 @@ export async function presentLocalWorkspaceOpen(
         content: resultContent,
         _meta: {
           tool: "open_workspace",
-          card: includeBootstrapContext
+          card: effectiveIncludeBootstrapContext
             ? workspaceCard
             : compactWorkspacePresentation(workspaceCard),
         },

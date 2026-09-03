@@ -469,6 +469,68 @@ test("worktree mode reuses by default and only creates another worktree explicit
   assert.match(responseText(checkoutAgain), /same directory previously opened/);
 });
 
+test("open Workspace automatically appends AGENTS and Skill deltas to later semantic results", async (t) => {
+  const context = await fixture(t);
+  const skillDir = join(context.project, ".agents", "skills", "live-skill");
+  await mkdir(skillDir, { recursive: true });
+  const skillPath = join(skillDir, "SKILL.md");
+  await writeFile(skillPath, [
+    "---",
+    "name: live-skill",
+    "description: Old live description.",
+    "---",
+    "# Live Skill",
+    "private-old-body",
+  ].join("\n"));
+  await writeFile(join(context.project, "probe.txt"), "probe\n");
+
+  const conversation = "chat-live-context-delta";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const call = (name: string, arguments_: Record<string, unknown>) => context.client.callTool({
+    name,
+    arguments: arguments_,
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  await writeFile(join(context.project, "AGENTS.md"), "project instructions\nnew-live-rule\n");
+  const afterAgents = await call("read", { workspaceId, path: "probe.txt" });
+  assert.equal(afterAgents.isError, undefined);
+  assert.match(allResponseText(afterAgents), /Workspace instruction delta: AGENTS\.md/);
+  assert.match(allResponseText(afterAgents), /\+new-live-rule/);
+
+  await writeFile(skillPath, [
+    "---",
+    "name: live-skill",
+    "description: New live description.",
+    "---",
+    "# Live Skill",
+    "private-new-body",
+  ].join("\n"));
+  const afterSkillMetadata = await call("read", { workspaceId, path: "probe.txt" });
+  assert.match(allResponseText(afterSkillMetadata), /Skill metadata delta: skills:\/\/live-skill/);
+  assert.match(allResponseText(afterSkillMetadata), /New live description/);
+  assert.doesNotMatch(allResponseText(afterSkillMetadata), /private-new-body/);
+
+  const loadedSkill = await call("read", { workspaceId, path: "skills://live-skill" });
+  assert.match(allResponseText(loadedSkill), /private-new-body/);
+
+  await writeFile(skillPath, [
+    "---",
+    "name: live-skill",
+    "description: New live description.",
+    "---",
+    "# Live Skill",
+    "active-body-change",
+  ].join("\n"));
+  const afterActiveSkill = await call("read", { workspaceId, path: "probe.txt" });
+  assert.match(allResponseText(afterActiveSkill), /Active Skill delta: skills:\/\/live-skill/);
+  assert.match(allResponseText(afterActiveSkill), /\+active-body-change/);
+
+  const noRepeat = await call("read", { workspaceId, path: "probe.txt" });
+  assert.doesNotMatch(allResponseText(noRepeat), /Workspace instruction delta|Skill metadata delta|Active Skill delta/);
+});
+
 test("top-level work tools share the persistent Activity lifecycle while Bash process control does not create a duplicate Activity", async (t) => {
   const context = await fixture(t);
   const opened = await callOpen(context.client, context.project, "chat-activity-lifecycle");

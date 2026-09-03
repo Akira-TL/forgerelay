@@ -46,7 +46,7 @@ import { createOperationRuntime } from "./mcp/server/operations/runtime/operatio
 import { registerWorkspaceAuxiliaryTools } from "./mcp/server/workspace/runtime/workspace-tools.js";
 import { registerOpenWorkspaceTool } from "./mcp/server/workspace/runtime/workspace-open.js";
 import { redactSkillDiagnosticPaths } from "./mcp/server/core/schemas.js";
-import { attachWorkspaceTaskReminder, remapCompositeToolResult, toolResultIsError } from "./mcp/server/core/tool-support.js";
+import { attachWorkspaceContextUpdate, attachWorkspaceTaskReminder, remapCompositeToolResult, toolResultIsError } from "./mcp/server/core/tool-support.js";
 interface CreateMcpServerOptions extends SubagentMcpRuntimeOptions {
   taskReminders?: WorkspaceTaskReminderTracker;
   remoteWorkspaces?: RemoteWorkspaceRelay;
@@ -135,9 +135,14 @@ export function createMcpServer(
   const presentSemanticWorkResult = <T>(
     result: T,
     target: ReturnType<typeof resolveExecutionTarget>,
+    conversationScopeId?: string,
   ): T => {
-    const presented = presentExecutionResult(result, target);
+    let presented = presentExecutionResult(result, target);
     if (toolResultIsError(presented)) return presented;
+    if (!remoteWorkspaces.has(target.executionWorkspaceId)) {
+      const update = workspaces.claimResourceUpdates(target.executionWorkspaceId, conversationScopeId);
+      presented = attachWorkspaceContextUpdate(presented, update?.text);
+    }
     const reminderWorkspaceId = taskReminderWorkspaceIdFor(target);
     return attachWorkspaceTaskReminder(
       presented,

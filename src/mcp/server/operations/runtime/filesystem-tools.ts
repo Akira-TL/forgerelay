@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { isAbsolute } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { applyPatch } from "../../../filesystem/apply-patch.js";
+import { readFileTool } from "../../../filesystem/filesystem-tools.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
@@ -69,7 +71,7 @@ export interface RegisterFilesystemToolsOptions {
     signal: AbortSignal | undefined,
     sessionId: string | undefined,
   ) => Promise<CoreOperationContext>;
-  presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget) => T;
+  presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
   hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
 }
 
@@ -88,7 +90,8 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       inputSchema: {
         workspaceId: z
           .string()
-          .describe("Workspace identifier returned by open_workspace."),
+          .optional()
+          .describe("Workspace identifier returned by open_workspace. Omit only for read-only inspection of absolute paths already inside configured allowedRoots."),
         member: z
           .string()
           .optional()
@@ -137,6 +140,57 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       if ((path === undefined) === (paths === undefined)) {
         throw new Error("read requires exactly one of path or paths.");
       }
+      if (workspaceId === undefined) {
+        if (member !== undefined) throw new Error("read without workspaceId does not accept member.");
+        const requestedPaths = path !== undefined ? [path] : paths!;
+        for (const requestedPath of requestedPaths) {
+          if (!isAbsolute(requestedPath)) {
+            throw new Error("read without workspaceId requires absolute paths inside configured allowedRoots.");
+          }
+        }
+        const startedAt = performance.now();
+        const children = await Promise.all(requestedPaths.map(async (requestedPath) => {
+          const response = await readFileTool(
+            { path: requestedPath, offset, limit },
+            {
+              cwd: process.cwd(),
+              root: config.allowedRoots[0] ?? process.cwd(),
+              readRoots: config.allowedRoots,
+            },
+          );
+          return {
+            path: requestedPath,
+            status: response.isError ? "error" as const : "done" as const,
+            response,
+            result: contentText(response.content as ToolContent[]),
+          };
+        }));
+        const failed = children.filter((child) => child.status === "error").length;
+        const content = children.flatMap((child): ToolContent[] => requestedPaths.length === 1
+          ? child.response.content as ToolContent[]
+          : [textBlock(`--- ${child.path} · ${child.status} ---`), ...(child.response.content as ToolContent[])]
+        );
+        logToolCall(config, {
+          tool: toolNames.read,
+          path: requestedPaths.length === 1 ? requestedPaths[0] : `${requestedPaths.length} unscoped files`,
+          success: failed === 0,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        return {
+          content,
+          ...(failed > 0 ? { isError: true as const } : {}),
+          structuredContent: {
+            result: contentText(content),
+            ...(requestedPaths.length > 1
+              ? {
+                  results: children.map(({ path: childPath, status, result }) => ({ path: childPath, status, result })),
+                  files: children.length,
+                  failed,
+                }
+              : {}),
+          },
+        };
+      }
       if (compositeWorkspaces.has(workspaceId) && member === undefined && path !== undefined) {
         const guide = compositeTaskGuides.find(
           (candidate) => formatPathForPrompt(candidate.filePath) === path || candidate.filePath === path,
@@ -170,13 +224,13 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           executionWorkspaceId,
           { path, paths, offset, limit },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.read(
           { workspaceId: executionWorkspaceId, path, offset, limit },
           executionContext,
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -251,7 +305,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
         activityRelationFor(executionContext),
       );
       if (!response) throw new Error("Bulk Read completed without a response.");
-      return presentSemanticWorkResult(response, target);
+      return presentSemanticWorkResult(response, target, hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
 
@@ -285,12 +339,12 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           executionWorkspaceId,
           input,
           hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       return presentSemanticWorkResult(await coreOperations.write(
         { workspaceId: executionWorkspaceId, ...input },
         executionContext,
-      ), target);
+      ), target, hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
 
@@ -355,19 +409,19 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           executionWorkspaceId,
           { path, paths, edits },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.edit(
           { workspaceId: executionWorkspaceId, path, edits },
           executionContext,
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
 
       return presentSemanticWorkResult(await nativeBulkMutations.edit(
         { workspaceId: executionWorkspaceId, paths: paths!, edits },
         executionContext,
-      ), target);
+      ), target, hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
   }
@@ -401,12 +455,12 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           executionWorkspaceId,
           { path, newPath },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       return presentSemanticWorkResult(await coreOperations.rename(
         { workspaceId: executionWorkspaceId, path, newPath },
         executionContext,
-      ), target);
+      ), target, hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
 
@@ -457,19 +511,19 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           executionWorkspaceId,
           { path, paths, recursive },
           hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.delete(
           { workspaceId: executionWorkspaceId, path, recursive },
           executionContext,
-        ), target);
+        ), target, hostScopeIdFor(extra._meta, extra.sessionId));
       }
 
       return presentSemanticWorkResult(await nativeBulkMutations.delete(
         { workspaceId: executionWorkspaceId, paths: paths!, recursive },
         executionContext,
-      ), target);
+      ), target, hostScopeIdFor(extra._meta, extra.sessionId));
     },
   );
 
@@ -512,7 +566,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
             executionWorkspaceId,
             { patch },
             hostScopeIdFor(extra._meta, extra.sessionId),
-          ), target);
+          ), target, hostScopeIdFor(extra._meta, extra.sessionId));
         }
         const workspace = workspaces.getWorkspace(executionWorkspaceId);
         return runActivityToolWithHooks(
@@ -574,7 +628,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           },
         },
         activityRelationFor(executionContext),
-        ).then((result) => presentSemanticWorkResult(result, target));
+        ).then((result) => presentSemanticWorkResult(result, target, hostScopeIdFor(extra._meta, extra.sessionId)));
       },
     );
   }
