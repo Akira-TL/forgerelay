@@ -11,7 +11,6 @@ import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../../../runtime/config/config.js";
-import { openDatabase } from "../../../runtime/state/db/client.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
 import { ProcessManager } from "../../../mcp/process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
@@ -19,6 +18,10 @@ import { createMcpServer } from "../../../server.js";
 import { SqliteWorkspaceStore } from "../../../workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "../../../workspaces.js";
 import type { SubagentProviderRunner } from "../execution.js";
+import {
+  activityEventsForTool,
+  readActivityAuditSnapshot,
+} from "./activity-audit-test-support.js";
 
 const previousCodexCommand = process.env.CODEX_COMMAND;
 process.env.CODEX_COMMAND = process.execPath;
@@ -148,21 +151,16 @@ test("subagent.session stop cancels the active Run and delete removes only Forge
   assert.equal(cancelledStop.payload.runId, activeRunId);
   assert.equal("providerSessionId" in cancelledStop.payload, false);
 
-  const sqlite = openDatabase(context.stateDir);
-  try {
-    const activityJson = JSON.stringify(sqlite.sqlite.prepare(
-      "select event_type, tool, request_json, result_json, error from activity_audit_events where tool = 'subagent_result' or activity_id in (select activity_id from activity_audit_events where tool = 'subagent_result')",
-    ).all());
-    assert.match(activityJson, /cancelled/);
-    assert.doesNotMatch(activityJson, /establish continuation|block until stop|after cancel/);
-    assert.doesNotMatch(activityJson, new RegExp(`${firstResult}|${afterCancelResult}`));
-  } finally {
-    sqlite.close();
-  }
+  const activitySnapshot = readActivityAuditSnapshot(context.stateDir, context.auditStore);
+  const activityJson = JSON.stringify(activityEventsForTool(activitySnapshot, "subagent_result"));
+  assert.match(activityJson, /cancelled/);
+  assert.doesNotMatch(activityJson, /establish continuation|block until stop|after cancel/);
+  assert.doesNotMatch(activityJson, new RegExp(`${firstResult}|${afterCancelResult}`));
 });
 
 interface Fixture {
   client: Client;
+  auditStore: ActivityAuditStore;
   project: string;
   stateDir: string;
 }
@@ -214,7 +212,7 @@ async function fixture(t: TestContext, runner: SubagentProviderRunner): Promise<
     await connected.close();
     await rm(root, { recursive: true, force: true });
   });
-  return { client: connected.client, project, stateDir };
+  return { client: connected.client, auditStore: connected.auditStore, project, stateDir };
 }
 
 async function connect(config: ServerConfig, stateDir: string, runner: SubagentProviderRunner) {
@@ -248,6 +246,7 @@ async function connect(config: ServerConfig, stateDir: string, runner: SubagentP
   let closed = false;
   return {
     client,
+    auditStore,
     close: async () => {
       if (closed) return;
       closed = true;

@@ -20,6 +20,10 @@ import { SqliteWorkspaceStore } from "../../../workspaces/state/workspace-store.
 import { WorkspaceRegistry } from "../../../workspaces.js";
 import type { SubagentRunInput } from "../../providers/contract.js";
 import type { SubagentProviderRunner } from "../execution.js";
+import {
+  activityEventsForTool,
+  readActivityAuditSnapshot,
+} from "./activity-audit-test-support.js";
 
 const previousCodexCommand = process.env.CODEX_COMMAND;
 process.env.CODEX_COMMAND = process.execPath;
@@ -195,40 +199,27 @@ test("subagent.session tracer launches through capability without persisting con
   );
   assert.equal(failureDelivered, true, "failed Subagent error should be delivered once");
 
+  const activitySnapshot = readActivityAuditSnapshot(context.stateDir, context.auditStore);
+  const linkedEvents = activityEventsForTool(activitySnapshot, "subagent_result");
+  const persistedActivity = JSON.stringify(linkedEvents);
+  assert.doesNotMatch(persistedActivity, new RegExp(secretPrompt));
+  assert.doesNotMatch(persistedActivity, /Review changes\\./);
+  assert.doesNotMatch(persistedActivity, new RegExp(secretFinalResponse));
+  assert.doesNotMatch(persistedActivity, new RegExp(secretProviderError));
+  const linkedStarted = linkedEvents.find((event) => event.type === "started");
+  assert.ok(linkedStarted);
+  assert.match(JSON.stringify(linkedStarted.request), new RegExp(sessionId));
+  assert.match(JSON.stringify(linkedStarted.request), new RegExp(runId));
+  const linkedFinished = linkedEvents.find((event) =>
+    event.activityId === linkedStarted.activityId && event.type === "succeeded"
+  );
+  assert.ok(linkedFinished && linkedFinished.type === "succeeded");
+  assert.match(JSON.stringify(linkedFinished.result), /succeeded/);
+  const failedLinked = linkedEvents.find((event) => event.type === "failed");
+  assert.equal(failedLinked?.type === "failed" ? failedLinked.error : undefined, "Subagent Run failed.");
+
   const sqlite = openDatabase(context.stateDir);
   try {
-    const activityRows = sqlite.sqlite.prepare(
-      "select activity_id, event_type, tool, request_json, result_json, error from activity_audit_events order by rowid",
-    ).all() as Array<{
-      activity_id: string;
-      event_type: string;
-      tool: string | null;
-      request_json: string | null;
-      result_json: string | null;
-      error: string | null;
-    }>;
-    const persistedActivity = JSON.stringify(activityRows);
-    assert.doesNotMatch(persistedActivity, new RegExp(secretPrompt));
-    assert.doesNotMatch(persistedActivity, /Review changes\./);
-    assert.doesNotMatch(persistedActivity, new RegExp(secretFinalResponse));
-    assert.doesNotMatch(persistedActivity, new RegExp(secretProviderError));
-    const linkedStarted = activityRows.find((row) => row.tool === "subagent_result");
-    assert.ok(linkedStarted);
-    assert.match(linkedStarted.request_json ?? "", new RegExp(sessionId));
-    assert.match(linkedStarted.request_json ?? "", new RegExp(runId));
-    const linkedFinished = activityRows.find((row) =>
-      row.activity_id === linkedStarted.activity_id && row.event_type === "succeeded"
-    );
-    assert.ok(linkedFinished);
-    assert.match(linkedFinished.result_json ?? "", /succeeded/);
-    const linkedActivityIds = new Set(
-      activityRows.filter((row) => row.tool === "subagent_result").map((row) => row.activity_id),
-    );
-    const failedLinked = activityRows.find((row) =>
-      row.event_type === "failed" && linkedActivityIds.has(row.activity_id)
-    );
-    assert.equal(failedLinked?.error, "Subagent Run failed.");
-
     const sessionRow = sqlite.sqlite.prepare(
       "select latest_response, hook_reports_json, error from local_agent_sessions where id = ?",
     ).get(sessionId) as {
@@ -317,6 +308,7 @@ test("subagent completion mailbox survives server restart and is delivered once"
 
 interface SubagentServerFixture {
   client: Client;
+  auditStore: ActivityAuditStore;
   project: string;
   config: ServerConfig;
   stateDir: string;
@@ -378,7 +370,7 @@ async function connectFixture(
   config: ServerConfig,
   stateDir: string,
   subagentProviderRunner?: SubagentProviderRunner,
-): Promise<{ client: Client; close(): Promise<void> }> {
+): Promise<{ client: Client; auditStore: ActivityAuditStore; close(): Promise<void> }> {
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const auditStore = new ActivityAuditStore(stateDir);
@@ -410,6 +402,7 @@ async function connectFixture(
   let closed = false;
   return {
     client,
+    auditStore,
     close: async () => {
       if (closed) return;
       closed = true;

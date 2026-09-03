@@ -11,7 +11,6 @@ import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../../../runtime/config/config.js";
-import { openDatabase } from "../../../runtime/state/db/client.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
 import { ProcessManager } from "../../../mcp/process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
@@ -21,6 +20,10 @@ import { WorkspaceRegistry } from "../../../workspaces.js";
 import type { SubagentRunInput } from "../../providers/contract.js";
 import type { SubagentProviderRunner } from "../execution.js";
 import { SubagentSessionStore } from "../store.js";
+import {
+  activityEventsForTool,
+  readActivityAuditSnapshot,
+} from "./activity-audit-test-support.js";
 
 const previousCodexCommand = process.env.CODEX_COMMAND;
 process.env.CODEX_COMMAND = process.execPath;
@@ -160,20 +163,14 @@ test("restart reconciliation preserves live owners and interrupts stale Runs wit
   assert.equal(providerInputs[0]?.providerSessionId, "thread_existing");
   assert.equal(providerInputs[0]?.prompt, "only this new prompt may execute");
 
-  const sqlite = openDatabase(stateDir);
-  try {
-    const audit = JSON.stringify(sqlite.sqlite.prepare(
-      "select event_type, tool, request_json, result_json, error from activity_audit_events order by rowid",
-    ).all());
-    assert.match(audit, /interrupted/);
-    assert.match(audit, /run_stale_no_cont/);
-    assert.match(audit, /run_stale_with_cont/);
-    assert.doesNotMatch(audit, new RegExp(forbiddenOldPrompt));
-    assert.doesNotMatch(audit, /only this new prompt may execute/);
-    assert.doesNotMatch(audit, /new prompt result/);
-  } finally {
-    sqlite.close();
-  }
+  const activitySnapshot = readActivityAuditSnapshot(stateDir, restored.auditStore);
+  const audit = JSON.stringify(activityEventsForTool(activitySnapshot, "subagent_result"));
+  assert.match(audit, /interrupted/);
+  assert.match(audit, /run_stale_no_cont/);
+  assert.match(audit, /run_stale_with_cont/);
+  assert.doesNotMatch(audit, new RegExp(forbiddenOldPrompt));
+  assert.doesNotMatch(audit, /only this new prompt may execute/);
+  assert.doesNotMatch(audit, /new prompt result/);
 });
 
 async function connect(
@@ -215,6 +212,7 @@ async function connect(
   let closed = false;
   return {
     client,
+    auditStore,
     close: async () => {
       if (closed) return;
       closed = true;
