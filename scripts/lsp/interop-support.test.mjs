@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
-import { findExecutable, probeExecutable } from "./lsp-interop-support.mjs";
+import { findExecutable, probeExecutable } from "./interop-support.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-lsp-preflight-test-"));
 

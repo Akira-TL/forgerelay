@@ -42,7 +42,7 @@
     "debug:accept": "node scripts/debug/accept.mjs",
     "debug:accept:relay": "node scripts/debug/relay-accept.mjs",
     "traffic:audit": "node --import tsx scripts/debug/traffic/traffic-audit.mjs",
-    "lsp:interop": "node scripts/lsp-interop.mjs",
+    "lsp:interop": "node scripts/lsp/interop.mjs",
     "wiki:check": "node scripts/wiki/sync.mjs check",
     "wiki:publish": "node scripts/wiki/sync.mjs publish",
     "ci:verify": "node scripts/ci/verify.mjs",
