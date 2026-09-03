@@ -21,6 +21,7 @@ All notable ForgeRelay changes are documented here.
 
 - Increased the default foreground process wait and stabilized cancellation/concurrency behavior around Language Server diagnostics.
 - Fixed Windows `.cmd`/`.bat` Language Server launchers and kept ordinary external LSP interoperability independent of ForgeRelay's managed-LSP config directory.
+- Preserved Windows `cmd.exe` command quoting for isolated Agent Bash execution, including commands whose executable path is already quoted.
 - Hardened release verification with pinned publishing tooling and dedicated per-version release notes.
 
 ## [0.8.9] - 2026-09-02

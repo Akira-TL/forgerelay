@@ -40,7 +40,10 @@ export function resolveShellCommand(
   if (platform === "win32") {
     return {
       executable: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
-      args: ["/d", "/s", "/c", command],
+      // Match Node's native `spawn(command, { shell: cmd.exe })` quoting.
+      // cmd.exe /S applies special quote stripping, so the whole command must
+      // be wrapped even when the executable inside it is already quoted.
+      args: ["/d", "/s", "/c", `"${command}"`],
       windowsVerbatimArguments: true,
     };
   }
