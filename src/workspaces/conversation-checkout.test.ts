@@ -139,6 +139,28 @@ test("changed project instructions invalidate the delivered bootstrap fingerprin
   assert.equal(refreshed.agentsFiles.some((file) => file.content.includes("updated project instructions")), true);
 });
 
+test("changed project Skill metadata refreshes when the Workspace is reopened", async (t) => {
+  const { project, registry } = await fixture(t);
+  const skillDir = join(project, ".agents", "skills", "live-skill");
+  const skillPath = join(skillDir, "SKILL.md");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(skillPath, "---\nname: live-skill\ndescription: first description\n---\nfirst body\n");
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-skill-refresh" });
+  assert.equal(first.workspace.skills.find((skill) => skill.name === "live-skill")?.description, "first description");
+
+  await writeFile(skillPath, "---\nname: live-skill\ndescription: updated description\n---\nupdated body\n");
+  const refreshed = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-skill-refresh" },
+  );
+
+  assert.equal(
+    refreshed.workspace.skills.find((skill) => skill.name === "live-skill")?.description,
+    "updated description",
+  );
+});
+
 test("bootstrap context policy can skip automatic delivery and force a refresh", async (t) => {
   const { project, registry } = await fixture(t);
 
