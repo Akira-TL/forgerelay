@@ -5,7 +5,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const NPM_VERSION = "10.9.3";
+const NPM_VERSION = "11.19.1";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NODE_VERSION = readFileSync(join(repoRoot, ".nvmrc"), "utf8").trim();
 const debugRoot = join(repoRoot, ".forgerelay-debug");

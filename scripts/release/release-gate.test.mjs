@@ -69,7 +69,9 @@ test("release runtime and local parity share the checked-in Node contract", asyn
 
   const source = await readFile(resolve(repoRoot, "scripts/release-parity.mjs"), "utf8");
   assert.match(source, /readFileSync\(join\(repoRoot, "\.nvmrc"\), "utf8"\)/);
-  assert.match(source, /const NPM_VERSION = "10\.9\.3"/);
+  assert.match(source, /const NPM_VERSION = "11\.19\.1"/);
+  const ciWorkflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  assert.match(ciWorkflow, /npm install --global npm@11\.19\.1/);
   assert.ok(source.includes('["npm", "ci", "--no-audit", "--no-fund"]'));
   assert.ok(source.includes('["npm", "run", "ci:verify"]'));
   assert.ok(source.includes('["npm", "run", "release:pack"]'));
