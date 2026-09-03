@@ -1,8 +1,8 @@
-import { loadCapabilityGuides } from "../../../capabilities.js";
-import { CapabilityError, type CapabilityContext, type WorkspaceTasksCapabilityInput } from "../../../capability-registry.js";
-import { createReviewCheckpointManager } from "../../../review-checkpoints.js";
-import { formatPathForPrompt } from "../../../skills.js";
-import { WorkspaceTaskStore } from "../../../workspace-tasks.js";
+import { loadCapabilityGuides } from "./capabilities.js";
+import { CapabilityError, type CapabilityContext, type WorkspaceTasksCapabilityInput } from "./capability-registry.js";
+import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
+import { formatPathForPrompt } from "../../../workspaces/resources/skills.js";
+import { WorkspaceTaskStore } from "../../../workspaces/tasks/workspace-tasks.js";
 import type { Workspace } from "../../../workspaces.js";
 
 export function workspaceHookInvocation(workspace: Workspace) {

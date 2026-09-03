@@ -5,10 +5,10 @@ import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
-import { loadConfig, type ServerConfig } from "./config.js";
-import { GitWorktreeError } from "./git-worktrees.js";
+import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
+import { GitWorktreeError } from "./workspaces/git/git-worktrees.js";
 import { parseHookConfig } from "./hooks.js";
-import { SqliteWorkspaceStore } from "./workspace-store.js";
+import { SqliteWorkspaceStore } from "./workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
 const execFileAsync = promisify(execFile);

@@ -13,15 +13,15 @@ import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol
 import {
   isRemoteMcpUnauthorized,
   refreshRemoteAuthentication,
-} from "./remote-auth.js";
-import { RemoteMcpConnectionPool, type RemoteMcpConnection } from "./remote-mcp-connection-pool.js";
-import { withFileLock } from "./state/file-lock.js";
-import { withRemoteServiceEndpoint } from "./remote-transport.js";
+} from "./workspaces/relay/auth/remote-auth.js";
+import { RemoteMcpConnectionPool, type RemoteMcpConnection } from "./workspaces/relay/transport/remote-mcp-connection-pool.js";
+import { withFileLock } from "./runtime/state/lock/file-lock.js";
+import { withRemoteServiceEndpoint } from "./workspaces/relay/transport/remote-transport.js";
 import {
   loadForgeRelayFiles,
   type ForgeRelayRemoteRecord,
   writeForgeRelayRemote,
-} from "./user-config.js";
+} from "./runtime/config/user-config.js";
 
 type ToolCallResult = CallToolResult;
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../runtime/config/config.js";
 import { loadSubagentProfiles, summarizeSubagentProfile } from "./profiles.js";
 
 const root = await mkdtemp(join(tmpdir(), "forgerelay-agent-profiles-test-"));

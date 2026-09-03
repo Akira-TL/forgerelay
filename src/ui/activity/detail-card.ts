@@ -5,7 +5,7 @@ import {
   isWriteTool,
   payloadText,
   type ToolResultCard,
-} from "../card-types.js";
+} from "../core/card-types.js";
 import type { ActivityDetail } from "./model.js";
 
 export function activityDetailCard(detail: ActivityDetail): ToolResultCard | undefined {

@@ -1,12 +1,12 @@
-import type { ActivityLifecycle } from "../../activity/lifecycle.js";
+import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import {
   CapabilityError,
   type CapabilityContext,
   type CapabilityExecution,
   type CapabilityRunOptions,
   type SubagentSessionCapabilityInput,
-} from "../../capability-registry.js";
-import type { ServerConfig } from "../../config.js";
+} from "../../mcp/server/core/capability-registry.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
 import { isSubagentProvider, type SubagentProvider } from "../profiles.js";
 import type { SubagentRunInput, SubagentRunResult } from "../providers/contract.js";
 import { subagentProviderContinuationSupported } from "../providers/continuation.js";

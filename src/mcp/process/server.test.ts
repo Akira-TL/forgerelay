@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { ProcessManager } from "../../process-sessions.js";
+import { ProcessManager } from "./process-sessions.js";
 import {
   allResponseText,
   callOpen,
@@ -11,7 +11,7 @@ import {
   structuredContent,
   waitForCompletedProcess,
   waitForToolText,
-} from "../../test-support/server-fixture.js";
+} from "../../runtime/testing/server-fixture.js";
 
 test("bash returns only the last 10 output lines and retrieves complete durable output by outputId", async (t) => {
   const context = await fixture(t);

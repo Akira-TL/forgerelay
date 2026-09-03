@@ -1,4 +1,4 @@
-import type { CapabilityRunOperationInput } from "../../../operations/core-operation-executor.js";
+import type { CapabilityRunOperationInput } from "../../../mcp/operations/core-operation-executor.js";
 
 export function capabilityActivityAuditRequest(input: CapabilityRunOperationInput): unknown {
   if (input.name !== "subagent.session") {

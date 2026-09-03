@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
-import type { ServerConfig } from "../../config.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
 import {
   CodeIntelligenceError,
   LanguageService,

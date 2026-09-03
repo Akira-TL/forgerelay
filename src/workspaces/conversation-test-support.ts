@@ -4,11 +4,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { promisify } from "node:util";
-import { loadConfig, type ServerConfig } from "../config.js";
-import { SqliteWorkspaceStore } from "../workspace-store.js";
+import { loadConfig, type ServerConfig } from "../runtime/config/config.js";
+import { SqliteWorkspaceStore } from "./state/workspace-store.js";
 import { WorkspaceRegistry } from "../workspaces.js";
 
 const execFileAsync = promisify(execFile);
+
+export interface WorkspaceFixture {
+  root: string;
+  project: string;
+  stateDir: string;
+  config: ServerConfig;
+  store: SqliteWorkspaceStore;
+  registry: WorkspaceRegistry;
+  openStore: () => SqliteWorkspaceStore;
+  closeStore: (store: SqliteWorkspaceStore) => void;
+}
 
 export async function fixture(
   t: TestContext,

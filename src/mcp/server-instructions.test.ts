@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "../runtime/config/config.js";
 import {
   buildServerInstructions,
   buildToolDescriptions,

@@ -4,19 +4,19 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   markCapabilityGuideActivated,
   resolveCapabilityGuideReadPath,
-} from "../capabilities.js";
-import type { ServerConfig } from "../config.js";
+} from "../mcp/server/core/capabilities.js";
+import type { ServerConfig } from "../runtime/config/config.js";
 import {
   assertAllowedPath,
   isPathInsideRoot,
   resolveAllowedPath,
-} from "../roots.js";
+} from "../mcp/filesystem/roots.js";
 import {
   loadWorkspaceSkills,
   markSkillActivated,
   resolveSkillReadPath,
-} from "../skills.js";
-import type { WorkspaceMode } from "../workspace-store.js";
+} from "./resources/skills.js";
+import type { WorkspaceMode } from "./state/workspace-store.js";
 import type {
   AdvertisedWorkspaceInstruction,
   AvailableAgentsFile,

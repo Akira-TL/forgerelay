@@ -2,16 +2,16 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
-import type { ActivityLifecycle } from "../../activity/lifecycle.js";
-import type { BashOutputStore } from "../../activity/bash-output-store.js";
-import type { ServerConfig } from "../../config.js";
+import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
+import type { BashOutputStore } from "../../activity/history/bash-output-store.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
 import { HookRunner, runToolWithHooks } from "../../hooks.js";
-import { commandPreview, logEvent, workspaceLogLabel } from "../../logger.js";
+import { commandPreview, logEvent, workspaceLogLabel } from "../../runtime/logging/logger.js";
 import type {
   CoreOperationContext,
   ShellRunOperationInput,
-} from "../../operations/core-operation-executor.js";
-import { ProcessManager, resolveProcessId } from "../../process-sessions.js";
+} from "../operations/core-operation-executor.js";
+import { ProcessManager, resolveProcessId } from "./process-sessions.js";
 import type { Workspace, WorkspaceRegistry } from "../../workspaces.js";
 import { buildShellMutationPolicy, toolNames } from "../server-instructions.js";
 import {

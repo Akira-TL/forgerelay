@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import type { ActivityWorkspaceSnapshot } from "../audit-store.js";
+import type { ActivityWorkspaceSnapshot } from "../history/audit-store.js";
 
 const SAFE_WORKSPACE_ID = /^(?:ws|rws|cws)_[a-z0-9]+$/i;
 

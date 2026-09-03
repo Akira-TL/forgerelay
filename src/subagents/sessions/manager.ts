@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ServerConfig } from "../../config.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
 import {
   formatAvailableSubagentTargets,
   resolveSubagentTarget,

@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { requestIp } from "../../../logger.js";
+import { requestIp } from "../../../runtime/logging/logger.js";
 
 export function sendJsonRpcError(
   res: Response,

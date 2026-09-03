@@ -5,7 +5,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { formatPrettyLogEntry } from "../../logger.js";
+import { formatPrettyLogEntry } from "../../runtime/logging/logger.js";
 import {
   callOpen,
   createCodeIntelligenceServerFixture,

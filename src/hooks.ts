@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import type { WorkspaceMode } from "./workspace-store.js";
-import type { LoggingConfig } from "./logger.js";
-import { commandPreview, logEvent, workspaceLogLabel } from "./logger.js";
-import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
+import type { WorkspaceMode } from "./workspaces/state/workspace-store.js";
+import type { LoggingConfig } from "./runtime/logging/logger.js";
+import { commandPreview, logEvent, workspaceLogLabel } from "./runtime/logging/logger.js";
+import { resolveShellCommand, terminateProcessTree } from "./mcp/process/process-platform.js";
 
 export const HOOK_EVENTS = [
   "WorkspaceOpen",

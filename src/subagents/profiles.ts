@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { ServerConfig } from "../config.js";
+import type { ServerConfig } from "../runtime/config/config.js";
 
 export type SubagentProvider = "codex" | "claude" | "opencode" | "pi" | "cursor" | "copilot";
 

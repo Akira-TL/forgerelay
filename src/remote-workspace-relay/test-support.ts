@@ -8,17 +8,17 @@ import type { TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ActivityAuditStore } from "../activity/audit-store.js";
-import { BashOutputStore } from "../activity/bash-output-store.js";
-import { HostTurnStore } from "../activity/host-turn-store.js";
-import { ActivityLifecycle } from "../activity/lifecycle.js";
-import { ActivityQueryService } from "../activity/query-service.js";
-import { loadConfig } from "../config.js";
+import { ActivityAuditStore } from "../activity/history/audit-store.js";
+import { BashOutputStore } from "../activity/history/bash-output-store.js";
+import { HostTurnStore } from "../activity/history/host-turn-store.js";
+import { ActivityLifecycle } from "../activity/runtime/lifecycle.js";
+import { ActivityQueryService } from "../activity/history/query-service.js";
+import { loadConfig } from "../runtime/config/config.js";
 import { CodeIntelligenceManager } from "../lsp/runtime/manager.js";
-import { createReviewCheckpointManager } from "../review-checkpoints.js";
-import { ProcessManager } from "../process-sessions.js";
+import { createReviewCheckpointManager } from "../workspaces/review/review-checkpoints.js";
+import { ProcessManager } from "../mcp/process/process-sessions.js";
 import { createMcpServer, createServer } from "../server.js";
-import { SqliteWorkspaceStore } from "../workspace-store.js";
+import { SqliteWorkspaceStore } from "../workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "../workspaces.js";
 
 interface MutableChildProcessModule {

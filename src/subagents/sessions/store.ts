@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import type { ServerConfig } from "../../config.js";
-import { openDatabase, type DatabaseHandle } from "../../db/client.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
+import { openDatabase, type DatabaseHandle } from "../../runtime/state/db/client.js";
 import type { SubagentRunOutcome } from "./delivery-mailbox.js";
 
 export type SubagentSessionStatus = "idle" | "running";

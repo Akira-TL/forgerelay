@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import type { ServerConfig } from "../../../config.js";
-import { commandPreview, logEvent, workspaceLogLabel } from "../../../logger.js";
+import type { ServerConfig } from "../../../runtime/config/config.js";
+import { commandPreview, logEvent, workspaceLogLabel } from "../../../runtime/logging/logger.js";
 import { formatAgentsPath, type Workspace, type WorkspaceRegistry } from "../../../workspaces.js";
 
 export type ToolContent =

@@ -26,7 +26,7 @@ import {
   LanguageServerConfigurationError,
   type ResolvedLanguageProject,
 } from "./language-server-config.js";
-import { terminateProcessTree } from "../process-platform.js";
+import { terminateProcessTree } from "../mcp/process/process-platform.js";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
 import { DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT } from "./code-intelligence-types.js";
 import type {

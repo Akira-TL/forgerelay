@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../config.js";
+import { loadConfig } from "../../runtime/config/config.js";
 import { SubagentSessionManager, type SubagentLaunchRequest } from "./manager.js";
 import { SubagentSessionStore } from "./store.js";
 

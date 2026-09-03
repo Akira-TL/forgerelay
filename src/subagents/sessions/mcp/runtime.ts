@@ -1,6 +1,6 @@
-import type { ActivityLifecycle } from "../../../activity/lifecycle.js";
-import type { CapabilityRegistryDependencies } from "../../../capability-registry.js";
-import type { ServerConfig } from "../../../config.js";
+import type { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
+import type { CapabilityRegistryDependencies } from "../../../mcp/server/core/capability-registry.js";
+import type { ServerConfig } from "../../../runtime/config/config.js";
 import { SubagentSessionCapability } from "../capability.js";
 import type { SubagentProviderRunner } from "../execution.js";
 import type { SubagentRunSummary } from "../store.js";

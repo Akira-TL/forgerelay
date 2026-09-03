@@ -1,14 +1,14 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { loadCapabilityGuides } from "../capabilities.js";
-import type { ServerConfig } from "../config.js";
+import { loadCapabilityGuides } from "../mcp/server/core/capabilities.js";
+import type { ServerConfig } from "../runtime/config/config.js";
 import {
   createManagedWorktree,
   discardFreshManagedWorktree,
-} from "../git-worktrees.js";
-import { AccessDeniedError, assertAllowedPath } from "../roots.js";
+} from "./git/git-worktrees.js";
+import { AccessDeniedError, assertAllowedPath } from "../mcp/filesystem/roots.js";
 import { loadSubagentProfiles } from "../subagents/profiles.js";
-import type { WorkspaceMode, WorkspaceSession, WorkspaceStore } from "../workspace-store.js";
+import type { WorkspaceMode, WorkspaceSession, WorkspaceStore } from "./state/workspace-store.js";
 import type {
   Workspace,
   WorkspaceBootstrapContextMode,

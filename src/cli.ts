@@ -9,8 +9,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { satisfies } from "semver";
-import { loadConfig } from "./config.js";
-import { runHooksCommand } from "./hook-cli.js";
+import { loadConfig } from "./runtime/config/config.js";
+import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
 import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
 import { SubagentSessionManager } from "./subagents/sessions/manager.js";
@@ -29,10 +29,10 @@ import {
   writeForgeRelayConfig,
   writeForgeRelayRemote,
   type ForgeRelayUserConfig,
-} from "./user-config.js";
-import { expandHomePath } from "./roots.js";
-import { shutdownHttpServer } from "./server-shutdown.js";
-import { publicEndpointUrl } from "./oauth/public-url.js";
+} from "./runtime/config/user-config.js";
+import { expandHomePath } from "./mcp/filesystem/roots.js";
+import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
+import { publicEndpointUrl } from "./mcp/oauth/public-url.js";
 import {
   authenticateRemote,
   defaultRemoteAlias,
@@ -40,13 +40,13 @@ import {
   normalizeRemoteServiceTarget,
   refreshRemoteAuthentication,
   verifyRemoteMcp,
-} from "./remote-auth.js";
+} from "./workspaces/relay/auth/remote-auth.js";
 import {
   defaultSshRouteAlias,
   parseSshRoute,
   readRemoteOwnerToken,
   withRemoteServiceEndpoint,
-} from "./remote-transport.js";
+} from "./workspaces/relay/transport/remote-transport.js";
 
 type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "help" | "version";
 const require = createRequire(import.meta.url);

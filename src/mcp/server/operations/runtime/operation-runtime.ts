@@ -1,13 +1,13 @@
-import { ActivityLifecycle } from "../../../../activity/lifecycle.js";
-import { BashOutputStore } from "../../../../activity/bash-output-store.js";
-import { CapabilityError, createCapabilityRegistry } from "../../../../capability-registry.js";
-import type { ServerConfig } from "../../../../config.js";
-import { deletePath, renamePath } from "../../../../file-mutations.js";
-import { editFileTool, readFileTool, writeFileTool } from "../../../../filesystem-tools.js";
+import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
+import { BashOutputStore } from "../../../../activity/history/bash-output-store.js";
+import { CapabilityError, createCapabilityRegistry } from "../../core/capability-registry.js";
+import type { ServerConfig } from "../../../../runtime/config/config.js";
+import { deletePath, renamePath } from "../../../filesystem/file-mutations.js";
+import { editFileTool, readFileTool, writeFileTool } from "../../../filesystem/filesystem-tools.js";
 import { HookRunner, runToolWithHooks } from "../../../../hooks.js";
 import { toolNames } from "../../../server-instructions.js";
-import { BatchExecutor } from "../../../../operations/batch/executor.js";
-import { NativeBulkMutationExecutor } from "../../../../operations/native-bulk-mutations.js";
+import { BatchExecutor } from "../../../operations/batch/executor.js";
+import { NativeBulkMutationExecutor } from "../../../operations/native-bulk-mutations.js";
 import {
   createCoreOperationExecutor,
   type CapabilityRunOperationInput,
@@ -18,8 +18,8 @@ import {
   type RenameOperationInput,
   type ShellRunOperationInput,
   type WriteOperationInput,
-} from "../../../../operations/core-operation-executor.js";
-import { ProcessManager } from "../../../../process-sessions.js";
+} from "../../../operations/core-operation-executor.js";
+import { ProcessManager } from "../../../process/process-sessions.js";
 import { formatAgentsPath, WorkspaceRegistry } from "../../../../workspaces.js";
 import {
   markReturnedOutput,

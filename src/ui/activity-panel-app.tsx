@@ -5,10 +5,10 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { HostContext } from "./card-types.js";
+import type { HostContext } from "./core/card-types.js";
 import { ActivityPanelController } from "./activity/panel.js";
 import { WorkspacePanelController } from "./workspace/panel.js";
-import "./workspace-app.css";
+import "./workspace/panel.css";
 
 document.documentElement.dataset.forgerelayApp = "panel";
 

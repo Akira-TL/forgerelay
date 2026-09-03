@@ -1,6 +1,6 @@
-import type { ActivityAuditStore } from "../audit-store.js";
-import type { BashOutputStore } from "../bash-output-store.js";
-import type { HostTurnStore } from "../host-turn-store.js";
+import type { ActivityAuditStore } from "../history/audit-store.js";
+import type { BashOutputStore } from "../history/bash-output-store.js";
+import type { HostTurnStore } from "../history/host-turn-store.js";
 import { removeWorkspaceActivityStorage } from "./paths.js";
 
 /**

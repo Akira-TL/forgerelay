@@ -1,4 +1,4 @@
-import type { ServerConfig } from "../config.js";
+import type { ServerConfig } from "../runtime/config/config.js";
 
 export const toolNames = {
   openWorkspace: "open_workspace",

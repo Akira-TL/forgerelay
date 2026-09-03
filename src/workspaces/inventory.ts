@@ -1,7 +1,7 @@
 import { basename, resolve } from "node:path";
-import type { ServerConfig } from "../config.js";
-import { assertAllowedPath } from "../roots.js";
-import type { WorkspaceSession, WorkspaceStore } from "../workspace-store.js";
+import type { ServerConfig } from "../runtime/config/config.js";
+import { assertAllowedPath } from "../mcp/filesystem/roots.js";
+import type { WorkspaceSession, WorkspaceStore } from "./state/workspace-store.js";
 import type {
   OpenWorkspaceOptions,
   Workspace,

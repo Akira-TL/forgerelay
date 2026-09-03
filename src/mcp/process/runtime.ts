@@ -1,11 +1,11 @@
-import type { ActivityOutcome } from "../../activity/lifecycle.js";
-import { ActivityLifecycle } from "../../activity/lifecycle.js";
+import type { ActivityOutcome } from "../../activity/runtime/lifecycle.js";
+import { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import {
   BashOutputStore,
   type BashOutputMetadata,
   type BashOutputRecord,
-} from "../../activity/bash-output-store.js";
-import type { ProcessManager, CompletedProcessSnapshot, ProcessSnapshot } from "../../process-sessions.js";
+} from "../../activity/history/bash-output-store.js";
+import type { ProcessManager, CompletedProcessSnapshot, ProcessSnapshot } from "./process-sessions.js";
 
 const PROCESS_RESPONSE_OUTPUT_LINES = 10;
 

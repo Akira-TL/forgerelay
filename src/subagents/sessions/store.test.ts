@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase } from "../../db/client.js";
+import { openDatabase } from "../../runtime/state/db/client.js";
 import { SubagentSessionStore } from "./store.js";
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-subagent-store-test-"));

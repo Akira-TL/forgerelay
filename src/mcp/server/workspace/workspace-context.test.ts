@@ -10,19 +10,19 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ActivityAuditStore } from "../../../activity/audit-store.js";
-import { BashOutputStore } from "../../../activity/bash-output-store.js";
-import { HostTurnStore } from "../../../activity/host-turn-store.js";
-import { ActivityLifecycle } from "../../../activity/lifecycle.js";
-import { ActivityQueryService } from "../../../activity/query-service.js";
-import { buildCapabilityFingerprint } from "../../../capabilities.js";
-import { loadConfig } from "../../../config.js";
+import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
+import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
+import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
+import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
+import { ActivityQueryService } from "../../../activity/history/query-service.js";
+import { buildCapabilityFingerprint } from "../core/capabilities.js";
+import { loadConfig } from "../../../runtime/config/config.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
-import { openDatabase } from "../../../db/client.js";
-import type { IncomingArtifactAdapter } from "../../../incoming-artifacts.js";
-import { createReviewCheckpointManager } from "../../../review-checkpoints.js";
-import { ProcessManager } from "../../../process-sessions.js";
-import { authenticateRemote, withRemoteMcpClient } from "../../../remote-auth.js";
+import { openDatabase } from "../../../runtime/state/db/client.js";
+import type { IncomingArtifactAdapter } from "../../artifacts/incoming-artifacts.js";
+import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
+import { ProcessManager } from "../../process/process-sessions.js";
+import { authenticateRemote, withRemoteMcpClient } from "../../../workspaces/relay/auth/remote-auth.js";
 import { createMcpServer, createServer } from "../../../server.js";
 import {
   allResponseText,
@@ -34,8 +34,8 @@ import {
   structuredContent,
   waitForCompletedProcess,
   waitForToolText,
-} from "../../../test-support/server-fixture.js";
-import { SqliteWorkspaceStore } from "../../../workspace-store.js";
+} from "../../../runtime/testing/server-fixture.js";
+import { SqliteWorkspaceStore } from "../../../workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "../../../workspaces.js";
 
 const execFileAsync = promisify(execFile);

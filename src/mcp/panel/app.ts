@@ -2,14 +2,14 @@ import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import type { Response } from "express";
-import type { ServerConfig } from "../../config.js";
-import { logEvent, transportSessionIdPrefix } from "../../logger.js";
+import type { ServerConfig } from "../../runtime/config/config.js";
+import { logEvent, transportSessionIdPrefix } from "../../runtime/logging/logger.js";
 import {
   MCP_APP_RESOURCE_TEMPLATE_REVISION,
   readActivityPanelAppManifestEntry,
   resolveActivityPanelAppIdentity,
   type WorkspaceAppManifestEntry,
-} from "../../mcp-app-template.js";
+} from "./mcp-app-template.js";
 
 export interface ActivityPanelApp {
   uri: string;

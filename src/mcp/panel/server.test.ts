@@ -4,14 +4,14 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createReviewCheckpointManager } from "../../review-checkpoints.js";
+import { createReviewCheckpointManager } from "../../workspaces/review/review-checkpoints.js";
 import { createMcpServer } from "../../server.js";
 import {
   allResponseText,
   callOpen,
   fixture,
   structuredContent,
-} from "../../test-support/server-fixture.js";
+} from "../../runtime/testing/server-fixture.js";
 
 test("MCP App resource identities include the full public base URL list", async (t) => {
   const first = await fixture(t, {

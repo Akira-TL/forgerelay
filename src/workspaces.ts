@@ -4,7 +4,7 @@ import type {
   WorkspaceMode,
   WorkspaceSession,
   WorkspaceStore,
-} from "./workspace-store.js";
+} from "./workspaces/state/workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -14,8 +14,8 @@ import {
   resolveCapabilityGuideReadPath,
   type CapabilityGuide,
   type CapabilityGuideReadResolution,
-} from "./capabilities.js";
-import type { ServerConfig } from "./config.js";
+} from "./mcp/server/core/capabilities.js";
+import type { ServerConfig } from "./runtime/config/config.js";
 import { WorkspaceContextService, formatAgentsPath } from "./workspaces/context.js";
 import {
   BOOTSTRAP_CONTEXT_COMPONENTS,
@@ -33,20 +33,20 @@ import {
   resolveManagedWorktreeBase,
   type ClosedManagedWorktree,
   type ManagedWorktree,
-} from "./git-worktrees.js";
+} from "./workspaces/git/git-worktrees.js";
 import {
   AccessDeniedError,
   assertAllowedPath,
   isPathInsideRoot,
   resolveAllowedPath,
-} from "./roots.js";
+} from "./mcp/filesystem/roots.js";
 import {
   loadWorkspaceSkills,
   markSkillActivated,
   resolveSkillReadPath,
   type LoadedSkills,
   type SkillReadResolution,
-} from "./skills.js";
+} from "./workspaces/resources/skills.js";
 import {
   loadSubagentProfiles,
   type SubagentProfile,
