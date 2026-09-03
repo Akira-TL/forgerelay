@@ -46,10 +46,11 @@ export function managedLanguageServerBinDir(configDir: string): string {
 export function managedLanguageServerExecutablePath(
   configDir: string,
   id: ManagedLanguageServerId,
+  platform: NodeJS.Platform = process.platform,
 ): string | undefined {
   const bin = managedLanguageServerBinDir(configDir);
   const executable = MANAGED_LANGUAGE_SERVERS[id].executable;
-  const extensions = process.platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
+  const extensions = platform === "win32" ? [".cmd", ".exe", ".bat", ""] : [""];
   return extensions
     .map((extension) => join(bin, `${executable}${extension}`))
     .find((path) => existsSync(path));
@@ -58,10 +59,16 @@ export function managedLanguageServerExecutablePath(
 export function managedLanguageServerIdForCommand(
   configDir: string,
   command: string,
+  platform: NodeJS.Platform = process.platform,
 ): ManagedLanguageServerId | undefined {
   return supportedManagedLanguageServers().find((id) => {
-    const executable = managedLanguageServerExecutablePath(configDir, id);
-    return executable !== undefined && resolve(executable) === resolve(command);
+    const executable = managedLanguageServerExecutablePath(configDir, id, platform);
+    if (executable === undefined) return false;
+    const executablePath = resolve(executable);
+    const commandPath = resolve(command);
+    return platform === "win32"
+      ? executablePath.toLowerCase() === commandPath.toLowerCase()
+      : executablePath === commandPath;
   });
 }
 

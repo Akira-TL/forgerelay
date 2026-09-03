@@ -8,6 +8,7 @@ import {
   installManagedLanguageServers,
   installedManagedLanguageServers,
   managedLanguageServerBinDir,
+  managedLanguageServerIdForCommand,
   managedLanguageServerPackages,
   managedLanguageServerRoot,
   withManagedLanguageServerPath,
@@ -55,6 +56,17 @@ test("managed Language Servers use a private config-local npm prefix", async (t)
   assert.ok(npmArgs?.includes("typescript-language-server@6"));
   assert.ok(npmArgs?.includes("typescript@6"));
   assert.deepEqual(installedManagedLanguageServers(configDir), ["typescript"]);
+
+  const windowsShim = join(managedLanguageServerBinDir(configDir), "typescript-language-server.cmd");
+  await writeFile(windowsShim, "stub");
+  assert.equal(
+    managedLanguageServerIdForCommand(
+      configDir,
+      join(managedLanguageServerBinDir(configDir), "typescript-language-server.CMD"),
+      "win32",
+    ),
+    "typescript",
+  );
 });
 
 test("Agent-managed install is permission-gated and dynamically available without restarting ForgeRelay", async (t) => {
