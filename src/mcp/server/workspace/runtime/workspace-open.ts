@@ -6,7 +6,7 @@ import { createCapabilityRegistry } from "../../core/capability-registry.js";
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { ProcessManager } from "../../../process/process-sessions.js";
 import { CompositeWorkspaceRegistry } from "../../../../workspaces/composite/composite-workspaces.js";
-import { RemoteWorkspaceRelay } from "../../../../remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-relay.js";
 import { openAiConversationScopeId } from "../../../request-meta.js";
 import { formatPathForPrompt } from "../../../../workspaces/resources/skills.js";
 import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks.js";

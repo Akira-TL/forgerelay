@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { authenticateRemote, withRemoteMcpClient } from "../workspaces/relay/auth/remote-auth.js";
+import { authenticateRemote, withRemoteMcpClient } from "../auth/remote-auth.js";
 import {
   installFakeSsh,
   resultText,

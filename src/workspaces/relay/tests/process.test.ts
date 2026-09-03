@@ -7,19 +7,19 @@ import test, { type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ActivityAuditStore } from "../activity/history/audit-store.js";
-import { BashOutputStore } from "../activity/history/bash-output-store.js";
-import { HostTurnStore } from "../activity/history/host-turn-store.js";
-import { ActivityLifecycle } from "../activity/runtime/lifecycle.js";
-import { ActivityQueryService } from "../activity/history/query-service.js";
-import { loadConfig } from "../runtime/config/config.js";
-import { CodeIntelligenceManager } from "../lsp/runtime/manager.js";
-import { authenticateRemote, withRemoteMcpClient } from "../workspaces/relay/auth/remote-auth.js";
-import { createReviewCheckpointManager } from "../workspaces/review/review-checkpoints.js";
-import { ProcessManager } from "../mcp/process/process-sessions.js";
-import { createMcpServer, createServer } from "../server.js";
-import { SqliteWorkspaceStore } from "../workspaces/state/workspace-store.js";
-import { WorkspaceRegistry } from "../workspaces.js";
+import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
+import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
+import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
+import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
+import { ActivityQueryService } from "../../../activity/history/query-service.js";
+import { loadConfig } from "../../../runtime/config/config.js";
+import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
+import { authenticateRemote, withRemoteMcpClient } from "../auth/remote-auth.js";
+import { createReviewCheckpointManager } from "../../review/review-checkpoints.js";
+import { ProcessManager } from "../../../mcp/process/process-sessions.js";
+import { createMcpServer, createServer } from "../../../server.js";
+import { SqliteWorkspaceStore } from "../../state/workspace-store.js";
+import { WorkspaceRegistry } from "../../../workspaces.js";
 
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>

@@ -13,7 +13,7 @@ import { executeBulkRead } from "../../../operations/bulk-read.js";
 import { NativeBulkMutationExecutor } from "../../../operations/native-bulk-mutations.js";
 import { CoreOperationExecutor, type CoreOperationContext } from "../../../operations/core-operation-executor.js";
 import { CompositeWorkspaceRegistry } from "../../../../workspaces/composite/composite-workspaces.js";
-import { RemoteWorkspaceRelay } from "../../../../remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-relay.js";
 import { formatPathForPrompt } from "../../../../workspaces/resources/skills.js";
 import { WorkspaceRegistry } from "../../../../workspaces.js";
 import type { ProcessExecutionTarget } from "../../../process/tools.js";

@@ -26,7 +26,7 @@ import { registerProcessTools } from "./mcp/process/tools.js";
 import { attachCompletedProcessNotices, recordBashCompletion } from "./mcp/process/runtime.js";
 import { CompositeActivityCoordinator } from "./workspaces/composite/composite-activity.js";
 import { CompositeWorkspaceRegistry } from "./workspaces/composite/composite-workspaces.js";
-import { RemoteWorkspaceRelay } from "./remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "./workspaces/relay/workspace-relay.js";
 import { hostConversationScopeId } from "./mcp/request-meta.js";
 import { createActivityPanelApp } from "./mcp/panel/app.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";

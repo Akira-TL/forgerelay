@@ -2,7 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ActivitySummary, HostTurnSnapshot, HostTurnState } from "../../activity/history/query-service.js";
 import { ActivityQueryService } from "../../activity/history/query-service.js";
 import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";
-import { RemoteWorkspaceRelay } from "../../remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "../relay/workspace-relay.js";
 
 interface RemoteMemberTurn {
   member: string;

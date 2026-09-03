@@ -22,7 +22,7 @@ import { publicEndpointUrl } from "../../oauth/public-url.js";
 import { McpTransportRegistry, type McpTransportCloseResult } from "./mcp-sessions.js";
 import { ProcessManager } from "../../process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
-import { RemoteWorkspaceRelay } from "../../../remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "../../../workspaces/relay/workspace-relay.js";
 import { CompositeWorkspaceRegistry } from "../../../workspaces/composite/composite-workspaces.js";
 import { createWorkspaceStore } from "../../../workspaces/state/workspace-store.js";
 import { WorkspaceTaskReminderTracker } from "../../../workspaces/tasks/workspace-task-reminders.js";

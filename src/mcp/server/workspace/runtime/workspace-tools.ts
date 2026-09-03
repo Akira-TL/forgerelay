@@ -14,7 +14,7 @@ import { ProcessManager } from "../../../process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../../../workspaces/review/review-checkpoints.js";
 import { CompositeActivityCoordinator } from "../../../../workspaces/composite/composite-activity.js";
 import { CompositeWorkspaceRegistry } from "../../../../workspaces/composite/composite-workspaces.js";
-import { RemoteWorkspaceRelay } from "../../../../remote-workspace-relay.js";
+import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-relay.js";
 import { WorkspaceTaskReminderTracker } from "../../../../workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks.js";
 import { formatAgentsPath, WorkspaceRegistry } from "../../../../workspaces.js";
