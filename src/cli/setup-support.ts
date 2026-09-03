@@ -1,7 +1,9 @@
+import { createRequire } from "node:module";
 import * as prompts from "@clack/prompts";
 import { satisfies } from "semver";
 
 const SUPPORTED_NODE_RANGE = ">=20.12 <27";
+const require = createRequire(import.meta.url);
 
 export function isNullConfigValue(value: string): boolean {
   const normalized = value.trim().toLowerCase();
