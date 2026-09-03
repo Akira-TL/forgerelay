@@ -29,6 +29,20 @@ function packageVersion() {
   return pkg.version;
 }
 
+function requireDedicatedReleaseNotes(version) {
+  const path = join(process.cwd(), "docs", "releases", `v${version}.md`);
+  let notes;
+  try {
+    notes = readFileSync(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      throw new Error(`missing dedicated release notes: docs/releases/v${version}.md`);
+    }
+    throw error;
+  }
+  if (!notes.trim()) throw new Error(`dedicated release notes are empty: docs/releases/v${version}.md`);
+}
+
 function gitDir() {
   const path = git(["rev-parse", "--git-dir"]);
   return path.startsWith("/") ? path : join(process.cwd(), path);
@@ -138,6 +152,7 @@ function checkHookTag() {
   if (tag !== expectedTag) {
     throw new Error(`tag ${tag} does not match package version ${version}; expected ${expectedTag}`);
   }
+  requireDedicatedReleaseNotes(version);
 
   let tagHead;
   try {

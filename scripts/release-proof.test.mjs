@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -25,6 +25,8 @@ test("release tag hook gate uses repository facts instead of requiring a local p
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }) + "\n");
+  await mkdir(join(root, "docs", "releases"), { recursive: true });
+  await writeFile(join(root, "docs", "releases", "v1.2.3.md"), "# v1.2.3\n\nDedicated notes.\n");
   await writeFile(join(root, "tracked.txt"), "verified\n");
   await git(root, ["init"]);
   await git(root, ["config", "user.email", "proof@example.com"]);
@@ -102,10 +104,34 @@ test("release tag hook gate uses repository facts instead of requiring a local p
   );
 });
 
+test("release tag hook gate rejects a matching tag when dedicated notes are missing", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.4.0" }) + "\n");
+  await git(root, ["init"]);
+  await git(root, ["config", "user.email", "proof@example.com"]);
+  await git(root, ["config", "user.name", "Release Proof Test"]);
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "release 1.4.0"]);
+  await git(root, ["tag", "v1.4.0"]);
+
+  await assert.rejects(
+    () => runProof(root, "check-hook", {
+      FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v1.4.0" }),
+    }),
+    (error) => {
+      assert.match(String(error.stderr ?? error), /missing dedicated release notes: docs\/releases\/v1\.4\.0\.md/);
+      return true;
+    },
+  );
+});
+
 test("release tag hook gate accepts an rc tag for the package version", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await writeFile(join(root, "package.json"), JSON.stringify({ version: "0.6.0-rc.1" }) + "\n");
+  await mkdir(join(root, "docs", "releases"), { recursive: true });
+  await writeFile(join(root, "docs", "releases", "v0.6.0-rc.1.md"), "# v0.6.0-rc.1\n\nDedicated RC notes.\n");
   await git(root, ["init"]);
   await git(root, ["config", "user.email", "proof@example.com"]);
   await git(root, ["config", "user.name", "Release Proof Test"]);

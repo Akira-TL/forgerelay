@@ -35,7 +35,8 @@ switch (command) {
     if (value !== expectedTag) {
       fail(`tag ${JSON.stringify(value)} does not match package version; expected ${expectedTag}`);
     }
-    console.log(`release tag ${value} matches package version and changelog`);
+    await requireReleaseNotes(state.pkg.version);
+    console.log(`release tag ${value} matches package version, changelog, and dedicated release notes`);
     break;
   }
   case "prepare": {
@@ -201,6 +202,20 @@ function getUnreleasedBody(changelog) {
   const nextHeadingIndex = changelog.indexOf("\n## [", bodyStart);
   const bodyEnd = nextHeadingIndex < 0 ? changelog.length : nextHeadingIndex;
   return changelog.slice(bodyStart, bodyEnd).trim();
+}
+
+async function requireReleaseNotes(version) {
+  const path = resolve(repoRoot, "docs", "releases", `v${version}.md`);
+  let content;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      fail(`missing dedicated release notes: docs/releases/v${version}.md`);
+    }
+    throw error;
+  }
+  if (!content.trim()) fail(`dedicated release notes are empty: docs/releases/v${version}.md`);
 }
 
 function getReleaseBody(changelog, version) {

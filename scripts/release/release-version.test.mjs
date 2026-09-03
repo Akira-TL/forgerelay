@@ -14,6 +14,7 @@ async function createFixture(t) {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-version-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "scripts"), { recursive: true });
+  await mkdir(join(root, "docs", "releases"), { recursive: true });
   await cp(sourceScript, join(root, "scripts", "release-version.mjs"));
 
   const pkg = {
@@ -88,8 +89,19 @@ test("release version tooling prepares and validates an rc release", async (t) =
   const checked = await runRelease(root, "check");
   assert.match(checked.stdout, /release metadata is consistent at 0\.6\.0-rc\.1/);
 
+  await assert.rejects(
+    () => runRelease(root, "tag", "v0.6.0-rc.1"),
+    (error) => {
+      assert.match(String(error.stderr ?? error), /missing dedicated release notes: docs\/releases\/v0\.6\.0-rc\.1\.md/);
+      return true;
+    },
+  );
+  await writeFile(
+    join(root, "docs", "releases", "v0.6.0-rc.1.md"),
+    "# ForgeRelay v0.6.0-rc.1\n\nRelease candidate notes.\n",
+  );
   const tagged = await runRelease(root, "tag", "v0.6.0-rc.1");
-  assert.match(tagged.stdout, /release tag v0\.6\.0-rc\.1 matches package version and changelog/);
+  assert.match(tagged.stdout, /release tag v0\.6\.0-rc\.1 matches package version, changelog, and dedicated release notes/);
 
   const notes = await runRelease(root, "notes", "v0.6.0-rc.1");
   assert.match(notes.stdout, /Release candidate behavior/);

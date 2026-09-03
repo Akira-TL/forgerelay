@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +28,7 @@ if (head !== tagHead) {
 if (!gitSucceeds(["merge-base", "--is-ancestor", tagHead, "origin/main"])) {
   throw new Error(`${releaseTag} does not point to a commit contained in origin/main`);
 }
+const notesPath = prepareReleaseNotes(releaseTag);
 
 const packages = readdirSync(packageDir).filter((name) => name.endsWith(".tgz"));
 if (packages.length !== 1) {
@@ -53,7 +54,6 @@ if (npmPackageExists(packageSpec)) {
 if (ghReleaseExists(releaseTag)) {
   console.log(`GitHub Release ${releaseTag} already exists; leaving it unchanged.`);
 } else {
-  const notesPath = prepareReleaseNotes(releaseTag);
   const args = [
     "release",
     "create",
@@ -128,13 +128,16 @@ function ghReleaseExists(tag) {
 
 function prepareReleaseNotes(tag) {
   const manualNotes = join(repoRoot, "docs", "releases", `${tag}.md`);
-  const notes = existsSync(manualNotes)
-    ? readFileSync(manualNotes, "utf8")
-    : execFileSync(process.execPath, ["scripts/release-version.mjs", "notes", tag], {
-        cwd: repoRoot,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "inherit"],
-      });
+  let notes;
+  try {
+    notes = readFileSync(manualNotes, "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      throw new Error(`Missing dedicated release notes: docs/releases/${tag}.md`);
+    }
+    throw error;
+  }
+  if (!notes.trim()) throw new Error(`Dedicated release notes are empty: docs/releases/${tag}.md`);
   const tempRoot = resolve(process.env.RUNNER_TEMP ?? join(repoRoot, ".forgerelay-debug"));
   mkdirSync(tempRoot, { recursive: true });
   const notesPath = join(tempRoot, `release-notes-${tag}.md`);
