@@ -13,7 +13,8 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - windows-latest
+          # better-sqlite3 native installation still relies on node-gyp, which Node 22/npm currently cannot discover on the VS18 windows-latest image.
+          - windows-2022
 
     env:
       FORGERELAY_ALLOWED_ROOTS: ${{ github.workspace }}
