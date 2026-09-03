@@ -10,6 +10,12 @@
 - Task 状态只有 `pending`、`in_progress`、`completed`。`content` 保存继续工作真正需要的要求、阻塞点、结论或下一步，而不是日志或对话转录。
 - Task/List ID 创建后保持稳定。完成 Task 不会删除它；删除必须显式执行。
 
+## 主动维护
+
+把 `workspace.tasks` 当作需要跨多个步骤、较长工作过程或跨会话续接时的轻量工作记忆：当存在值得保留的下一步、阻塞点或当前进展时，主动创建或更新 Task；完成后及时标记 `completed`。不要因为刚执行了 `open_workspace` 就机械查询 Task。
+
+需要续接相关未完成工作时，再从 summary 开始渐进读取；只有 summary 表明确有相关未完成 Task，才继续读取 headers/detail。
+
 ## 渐进式读取
 
 Task 读取默认使用渐进式披露，不会一次返回所有 `content`：

@@ -15,7 +15,11 @@ import { compositeCapabilityContext } from "../../core/capability-support.js";
 import { workspaceInspectionOutputSchema } from "../../core/schemas.js";
 import { logToolCall, textBlock } from "../../core/tool-support.js";
 import { openWorkspaceToolDefinition, type OpenWorkspaceToolInput } from "./workspace-open-schema.js";
-import { presentLocalWorkspaceOpen, type LocalWorkspaceOpenPresentationOptions } from "./workspace-open-presentation.js";
+import {
+  presentLocalWorkspaceOpen,
+  workspaceTaskUsageInstruction,
+  type LocalWorkspaceOpenPresentationOptions,
+} from "./workspace-open-presentation.js";
 
 export interface RegisterOpenWorkspaceToolOptions {
   server: McpServer;
@@ -494,6 +498,9 @@ async function handleOpenWorkspace(
           "Member names and purposes are structural context and are always returned when this Composite Workspace is opened. context=auto/full/none controls only heavy member bootstrap context, not this Composite identity.",
           compositeCapabilityCatalog.length > 0
             ? `Composite-owned capabilities: ${compositeCapabilityCatalog.map((entry) => entry.name).join(", ")}. Use these without member because their state belongs to the Composite Workspace itself.`
+            : undefined,
+          compositeCapabilityCatalog.some((entry) => entry.name === "workspace.tasks")
+            ? workspaceTaskUsageInstruction
             : undefined,
           composite.members.length > 0
             ? "Before first work on a member, reopen this Composite Workspace with memberName=<member> and context=auto to receive that member's project bootstrap without creating an implicit current member."

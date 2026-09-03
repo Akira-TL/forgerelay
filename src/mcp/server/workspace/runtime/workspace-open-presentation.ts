@@ -15,6 +15,9 @@ import { redactSkillDiagnosticPaths } from "../../core/schemas.js";
 import { logToolCall, workspaceLogContext, type ToolContent } from "../../core/tool-support.js";
 import type { OpenWorkspaceToolInput } from "./workspace-open-schema.js";
 
+export const workspaceTaskUsageInstruction =
+  "Use workspace.tasks proactively for work that spans multiple steps or sessions: create or update Tasks to preserve useful next steps and current state, and read its summary when resuming relevant unfinished work. Do not query it mechanically on every open_workspace call.";
+
 export interface LocalWorkspaceOpenPresentationOptions {
   config: ServerConfig;
   forgerelayVersion: string;
@@ -127,8 +130,12 @@ export async function presentLocalWorkspaceOpen(
         : [];
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
-      const workspaceManagementInstruction =
-        "Use open_workspace(action=\"list\") for lightweight Workspace inventory. Use action=\"inspect\" with one known workspaceId for bounded read-only metadata without opening/resuming it. Explicitly open a Workspace before executing or mutating against it, and ask the user before close_workspace cleanup.";
+      const workspaceManagementInstruction = [
+        "Use open_workspace(action=\"list\") for lightweight Workspace inventory. Use action=\"inspect\" with one known workspaceId for bounded read-only metadata without opening/resuming it. Explicitly open a Workspace before executing or mutating against it, and ask the user before close_workspace cleanup.",
+        capabilityCatalog.some((entry) => entry.name === "workspace.tasks")
+          ? workspaceTaskUsageInstruction
+          : undefined,
+      ].filter(Boolean).join(" ");
       const cardInstruction = config.skillsEnabled
         ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
         : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
@@ -151,7 +158,7 @@ export async function presentLocalWorkspaceOpen(
               workspaceManagementInstruction,
             ].join("\n\n")
         : workspace.mode === "worktree"
-          ? "Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree."
+          ? `Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree. ${workspaceManagementInstruction}`
           : cardInstruction;
       const resultContent: ToolContent[] = [
         {

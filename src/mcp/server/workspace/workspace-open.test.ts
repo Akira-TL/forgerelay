@@ -110,12 +110,20 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.equal("workspaceReused" in repeatedStructured, false);
   assert.equal("includeBootstrapContext" in repeatedStructured, false);
 
+  const firstText = responseText(first);
+  assert.match(firstText, /workspace\.tasks/);
+  assert.match(firstText, /proactively/i);
+  assert.match(firstText, /do not query it mechanically on every open/i);
+
   const repeatedText = responseText(repeated);
   assert.match(repeatedText, /Workspace already open as/);
   assert.match(repeatedText, /same directory previously opened/);
   assert.match(repeatedText, /Reuse this workspaceId for subsequent tool calls/);
   assert.match(repeatedText, /previously provided for this workspace/);
   assert.match(repeatedText, /capability guides/);
+  assert.match(repeatedText, /workspace\.tasks/);
+  assert.match(repeatedText, /proactively/i);
+  assert.match(repeatedText, /do not query it mechanically on every open/i);
   assert.match(repeatedText, /not repeated here/);
 
   const card = responseCard(repeated) as {
@@ -236,6 +244,9 @@ test("open_workspace creates and resumes an empty Composite Workspace through th
   assert.equal(createdStructured.root, undefined);
   assert.equal(createdStructured.mode, undefined);
   assert.match(allResponseText(created), /Composite Workspace/i);
+  assert.match(allResponseText(created), /workspace\.tasks/);
+  assert.match(allResponseText(created), /proactively/i);
+  assert.match(allResponseText(created), /do not query it mechanically on every open/i);
 
   const resumed = await context.client.callTool({
     name: "open_workspace",
