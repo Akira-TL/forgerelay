@@ -151,11 +151,11 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[0]?.description), /Hook/);
   assert.match(String(guides[0]?.whenToRead), /Hook/);
   assert.match(String(guides[0]?.path), /capabilities\/lifecycle-hooks\/GUIDE\.md$/);
-  assert.match(String(guides[1]?.path), /capabilities\/managed-worktrees\/GUIDE\.md$/);
+  assert.match(String(guides[1]?.path), /capabilities\/workspace\/managed-worktrees\/GUIDE\.md$/);
   assert.match(String(guides[2]?.path), /capabilities\/host-integration\/GUIDE\.md$/);
   assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
   assert.match(String(guides[4]?.path), /capabilities\/code-intelligence\/GUIDE\.md$/);
-  assert.match(String(guides[5]?.path), /capabilities\/workspace-tasks\/GUIDE\.md$/);
+  assert.match(String(guides[5]?.path), /capabilities\/workspace\/workspace-tasks\/GUIDE\.md$/);
   assert.match(String(guides[6]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
 
   const guideExpectations = [
