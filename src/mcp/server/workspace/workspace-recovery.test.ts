@@ -67,7 +67,8 @@ test("workspace.recovery repairs missing managed-worktree backing from the survi
   assert.equal(repairedResult.targetBranch, targetBranch);
   assert.equal((repairedResult.recovery as Record<string, unknown>).classification, "healthy");
 
-  assert.equal(await readFile(`${newRoot}/unique-recovery.txt`, "utf8"), "managed branch survives\n");
+  const recoveredContent = await readFile(`${newRoot}/unique-recovery.txt`, "utf8");
+  assert.equal(recoveredContent.replace(/\r\n/g, "\n"), "managed branch survives\n");
   assert.equal(await gitOutput(newRoot, ["rev-parse", "HEAD"]), managedHead);
   assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${managedBranch}`]), managedHead);
   assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
@@ -302,8 +303,10 @@ test("workspace.recovery cleanup removes only the selected stale registration an
   assert.equal((result.recovery as Record<string, unknown>).gitRegistration, "missing");
 
   const worktreeList = await gitOutput(context.project, ["worktree", "list", "--porcelain"]);
-  assert.doesNotMatch(worktreeList, new RegExp(escapeRegExp(oldRoot)));
-  assert.match(worktreeList, new RegExp(escapeRegExp(unrelatedRoot)));
+  const worktreeBranches = worktreeList.split(/\r?\n/).filter((line) => line.startsWith("branch "));
+  assert.equal(worktreeBranches.includes(`branch refs/heads/${managedBranch}`), false);
+  assert.equal(worktreeBranches.includes("branch refs/heads/external/unrelated-cleanup"), true);
+  assert.equal(await gitOutput(unrelatedRoot, ["branch", "--show-current"]), "external/unrelated-cleanup");
   assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${managedBranch}`]), managedHeadBefore);
   assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
 });
@@ -587,8 +590,4 @@ async function branchExists(cwd: string, branch: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
