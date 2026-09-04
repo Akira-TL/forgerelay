@@ -13,6 +13,11 @@ All notable ForgeRelay changes are documented here.
 ### Changed
 
 - Aligned current roadmap and product documentation with already-shipped first-class Subagent delegation, Hook-backed managed-worktree close verification, and explicitly authorized live managed TypeScript/Pyright installation. The 0.9 line is now defined as recovery diagnostics/repair, Workspace checkpoints/restore, and owner-facing retention maintenance.
+- Added managed-worktree recovery/inventory tests to the regular release test suite so the diagnostic contract is exercised on every cloud platform.
+
+### Fixed
+
+- Canonicalized managed-worktree registration paths through their real filesystem location, preventing macOS `/var/...` and `/private/var/...` aliases (and equivalent symlink aliases) from being misreported as missing Git worktree registration.
 
 ## [0.8.10] - 2026-09-03
 

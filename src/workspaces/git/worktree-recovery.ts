@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { platform } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { ServerConfig } from "../../runtime/config/config.js";
 import { assertAllowedPath } from "../../mcp/filesystem/roots.js";
 import type { WorkspaceSession } from "../state/workspace-store.js";
@@ -172,10 +172,12 @@ async function registrationState(
   } catch {
     return "unavailable";
   }
-  const worktreeKey = pathKey(worktreePath);
-  const registration = registrations.find((entry) => pathKey(entry.path) === worktreeKey);
-  if (!registration) return "missing";
-  return registration.prunable ? "stale" : "registered";
+  const worktreeKey = await registrationPathKey(worktreePath);
+  for (const registration of registrations) {
+    if (await registrationPathKey(registration.path) !== worktreeKey) continue;
+    return registration.prunable ? "stale" : "registered";
+  }
+  return "missing";
 }
 
 async function backingBranchState(
@@ -205,6 +207,20 @@ function parseWorktreeRegistrations(output: string): WorktreeRegistration[] {
       };
     })
     .filter((entry): entry is WorktreeRegistration => entry !== undefined);
+}
+
+async function registrationPathKey(path: string): Promise<string> {
+  const resolved = resolve(path);
+  try {
+    return pathKey(await realpath(resolved));
+  } catch (error) {
+    if (!isMissingPath(error)) return pathKey(resolved);
+    try {
+      return pathKey(join(await realpath(dirname(resolved)), basename(resolved)));
+    } catch {
+      return pathKey(resolved);
+    }
+  }
 }
 
 function pathKey(path: string): string {
