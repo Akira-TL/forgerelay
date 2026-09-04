@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -267,7 +267,8 @@ test("workspace.recovery runs successful AfterTool hooks from the repaired backi
   const result = structuredContent(repaired).result as Record<string, unknown>;
   const newRoot = String(result.root);
   assert.notEqual(newRoot, oldRoot);
-  assert.equal(await readFile(join(newRoot, "after-recovery-hook.txt"), "utf8"), newRoot);
+  const hookRoot = await readFile(join(newRoot, "after-recovery-hook.txt"), "utf8");
+  assert.equal(await realpath(hookRoot), await realpath(newRoot));
 });
 
 test("workspace.recovery cleanup removes only the selected stale registration and preserves unmerged work", async (t) => {
