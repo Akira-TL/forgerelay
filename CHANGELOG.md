@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-04
+
+### Added
+
+- Added persistent Workspace-owned `workspace.checkpoint` create/list/inspect/delete operations backed by immutable Git-visible working-tree snapshots. Checkpoints preserve stable Workspace identity across restart, close/reopen, managed-worktree backing recreation, and ordinary idle GC; ignored files stay excluded, Relay execution remains owned by the Execution ForgeRelay, Composite use remains explicit-member scoped, and no Core MCP tool was added.
+
 ## [0.9.1] - 2026-09-04
 
 ### Added
