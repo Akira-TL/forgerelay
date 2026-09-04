@@ -1,3 +1,4 @@
+import type { ManagedWorktreeRecoveryProjection } from "../git/worktree-recovery.js";
 import type { ToolCallResult, RelayedWorkspaceInspection, RelayedWorkspaceTaskSummary } from "./types.js";
 export function assertRemoteToolSucceeded(alias: string, tool: string, result: ToolCallResult): void {
   if (result.isError !== true) return;
@@ -41,6 +42,43 @@ export function copyNumberField(
 ): void {
   const value = source[field];
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) target[field] = value;
+}
+
+export function safeManagedWorktreeRecovery(value: unknown): ManagedWorktreeRecoveryProjection | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const recovery = value as Record<string, unknown>;
+  const classifications = new Set(["healthy", "recoverable", "manual-intervention"]);
+  const conditions = new Set([
+    "backing-missing",
+    "managed-branch-missing",
+    "git-registration-stale",
+    "git-registration-missing",
+    "git-registration-unavailable",
+    "branch-mismatch",
+    "source-missing",
+    "source-unavailable",
+    "target-branch-missing",
+  ]);
+  if (
+    typeof recovery.classification !== "string" || !classifications.has(recovery.classification) ||
+    !Array.isArray(recovery.conditions) || recovery.conditions.some((condition) => typeof condition !== "string" || !conditions.has(condition)) ||
+    (recovery.backing !== "present" && recovery.backing !== "missing") ||
+    (recovery.source !== "available" && recovery.source !== "missing" && recovery.source !== "unavailable") ||
+    (recovery.gitRegistration !== "registered" && recovery.gitRegistration !== "stale" && recovery.gitRegistration !== "missing" && recovery.gitRegistration !== "unavailable") ||
+    (recovery.managedBranch !== "present" && recovery.managedBranch !== "missing" && recovery.managedBranch !== "unknown") ||
+    (recovery.targetBranch !== "present" && recovery.targetBranch !== "missing" && recovery.targetBranch !== "unknown") ||
+    (recovery.backingBranch !== "matching" && recovery.backingBranch !== "mismatched" && recovery.backingBranch !== "unavailable")
+  ) return undefined;
+  return {
+    classification: recovery.classification as ManagedWorktreeRecoveryProjection["classification"],
+    conditions: [...recovery.conditions] as ManagedWorktreeRecoveryProjection["conditions"],
+    backing: recovery.backing as ManagedWorktreeRecoveryProjection["backing"],
+    source: recovery.source as ManagedWorktreeRecoveryProjection["source"],
+    gitRegistration: recovery.gitRegistration as ManagedWorktreeRecoveryProjection["gitRegistration"],
+    managedBranch: recovery.managedBranch as ManagedWorktreeRecoveryProjection["managedBranch"],
+    targetBranch: recovery.targetBranch as ManagedWorktreeRecoveryProjection["targetBranch"],
+    backingBranch: recovery.backingBranch as ManagedWorktreeRecoveryProjection["backingBranch"],
+  };
 }
 
 export function safeTaskSummary(value: unknown): RelayedWorkspaceTaskSummary | undefined {

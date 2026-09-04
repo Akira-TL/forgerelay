@@ -113,6 +113,27 @@ export const workspaceAvailableAgentsFileOutputSchema = z.object({
   path: z.string(),
 });
 
+export const managedWorktreeRecoveryOutputSchema = z.object({
+  classification: z.enum(["healthy", "recoverable", "manual-intervention"]),
+  conditions: z.array(z.enum([
+    "backing-missing",
+    "managed-branch-missing",
+    "git-registration-stale",
+    "git-registration-missing",
+    "git-registration-unavailable",
+    "branch-mismatch",
+    "source-missing",
+    "source-unavailable",
+    "target-branch-missing",
+  ])),
+  backing: z.enum(["present", "missing"]),
+  source: z.enum(["available", "missing", "unavailable"]),
+  gitRegistration: z.enum(["registered", "stale", "missing", "unavailable"]),
+  managedBranch: z.enum(["present", "missing", "unknown"]),
+  targetBranch: z.enum(["present", "missing", "unknown"]),
+  backingBranch: z.enum(["matching", "mismatched", "unavailable"]),
+});
+
 export const workspaceInventoryEntryOutputSchema = z.object({
   label: z.string(),
   workspaceId: z.string(),
@@ -128,6 +149,7 @@ export const workspaceInventoryEntryOutputSchema = z.object({
   lastUsedAt: z.string(),
   idleMs: z.number().nonnegative(),
   rootValid: z.boolean(),
+  recovery: managedWorktreeRecoveryOutputSchema.optional(),
   current: z.boolean(),
 });
 
@@ -191,6 +213,7 @@ export const workspaceInspectionOutputSchema = z.union([
     lastUsedAt: z.string(),
     idleMs: z.number().nonnegative(),
     rootValid: z.boolean(),
+    recovery: managedWorktreeRecoveryOutputSchema.optional(),
     taskSummary: workspaceTaskInspectionSummaryOutputSchema.optional(),
   }),
   z.object({
@@ -210,6 +233,7 @@ export const workspaceInspectionOutputSchema = z.union([
     lastUsedAt: z.string().optional(),
     idleMs: z.number().nonnegative().optional(),
     rootValid: z.boolean().optional(),
+    recovery: managedWorktreeRecoveryOutputSchema.optional(),
     taskSummary: workspaceTaskInspectionSummaryOutputSchema.optional(),
     relay: z.string(),
     executionLocation: z.string(),

@@ -12,6 +12,7 @@ import type {
   WorkspaceInventoryState,
 } from "../workspaces.js";
 import { canonicalPath } from "./paths.js";
+import { inspectManagedWorktreeRecovery } from "./git/worktree-recovery.js";
 import { WorkspaceSessionService } from "./sessions.js";
 
 const WORKSPACE_STALE_REMINDER_MS = 2 * 24 * 60 * 60 * 1_000;
@@ -107,11 +108,12 @@ export class WorkspaceInventoryService {
     current: boolean,
   ): Promise<WorkspaceInventoryEntry> {
     const rootValid = await this.sessions.validSessionRoot(session) !== undefined;
+    const recovery = await inspectManagedWorktreeRecovery(session, this.config);
     const lastUsedAt = Date.parse(session.lastUsedAt);
     const idleMs = Number.isFinite(lastUsedAt) ? Math.max(0, now - lastUsedAt) : 0;
     const state: WorkspaceInventoryState = session.status !== "active"
       ? "closed"
-      : !rootValid
+      : !rootValid || (recovery !== undefined && recovery.classification !== "healthy")
         ? "invalid"
         : idleMs >= WORKSPACE_STALE_REMINDER_MS
           ? "stale"
@@ -132,6 +134,7 @@ export class WorkspaceInventoryService {
       lastUsedAt: session.lastUsedAt,
       idleMs,
       rootValid,
+      ...(recovery ? { recovery } : {}),
       current,
     };
   }

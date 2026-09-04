@@ -338,23 +338,30 @@ inventory is paginated (50 records by default, at most 100) and can filter by Wo
 ID, persisted status, derived state, mode, canonical root/source root, or stale-only
 state. Reading inventory does not refresh `lastUsedAt`. Persisted `status="active"`
 means the record has not been explicitly closed; the derived `state` distinguishes
-`active`, `stale`, `invalid`, and `closed`. A missing checkout or externally removed
-managed-worktree root can therefore remain diagnostically `status="active"` while
-appearing as `state="invalid"`. Canonical identity means ordinary same-target opens no
-longer accumulate duplicate inventory rows; `action="list"` remains the formal
-on-demand inventory path.
+`active`, `stale`, `invalid`, and `closed`. Active managed-worktree entries also expose
+a bounded `recovery` projection: ForgeRelay observes backing/source availability, the
+recorded managed and target branches, Git worktree registration, and the backing's
+current branch, then classifies the result as `healthy`, `recoverable`, or
+`manual-intervention`. A missing checkout or externally damaged managed worktree can
+therefore remain diagnostically `status="active"` while appearing as `state="invalid"`.
+This projection is observation only: inventory never runs `git worktree prune`, creates
+or removes worktrees/branches, or otherwise repairs Git state. Canonical identity means
+ordinary same-target opens no longer accumulate duplicate inventory rows;
+`action="list"` remains the formal on-demand inventory path.
 
 `open_workspace(action="inspect", workspaceId="...")` is the bounded read-only detail
 path for one known Workspace. It uses an explicit allowlist and never opens/resumes the
 target, changes conversation bindings or bootstrap-delivery records, refreshes
 `lastUsedAt`, or grants file/process/Git/Capability authority. Safe projections include
-ordinary/worktree lifecycle metadata, Composite member availability summaries, Relay
-alias/execution-location presentation metadata, and an already-existing Task List
-summary. Inspection never returns AGENTS/CLAUDE contents, Skills, Capability-guide
-paths or contents, Subagent bodies/sessions, files, Git diffs, process/Activity output,
-Hook/review artifacts, credentials, network/SSH routes, or Task bodies. Relay inspection
-reports only that the Gateway route is known; it does not probe or claim the remote
-Workspace lifecycle state.
+ordinary/worktree lifecycle metadata, managed-worktree recovery observations,
+Composite member availability summaries, Relay alias/execution-location presentation
+metadata, and an already-existing Task List summary. Inspection never returns
+AGENTS/CLAUDE contents, Skills, Capability-guide paths or contents, Subagent
+bodies/sessions, files, Git diffs, process/Activity output, Hook/review artifacts,
+credentials, network/SSH routes, or Task bodies. For Relay Workspaces the Gateway asks
+the Execution ForgeRelay for this same bounded inspection and forwards sanitized
+lifecycle/recovery facts under the Gateway Workspace identity; the Gateway does not
+inspect or mutate the remote Git repository itself.
 
 For checkout-backed Workspaces, `close_workspace` defaults to `action="close"`:
 it marks the persistent Workspace closed, removes current conversation bindings, and

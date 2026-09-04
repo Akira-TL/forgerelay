@@ -21,7 +21,28 @@ import {
   loadForgeRelayFiles,
   type ForgeRelayRemoteRecord,
   writeForgeRelayRemote,
-} from "../../runtime/config/user-config.js";import { assertRemoteToolSucceeded, stringField, copyStringField, copyBooleanField, copyNumberField, safeTaskSummary, toolResultText, remapToolResultWorkspaceId, replaceExactWorkspaceId, sanitizedRemoteError, errorMessage } from "./result-support.js";import type { ToolCallResult, RelayedWorkspaceRoute, RelayedWorkspaceTaskSummary, RelayedWorkspaceInspection, RelayedWorkspaceOpenResult } from "./types.js";
+} from "../../runtime/config/user-config.js";
+import {
+  assertRemoteToolSucceeded,
+  copyBooleanField,
+  copyNumberField,
+  copyStringField,
+  errorMessage,
+  remapToolResultWorkspaceId,
+  replaceExactWorkspaceId,
+  safeManagedWorktreeRecovery,
+  safeTaskSummary,
+  sanitizedRemoteError,
+  stringField,
+  toolResultText,
+} from "./result-support.js";
+import type {
+  RelayedWorkspaceInspection,
+  RelayedWorkspaceOpenResult,
+  RelayedWorkspaceRoute,
+  RelayedWorkspaceTaskSummary,
+  ToolCallResult,
+} from "./types.js";
 
 
 export class RemoteWorkspaceRelay {
@@ -95,6 +116,8 @@ export class RemoteWorkspaceRelay {
     copyStringField(remoteInspection, projection, "lastUsedAt");
     copyNumberField(remoteInspection, projection, "idleMs");
     copyBooleanField(remoteInspection, projection, "rootValid");
+    const recovery = safeManagedWorktreeRecovery(remoteInspection.recovery);
+    if (recovery) projection.recovery = recovery;
     const taskSummary = safeTaskSummary(remoteInspection.taskSummary);
     if (taskSummary) projection.taskSummary = taskSummary;
     return projection;

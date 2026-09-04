@@ -165,10 +165,13 @@ symbols, workspace symbols, and diagnostics. Results use ForgeRelay-owned normal
 locations, ranges, symbols, hover content, and diagnostic shapes rather than raw LSP
 wire unions.
 
-Language servers remain external dependencies. ForgeRelay can discover
-`typescript-language-server`, `pyright-langserver`, `rust-analyzer`, `gopls`, and
-`clangd` when they already exist on `PATH`, or use structured project/global
-configuration, but it never installs a server automatically. See
+Language servers are never installed automatically or without user authorization.
+ForgeRelay can discover configured or `PATH`-available servers, and `forgerelay init`
+can optionally enable Agent-managed installation of TypeScript/JavaScript and Pyright
+inside ForgeRelay's private config directory. That permission is disabled by default;
+a successful managed install becomes available to the same running ForgeRelay process
+on the next semantic request without a restart. `rust-analyzer`, `gopls`, and `clangd`
+remain external toolchain/system installations. See
 [Configuration Reference](docs/configuration.md#lsp-code-intelligence) and
 [`examples/language-servers.json`](examples/language-servers.json).
 
@@ -297,13 +300,13 @@ forgerelay doctor
 
 ## Where ForgeRelay is going
 
-With LSP code intelligence established in the 0.4 line, the next additions remain
-focused on making the local execution layer more useful, not on turning ForgeRelay
-into another all-in-one agent framework:
+With persistent Workspace lifecycle, first-class Subagent delegation, managed-LSP
+support, and worktree-close verification already shipped, the 0.9 line focuses on
+Workspace recovery and history without expanding the canonical Core tool surface:
 
-1. first-class MCP subagent delegation;
-2. stronger worktree verification and recovery;
-3. checkpoint/rewind and retention improvements.
+1. read-only managed-worktree recovery diagnostics, followed by safe repair/cleanup;
+2. persistent Workspace checkpoints and concurrency-safe restore;
+3. owner-facing retention inspection and explicitly authorized maintenance.
 
 ForgeRelay does not plan to add its own shell sandbox, long-term memory system,
 or plugin marketplace. Conversation, planning, web access, and other host-native

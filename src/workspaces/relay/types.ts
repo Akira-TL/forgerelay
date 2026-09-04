@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ManagedWorktreeRecoveryProjection } from "../git/worktree-recovery.js";
 
 export type ToolCallResult = CallToolResult;
 
@@ -42,6 +43,7 @@ export interface RelayedWorkspaceInspection {
   lastUsedAt?: string;
   idleMs?: number;
   rootValid?: boolean;
+  recovery?: ManagedWorktreeRecoveryProjection;
   taskSummary?: RelayedWorkspaceTaskSummary;
   relay: string;
   executionLocation: string;

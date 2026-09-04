@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { authenticateRemote, withRemoteMcpClient } from "../auth/remote-auth.js";
+import { safeManagedWorktreeRecovery } from "../result-support.js";
 import {
   installFakeSsh,
   resultText,
@@ -12,6 +13,30 @@ import {
   startGatewayClient,
   structuredContent,
 } from "./test-support.js";
+
+void test("recovery relay sanitization strips unrecognized remote fields", () => {
+  assert.deepEqual(safeManagedWorktreeRecovery({
+    classification: "healthy",
+    conditions: [],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "matching",
+    remoteWorkspaceId: "ws_secret",
+    credential: "must-not-cross-gateway",
+  }), {
+    classification: "healthy",
+    conditions: [],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "matching",
+  });
+});
 
 void test("gateway mutates files only on the remote workspace", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-mutations-"));

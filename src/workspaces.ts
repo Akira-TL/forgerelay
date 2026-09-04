@@ -157,7 +157,6 @@ export interface KnownWorkspaceWorktree {
 }
 
 export type WorkspaceInventoryState = "active" | "stale" | "invalid" | "closed";
-
 export interface WorkspaceInventoryEntry {
   label: string;
   workspaceId: string;
@@ -173,9 +172,9 @@ export interface WorkspaceInventoryEntry {
   lastUsedAt: string;
   idleMs: number;
   rootValid: boolean;
+  recovery?: import("./workspaces/git/worktree-recovery.js").ManagedWorktreeRecoveryProjection;
   current: boolean;
 }
-
 export interface WorkspaceInspection {
   workspaceId: string;
   kind: "workspace";
@@ -193,6 +192,7 @@ export interface WorkspaceInspection {
   lastUsedAt: string;
   idleMs: number;
   rootValid: boolean;
+  recovery?: import("./workspaces/git/worktree-recovery.js").ManagedWorktreeRecoveryProjection;
 }
 
 export interface WorkspaceInventoryInput {

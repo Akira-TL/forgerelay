@@ -500,6 +500,23 @@ void test("relayed managed-worktree Workspace keeps identity and Task state acro
   const reopenedRoot = String(structuredContent(reopened).root);
   assert.match(await readFile(join(reopenedRoot, "relay-worktree.txt"), "utf8"), /^managed relay change\r?\n$/);
 
+  const inspectedReopened = await client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: gatewayWorkspaceId },
+  });
+  assert.equal(inspectedReopened.isError, undefined, resultText(inspectedReopened));
+  const reopenedProjection = structuredContent(inspectedReopened).inspection as Record<string, unknown>;
+  assert.deepEqual(reopenedProjection.recovery, {
+    classification: "healthy",
+    conditions: [],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "matching",
+  });
+
   const restored = await client.callTool({
     name: "capability",
     arguments: {

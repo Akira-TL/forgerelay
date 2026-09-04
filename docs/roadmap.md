@@ -38,7 +38,7 @@ ForgeRelay does not plan to add:
 - a plugin marketplace/runtime;
 - a second conversation/session runtime;
 - host-owned commands such as plan mode, context inspection, or model selection;
-- automatic installation and management of language servers.
+- automatic or unapproved language-server installation. Agent-managed TypeScript/JavaScript and Pyright installs require explicit user opt-in and remain disabled by default; Rust Analyzer, `gopls`, and `clangd` stay external toolchain/system dependencies.
 
 Shell execution remains a trusted local-user capability. Workspace filesystem
 containment must not be described as a shell sandbox.
@@ -197,11 +197,12 @@ capability
 
 ## 0.4 — LSP code intelligence v1
 
-LSP is moderate implementation complexity if ForgeRelay does not become a
-language-server installer.
-
-The first version should launch only language servers already available on the
-user's machine or explicitly configured by the user/project.
+LSP v1 was designed around language servers already available on the user's machine
+or explicitly configured by the user/project. ForgeRelay later added a narrow managed
+installation path for TypeScript/JavaScript and Pyright: it is disabled by default,
+requires explicit user authorization during setup, installs only into ForgeRelay's
+private config directory, and refreshes live without a server restart. This does not
+turn arbitrary language-server installation into an implicit Agent capability.
 
 During 0.4 development, MCP App UI hardening can land alongside the LSP work when
 it does not distort the code-intelligence scope. In particular, evaluate a more
@@ -245,9 +246,10 @@ and verify publication before work begins on the next boundary:
 The shipping 0.4 LSP v1 contract keeps the canonical nine Core MCP tools unchanged
 and exposes semantic operations only through `code.intelligence`. Deterministic
 fake-LSP coverage remains the primary cross-platform protocol/lifecycle gate, while
-`npm run lsp:interop` exercises `typescript-language-server`, Pyright,
-`rust-analyzer`, `gopls`, and `clangd` only when those external executables are
-already present and otherwise reports explicit skips without installing them.
+`npm run lsp:interop` exercises detected servers only when executables are already
+present and never downloads them. The later managed TypeScript/Pyright installation
+path is a separate explicitly authorized runtime capability and does not change that
+interop-test contract.
 
 ## 0.5 — Durable Activity and batch execution
 
@@ -315,32 +317,40 @@ milestone: the next stage remains blocked until the previous version's tag-trigg
 release workflow has completed successfully. Runtime acceptance uses only the
 reserved 7677/7678 debug instances and never touches the normal 7676 installation.
 
-## Later: first-class subagent MCP
+## 0.9 — Workspace Recovery & History
 
-ForgeRelay already owns provider adapters and resumable local agent sessions. A
-future release may remove the current `bash -> forgerelay agents ...` indirection
-for MCP hosts.
+0.9 builds on persistent Workspace identity, first-class `subagent.session`, and the
+existing Hook-backed managed-worktree finalize lifecycle. It does not add another Core
+MCP tool. Each stage is release-gated: the following stage begins only after the prior
+version's tag-triggered Linux/macOS/Windows verification and publication succeed.
 
-First-class subagent operations should reuse the Capability Gateway rather than
-add another top-level MCP tool. The parent agent should continue choosing from
-available provider/profile metadata while ForgeRelay owns provider-backed worker
-lifecycle state. This remains provider-backed delegation, not an attempt to
-emulate a Host-native subagent implementation.
+- **0.9.0** — add bounded read-only managed-worktree recovery observations to
+  `open_workspace(action="list"|"inspect")`, distinguishing healthy, recoverable,
+  and manual-intervention states without repairing or pruning Git state; align current
+  Roadmap/product documentation with already-shipped Subagent, worktree verification,
+  and explicitly authorized managed-LSP behavior;
+- **0.9.1** — add Workspace-scoped safe managed-worktree repair and cleanup through
+  the Capability Gateway. Recovery must preserve surviving managed-branch work and
+  refuse ambiguous ownership rather than guessing;
+- **0.9.2** — add persistent Workspace checkpoints with explicit create/list/inspect/
+  delete lifecycle, stored outside normal project history and surviving Workspace
+  close/reopen;
+- **0.9.3** — add checkpoint restore with optimistic-concurrency preflight so external
+  or user edits made after inspection cannot be silently overwritten. Restore changes
+  working-tree content without moving branch HEAD or using `git reset --hard`;
+- **0.9.4** — add owner-facing retention inspection and explicitly authorized prune
+  through the CLI. Audit retention remains unlimited by default, persistent Workspace
+  identity/Tasks are not ordinary GC targets, and destructive global maintenance is
+  not exposed as an ordinary Agent MCP Capability.
 
-## Worktree and history refinements
+Workspace Relay continues to treat the Execution ForgeRelay as the owner of Git,
+recovery, checkpoint, and retention facts; the Gateway only routes and presents bounded
+results. Development acceptance remains on isolated 7677/7678 instances and never uses
+the normal 7676 installation.
 
-These can land alongside the main release lines when the underlying interfaces
-are ready:
-
-- `.worktreeinclude`-style explicit copying of selected gitignored files;
-- hook-backed worktree close verification;
-- stale managed-worktree recovery and cleanup;
-- checkpoint/list/restore primitives based on the existing Git snapshot engine;
-- retention/GC for stale workspace sessions, conversation bindings, and review
-  refs.
-
-Checkpoint restore must protect concurrent/external user edits rather than
-blindly overwriting a working tree.
+Later refinements may add `.worktreeinclude`-style explicit copying of selected
+Git-ignored files. Native PowerShell/`cmd.exe` shell execution is also a separate
+compatibility decision rather than part of the 0.9 recovery/history line.
 
 ## Workspace Task Lists
 

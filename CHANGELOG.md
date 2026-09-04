@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added bounded read-only managed-worktree recovery diagnostics to `open_workspace` inventory and inspection, distinguishing healthy, recoverable, and manual-intervention states across missing backing/source/branches, stale Git worktree registration, and branch mismatches. Relayed inspection carries the sanitized diagnostic facts from the Execution ForgeRelay without mutating Git state.
+
+### Changed
+
+- Aligned current roadmap and product documentation with already-shipped first-class Subagent delegation, Hook-backed managed-worktree close verification, and explicitly authorized live managed TypeScript/Pyright installation. The 0.9 line is now defined as recovery diagnostics/repair, Workspace checkpoints/restore, and owner-facing retention maintenance.
+
 ## [0.8.10] - 2026-09-03
 
 ### Added

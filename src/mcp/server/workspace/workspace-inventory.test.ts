@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -468,6 +468,8 @@ test("open_workspace list distinguishes closed and externally missing managed wo
   });
   assert.equal(closed.isError, undefined);
   await rm(missingRoot, { recursive: true, force: true });
+  const gitStateBefore = await managedWorktreeGitState(context.project);
+  const lastUsedBefore = workspaceLastUsedAt(context.stateDir, missingId);
 
   const listed = await context.client.callTool({
     name: "open_workspace",
@@ -486,5 +488,209 @@ test("open_workspace list distinguishes closed and externally missing managed wo
   assert.equal(invalidEntry.status, "active");
   assert.equal(invalidEntry.state, "invalid");
   assert.equal(invalidEntry.rootValid, false);
+  assert.deepEqual(invalidEntry.recovery, {
+    classification: "recoverable",
+    conditions: ["backing-missing", "git-registration-stale"],
+    backing: "missing",
+    source: "available",
+    gitRegistration: "stale",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "unavailable",
+  });
+  assert.equal(closedEntry.recovery, undefined);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: missingId },
+    _meta: { "openai/session": "chat-worktree-invalid" },
+  } as Parameters<Client["callTool"]>[0]);
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.deepEqual(inspection.recovery, invalidEntry.recovery);
+  assert.deepEqual(await managedWorktreeGitState(context.project), gitStateBefore);
+  assert.equal(workspaceLastUsedAt(context.stateDir, missingId), lastUsedBefore);
 });
+
+test("open_workspace inventory reports healthy and branch-mismatched managed worktrees", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-worktree-recovery", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const worktreeRoot = String(worktree.path);
+
+  const healthyList = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "list", workspaceId },
+  });
+  const healthy = (structuredContent(healthyList).workspaces as Array<Record<string, unknown>>)[0];
+  assert.deepEqual(healthy?.recovery, {
+    classification: "healthy",
+    conditions: [],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "matching",
+  });
+
+  await git(worktreeRoot, ["switch", "-c", "external-branch"]);
+  const mismatchedInspect = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  const inspection = structuredContent(mismatchedInspect).inspection as Record<string, unknown>;
+  assert.equal(inspection.state, "invalid");
+  assert.equal(inspection.rootValid, true);
+  assert.deepEqual(inspection.recovery, {
+    classification: "manual-intervention",
+    conditions: ["branch-mismatch"],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "present",
+    backingBranch: "mismatched",
+  });
+});
+
+test("open_workspace inspection separates missing managed and target branches", async (t) => {
+  const context = await fixture(t, { git: true });
+  const managedMissingOpen = await callOpen(
+    context.client,
+    context.project,
+    "chat-managed-branch-missing",
+    "worktree",
+  );
+  const managedWorkspaceId = String(structuredContent(managedMissingOpen).workspaceId);
+  const managedWorktree = structuredContent(managedMissingOpen).worktree as Record<string, unknown>;
+  const managedBranch = String(managedWorktree.branch);
+  await git(String(managedWorktree.path), ["switch", "-c", "external-managed-replacement"]);
+  await git(context.project, ["branch", "-D", managedBranch]);
+
+  const managedMissingInspect = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: managedWorkspaceId },
+  });
+  const managedInspection = structuredContent(managedMissingInspect).inspection as Record<string, unknown>;
+  assert.deepEqual(managedInspection.recovery, {
+    classification: "manual-intervention",
+    conditions: ["managed-branch-missing", "branch-mismatch"],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "missing",
+    targetBranch: "present",
+    backingBranch: "mismatched",
+  });
+
+  const targetMissingOpen = await callOpen(
+    context.client,
+    context.project,
+    "chat-target-branch-missing",
+    "worktree",
+    true,
+  );
+  const targetWorkspaceId = String(structuredContent(targetMissingOpen).workspaceId);
+  const targetWorktree = structuredContent(targetMissingOpen).worktree as Record<string, unknown>;
+  const targetBranch = String(targetWorktree.targetBranch);
+  await git(context.project, ["switch", "-c", "external-target-replacement"]);
+  await git(context.project, ["branch", "-D", targetBranch]);
+
+  const targetMissingInspect = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: targetWorkspaceId },
+  });
+  const targetInspection = structuredContent(targetMissingInspect).inspection as Record<string, unknown>;
+  assert.deepEqual(targetInspection.recovery, {
+    classification: "manual-intervention",
+    conditions: ["target-branch-missing"],
+    backing: "present",
+    source: "available",
+    gitRegistration: "registered",
+    managedBranch: "present",
+    targetBranch: "missing",
+    backingBranch: "matching",
+  });
+});
+
+test("open_workspace inspection reports an unavailable managed-worktree source", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-source-unavailable", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktreeRoot = String((structuredContent(opened).worktree as Record<string, unknown>).path);
+  await rename(join(context.project, ".git"), join(context.project, ".git-disabled"));
+  await git(dirname(context.project), ["init"]);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(inspection.state, "invalid");
+  assert.equal(inspection.rootValid, true);
+  assert.deepEqual(inspection.recovery, {
+    classification: "manual-intervention",
+    conditions: ["source-unavailable"],
+    backing: "present",
+    source: "unavailable",
+    gitRegistration: "unavailable",
+    managedBranch: "unknown",
+    targetBranch: "unknown",
+    backingBranch: "unavailable",
+  });
+  assert.equal((await stat(worktreeRoot)).isDirectory(), true);
+});
+
+test("open_workspace inspection reports a missing managed-worktree source without touching the backing", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-source-missing", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktreeRoot = String((structuredContent(opened).worktree as Record<string, unknown>).path);
+  await rm(context.project, { recursive: true, force: true });
+  const backingBefore = await stat(worktreeRoot);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(inspection.state, "invalid");
+  assert.equal(inspection.rootValid, true);
+  assert.deepEqual(inspection.recovery, {
+    classification: "manual-intervention",
+    conditions: ["source-missing"],
+    backing: "present",
+    source: "missing",
+    gitRegistration: "unavailable",
+    managedBranch: "unknown",
+    targetBranch: "unknown",
+    backingBranch: "unavailable",
+  });
+  assert.equal((await stat(worktreeRoot)).ino, backingBefore.ino);
+});
+
+function workspaceLastUsedAt(stateDir: string, workspaceId: string): string {
+  const database = openDatabase(stateDir);
+  try {
+    const row = database.sqlite
+      .prepare("select last_used_at from workspace_sessions where id = ?")
+      .get(workspaceId) as { last_used_at: string };
+    return row.last_used_at;
+  } finally {
+    database.close();
+  }
+}
+
+async function managedWorktreeGitState(cwd: string): Promise<{ worktrees: string; managedRefs: string }> {
+  const [worktrees, managedRefs] = await Promise.all([
+    execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd }),
+    execFileAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/forgerelay"],
+      { cwd },
+    ),
+  ]);
+  return { worktrees: worktrees.stdout, managedRefs: managedRefs.stdout };
+}
 

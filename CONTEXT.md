@@ -111,8 +111,8 @@ The single MCP entry point named `capability` used to inspect and execute regist
 _Avoid_: Plugin runtime, arbitrary RPC
 
 **Code intelligence**:
-Workspace-aware semantic code information provided through ForgeRelay Capabilities and backed by external language servers already available in the user's environment.
-_Avoid_: Code search, language-server installation
+Workspace-aware semantic code information provided through ForgeRelay Capabilities and backed by configured/discovered language servers or, when the user explicitly enabled managed installation, ForgeRelay-private TypeScript/Pyright runtimes.
+_Avoid_: Code search, automatic language-server installation
 
 **Language service**:
 A ForgeRelay-managed semantic-code service for one canonical language project root and one language-server definition. Logical workspaces that refer to the same physical language project share the same service; distinct managed worktrees or nested language projects naturally use distinct services.
@@ -123,7 +123,7 @@ The nearest language-specific project boundary containing a source path, such as
 _Avoid_: Workspace, repository, allowed root
 
 **Language-server definition**:
-The ForgeRelay configuration or built-in discovery description that identifies one external language server and the languages/project markers it can serve.
+The ForgeRelay configuration or built-in discovery description that identifies one language-server executable source and the languages/project markers it can serve. The executable may be project/global configured, discovered on `PATH`, or one of the explicitly authorized ForgeRelay-managed TypeScript/Pyright runtimes.
 _Avoid_: Language service, installed server, Capability
 
 **External code location**:
