@@ -54,7 +54,16 @@ source checkout 可能被用户或其他 Agent 修改。关闭前不要假设 ta
 - managed branch、target branch、source repository identity、worktree ownership 任一无法证明时返回 `manual-intervention`，不猜测；
 - 若同一 managed branch 已出现另一个 worktree candidate，拒绝自动恢复；
 - recovery backing 创建后必须重新验证 branch、HEAD、Git registration 和工作树健康状态，验证失败时仅回滚 ForgeRelay 本次创建的临时 backing；
-- repair 不 merge、不 rebase、不 reset、不删除 managed branch，也不移动 target branch；旧的 stale Git registration 属于后续显式 cleanup 范畴。
+- repair 不 merge、不 rebase、不 reset、不删除 managed branch，也不移动 target branch。
+
+`workspace.recovery { operation: "cleanup" }` 只清理当前 persistent Workspace 能证明归属的 Git administrative residue：
+
+- backing 已不存在且 stale registration 仍精确对应持久化 managed branch 时，可只移除该 registration；不执行 repository-wide `git worktree prune`；
+- active Workspace 的 managed branch 始终保留，即使 stale registration 已被清掉，避免 cleanup 把仍需恢复的 Workspace 变成不可恢复状态；
+- closed Workspace 的残留 `forgerelay/*` branch 只有在没有任何 worktree registration 或其他 persistent Workspace identity 持有它、source checkout 仍位于持久化 target branch、且 Git 证明该 branch 已完整并入 target 时才允许删除；
+- unique/unmerged commits、branch ownership mismatch、active backing、缺失 target、source/target identity 不可证明等情况返回 `manual-intervention`，不强制删除；
+- cleanup 返回 `cleaned`、`nothing-to-clean` 或 `manual-intervention` 分类；对 active Workspace 成功清理 registration 后同时返回更新后的 recovery projection；
+- cleanup 不 reopen、close、delete Workspace，也不改变 persistent Workspace lifecycle state。
 
 Relay Workspace 的 recovery 在 Execution ForgeRelay 上执行；Composite Workspace 必须显式指定实际拥有该 worktree 的 member。不要在 Gateway 或 Composite identity 上自行解释/修改成员 Git 状态。
 

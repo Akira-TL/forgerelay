@@ -35,7 +35,11 @@ import {
   runActivityToolWithHooks,
   standardActivityOutcome,
 } from "../../core/activity-support.js";
-import { capabilityContextFor, workspaceHookInvocation } from "../../core/capability-support.js";
+import {
+  capabilityContextFor,
+  managedWorktreeRecoveryCapabilityContext,
+  workspaceHookInvocation,
+} from "../../core/capability-support.js";
 import {
   assertWorkspaceInstructionsLoadedBeforeSideEffect,
   contentLineCount,
@@ -581,6 +585,65 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     },
     capabilityRun: async (input: CapabilityRunOperationInput, context: CoreOperationContext) => {
       const { workspaceId, name, arguments: capabilityArguments, file } = input;
+      if (name === "workspace.recovery") {
+        const session = workspaces.getWorkspaceSession(workspaceId);
+        if (session.status === "closed") {
+          const startedAt = performance.now();
+          try {
+            const execution = await capabilityRegistry.run(
+              name,
+              capabilityArguments ?? {},
+              managedWorktreeRecoveryCapabilityContext(session, config),
+              {
+                nativeFile: file,
+                signal: context.signal,
+                requestMeta: context.requestMeta,
+                sessionId: context.sessionId,
+                batch: context.batch,
+              },
+            );
+            const result = {
+              content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+              structuredContent: { name, action: "run" as const, result: execution.value },
+            };
+            logToolCall(config, {
+              tool: toolNames.capability,
+              workspaceId: session.id,
+              capability: name,
+              action: "run",
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
+            return result;
+          } catch (error) {
+            const capabilityError = error instanceof CapabilityError
+              ? error
+              : new CapabilityError(
+                  "execution_failed",
+                  error instanceof Error ? error.message : String(error),
+                );
+            const result = {
+              content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
+              structuredContent: {
+                name,
+                action: "run" as const,
+                error: { code: capabilityError.code, message: capabilityError.message },
+              },
+              isError: true as const,
+            };
+            logToolCall(config, {
+              tool: toolNames.capability,
+              workspaceId: session.id,
+              capability: name,
+              action: "run",
+              success: false,
+              durationMs: Math.round(performance.now() - startedAt),
+              error: capabilityError.message,
+            });
+            return result;
+          }
+        }
+      }
       const workspace = workspaces.getWorkspace(workspaceId);
       let changedPaths: string[] = [];
       return runActivityTool(

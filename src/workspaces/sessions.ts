@@ -7,6 +7,7 @@ import {
   discardFreshManagedWorktree,
 } from "./git/git-worktrees.js";
 import {
+  cleanupManagedWorktreeState,
   inspectManagedWorktreeRecovery,
   prepareManagedWorktreeRepair,
   rollbackManagedWorktreeRepair,
@@ -440,7 +441,7 @@ export class WorkspaceSessionService {
 
   async runManagedWorktreeRecovery(
     workspaceId: string,
-    operation: "status" | "repair",
+    operation: "status" | "repair" | "cleanup",
   ) {
     const store = this.store;
     if (!store) {
@@ -448,6 +449,29 @@ export class WorkspaceSessionService {
     }
     const session = store.getSession(workspaceId);
     if (!session) throw new Error(`Unknown workspaceId: ${workspaceId}. Call open_workspace first.`);
+    if (operation === "cleanup") {
+      let managedBranchOwnedByOtherWorkspace = false;
+      if (session.sourceRoot && session.branch) {
+        const sourceKey = canonicalPersistedWorkspacePath(session.sourceRoot);
+        for (const candidate of store.listSessions({ mode: "worktree" })) {
+          if (
+            candidate.id === session.id ||
+            !candidate.managed ||
+            candidate.branch !== session.branch ||
+            !candidate.sourceRoot
+          ) continue;
+          if (canonicalPersistedWorkspacePath(candidate.sourceRoot) === sourceKey) {
+            managedBranchOwnedByOtherWorkspace = true;
+            break;
+          }
+        }
+      }
+      return {
+        workspaceId: session.id,
+        ...await cleanupManagedWorktreeState(session, this.config, { managedBranchOwnedByOtherWorkspace }),
+      };
+    }
+
     const recovery = await inspectManagedWorktreeRecovery(session, this.config);
     if (!recovery) {
       throw new Error(`Workspace ${session.id} is not an active managed-worktree Workspace.`);

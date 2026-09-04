@@ -270,10 +270,219 @@ test("workspace.recovery runs successful AfterTool hooks from the repaired backi
   assert.equal(await readFile(join(newRoot, "after-recovery-hook.txt"), "utf8"), newRoot);
 });
 
+test("workspace.recovery cleanup removes only the selected stale registration and preserves unmerged work", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-stale", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const oldRoot = String(worktree.path);
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+  const unrelatedRoot = join(dirname(context.project), "unrelated-worktree");
+
+  await writeFile(`${oldRoot}/cleanup-preserved.txt`, "unique cleanup work\n");
+  await git(oldRoot, ["add", "cleanup-preserved.txt"]);
+  await git(oldRoot, ["commit", "-m", "test: preserve cleanup work"]);
+  const managedHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${managedBranch}`]);
+  const targetHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+  await git(context.project, ["worktree", "add", "-b", "external/unrelated-cleanup", unrelatedRoot, targetBranch]);
+  await rm(oldRoot, { recursive: true, force: true });
+
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.workspaceId, workspaceId);
+  assert.equal(result.classification, "cleaned");
+  assert.equal(result.cleaned, true);
+  assert.equal(result.registrationRemoved, true);
+  assert.equal(result.managedBranchRemoved, false);
+  assert.match(String(result.reason), /not integrated|unique|preserved/i);
+  assert.equal((result.recovery as Record<string, unknown>).classification, "recoverable");
+  assert.equal((result.recovery as Record<string, unknown>).gitRegistration, "missing");
+
+  const worktreeList = await gitOutput(context.project, ["worktree", "list", "--porcelain"]);
+  assert.doesNotMatch(worktreeList, new RegExp(escapeRegExp(oldRoot)));
+  assert.match(worktreeList, new RegExp(escapeRegExp(unrelatedRoot)));
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${managedBranch}`]), managedHeadBefore);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
+});
+
+test("workspace.recovery cleanup removes an already-integrated leftover branch from a closed Workspace without reopening it", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-closed", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const oldRoot = String(worktree.path);
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+
+  await writeFile(`${oldRoot}/merged-cleanup.txt`, "merged cleanup work\n");
+  await git(oldRoot, ["add", "merged-cleanup.txt"]);
+  await git(oldRoot, ["commit", "-m", "test: merged cleanup branch"]);
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: finalize cleanup fixture" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  assert.equal(await branchExists(context.project, managedBranch), false);
+
+  await git(context.project, ["branch", managedBranch, targetBranch]);
+  assert.equal(await branchExists(context.project, managedBranch), true);
+  const targetHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.workspaceId, workspaceId);
+  assert.equal(result.classification, "cleaned");
+  assert.equal(result.cleaned, true);
+  assert.equal(result.registrationRemoved, false);
+  assert.equal(result.managedBranchRemoved, true);
+  assert.equal(result.status, "closed");
+  assert.equal(await branchExists(context.project, managedBranch), false);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(inspection.state, "closed");
+  assert.equal(inspection.root, oldRoot);
+});
+
+test("workspace.recovery cleanup refuses to mutate a healthy active backing", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-active", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+  const refsBefore = await managedRefs(context.project);
+  const worktreesBefore = await gitOutput(context.project, ["worktree", "list", "--porcelain"]);
+  const targetHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.classification, "nothing-to-clean");
+  assert.equal(result.cleaned, false);
+  assert.equal(result.registrationRemoved, false);
+  assert.equal(result.managedBranchRemoved, false);
+  assert.match(String(result.reason), /active.*backing|backing.*present|nothing.*safe|healthy/i);
+
+  assert.equal(await managedRefs(context.project), refsBefore);
+  assert.equal(await branchExists(context.project, managedBranch), true);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
+  assert.equal(await gitOutput(context.project, ["worktree", "list", "--porcelain"]), worktreesBefore);
+});
+
+test("workspace.recovery cleanup preserves a closed managed branch with unique commits", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-unique-closed", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: finalize unique cleanup fixture" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  const targetHead = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+  const tree = await gitOutput(context.project, ["rev-parse", `${targetHead}^{tree}`]);
+  const uniqueHead = await gitInput(context.project, ["commit-tree", tree, "-p", targetHead], "unique closed cleanup\n");
+  await git(context.project, ["update-ref", `refs/heads/${managedBranch}`, uniqueHead]);
+
+  const refsBefore = await managedRefs(context.project);
+  const worktreesBefore = await gitOutput(context.project, ["worktree", "list", "--porcelain"]);
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.classification, "manual-intervention");
+  assert.equal(result.cleaned, false);
+  assert.equal(result.managedBranchRemoved, false);
+  assert.match(String(result.reason), /not integrated|preserved/i);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${managedBranch}`]), uniqueHead);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHead);
+  assert.equal(await managedRefs(context.project), refsBefore);
+  assert.equal(await gitOutput(context.project, ["worktree", "list", "--porcelain"]), worktreesBefore);
+});
+
+test("workspace.recovery cleanup preserves a branch referenced by another persistent Workspace", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-other-owner", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "test: finalize other-owner cleanup fixture" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  await git(context.project, ["branch", managedBranch, targetBranch]);
+  context.store.createSession({
+    id: "ws_other_cleanup_owner",
+    root: join(context.config.worktreeRoot, "other-cleanup-owner-missing"),
+    mode: "worktree",
+    sourceRoot: context.project,
+    baseRef: targetBranch,
+    baseSha: await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]),
+    branch: managedBranch,
+    targetBranch,
+    managed: true,
+  });
+  context.store.setSessionStatus("ws_other_cleanup_owner", "closed");
+
+  const refsBefore = await managedRefs(context.project);
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.classification, "manual-intervention");
+  assert.equal(result.cleaned, false);
+  assert.equal(result.managedBranchRemoved, false);
+  assert.match(String(result.reason), /another persistent Workspace/i);
+  assert.equal(await branchExists(context.project, managedBranch), true);
+  assert.equal(await managedRefs(context.project), refsBefore);
+});
+
+test("workspace.recovery cleanup refuses stale registration with mismatched branch ownership", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "chat-recovery-cleanup-registration-owner", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const oldRoot = String(worktree.path);
+  const managedBranch = String(worktree.branch);
+  const targetBranch = String(worktree.targetBranch);
+
+  await git(oldRoot, ["switch", "-c", "external/cleanup-owner"]);
+  await rm(oldRoot, { recursive: true, force: true });
+  const refsBefore = await managedRefs(context.project);
+  const worktreesBefore = await gitOutput(context.project, ["worktree", "list", "--porcelain"]);
+  const targetHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+
+  const cleaned = await recoveryCall(context.client, workspaceId, "cleanup");
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const result = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(result.classification, "manual-intervention");
+  assert.equal(result.cleaned, false);
+  assert.equal(result.registrationRemoved, false);
+  assert.equal(result.managedBranchRemoved, false);
+  assert.match(String(result.reason), /no longer proves ownership/i);
+  assert.equal(await branchExists(context.project, managedBranch), true);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
+  assert.equal(await managedRefs(context.project), refsBefore);
+  assert.equal(await gitOutput(context.project, ["worktree", "list", "--porcelain"]), worktreesBefore);
+});
+
 test("workspace.recovery remains explicit-member scoped in a Composite Workspace", async (t) => {
   const context = await fixture(t, { git: true });
   const opened = await callOpen(context.client, context.project, "chat-recovery-composite-member", "worktree");
   const memberWorkspaceId = String(structuredContent(opened).workspaceId);
+  const memberRoot = String((structuredContent(opened).worktree as Record<string, unknown>).path);
   const composite = await context.client.callTool({
     name: "open_workspace",
     arguments: { kind: "composite", name: "recovery-composite", context: "none" },
@@ -315,12 +524,29 @@ test("workspace.recovery remains explicit-member scoped in a Composite Workspace
   assert.equal(withMember.isError, undefined, allResponseText(withMember));
   const result = structuredContent(withMember).result as Record<string, unknown>;
   assert.equal((result.recovery as Record<string, unknown>).classification, "healthy");
+
+  await rm(memberRoot, { recursive: true, force: true });
+  const cleaned = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      name: "workspace.recovery",
+      action: "run",
+      arguments: { operation: "cleanup" },
+    },
+  });
+  assert.equal(cleaned.isError, undefined, allResponseText(cleaned));
+  const cleanupResult = structuredContent(cleaned).result as Record<string, unknown>;
+  assert.equal(cleanupResult.classification, "cleaned");
+  assert.equal(cleanupResult.registrationRemoved, true);
+  assert.equal(cleanupResult.managedBranchRemoved, false);
 });
 
 async function recoveryCall(
   client: Client,
   workspaceId: string,
-  operation: "status" | "repair",
+  operation: "status" | "repair" | "cleanup",
 ): Promise<Awaited<ReturnType<Client["callTool"]>>> {
   return client.callTool({
     name: "capability",
@@ -337,6 +563,31 @@ async function gitOutput(cwd: string, args: string[]): Promise<string> {
   return (await execFileAsync("git", args, { cwd })).stdout.trim();
 }
 
+async function gitInput(cwd: string, args: string[], input: string): Promise<string> {
+  const child = execFile("git", args, { cwd }, () => undefined);
+  let stdout = "";
+  child.stdout?.on("data", (chunk) => { stdout += String(chunk); });
+  child.stdin?.end(input);
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => code === 0 ? resolve() : reject(new Error(`git ${args.join(" ")} exited ${code}`)));
+  });
+  return stdout.trim();
+}
+
 async function managedRefs(cwd: string): Promise<string> {
   return gitOutput(cwd, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/forgerelay"]);
+}
+
+async function branchExists(cwd: string, branch: string): Promise<boolean> {
+  try {
+    await gitOutput(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -165,7 +165,7 @@ export type WorkspaceTasksCapabilityInput =
     };
 
 export type WorkspaceRecoveryCapabilityInput = {
-  operation: "status" | "repair";
+  operation: "status" | "repair" | "cleanup";
 };
 
 export type SubagentSessionCapabilityInput =
@@ -488,6 +488,7 @@ export function createCapabilityRegistry(
   const workspaceRecoveryInput = z.discriminatedUnion("operation", [
     z.object({ operation: z.literal("status") }).strict(),
     z.object({ operation: z.literal("repair") }).strict(),
+    z.object({ operation: z.literal("cleanup") }).strict(),
   ]);
   const subagentSessionInput = z.discriminatedUnion("operation", [
     z.object({
@@ -729,15 +730,17 @@ function managedWorktreeAvailability(
   available = true,
   reason?: string,
 ): { available: boolean; reason?: string } {
-  const filesystem = filesystemWorkspaceAvailability(context, available, reason);
-  if (!filesystem.available) return filesystem;
-  if (context.workspaceMode !== "worktree" || context.workspaceManaged !== true) {
+  if (
+    context.workspaceKind !== "workspace" ||
+    context.workspaceMode !== "worktree" ||
+    context.workspaceManaged !== true
+  ) {
     return {
       available: false,
-      reason: "This capability is available only for an active ForgeRelay-managed worktree Workspace.",
+      reason: "This capability is available only for a ForgeRelay-managed worktree Workspace.",
     };
   }
-  return filesystem;
+  return { available, ...(reason ? { reason } : {}) };
 }
 
 function requireWorkspaceRoot(context: CapabilityContext): string {

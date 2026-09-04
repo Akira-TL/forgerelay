@@ -53,6 +53,16 @@ export type ManagedWorktreeRepairPreflight =
   | ManagedWorktreeRepairPreparation
   | ManagedWorktreeRepairRefusal;
 
+export interface ManagedWorktreeCleanupResult {
+  classification: "cleaned" | "nothing-to-clean" | "manual-intervention";
+  cleaned: boolean;
+  registrationRemoved: boolean;
+  managedBranchRemoved: boolean;
+  status: "active" | "closed";
+  recovery?: ManagedWorktreeRecoveryProjection;
+  reason?: string;
+}
+
 interface WorktreeRegistration {
   path: string;
   prunable: boolean;
@@ -313,6 +323,128 @@ export async function rollbackManagedWorktreeRepair(
   await git(sourceRoot, ["worktree", "remove", root]);
 }
 
+export async function cleanupManagedWorktreeState(
+  session: WorkspaceSession,
+  config: ServerConfig,
+  options: { managedBranchOwnedByOtherWorkspace?: boolean } = {},
+): Promise<ManagedWorktreeCleanupResult> {
+  if (session.mode !== "worktree" || !session.managed || (session.status !== "active" && session.status !== "closed")) {
+    throw new Error(`Workspace ${session.id} is not an active or closed ForgeRelay-managed worktree Workspace.`);
+  }
+  let recoveryBefore: ManagedWorktreeRecoveryProjection | undefined;
+  try {
+    recoveryBefore = await inspectManagedWorktreeRecovery(session, config);
+  } catch {
+    recoveryBefore = undefined;
+  }
+  if (!session.sourceRoot || !session.branch || !session.targetBranch || !session.branch.startsWith("forgerelay/")) {
+    return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+      "Persisted managed-worktree ownership metadata is incomplete or cannot prove ForgeRelay branch ownership.");
+  }
+
+  let backing: "present" | "missing";
+  try {
+    backing = await directoryState(session.root, [config.worktreeRoot]);
+  } catch {
+    return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+      "The persisted managed-worktree backing path is outside the trusted ForgeRelay worktree root or otherwise unavailable.");
+  }
+  if (backing === "present") {
+    return cleanupResult(session, recoveryBefore, false, false, "nothing-to-clean",
+      "The managed worktree backing is still present; cleanup will not mutate an active or residual physical backing.");
+  }
+  const source = await sourceState(session.sourceRoot, config.allowedRoots);
+  if (source !== "available") {
+    return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+      "The persisted source repository is unavailable, so cleanup cannot prove Git ownership safely.");
+  }
+
+  const sourceRoot = assertAllowedPath(session.sourceRoot, config.allowedRoots);
+  const branchRef = `refs/heads/${session.branch}`;
+  let registrations = await worktreeRegistrations(sourceRoot);
+  const persistedRegistrations = await matchingPathRegistrations(registrations, session.root);
+  if (persistedRegistrations.length > 1) {
+    return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+      "Multiple Git worktree registrations match the persisted backing; cleanup requires manual intervention.");
+  }
+
+  let registrationRemoved = false;
+  const persistedRegistration = persistedRegistrations[0];
+  if (persistedRegistration) {
+    if (!persistedRegistration.prunable) {
+      return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+        "The persisted backing still has an active Git worktree registration; cleanup will not remove it.");
+    }
+    if (persistedRegistration.branch !== branchRef) {
+      return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+        "The stale Git worktree registration no longer proves ownership of the persisted ForgeRelay managed branch.");
+    }
+    try {
+      await git(sourceRoot, ["worktree", "remove", persistedRegistration.path]);
+      registrationRemoved = true;
+    } catch {
+      return cleanupResult(session, recoveryBefore, false, false, "manual-intervention",
+        "Git did not confirm safe removal of the stale worktree registration; no cleanup mutation was forced.");
+    }
+    registrations = await worktreeRegistrations(sourceRoot);
+  }
+
+  if (session.status === "active") {
+    const recovery = await inspectManagedWorktreeRecovery(session, config);
+    return cleanupResult(
+      session,
+      recovery,
+      registrationRemoved,
+      false,
+      registrationRemoved ? "cleaned" : "nothing-to-clean",
+      registrationRemoved
+        ? "Stale Git worktree registration removed; the managed branch is preserved because the Workspace remains active."
+        : "No stale registration is safe to remove; the managed branch is preserved because the Workspace remains active.",
+    );
+  }
+
+  const managedBranch = await branchState(sourceRoot, session.branch);
+  if (managedBranch === "missing") {
+    return cleanupResult(
+      session,
+      undefined,
+      registrationRemoved,
+      false,
+      registrationRemoved ? "cleaned" : "nothing-to-clean",
+      registrationRemoved ? undefined : "No stale registration or managed branch remains to clean.",
+    );
+  }
+  if (registrations.some((registration) => registration.branch === branchRef)) {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "The managed branch is still associated with a Git worktree registration and was preserved.");
+  }
+  if (options.managedBranchOwnedByOtherWorkspace) {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "Another persistent Workspace still references the managed branch, so it was preserved.");
+  }
+  if (await branchState(sourceRoot, session.targetBranch) !== "present") {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "The intended target branch is missing, so the managed branch was preserved.");
+  }
+  const sourceBranch = await currentBranchName(sourceRoot);
+  if (sourceBranch !== session.targetBranch) {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "The source checkout is not on the persisted target branch, so the managed branch was preserved.");
+  }
+  if (!await branchIsAncestorOfTarget(sourceRoot, session.branch, session.targetBranch)) {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "The managed branch contains commits not integrated into the intended target branch and was preserved.");
+  }
+
+  try {
+    await git(sourceRoot, ["branch", "-d", session.branch]);
+  } catch {
+    return cleanupResult(session, undefined, registrationRemoved, false, "manual-intervention",
+      "Git did not confirm safe managed-branch deletion at cleanup time; the branch was preserved.");
+  }
+  return cleanupResult(session, undefined, registrationRemoved, true, "cleaned");
+}
+
 async function directoryState(
   path: string,
   allowedRoots: string[],
@@ -491,6 +623,51 @@ function manualRecovery(recovery: ManagedWorktreeRecoveryProjection): ManagedWor
   return recovery.classification === "manual-intervention"
     ? recovery
     : { ...recovery, classification: "manual-intervention" };
+}
+
+function cleanupResult(
+  session: WorkspaceSession,
+  recovery: ManagedWorktreeRecoveryProjection | undefined,
+  registrationRemoved: boolean,
+  managedBranchRemoved: boolean,
+  classification: ManagedWorktreeCleanupResult["classification"],
+  reason?: string,
+): ManagedWorktreeCleanupResult {
+  return {
+    classification,
+    cleaned: registrationRemoved || managedBranchRemoved,
+    registrationRemoved,
+    managedBranchRemoved,
+    status: session.status as "active" | "closed",
+    ...(recovery ? { recovery } : {}),
+    ...(reason ? { reason } : {}),
+  };
+}
+
+async function currentBranchName(cwd: string): Promise<string | undefined> {
+  try {
+    return (await git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])).stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function branchIsAncestorOfTarget(
+  sourceRoot: string,
+  branch: string,
+  targetBranch: string,
+): Promise<boolean> {
+  try {
+    await git(sourceRoot, [
+      "merge-base",
+      "--is-ancestor",
+      `refs/heads/${branch}`,
+      `refs/heads/${targetBranch}`,
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function registrationPathKey(path: string): Promise<string> {

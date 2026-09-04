@@ -103,12 +103,94 @@ test("Relay routes workspace.recovery repair to the Execution ForgeRelay", async
   assert.match(resultText(routedRead), /remote managed branch survives/);
 });
 
+test("Relay routes closed Workspace recovery cleanup to the Execution ForgeRelay", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-cleanup-"));
+  const remoteRepo = join(root, "remote-repo");
+  const gatewayRoot = join(root, "gateway-root");
+  await setupGitRepository(remoteRepo);
+  await mkdir(gatewayRoot, { recursive: true });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const remote = await startForge(t, {
+    root: join(root, "remote-server"),
+    allowedRoot: remoteRepo,
+    ownerToken: "remote-cleanup-owner-token-long-enough",
+    instanceId: "forge-relay-cleanup-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-cleanup-owner-token-long-enough",
+    instanceId: "forge-relay-cleanup-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+  });
+
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRepo, relay: "workstation", mode: "worktree", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const gatewayWorkspaceId = String(structured(opened).workspaceId);
+  const inspected = await client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: gatewayWorkspaceId },
+  });
+  const inspection = structured(inspected).inspection as Record<string, unknown>;
+  const branch = String(inspection.branch);
+  const targetBranch = String(inspection.targetBranch);
+
+  const closed = await client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId: gatewayWorkspaceId, commitMessage: "TEST: (relay) finalize cleanup fixture" },
+  });
+  assert.equal(closed.isError, undefined, resultText(closed));
+  await git(remoteRepo, ["branch", branch, targetBranch]);
+
+  const cleaned = await client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: gatewayWorkspaceId,
+      name: "workspace.recovery",
+      action: "run",
+      arguments: { operation: "cleanup" },
+    },
+  });
+  assert.equal(cleaned.isError, undefined, resultText(cleaned));
+  const result = structured(cleaned).result as Record<string, unknown>;
+  assert.equal(result.workspaceId, gatewayWorkspaceId);
+  assert.equal(result.cleaned, true);
+  assert.equal(result.managedBranchRemoved, true);
+  assert.equal(result.status, "closed");
+  assert.equal(await branchExists(remoteRepo, branch), false);
+
+  const after = await client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId: gatewayWorkspaceId },
+  });
+  assert.equal((structured(after).inspection as Record<string, unknown>).state, "closed");
+});
+
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
 }
 
 async function gitOutput(cwd: string, args: string[]): Promise<string> {
   return (await execFileAsync("git", args, { cwd })).stdout.trim();
+}
+
+async function branchExists(cwd: string, branch: string): Promise<boolean> {
+  try {
+    await gitOutput(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function structured(result: Awaited<ReturnType<import("@modelcontextprotocol/sdk/client/index.js").Client["callTool"]>>): Record<string, unknown> {

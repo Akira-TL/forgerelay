@@ -1,9 +1,11 @@
 import { loadCapabilityGuides } from "./capabilities.js";
+import type { ServerConfig } from "../../../runtime/config/config.js";
 import { CapabilityError, type CapabilityContext, type WorkspaceTasksCapabilityInput } from "./capability-registry.js";
 import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
 import { formatPathForPrompt } from "../../../workspaces/resources/skills.js";
 import { WorkspaceTaskStore } from "../../../workspaces/tasks/workspace-tasks.js";
 import type { Workspace } from "../../../workspaces.js";
+import type { WorkspaceSession } from "../../../workspaces/state/workspace-store.js";
 
 export function workspaceHookInvocation(workspace: Workspace) {
   return {
@@ -22,6 +24,24 @@ export function capabilityContextFor(workspace: Workspace): CapabilityContext {
     workspaceMode: workspace.mode,
     workspaceManaged: workspace.worktree?.managed ?? false,
     guides: workspace.capabilityGuides.map((guide) => ({
+      name: guide.name,
+      description: guide.description,
+      whenToRead: guide.whenToRead,
+      path: formatPathForPrompt(guide.filePath),
+    })),
+  };
+}
+
+export function managedWorktreeRecoveryCapabilityContext(
+  session: WorkspaceSession,
+  config: ServerConfig,
+): CapabilityContext {
+  return {
+    workspaceId: session.id,
+    workspaceKind: "workspace",
+    workspaceMode: session.mode,
+    workspaceManaged: session.managed,
+    guides: loadCapabilityGuides(config).map((guide) => ({
       name: guide.name,
       description: guide.description,
       whenToRead: guide.whenToRead,

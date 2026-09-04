@@ -662,7 +662,7 @@ export class WorkspaceRegistry {
     return this.sessions.getWorkspace(workspaceId);
   }
 
-  runManagedWorktreeRecovery(workspaceId: string, operation: "status" | "repair") {
+  runManagedWorktreeRecovery(workspaceId: string, operation: "status" | "repair" | "cleanup") {
     return this.sessions.runManagedWorktreeRecovery(workspaceId, operation);
   }
   fileToolRoots(workspace: Workspace): string[] {
