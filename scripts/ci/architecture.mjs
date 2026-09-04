@@ -9,6 +9,13 @@ const MAX_DIRECT_FILES = 8;
 const MAX_DIRECT_DIRS = 8;
 const LINE_LIMIT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".css"]);
 
+// Append-only versioned archives grow by design and must keep their canonical
+// flat paths for release tooling and stable links. They remain subject to all
+// other architecture checks, including code line limits where applicable.
+const DIRECT_FILE_LIMIT_EXEMPT_DIRS = new Set([
+  "docs/releases",
+]);
+
 // Repository-root protocol files are intentionally discoverable by Git, npm,
 // Node, Vite, contributors, and agents. Keep that conventional surface explicit
 // instead of hiding required/default-discovery files merely to satisfy a count.
@@ -67,7 +74,7 @@ const directories = new Set([...directFiles.keys(), ...directDirs.keys()]);
 for (const directory of [...directories].sort()) {
   const files = directFiles.get(directory) ?? 0;
   const dirs = directDirs.get(directory)?.size ?? 0;
-  if (directory !== "." && files > MAX_DIRECT_FILES) {
+  if (directory !== "." && !DIRECT_FILE_LIMIT_EXEMPT_DIRS.has(directory) && files > MAX_DIRECT_FILES) {
     violations.push(`${directory}: ${files} direct files > ${MAX_DIRECT_FILES}`);
   }
   if (dirs > MAX_DIRECT_DIRS) {
@@ -83,7 +90,7 @@ if (violations.length > 0) {
 
 console.log(
   `Architecture check passed: ${tracked.length} tracked files; ` +
-  `code <= ${MAX_LINES} lines; non-root directories <= ${MAX_DIRECT_FILES} files / ${MAX_DIRECT_DIRS} directories.`,
+  `code <= ${MAX_LINES} lines; bounded non-root directories <= ${MAX_DIRECT_FILES} files / ${MAX_DIRECT_DIRS} directories.`,
 );
 
 function gitTrackedFiles() {

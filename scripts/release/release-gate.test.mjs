@@ -60,6 +60,12 @@ test("cross-platform cloud CI delegates to one shell-free verification entrypoin
   }
 });
 
+test("architecture gate treats the append-only release-note archive as an explicit flat-path exception", async () => {
+  const architecture = await readFile(resolve(repoRoot, "scripts/ci/architecture.mjs"), "utf8");
+  assert.match(architecture, /DIRECT_FILE_LIMIT_EXEMPT_DIRS/);
+  assert.match(architecture, /"docs\/releases"/);
+});
+
 test("release runtime and local parity share the checked-in Node contract", async () => {
   const nodeVersion = (await readFile(resolve(repoRoot, ".nvmrc"), "utf8")).trim();
   assert.equal(nodeVersion, "22.19.0");

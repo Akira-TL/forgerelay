@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-04
+
+### Added
+
+- Extended `workspace.checkpoint` with `restore.preflight` and optimistic-concurrency-protected `restore`. Restore uses deterministic Git-visible working-tree snapshot identities, refuses stale preflight tokens before mutation, restores content without moving branch HEAD or rewriting history, leaves ignored files outside the restore model, does not reconstruct staged-versus-unstaged state, remains independent from managed-worktree recovery, and routes through the owning Execution ForgeRelay / explicit Composite member.
+
 ## [0.9.2] - 2026-09-04
 
 ### Added
