@@ -20,7 +20,6 @@ test("Relay routes workspace.recovery repair to the Execution ForgeRelay", async
   const gatewayRoot = join(root, "gateway-root");
   await setupGitRepository(remoteRepo);
   await mkdir(gatewayRoot, { recursive: true });
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const remote = await startForge(t, {
     root: join(root, "remote-server"),
@@ -41,6 +40,7 @@ test("Relay routes workspace.recovery repair to the Execution ForgeRelay", async
     allowedRoot: gatewayRoot,
     configDir: gatewayConfigDir,
   });
+  t.after(() => rm(root, { recursive: true, force: true }));
 
   const opened = await client.callTool({
     name: "open_workspace",
@@ -91,7 +91,8 @@ test("Relay routes workspace.recovery repair to the Execution ForgeRelay", async
   assert.equal(result.branch, branch);
   const newRoot = String(result.root);
   assert.notEqual(newRoot, oldRoot);
-  assert.equal(await readFile(join(newRoot, "unique-relay-recovery.txt"), "utf8"), "remote managed branch survives\n");
+  const recoveredContent = await readFile(join(newRoot, "unique-relay-recovery.txt"), "utf8");
+  assert.equal(recoveredContent.replace(/\r\n/g, "\n"), "remote managed branch survives\n");
   assert.equal(await gitOutput(newRoot, ["rev-parse", "HEAD"]), managedHead);
   assert.equal(await gitOutput(remoteRepo, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
 
@@ -109,7 +110,6 @@ test("Relay routes closed Workspace recovery cleanup to the Execution ForgeRelay
   const gatewayRoot = join(root, "gateway-root");
   await setupGitRepository(remoteRepo);
   await mkdir(gatewayRoot, { recursive: true });
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const remote = await startForge(t, {
     root: join(root, "remote-server"),
@@ -130,6 +130,7 @@ test("Relay routes closed Workspace recovery cleanup to the Execution ForgeRelay
     allowedRoot: gatewayRoot,
     configDir: gatewayConfigDir,
   });
+  t.after(() => rm(root, { recursive: true, force: true }));
 
   const opened = await client.callTool({
     name: "open_workspace",
