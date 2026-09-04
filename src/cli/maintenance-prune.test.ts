@@ -467,9 +467,9 @@ function zeroRemoved() {
   };
 }
 
-function snapshotTree(root: string): Array<{ path: string; type: "dir" | "file"; size: number; hash?: string }> {
+function snapshotTree(root: string): Array<{ path: string; type: "dir" | "file"; size?: number; hash?: string }> {
   if (!existsSync(root)) return [];
-  const result: Array<{ path: string; type: "dir" | "file"; size: number; hash?: string }> = [];
+  const result: Array<{ path: string; type: "dir" | "file"; size?: number; hash?: string }> = [];
   visit(root);
   return result.sort((left, right) => left.path.localeCompare(right.path));
 
@@ -478,7 +478,10 @@ function snapshotTree(root: string): Array<{ path: string; type: "dir" | "file";
     const name = relative(root, path) || ".";
     if (["forgerelay.sqlite-wal", "forgerelay.sqlite-shm", "forgerelay-runtime.lock"].includes(name)) return;
     if (stats.isDirectory()) {
-      result.push({ path: name, type: "dir", size: stats.size });
+      // Directory stat sizes are filesystem-specific metadata and can change when
+      // SQLite creates/removes transient WAL/SHM entries. Persistent idempotency
+      // is defined by the directory/file paths and durable file contents instead.
+      result.push({ path: name, type: "dir" });
       for (const entry of readdirSync(path).sort()) visit(join(path, entry));
       return;
     }
