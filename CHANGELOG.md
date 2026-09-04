@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-04
+
+### Added
+
+- Added owner-facing `forgerelay maintenance inspect` and `forgerelay maintenance prune` for the 0.9.4 retention contract. Durable Activity/Audit, Host Turn, and Bash history remains unlimited by default; configured retention is explicit prune authorization, whole Host Turn cohorts protect recent/nonterminal/running Bash/active Subagent work, and persistent Workspace identity, aliases, Task Lists, named checkpoints, managed worktrees/branches, and non-empty private Workspace state remain protected.
+- Added a runtime state lease so `serve` and destructive maintenance cannot operate on the same state directory concurrently. Retained Activity payloads sharing segments with pruned history are compacted before unreferenced old segments are removed, and repeat prune is idempotent.
+
+### Fixed
+
+- Made routed `publicBaseUrl` path prefixes real inbound MCP/OAuth/health/App deployment boundaries, split setup network modes into safe loopback proxy versus direct LAN binds, and replaced permissive proxy trust with explicit trusted proxy sources. This fixes reverse-proxy `X-Forwarded-For` failures without enabling spoofable global `trust proxy` behavior.
+
 ## [0.9.3] - 2026-09-04
 
 ### Added
