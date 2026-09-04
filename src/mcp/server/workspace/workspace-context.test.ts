@@ -84,6 +84,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "capability-guides.read",
         "code.intelligence",
         "workspace.tasks",
+        "workspace.recovery",
         "batch.execute",
         "subagent.session",
         "artifact.native-download",

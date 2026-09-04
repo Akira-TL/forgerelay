@@ -6,6 +6,11 @@ import {
   createManagedWorktree,
   discardFreshManagedWorktree,
 } from "./git/git-worktrees.js";
+import {
+  inspectManagedWorktreeRecovery,
+  prepareManagedWorktreeRepair,
+  rollbackManagedWorktreeRepair,
+} from "./git/worktree-recovery.js";
 import { AccessDeniedError, assertAllowedPath } from "../mcp/filesystem/roots.js";
 import { loadSubagentProfiles } from "../subagents/profiles.js";
 import type { WorkspaceMode, WorkspaceSession, WorkspaceStore } from "./state/workspace-store.js";
@@ -428,6 +433,81 @@ export class WorkspaceSessionService {
         const original = error instanceof Error ? error.message : String(error);
         const cleanup = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
         throw new Error(`${original} Reopen rollback also failed: ${cleanup}`);
+      }
+      throw error;
+    }
+  }
+
+  async runManagedWorktreeRecovery(
+    workspaceId: string,
+    operation: "status" | "repair",
+  ) {
+    const store = this.store;
+    if (!store) {
+      throw new Error(`Workspace ${workspaceId} cannot use managed-worktree recovery without persistent Workspace state.`);
+    }
+    const session = store.getSession(workspaceId);
+    if (!session) throw new Error(`Unknown workspaceId: ${workspaceId}. Call open_workspace first.`);
+    const recovery = await inspectManagedWorktreeRecovery(session, this.config);
+    if (!recovery) {
+      throw new Error(`Workspace ${session.id} is not an active managed-worktree Workspace.`);
+    }
+    if (operation === "status") {
+      return {
+        workspaceId: session.id,
+        repaired: false,
+        recovery,
+      };
+    }
+
+    const prepared = await prepareManagedWorktreeRepair(session, this.config);
+    if (!prepared.prepared) {
+      return {
+        workspaceId: session.id,
+        repaired: false,
+        recovery: prepared.recovery,
+        reason: prepared.reason,
+      };
+    }
+
+    const cachedWorkspace = this.workspaces.get(session.id);
+    try {
+      this.context.forgetWorkspaceResources(session.id);
+      this.workspaces.delete(session.id);
+      const candidateSession: WorkspaceSession = {
+        ...session,
+        root: prepared.root,
+      };
+      const candidateWorkspace = this.workspaceFromSession(candidateSession, false);
+      await this.reusedWorkspaceContext(candidateWorkspace);
+      store.replaceWorktreeBacking({
+        id: session.id,
+        root: prepared.root,
+        sourceRoot: prepared.sourceRoot,
+        baseRef: prepared.baseRef,
+        baseSha: prepared.baseSha,
+        branch: prepared.branch,
+        targetBranch: prepared.targetBranch,
+      });
+      return {
+        workspaceId: session.id,
+        repaired: true,
+        previousRoot: prepared.previousRoot,
+        root: prepared.root,
+        branch: prepared.branch,
+        targetBranch: prepared.targetBranch,
+        recovery: prepared.recovery,
+      };
+    } catch (error) {
+      this.context.forgetWorkspaceResources(session.id);
+      this.workspaces.delete(session.id);
+      if (cachedWorkspace) this.workspaces.set(session.id, cachedWorkspace);
+      try {
+        await rollbackManagedWorktreeRepair(prepared, this.config);
+      } catch (rollbackError) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)} Recovery rollback also failed; the temporary backing was preserved for inspection: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
       }
       throw error;
     }

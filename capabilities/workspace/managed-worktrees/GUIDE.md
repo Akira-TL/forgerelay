@@ -45,4 +45,17 @@ Managed worktree finalize：
 
 source checkout 可能被用户或其他 Agent 修改。关闭前不要假设 target branch 仍停留在创建 worktree 时的状态；让 ForgeRelay 的 close 检查决定是否可以安全集成。遇到 diverged target、dirty source、忙碌 workspace 或 cleanup warning 时，保留现有 worktree 状态并向用户说明真实失败点，不要自行强制 reset、merge 或删除 worktree。
 
-如果需要继续工作，复用原 `workspaceId` 或已知 worktree path；不要因为一次关闭失败就创建新的隔离副本。
+如果 active managed-worktree Workspace 的物理 backing 丢失，先用 `open_workspace action="inspect"` 或 `workspace.recovery` 的 `status` 查看恢复分类。只有 Capability 返回 `recoverable` 时，才考虑 `workspace.recovery { operation: "repair" }`。
+
+`workspace.recovery` 的 repair 规则：
+
+- 只恢复当前 persistent `workspaceId`，不会创建新的 Workspace identity；
+- 必须从持久化记录中的原 `forgerelay/*` managed branch 恢复，绝不从 target branch 重新创建替代工作；
+- managed branch、target branch、source repository identity、worktree ownership 任一无法证明时返回 `manual-intervention`，不猜测；
+- 若同一 managed branch 已出现另一个 worktree candidate，拒绝自动恢复；
+- recovery backing 创建后必须重新验证 branch、HEAD、Git registration 和工作树健康状态，验证失败时仅回滚 ForgeRelay 本次创建的临时 backing；
+- repair 不 merge、不 rebase、不 reset、不删除 managed branch，也不移动 target branch；旧的 stale Git registration 属于后续显式 cleanup 范畴。
+
+Relay Workspace 的 recovery 在 Execution ForgeRelay 上执行；Composite Workspace 必须显式指定实际拥有该 worktree 的 member。不要在 Gateway 或 Composite identity 上自行解释/修改成员 Git 状态。
+
+如果需要继续工作，复用原 `workspaceId`；不要因为 backing 丢失、一次关闭失败或一次恢复失败就创建新的隔离副本来绕过原状态。

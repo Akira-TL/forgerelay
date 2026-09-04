@@ -596,6 +596,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
           payload: { name, action: "run" },
           isFailure: toolResultIsError,
           changedPaths: () => changedPaths,
+          afterCwd: () => workspaces.getWorkspaceSession(workspaceId).root,
           operation: async () => {
             const startedAt = performance.now();
             try {

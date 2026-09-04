@@ -662,18 +662,18 @@ export class WorkspaceRegistry {
     return this.sessions.getWorkspace(workspaceId);
   }
 
+  runManagedWorktreeRecovery(workspaceId: string, operation: "status" | "repair") {
+    return this.sessions.runManagedWorktreeRecovery(workspaceId, operation);
+  }
   fileToolRoots(workspace: Workspace): string[] {
     return this.context.fileToolRoots(workspace);
   }
-
   resolvePath(workspace: Workspace, inputPath: string): string {
     return this.context.resolvePath(workspace, inputPath);
   }
-
   resolveReadPath(workspace: Workspace, inputPath: string): WorkspaceReadPath {
     return this.context.resolveReadPath(workspace, inputPath);
   }
-
   markReadPathLoaded(workspace: Workspace, readPath: WorkspaceReadPath): void {
     this.context.markReadPathLoaded(workspace, readPath);
   }

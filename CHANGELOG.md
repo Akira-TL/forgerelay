@@ -4,6 +4,10 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added the low-frequency `workspace.recovery` Capability for active ForgeRelay-managed worktrees. `status` reports the existing recovery model and `repair` can recreate missing execution backing only from the surviving ForgeRelay managed branch when source, target, branch ownership, and Git worktree candidates are provably safe; Workspace identity and Task state are preserved, while ambiguous or missing ownership returns non-destructive manual intervention. Relay executes recovery on the owning Execution ForgeRelay and Composite use remains explicit-member scoped.
+
 ## [0.9.0] - 2026-09-04
 
 ### Added

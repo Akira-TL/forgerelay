@@ -150,6 +150,7 @@ export function buildCapabilityFingerprint(
     "capability-guides.read",
     "code.intelligence",
     "workspace.tasks",
+    "workspace.recovery",
   ];
 
   if (config.toolMode !== "codex") {

@@ -19,6 +19,8 @@ export function capabilityContextFor(workspace: Workspace): CapabilityContext {
     workspaceId: workspace.id,
     workspaceKind: "workspace",
     workspaceRoot: workspace.root,
+    workspaceMode: workspace.mode,
+    workspaceManaged: workspace.worktree?.managed ?? false,
     guides: workspace.capabilityGuides.map((guide) => ({
       name: guide.name,
       description: guide.description,

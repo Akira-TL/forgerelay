@@ -205,6 +205,12 @@ export function createMcpServer(
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
     ...subagentMcp.registryDependencies,
+    workspaceRecovery: {
+      available: true,
+      run: async (input, context) => ({
+        value: await workspaces.runManagedWorktreeRecovery(context.workspaceId, input.operation),
+      }),
+    },
     workspaceTasks: {
       available: true,
       run: async (input, context) => {

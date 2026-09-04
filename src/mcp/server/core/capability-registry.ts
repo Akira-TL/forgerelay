@@ -39,6 +39,8 @@ export interface CapabilityContext {
   workspaceId: string;
   workspaceKind: "workspace" | "composite";
   workspaceRoot?: string;
+  workspaceMode?: "checkout" | "worktree";
+  workspaceManaged?: boolean;
   guides: CapabilityGuideContext[];
 }
 
@@ -162,6 +164,10 @@ export type WorkspaceTasksCapabilityInput =
       taskId: string;
     };
 
+export type WorkspaceRecoveryCapabilityInput = {
+  operation: "status" | "repair";
+};
+
 export type SubagentSessionCapabilityInput =
   | {
       operation: "start";
@@ -232,6 +238,15 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: WorkspaceTasksCapabilityInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution>;
+  };
+  workspaceRecovery?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: WorkspaceRecoveryCapabilityInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -470,6 +485,10 @@ export function createCapabilityRegistry(
       taskId: z.string().min(1),
     }).strict(),
   ]);
+  const workspaceRecoveryInput = z.discriminatedUnion("operation", [
+    z.object({ operation: z.literal("status") }).strict(),
+    z.object({ operation: z.literal("repair") }).strict(),
+  ]);
   const subagentSessionInput = z.discriminatedUnion("operation", [
     z.object({
       operation: z.literal("start"),
@@ -581,6 +600,27 @@ export function createCapabilityRegistry(
             ),
         } satisfies CapabilityDefinition]
       : []),
+    ...(dependencies.workspaceRecovery
+      ? [{
+          name: "workspace.recovery",
+          description: "Inspect or safely repair the current managed-worktree Workspace when ForgeRelay can prove the surviving managed branch and execution backing ownership.",
+          guideName: "managed-worktrees",
+          readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
+          inputSchema: workspaceRecoveryInput,
+          availability: (context) => managedWorktreeAvailability(
+            context,
+            dependencies.workspaceRecovery?.available ?? false,
+            dependencies.workspaceRecovery?.unavailableReason,
+          ),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.workspaceRecovery!.run(
+              input as WorkspaceRecoveryCapabilityInput,
+              context,
+              options,
+            ),
+        } satisfies CapabilityDefinition]
+      : []),
     ...(dependencies.workspaceTasks
       ? [{
           name: "workspace.tasks",
@@ -682,6 +722,22 @@ function filesystemWorkspaceAvailability(
     };
   }
   return { available, ...(reason ? { reason } : {}) };
+}
+
+function managedWorktreeAvailability(
+  context: CapabilityContext,
+  available = true,
+  reason?: string,
+): { available: boolean; reason?: string } {
+  const filesystem = filesystemWorkspaceAvailability(context, available, reason);
+  if (!filesystem.available) return filesystem;
+  if (context.workspaceMode !== "worktree" || context.workspaceManaged !== true) {
+    return {
+      available: false,
+      reason: "This capability is available only for an active ForgeRelay-managed worktree Workspace.",
+    };
+  }
+  return filesystem;
 }
 
 function requireWorkspaceRoot(context: CapabilityContext): string {

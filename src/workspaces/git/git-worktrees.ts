@@ -370,7 +370,7 @@ async function isAncestor(ancestor: string, descendant: string, cwd: string): Pr
   }
 }
 
-function managedWorktreePath(input: {
+export function managedWorktreePath(input: {
   worktreeRoot: string;
   repoRoot: string;
   worktreeId: string;
