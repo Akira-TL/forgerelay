@@ -50,7 +50,7 @@ The public environment-variable prefix is `FORGERELAY_*`.
 | `FORGERELAY_RETENTION_HISTORY_DAYS` | Optional owner-authorized age window for related Activity/Audit, Host Turn, and durable Bash history. Unset means unlimited retention. |
 | `FORGERELAY_RETENTION_ORPHANED_ADMIN` | Optional boolean authorization for provably orphaned/rebuildable administrative state. Unset/false means do not reclaim it. |
 
-### Retention inspection
+### Retention inspection and prune
 
 Durable ForgeRelay history is retained without an age limit by default. The owner can
 inspect what is retained, protected, and potentially reclaimable without starting the
@@ -66,6 +66,29 @@ temporary directory before opening that snapshot read-only, reads bounded
 Workspace-private Task/checkpoint metadata, and uses read-only Git ref/worktree
 queries. It does not create or migrate a missing/older source database, touch Workspace
 last-used timestamps, move refs, or alter worktrees.
+
+After reviewing that report, the owner can explicitly apply the configured policy:
+
+```bash
+npx @akira-tl/forgerelay maintenance prune
+npx @akira-tl/forgerelay maintenance prune --json
+```
+
+`maintenance prune` is manual and policy-gated. With neither `historyDays` nor
+`orphanedAdministrativeState` authorized it is a no-op. It acquires the ForgeRelay
+runtime lease before any destructive work, so it refuses to run concurrently with a
+server using the same state directory. Historical cleanup is performed in whole Host
+Turn cohorts: a turn is retained if any Activity is recent, nonterminal, owns a running
+Bash stream, or is tied to an active Subagent Run. When removed Activity payloads share
+a segmented log with retained payloads, retained bytes are compacted to a new segment
+before the old unreferenced segment is deleted.
+
+Administrative cleanup is deliberately conservative. It removes only review refs that
+can be proven orphaned and rebuildable, plus empty orphan Workspace-state directories.
+Canonical and alias Workspace identities, any non-empty private Workspace state,
+Workspace Tasks, named checkpoints, active/runtime state, managed worktrees, and
+managed branches remain protected. Repeating the same prune is idempotent and should
+report no newly eligible state after the first successful pass.
 
 The persisted policy shape is:
 

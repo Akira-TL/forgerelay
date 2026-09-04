@@ -94,6 +94,8 @@ try {
   const head = git(repo, ["rev-parse", "HEAD"]);
   git(repo, ["update-ref", "refs/forgerelay/review/ws_live/open", head]);
   git(repo, ["update-ref", "refs/forgerelay/review/ws_live/baseline", head]);
+  git(repo, ["update-ref", "refs/forgerelay/review/ws_alias/open", head]);
+  git(repo, ["update-ref", "refs/forgerelay/review/ws_unknown/open", head]);
   git(repo, ["update-ref", "refs/forgerelay/review/ws_deleted/open", head]);
 
   writeFileSync(join(configDir, "config.json"), JSON.stringify({
@@ -129,6 +131,9 @@ try {
       oldStart,
       recent,
     );
+    database.sqlite.prepare(
+      "insert into workspace_session_aliases (alias_id, workspace_session_id) values (?, ?)",
+    ).run("ws_alias", "ws_live");
     database.sqlite.prepare(
       `insert into workspace_conversation_bindings
         (conversation_scope_id, target_key, workspace_session_id, created_at, last_used_at)
@@ -261,9 +266,13 @@ try {
     }],
   }, null, 2));
   mkdirSync(join(stateDir, "workspaces", "ws_deadbeef"), { recursive: true });
+  mkdirSync(join(stateDir, "workspaces", "ws_alias"), { recursive: true });
   const protectedOrphan = join(stateDir, "workspaces", "ws_cafebabe");
   mkdirSync(protectedOrphan, { recursive: true });
   writeFileSync(join(protectedOrphan, "tasks.json"), JSON.stringify({ version: 1, revision: 0, lists: [] }));
+  const unknownOrphan = join(stateDir, "workspaces", "ws_unknown");
+  mkdirSync(unknownOrphan, { recursive: true });
+  writeFileSync(join(unknownOrphan, "keep.bin"), "unknown private state\n");
 
   const stateBefore = snapshotTree(stateDir);
   const refsBefore = git(repo, ["for-each-ref", "--format=%(refname):%(objectname)", "refs/forgerelay"]);
@@ -302,11 +311,11 @@ try {
   assert.equal(first.workspaceTasks.tasks, 2);
   assert.equal(first.workspaceTasks.unfinishedTasks, 1);
   assert.equal(first.workspaceTasks.protected, true);
-  assert.equal(first.reviewRefs.refs, 3);
+  assert.equal(first.reviewRefs.refs, 5);
   assert.equal(first.reviewRefs.orphanedRefs, 1);
   assert.equal(first.reviewRefs.reclaimableRefs, 1);
-  assert.equal(first.administrativeState.orphanWorkspaceStateDirectories, 2);
-  assert.equal(first.administrativeState.protectedOrphanWorkspaceStateDirectories, 1);
+  assert.equal(first.administrativeState.orphanWorkspaceStateDirectories, 3);
+  assert.equal(first.administrativeState.protectedOrphanWorkspaceStateDirectories, 2);
   assert.equal(first.administrativeState.reclaimableOrphanWorkspaceStateDirectories, 1);
 
   const human = execFileSync(
@@ -316,7 +325,7 @@ try {
   );
   assert.match(human, /Retention: durable history 7 days; orphaned administrative cleanup enabled/);
   assert.match(human, /Named checkpoints: 2 .*protected, explicit deletion only/);
-  assert.match(human, /Review refs: 3 .*orphaned 1; reclaimable 1/);
+  assert.match(human, /Review refs: 5 .*orphaned 1; reclaimable 1/);
 
   assertSnapshotEqual(snapshotTree(stateDir), stateBefore);
   assert.equal(git(repo, ["for-each-ref", "--format=%(refname):%(objectname)", "refs/forgerelay"]), refsBefore);

@@ -15,6 +15,16 @@ import Database from "better-sqlite3";
 import { expandHomePath } from "../mcp/filesystem/roots.js";
 import { databasePath } from "../runtime/state/db/client.js";
 import {
+  bashBytesExpression,
+  columnExists,
+  eligibleActivityCte,
+  tableExists,
+} from "./maintenance-retention.js";
+import {
+  printMaintenancePruneReport,
+  pruneMaintenanceState,
+} from "./maintenance-prune.js";
+import {
   forgerelayConfigPath,
   type ForgeRelayRetentionConfig,
   type ForgeRelayUserConfig,
@@ -140,17 +150,29 @@ export function runMaintenanceCommand(args: string[], env: NodeJS.ProcessEnv = p
     printMaintenanceHelp();
     return;
   }
-  if (subcommand !== "inspect") throw new Error(`Unknown maintenance command: ${subcommand}`);
+  if (subcommand !== "inspect" && subcommand !== "prune") {
+    throw new Error(`Unknown maintenance command: ${subcommand}`);
+  }
   const json = rest.includes("--json");
   const unknown = rest.filter((value) => value !== "--json");
-  if (unknown.length > 0) throw new Error(`Unknown maintenance inspect option: ${unknown[0]}`);
+  if (unknown.length > 0) throw new Error(`Unknown maintenance ${subcommand} option: ${unknown[0]}`);
 
-  const report = inspectMaintenanceState(env);
+  const inspection = inspectMaintenanceState(env);
+  if (subcommand === "inspect") {
+    if (json) {
+      console.log(JSON.stringify(inspection, null, 2));
+      return;
+    }
+    printMaintenanceReport(inspection);
+    return;
+  }
+
+  const report = pruneMaintenanceState(inspection.stateDir, inspection.policy);
   if (json) {
     console.log(JSON.stringify(report, null, 2));
     return;
   }
-  printMaintenanceReport(report);
+  printMaintenancePruneReport(report);
 }
 
 export function inspectMaintenanceState(
@@ -173,12 +195,17 @@ export function inspectMaintenanceState(
       ).all() as WorkspaceRow[]
       : [];
     const workspaceIds = new Set(workspaces.map((row) => row.id));
+    if (sqlite && tableExists(sqlite, "workspace_session_aliases")) {
+      const aliases = sqlite.prepare("select alias_id from workspace_session_aliases").all() as Array<{ alias_id: string }>;
+      for (const alias of aliases) workspaceIds.add(alias.alias_id);
+    }
+    const protectedReviewWorkspaceIds = reviewProtectedWorkspaceIds(stateDir, workspaceIds);
     const activity = inspectActivity(sqlite, cutoff, now);
     const bash = inspectBash(sqlite, cutoff, now);
     const hostTurns = inspectHostTurns(sqlite, cutoff, now);
     const workspaceState = inspectWorkspaceState(sqlite, workspaces);
     const privateState = inspectPrivateWorkspaceState(stateDir, workspaceIds, now, policy);
-    const reviewRefs = inspectReviewRefs(workspaces, workspaceIds, policy);
+    const reviewRefs = inspectReviewRefs(workspaces, protectedReviewWorkspaceIds, policy);
 
     return {
       stateDir,
@@ -391,16 +418,8 @@ function inspectHostTurns(
       const eligible = eligibleActivityCte(sqlite);
       reclaimableTurns = Number((sqlite.prepare(
         `${eligible}
-         select count(*) as count
-           from activity_host_turns turn_state
-          where turn_state.created_at < ?
-            and not exists (
-              select 1 from activity_audit_events started
-               where started.turn_id = turn_state.turn_id
-                 and started.event_type = 'started'
-                 and started.activity_id not in (select activity_id from eligible_activities)
-            )`,
-      ).get(cutoff, cutoff) as { count: number }).count);
+         select count(*) as count from eligible_turns`,
+      ).get(cutoff) as { count: number }).count);
     } else {
       reclaimableTurns = Number((sqlite.prepare(
         "select count(*) as count from activity_host_turns where created_at < ?",
@@ -489,10 +508,9 @@ function inspectPrivateWorkspaceState(
     const workspaceDir = join(workspacesDir, entry.name);
     const checkpointPath = join(workspaceDir, "checkpoints.json");
     const taskPath = join(workspaceDir, "tasks.json");
-    const activityPath = join(workspaceDir, "activity");
     const hasCheckpointState = existsSync(checkpointPath);
     const hasTaskState = existsSync(taskPath);
-    const hasActivity = existsSync(activityPath);
+    const hasPrivateState = readdirSync(workspaceDir).length > 0;
 
     if (hasCheckpointState) {
       checkpointWorkspaces += 1;
@@ -533,7 +551,7 @@ function inspectPrivateWorkspaceState(
 
     if (WORKSPACE_ID.test(entry.name) && !workspaceIds.has(entry.name)) {
       orphanDirs += 1;
-      if (hasCheckpointState || hasTaskState || hasActivity) {
+      if (hasPrivateState) {
         protectedOrphanDirs += 1;
       } else if (policy.orphanedAdministrativeState) {
         reclaimableOrphanDirs += 1;
@@ -566,6 +584,23 @@ function inspectPrivateWorkspaceState(
       reclaimableOrphanWorkspaceStateDirectories: reclaimableOrphanDirs,
     },
   };
+}
+
+function reviewProtectedWorkspaceIds(stateDir: string, workspaceIds: Set<string>): Set<string> {
+  const protectedIds = new Set(workspaceIds);
+  const workspacesDir = join(stateDir, "workspaces");
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(workspacesDir, { withFileTypes: true });
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return protectedIds;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !WORKSPACE_ID.test(entry.name)) continue;
+    if (readdirSync(join(workspacesDir, entry.name)).length > 0) protectedIds.add(entry.name);
+  }
+  return protectedIds;
 }
 
 function inspectReviewRefs(
@@ -613,47 +648,9 @@ function inspectReviewRefs(
   };
 }
 
-function eligibleActivityCte(sqlite: Database.Database): string {
-  const protectRunningBash = tableExists(sqlite, "bash_output_streams")
-    ? `and not exists (
-         select 1 from bash_output_streams running_bash
-          where running_bash.activity_id = event.activity_id
-            and running_bash.status = 'running'
-       )`
-    : "";
-  return `with latest_activity_events as (
-            select activity_id, max(sequence) as sequence
-              from activity_audit_events
-             group by activity_id
-          ), eligible_activities as (
-            select event.activity_id
-              from activity_audit_events event
-              join latest_activity_events latest
-                on latest.activity_id = event.activity_id and latest.sequence = event.sequence
-             where event.created_at < ?
-               and event.event_type in ('succeeded', 'returned', 'failed', 'blocked')
-               ${protectRunningBash}
-          )`;
-}
-
-function bashBytesExpression(sqlite: Database.Database): string {
-  const parts = [columnExists(sqlite, "bash_output_streams", "output_bytes") ? "coalesce(output_bytes, 0)" : "0"];
-  if (columnExists(sqlite, "bash_output_streams", "command_length")) parts.push("coalesce(command_length, 0)");
-  if (columnExists(sqlite, "bash_output_streams", "error_length")) parts.push("coalesce(error_length, 0)");
-  return parts.join(" + ");
-}
-
 function tableCount(sqlite: Database.Database | undefined, table: string): number {
   if (!sqlite || !tableExists(sqlite, table)) return 0;
   return Number((sqlite.prepare(`select count(*) as count from ${table}`).get() as { count: number }).count);
-}
-
-function tableExists(sqlite: Database.Database, table: string): boolean {
-  return Boolean(sqlite.prepare("select 1 from sqlite_master where type = 'table' and name = ?").get(table));
-}
-
-function columnExists(sqlite: Database.Database, table: string, column: string): boolean {
-  return (sqlite.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>).some((row) => row.name === column);
 }
 
 function readBoundedJson(path: string, maxBytes: number): { value?: unknown; bytes: number } {
@@ -779,8 +776,10 @@ function printMaintenanceHelp(): void {
     "",
     "Usage:",
     "  forgerelay maintenance inspect [--json]",
+    "  forgerelay maintenance prune [--json]",
     "",
     "Inspection is read-only. Durable history is retained without an age limit unless retention.historyDays is explicitly configured.",
+    "Prune is manual owner maintenance and removes only categories authorized by the configured retention policy.",
     "Named Workspace checkpoints and Workspace Tasks are protected from retention pruning.",
   ].join("\n"));
 }

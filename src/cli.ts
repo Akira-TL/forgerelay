@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { loadConfig } from "./runtime/config/config.js";
+import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
@@ -147,7 +148,15 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
-  const { app, close, subagentProviders } = createServer(config);
+  const runtimeLease = acquireRuntimeLease(config.stateDir);
+  let server: ReturnType<typeof createServer>;
+  try {
+    server = createServer(config);
+  } catch (error) {
+    runtimeLease.release();
+    throw error;
+  }
+  const { app, close, subagentProviders } = server;
   const httpServer = app.listen(config.port, config.host, () => {
     console.log(
       `forgerelay listening on http://${config.host}:${config.port}${publicEndpointUrl(config.publicBaseUrl, "mcp").pathname}`,
@@ -166,10 +175,17 @@ async function serve(): Promise<void> {
   });
 
   let shuttingDown = false;
+  const releaseRuntimeLease = () => runtimeLease.release();
+  process.once("exit", releaseRuntimeLease);
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    await shutdownHttpServer(httpServer, close);
+    try {
+      await shutdownHttpServer(httpServer, close);
+    } finally {
+      process.removeListener("exit", releaseRuntimeLease);
+      runtimeLease.release();
+    }
     process.exit(0);
   };
   const handleShutdown = () => {
