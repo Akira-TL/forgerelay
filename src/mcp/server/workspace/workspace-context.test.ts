@@ -85,6 +85,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "code.intelligence",
         "workspace.tasks",
         "workspace.recovery",
+        "workspace.checkpoint",
         "batch.execute",
         "subagent.session",
         "artifact.native-download",
@@ -114,6 +115,7 @@ test("capability fingerprint reports optional feature availability without copyi
     "shell-processes",
     "code-intelligence",
     "workspace-tasks",
+    "workspace-checkpoints",
     "batch-execution",
   ]);
 
@@ -147,6 +149,7 @@ test("open_workspace advertises capability guides that read can load on demand",
     "shell-processes",
     "code-intelligence",
     "workspace-tasks",
+    "workspace-checkpoints",
     "batch-execution",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
@@ -157,7 +160,8 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[3]?.path), /capabilities\/shell-processes\/GUIDE\.md$/);
   assert.match(String(guides[4]?.path), /capabilities\/code-intelligence\/GUIDE\.md$/);
   assert.match(String(guides[5]?.path), /capabilities\/workspace\/workspace-tasks\/GUIDE\.md$/);
-  assert.match(String(guides[6]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
+  assert.match(String(guides[6]?.path), /capabilities\/workspace\/workspace-checkpoints\/GUIDE\.md$/);
+  assert.match(String(guides[7]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
 
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
@@ -165,7 +169,8 @@ test("open_workspace advertises capability guides that read can load on demand",
     [3, /action="process"/, /tty: true/],
     [4, /definition/, /Language server/],
     [5, /workspace\.tasks/, /current Workspace|当前 Workspace/],
-    [6, /1–100 tasks|1-100 tasks/, /bash\.run/],
+    [6, /workspace\.checkpoint/, /ignored|忽略/i],
+    [7, /1–100 tasks|1-100 tasks/, /bash\.run/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({

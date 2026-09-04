@@ -86,6 +86,12 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     whenToRead: "Read before creating or maintaining Workspace Tasks.",
   },
   {
+    name: "workspace-checkpoints",
+    directory: "workspace/workspace-checkpoints",
+    description: "Immutable persistent Git-backed checkpoints owned by the current Workspace.",
+    whenToRead: "Read before creating, listing, inspecting, or deleting Workspace checkpoints.",
+  },
+  {
     name: "batch-execution",
     description: "One-call execution of multiple independent ForgeRelay core operations.",
     whenToRead: "Read before using batch.execute for heterogeneous multi-operation work.",
@@ -151,6 +157,7 @@ export function buildCapabilityFingerprint(
     "code.intelligence",
     "workspace.tasks",
     "workspace.recovery",
+    "workspace.checkpoint",
   ];
 
   if (config.toolMode !== "codex") {

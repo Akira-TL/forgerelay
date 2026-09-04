@@ -17,6 +17,7 @@ import { CompositeWorkspaceRegistry } from "../../../../workspaces/composite/com
 import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-relay.js";
 import { WorkspaceTaskReminderTracker } from "../../../../workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks.js";
+import { WorkspaceCheckpointStore } from "../../../../workspaces/state/workspace-checkpoints.js";
 import { formatAgentsPath, WorkspaceRegistry } from "../../../../workspaces.js";
 import type { ProcessExecutionTarget } from "../../../process/tools.js";
 import {
@@ -57,6 +58,7 @@ export interface RegisterWorkspaceAuxiliaryToolsOptions {
   activityLifecycle: ActivityLifecycle;
   hooks: HookRunner;
   workspaceTasks: WorkspaceTaskStore;
+  workspaceCheckpoints: WorkspaceCheckpointStore;
   taskReminders: WorkspaceTaskReminderTracker;
   activityQueries: ActivityQueryService;
   compositeActivity: CompositeActivityCoordinator;
@@ -74,7 +76,7 @@ export interface RegisterWorkspaceAuxiliaryToolsOptions {
 export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxiliaryToolsOptions): void {
   const {
     server, config, workspaces, remoteWorkspaces, compositeWorkspaces, compositeTaskGuides, capabilityRegistry,
-    coreOperations, activityLifecycle, hooks, workspaceTasks, taskReminders, activityQueries, compositeActivity,
+    coreOperations, activityLifecycle, hooks, workspaceTasks, workspaceCheckpoints, taskReminders, activityQueries, compositeActivity,
     workspacePanelStates, processSessions, reviewCheckpoints, codeIntelligence, resolveExecutionTarget,
     prepareExecutionContext, hostScopeIdFor, presentExecutionResult, presentSemanticWorkResult,
   } = options;
@@ -532,6 +534,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           },
           payload: { workspaceId: session.id, action: "delete", mode: session.mode },
           operation: async () => {
+            await workspaceCheckpoints.deleteWorkspace(session.id);
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
             taskReminders.forget(session.id);
@@ -577,6 +580,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           },
           payload: { workspaceId: session.id, action: "delete", mode: session.mode },
           operation: async () => {
+            await workspaceCheckpoints.deleteWorkspace(session.id);
             workspaces.deleteWorkspace(session.id);
             workspaceTasks.deleteWorkspace(session.id);
             taskReminders.forget(session.id);
@@ -648,6 +652,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
               physicalWorkspaceIds.map((id) => reviewCheckpoints.releaseWorkspace(id)),
             );
             if (action === "delete") {
+              await workspaceCheckpoints.deleteWorkspace(workspace.id);
               workspaces.deleteWorkspace(workspace.id);
               workspaceTasks.deleteWorkspace(workspace.id);
               taskReminders.forget(workspace.id);

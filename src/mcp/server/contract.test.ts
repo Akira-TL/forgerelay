@@ -237,7 +237,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   const openedStructured = structuredContent(opened);
   const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
   assert.ok(Array.isArray(catalog));
-  assert.equal(catalog.length, 4);
+  assert.equal(catalog.length, 5);
   assert.deepEqual(catalog[0], {
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
@@ -261,24 +261,35 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     },
   });
   assert.deepEqual(catalog[2], {
+    name: "workspace.checkpoint",
+    description: "Create, list, inspect, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
+    available: true,
+    batchPolicy: "unsupported",
+    guide: {
+      name: "workspace-checkpoints",
+      path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  assert.deepEqual(catalog[3], {
     name: "workspace.tasks",
     description: "Maintain persistent Task Lists owned by the current Workspace.",
     available: true,
     batchPolicy: "serial",
     guide: {
       name: "workspace-tasks",
-      path: catalog[2]?.guide && (catalog[2].guide as Record<string, unknown>).path,
+      path: catalog[3]?.guide && (catalog[3].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
-  assert.deepEqual(catalog[3], {
+  assert.deepEqual(catalog[4], {
     name: "batch.execute",
     description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
     available: true,
     batchPolicy: "unsupported",
     guide: {
       name: "batch-execution",
-      path: catalog[3]?.guide && (catalog[3].guide as Record<string, unknown>).path,
+      path: catalog[4]?.guide && (catalog[4].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
@@ -393,6 +404,7 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
     ["hooks.check", "parallel"],
     ["review.changes", "serial"],
     ["code.intelligence", "parallel"],
+    ["workspace.checkpoint", "unsupported"],
     ["workspace.tasks", "serial"],
     ["batch.execute", "unsupported"],
   ]);

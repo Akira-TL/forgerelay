@@ -40,6 +40,7 @@ import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { formatPathForPrompt } from "./workspaces/resources/skills.js";
 import { WorkspaceTaskReminderTracker } from "./workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspaces/tasks/workspace-tasks.js";
+import { WorkspaceCheckpointStore } from "./workspaces/state/workspace-checkpoints.js";
 import { compactWorkspacePresentation } from "./workspaces/presentation/workspace-presentation.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace, type WorkspaceBootstrapComponent } from "./workspaces.js";
 import { summarizeSubagentProfile } from "./subagents/profiles.js";
@@ -85,6 +86,7 @@ export function createMcpServer(
   const compositeWorkspaces = options.compositeWorkspaces
     ?? new CompositeWorkspaceRegistry(config.stateDir);
   const workspaceTasks = new WorkspaceTaskStore(config.stateDir);
+  const workspaceCheckpoints = new WorkspaceCheckpointStore(config.stateDir);
   const taskReminders = options.taskReminders
     ?? new WorkspaceTaskReminderTracker(config.taskReminderInterval, workspaceTasks);
   const compositeTaskGuides = loadCapabilityGuides(config).filter((guide) => guide.name === "workspace-tasks");
@@ -210,6 +212,28 @@ export function createMcpServer(
       run: async (input, context) => ({
         value: await workspaces.runManagedWorktreeRecovery(context.workspaceId, input.operation),
       }),
+    },
+    workspaceCheckpoint: {
+      available: true,
+      run: async (input, context) => {
+        const root = requireCapabilityWorkspaceRoot(context);
+        switch (input.operation) {
+          case "create":
+            return {
+              value: {
+                workspaceId: context.workspaceId,
+                checkpoint: await workspaceCheckpoints.create(context.workspaceId, root, input.name),
+                ignoredFilesIncluded: false,
+              },
+            };
+          case "list":
+            return { value: await workspaceCheckpoints.list(context.workspaceId, root, input) };
+          case "inspect":
+            return { value: await workspaceCheckpoints.inspect(context.workspaceId, root, input.checkpointId) };
+          case "delete":
+            return { value: await workspaceCheckpoints.delete(context.workspaceId, root, input.checkpointId) };
+        }
+      },
     },
     workspaceTasks: {
       available: true,
@@ -572,7 +596,7 @@ export function createMcpServer(
 
   registerWorkspaceAuxiliaryTools({
     server, config, workspaces, remoteWorkspaces, compositeWorkspaces, compositeTaskGuides, capabilityRegistry,
-    coreOperations, activityLifecycle, hooks, workspaceTasks, taskReminders, activityQueries, compositeActivity,
+    coreOperations, activityLifecycle, hooks, workspaceTasks, workspaceCheckpoints, taskReminders, activityQueries, compositeActivity,
     workspacePanelStates, processSessions, reviewCheckpoints, codeIntelligence, resolveExecutionTarget,
     prepareExecutionContext, hostScopeIdFor, presentExecutionResult, presentSemanticWorkResult,
   });

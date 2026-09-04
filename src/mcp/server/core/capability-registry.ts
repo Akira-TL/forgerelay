@@ -7,6 +7,10 @@ import {
   batchExecuteInputSchema,
   type BatchExecuteInput,
 } from "../../operations/batch/types.js";
+import {
+  workspaceCheckpointInputSchema,
+  type WorkspaceCheckpointCapabilityInput,
+} from "./capabilities/workspace-checkpoint.js";
 
 export type CapabilityErrorCode =
   | "unknown_capability"
@@ -247,6 +251,15 @@ export interface CapabilityRegistryDependencies {
     unavailableReason?: string;
     run: (
       input: WorkspaceRecoveryCapabilityInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution>;
+  };
+  workspaceCheckpoint?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: WorkspaceCheckpointCapabilityInput,
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
@@ -617,6 +630,27 @@ export function createCapabilityRegistry(
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.workspaceRecovery!.run(
               input as WorkspaceRecoveryCapabilityInput,
+              context,
+              options,
+            ),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.workspaceCheckpoint
+      ? [{
+          name: "workspace.checkpoint",
+          description: "Create, list, inspect, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
+          guideName: "workspace-checkpoints",
+          readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
+          inputSchema: workspaceCheckpointInputSchema,
+          availability: (context) => filesystemWorkspaceAvailability(
+            context,
+            dependencies.workspaceCheckpoint?.available ?? false,
+            dependencies.workspaceCheckpoint?.unavailableReason,
+          ),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.workspaceCheckpoint!.run(
+              input as WorkspaceCheckpointCapabilityInput,
               context,
               options,
             ),
