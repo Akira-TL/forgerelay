@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import * as prompts from "@clack/prompts";
 import { loadConfig } from "./runtime/config/config.js";
 import { runInit } from "./cli/init.js";
+import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
 import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
@@ -51,7 +52,7 @@ import {
 } from "./cli/setup-support.js";
 
 
-type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "help" | "version";
+type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "maintenance" | "help" | "version";
 const require = createRequire(import.meta.url);
 
 async function main(argv: string[]): Promise<void> {
@@ -83,6 +84,9 @@ async function main(argv: string[]): Promise<void> {
     case "auth":
       await runAuthCommand(args);
       return;
+    case "maintenance":
+      runMaintenanceCommand(args);
+      return;
     case "help":
       printHelp();
       return;
@@ -94,7 +98,7 @@ async function main(argv: string[]): Promise<void> {
 
 function normalizeCommand(command: string | undefined): Command {
   if (!command || command === "serve" || command === "start") return "serve";
-  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents" || command === "auth") return command;
+  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents" || command === "auth" || command === "maintenance") return command;
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
   throw new Error(`Unknown command: ${command}`);
@@ -422,6 +426,7 @@ function printHelp(): void {
       "  forgerelay auth test <alias>",
       "  forgerelay auth rename <old-alias> <new-alias>",
       "  forgerelay auth remove <alias>",
+      "  forgerelay maintenance inspect [--json]",
       "  forgerelay -v, --version   Print the installed version",
       "",
       "For temporary tunnels:",

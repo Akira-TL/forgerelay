@@ -20,6 +20,11 @@ import {
   type HookConfigInput,
 } from "../../mcp/hooks/hooks.js";
 
+export interface ForgeRelayRetentionConfig {
+  historyDays?: number;
+  orphanedAdministrativeState?: boolean;
+}
+
 export interface ForgeRelayUserConfig {
   host?: string;
   port?: number;
@@ -31,6 +36,7 @@ export interface ForgeRelayUserConfig {
   artifactsEnabled?: boolean;
   artifactMaxFileBytes?: number;
   taskReminderInterval?: number;
+  retention?: ForgeRelayRetentionConfig;
   activityPanelExpanded?: boolean;
   workflowInstructions?: string | false;
   appendInstructions?: string;

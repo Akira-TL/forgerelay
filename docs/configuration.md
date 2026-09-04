@@ -26,6 +26,7 @@ npx @akira-tl/forgerelay serve
 npx @akira-tl/forgerelay doctor
 npx @akira-tl/forgerelay config get
 npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
+npx @akira-tl/forgerelay maintenance inspect
 ```
 
 ## Environment variables
@@ -46,6 +47,50 @@ The public environment-variable prefix is `FORGERELAY_*`.
 | `FORGERELAY_WORKTREE_ROOT` | Managed worktree directory. New default: `~/.forgerelay/worktrees`. |
 | `FORGERELAY_WORKFLOW_INSTRUCTIONS` | Replace the built-in workflow policy while retaining the capability contract. |
 | `FORGERELAY_APPEND_INSTRUCTIONS` | Append project/operator workflow policy. |
+| `FORGERELAY_RETENTION_HISTORY_DAYS` | Optional owner-authorized age window for related Activity/Audit, Host Turn, and durable Bash history. Unset means unlimited retention. |
+| `FORGERELAY_RETENTION_ORPHANED_ADMIN` | Optional boolean authorization for provably orphaned/rebuildable administrative state. Unset/false means do not reclaim it. |
+
+### Retention inspection
+
+Durable ForgeRelay history is retained without an age limit by default. The owner can
+inspect what is retained, protected, and potentially reclaimable without starting the
+server:
+
+```bash
+npx @akira-tl/forgerelay maintenance inspect
+npx @akira-tl/forgerelay maintenance inspect --json
+```
+
+Inspection is read-only: it snapshots an existing SQLite database and WAL into a
+temporary directory before opening that snapshot read-only, reads bounded
+Workspace-private Task/checkpoint metadata, and uses read-only Git ref/worktree
+queries. It does not create or migrate a missing/older source database, touch Workspace
+last-used timestamps, move refs, or alter worktrees.
+
+The persisted policy shape is:
+
+```json
+{
+  "retention": {
+    "historyDays": 30,
+    "orphanedAdministrativeState": false
+  }
+}
+```
+
+`historyDays` is one shared cutoff for related Activity/Audit, Host Turn, and durable
+Bash history so later owner-authorized maintenance can preserve cross-store
+consistency. Omit it for unlimited durable-history retention. The environment override
+is `FORGERELAY_RETENTION_HISTORY_DAYS`. `orphanedAdministrativeState` is a separate
+explicit authorization, with `FORGERELAY_RETENTION_ORPHANED_ADMIN` as its environment
+override.
+
+Named Workspace checkpoints and Workspace Tasks are protected by this policy:
+checkpoint removal remains an explicit checkpoint operation, and retention maintenance
+never treats Tasks as disposable history. Existing automatic runtime GC is separate:
+it bounds rebuildable/in-memory runtime resources and expires stale context-delivery
+bookkeeping; it does **not** age-prune durable Activity/Audit history, durable Bash
+output, named checkpoints, persistent Workspace identity, or Task Lists.
 
 ### Routed and multi-origin public deployments
 
