@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-04
+
 ### Added
 
 - Added bounded read-only managed-worktree recovery diagnostics to `open_workspace` inventory and inspection, distinguishing healthy, recoverable, and manual-intervention states across missing backing/source/branches, stale Git worktree registration, and branch mismatches. Relayed inspection carries the sanitized diagnostic facts from the Execution ForgeRelay without mutating Git state.
