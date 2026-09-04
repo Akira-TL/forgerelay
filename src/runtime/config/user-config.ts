@@ -31,6 +31,7 @@ export interface ForgeRelayUserConfig {
   allowedRoots?: string[];
   publicBaseUrl?: string | string[] | null;
   allowedHosts?: string[];
+  trustedProxies?: string[];
   stateDir?: string;
   worktreeRoot?: string;
   artifactsEnabled?: boolean;

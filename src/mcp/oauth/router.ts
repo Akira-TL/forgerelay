@@ -12,6 +12,7 @@ import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/
 import type { OAuthProtectedResourceMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
   oauthAuthorizationServerMetadataPath,
+  publicEndpointPaths,
   publicEndpointUrl,
 } from "./public-url.js";
 
@@ -26,6 +27,7 @@ export interface ForgeRelayAuthRouterOptions {
   instanceId?: string;
   issuerUrl: URL;
   resourceServerUrl: URL;
+  routeBaseUrls?: readonly URL[];
   scopesSupported?: string[];
   resourceName?: string;
 }
@@ -37,6 +39,7 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
     instanceId,
     issuerUrl,
     resourceServerUrl,
+    routeBaseUrls = [issuerUrl],
     scopesSupported,
     resourceName,
   } = options;
@@ -48,6 +51,12 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
   const revocationEndpoint = provider.revokeToken
     ? publicEndpointUrl(issuerUrl, "revoke")
     : undefined;
+
+  const cliAuthenticationPaths = publicEndpointPaths(routeBaseUrls, "auth/cli");
+  const authorizationPaths = publicEndpointPaths(routeBaseUrls, "authorize");
+  const tokenPaths = publicEndpointPaths(routeBaseUrls, "token");
+  const registrationPaths = publicEndpointPaths(routeBaseUrls, "register");
+  const revocationPaths = publicEndpointPaths(routeBaseUrls, "revoke");
 
   const oauthMetadata = {
     ...createOAuthMetadata({
@@ -71,7 +80,7 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
 
   const router = express.Router();
   if (cliAuthenticationProvider) {
-    router.post("/auth/cli", express.json({ limit: "4kb" }), (req, res) => {
+    router.post(cliAuthenticationPaths, express.json({ limit: "4kb" }), (req, res) => {
       const ownerToken = typeof req.body?.owner_token === "string" ? req.body.owner_token : undefined;
       const refreshToken = typeof req.body?.refresh_token === "string" ? req.body.refresh_token : undefined;
       if ((ownerToken ? 1 : 0) + (refreshToken ? 1 : 0) !== 1) {
@@ -92,14 +101,14 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
       res.status(200).json({ ...tokens, ...(instanceId ? { instance_id: instanceId } : {}) });
     });
   }
-  router.use("/authorize", authorizationHandler({ provider }));
-  router.use("/token", tokenHandler({ provider }));
+  router.use(authorizationPaths, authorizationHandler({ provider }));
+  router.use(tokenPaths, tokenHandler({ provider }));
 
-  if (provider.clientsStore.registerClient) {
-    router.use("/register", clientRegistrationHandler({ clientsStore: provider.clientsStore }));
+  if (provider.clientsStore.registerClient && registrationEndpoint) {
+    router.use(registrationPaths, clientRegistrationHandler({ clientsStore: provider.clientsStore }));
   }
-  if (provider.revokeToken) {
-    router.use("/revoke", revocationHandler({ provider }));
+  if (provider.revokeToken && revocationEndpoint) {
+    router.use(revocationPaths, revocationHandler({ provider }));
   }
 
   router.use(

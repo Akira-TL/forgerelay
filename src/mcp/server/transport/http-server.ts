@@ -18,7 +18,7 @@ import { createOpenAIIncomingArtifactAdapter, type IncomingArtifactAdapter } fro
 import { logEvent, requestPath, transportSessionIdPrefix } from "../../../runtime/logging/logger.js";
 import { SingleUserOAuthProvider } from "../../oauth/oauth-provider.js";
 import { createForgeRelayAuthRouter } from "../../oauth/router.js";
-import { publicEndpointUrl } from "../../oauth/public-url.js";
+import { publicEndpointPaths, publicEndpointUrl } from "../../oauth/public-url.js";
 import { McpTransportRegistry, type McpTransportCloseResult } from "./mcp-sessions.js";
 import { ProcessManager } from "../../process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../../workspaces/review/review-checkpoints.js";
@@ -83,7 +83,11 @@ export function createHttpServer(
   const transports = new McpTransportRegistry<Transport>({
     maxTransports: MAX_MCP_TRANSPORT_SESSIONS,
   });
+  const routeBaseUrls = config.publicBaseUrls.map((baseUrl) => new URL(baseUrl));
   const mcpUrl = publicEndpointUrl(config.publicBaseUrl, "mcp");
+  const mcpPaths = publicEndpointPaths(routeBaseUrls, "mcp");
+  const activityPanelAssetsPaths = publicEndpointPaths(routeBaseUrls, "mcp-app-assets");
+  const healthPaths = publicEndpointPaths(routeBaseUrls, "healthz");
   const resourceServerUrl = resourceUrlFromServerUrl(mcpUrl);
   const oauthProvider = new SingleUserOAuthProvider(config.oauth, mcpUrl, config.stateDir);
   const bearerAuth = requireBearerAuth({
@@ -192,8 +196,8 @@ export function createHttpServer(
   transportCleanupTimer.unref();
   logRuntimeResources();
 
-  if (config.logging.trustProxy) {
-    app.set("trust proxy", 1);
+  if (config.proxyTrust !== false) {
+    app.set("trust proxy", config.proxyTrust);
   }
 
   app.use((req, res, next) => {
@@ -204,7 +208,7 @@ export function createHttpServer(
     res.on("finish", () => {
       const path = requestPath(req);
       if (!config.logging.requests) return;
-      if (!config.logging.assets && path.startsWith("/mcp-app-assets")) return;
+      if (!config.logging.assets && activityPanelAssetsPaths.some((assetPath) => path.startsWith(assetPath))) return;
 
       logEvent(config.logging, "info", "http_request", {
         requestId,
@@ -226,18 +230,19 @@ export function createHttpServer(
       instanceId: config.instanceId,
       issuerUrl: new URL(config.publicBaseUrl),
       resourceServerUrl,
+      routeBaseUrls,
       scopesSupported: config.oauth.scopes,
       resourceName: "ForgeRelay",
     }),
   );
 
-  app.options("/mcp-app-assets/{*asset}", (_req, res) => {
+  app.options(activityPanelAssetsPaths.map((assetPath) => `${assetPath}/{*asset}`), (_req, res) => {
     setActivityPanelAssetHeaders(res);
     res.sendStatus(204);
   });
 
   app.use(
-    "/mcp-app-assets",
+    activityPanelAssetsPaths,
     express.static(activityPanelAssetDirectory(), {
       immutable: true,
       maxAge: "1y",
@@ -246,11 +251,11 @@ export function createHttpServer(
     }),
   );
 
-  app.get("/healthz", (_req, res) => {
+  app.get(healthPaths, (_req, res) => {
     res.json({ ok: true, name: "forgerelay" });
   });
 
-  app.all("/mcp", async (req, res) => {
+  app.all(mcpPaths, async (req, res) => {
     const requestId = res.locals.requestId as string | undefined;
     const transportSessionId = req.header("mcp-session-id");
     const initializeRequest = req.method === "POST" && isInitializeRequest(req.body);

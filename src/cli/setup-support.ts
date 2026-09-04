@@ -40,6 +40,11 @@ export function normalizePublicBaseUrl(value: string): string {
 }
 
 export type ClientFacingUrlSecurity = "secure" | "insecure-lan";
+export type SetupNetworkMode = "local" | "ssh" | "lan" | "proxy";
+
+export function setupBindAddress(mode: SetupNetworkMode): string {
+  return mode === "lan" ? "0.0.0.0" : "127.0.0.1";
+}
 
 export function classifyClientFacingBaseUrl(value: string): ClientFacingUrlSecurity {
   const parsed = new URL(normalizePublicBaseUrl(value));
@@ -66,6 +71,24 @@ export function validateClientFacingBaseUrls(value: string | undefined): string 
 
 export function hasInsecureLanBaseUrl(baseUrls: readonly string[]): boolean {
   return baseUrls.some((baseUrl) => classifyClientFacingBaseUrl(baseUrl) === "insecure-lan");
+}
+
+export function validateLanClientFacingBaseUrls(value: string | undefined): string | undefined {
+  const validation = validateClientFacingBaseUrls(value);
+  if (validation) return validation;
+  const baseUrls = normalizePublicBaseUrlsInput(value ?? "");
+  return baseUrls.every((baseUrl) => new URL(baseUrl).protocol === "http:")
+    ? undefined
+    : "Direct LAN mode requires http:// client-facing URLs on a trusted private network.";
+}
+
+export function validateHttpsProxyBaseUrls(value: string | undefined): string | undefined {
+  const validation = validateClientFacingBaseUrls(value);
+  if (validation) return validation;
+  const baseUrls = normalizePublicBaseUrlsInput(value ?? "");
+  return baseUrls.every((baseUrl) => new URL(baseUrl).protocol === "https:")
+    ? undefined
+    : "HTTPS proxy mode requires HTTPS client-facing URLs.";
 }
 
 function isPrivateNetworkHost(hostname: string): boolean {

@@ -23,11 +23,13 @@ import {
   hasInsecureLanBaseUrl,
   isLoopbackBindAddress,
   normalizePublicBaseUrlsInput,
+  setupBindAddress,
   SetupCancelledError,
   textPrompt,
-  validateBindAddress,
-  validateClientFacingBaseUrls,
+  validateHttpsProxyBaseUrls,
+  validateLanClientFacingBaseUrls,
   validatePort,
+  type SetupNetworkMode,
 } from "./setup-support.js";
 
 export async function runInit({ force }: { force: boolean }): Promise<void> {
@@ -65,9 +67,11 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
     const existingPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
       ? files.config.publicBaseUrl
       : files.config.publicBaseUrl ? [files.config.publicBaseUrl] : [];
-    const defaultNetworkMode = !isLoopbackBindAddress(files.config.host ?? "127.0.0.1") || existingPublicBaseUrls.length > 0
-      ? "network"
-      : "local";
+    const defaultNetworkMode: SetupNetworkMode = !isLoopbackBindAddress(files.config.host ?? "127.0.0.1")
+      ? "lan"
+      : existingPublicBaseUrls.some((baseUrl) => new URL(baseUrl).protocol === "https:")
+        ? "proxy"
+        : "local";
     const selectedMode = await prompts.select({
       message: "How should clients reach this ForgeRelay instance?",
       initialValue: defaultNetworkMode,
@@ -83,40 +87,56 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
           hint: "Bind to loopback; another ForgeRelay reaches it through an SSH tunnel.",
         },
         {
-          value: "network",
-          label: "LAN / HTTPS proxy",
-          hint: "Expose through a LAN address or an HTTPS reverse proxy/tunnel.",
+          value: "lan",
+          label: "Direct LAN",
+          hint: "Bind to 0.0.0.0; clients connect directly over a trusted private LAN.",
+        },
+        {
+          value: "proxy",
+          label: "HTTPS reverse proxy / tunnel",
+          hint: "Bind to 127.0.0.1; a local trusted proxy publishes the HTTPS endpoint.",
         },
       ],
     });
     if (prompts.isCancel(selectedMode)) throw new SetupCancelledError();
-    const networkMode = selectedMode as "local" | "ssh" | "network";
+    const networkMode = selectedMode as SetupNetworkMode;
 
-    let host = "127.0.0.1";
+    const host = setupBindAddress(networkMode);
     let publicBaseUrl: ForgeRelayUserConfig["publicBaseUrl"] = null;
     let clientFacingBaseUrls = [`http://127.0.0.1:${port}`];
+    const trustedProxies = networkMode === "proxy" ? ["loopback"] : undefined;
 
-    if (networkMode === "network") {
-      const defaultHost = files.config.host && !isLoopbackBindAddress(files.config.host)
-        ? files.config.host
-        : "0.0.0.0";
-      host = await textPrompt({
-        message: "Which address should ForgeRelay bind to? Use 0.0.0.0 for direct LAN, or 127.0.0.1 behind a local reverse proxy.",
-        placeholder: defaultHost,
-        defaultValue: defaultHost,
-        validate: validateBindAddress,
-      });
-      const defaultClientFacing = existingPublicBaseUrls.join(", ");
+    if (networkMode === "lan" || networkMode === "proxy") {
+      const validateBaseUrls = networkMode === "lan"
+        ? validateLanClientFacingBaseUrls
+        : validateHttpsProxyBaseUrls;
+      const existingClientFacing = existingPublicBaseUrls.join(", ");
+      const defaultClientFacing = existingClientFacing && validateBaseUrls(existingClientFacing) === undefined
+        ? existingClientFacing
+        : "";
+      if (networkMode === "proxy") {
+        prompts.note(
+          [
+            "The public URL may include a path prefix, for example https://example.com/forgerelay/debug.",
+            "That prefix is the deployment route boundary, so MCP, OAuth, health, and App assets are served below it.",
+          ].join("\n"),
+          "Routed public URL",
+        );
+      }
       clientFacingBaseUrls = normalizePublicBaseUrlsInput(await textPrompt({
         message: defaultClientFacing
           ? `What client-facing base URLs should clients use? Press Enter to keep ${defaultClientFacing}`
-          : "What client-facing base URL should clients use?",
-        placeholder: defaultClientFacing || `http://192.168.1.20:${port} or https://forge.example.com`,
+          : networkMode === "lan"
+            ? "What direct LAN base URL should clients use?"
+            : "What HTTPS public base URL should clients use?",
+        placeholder: defaultClientFacing || (networkMode === "lan"
+          ? `http://192.168.1.20:${port}`
+          : "https://example.com/forgerelay/debug"),
         defaultValue: defaultClientFacing,
-        validate: validateClientFacingBaseUrls,
+        validate: validateBaseUrls,
       }));
       for (const baseUrl of clientFacingBaseUrls) classifyClientFacingBaseUrl(baseUrl);
-      if (hasInsecureLanBaseUrl(clientFacingBaseUrls)) {
+      if (networkMode === "lan" && hasInsecureLanBaseUrl(clientFacingBaseUrls)) {
         prompts.note(
           [
             "Plain HTTP does not encrypt the ForgeRelay Owner approval flow or MCP bearer tokens.",
@@ -173,6 +193,7 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       allowedRoots,
       publicBaseUrl,
       allowedHosts: files.config.allowedHosts,
+      trustedProxies,
       workflowInstructions: files.config.workflowInstructions,
       appendInstructions: files.config.appendInstructions,
       subagents: resolveSubagentsFlag(files.config),

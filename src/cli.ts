@@ -149,7 +149,9 @@ async function serve(): Promise<void> {
   const config = loadConfig();
   const { app, close, subagentProviders } = createServer(config);
   const httpServer = app.listen(config.port, config.host, () => {
-    console.log(`forgerelay listening on http://${config.host}:${config.port}/mcp`);
+    console.log(
+      `forgerelay listening on http://${config.host}:${config.port}${publicEndpointUrl(config.publicBaseUrl, "mcp").pathname}`,
+    );
     console.log(`client-facing base url: ${config.publicBaseUrl}`);
     console.log(`allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`allowed hosts: ${config.allowedHosts.join(", ")}`);
@@ -359,13 +361,15 @@ async function runDoctor(): Promise<void> {
 
   try {
     const config = loadConfig();
-    console.log(`Bind MCP URL: http://${config.host}:${config.port}/mcp`);
+    console.log(
+      `Bind MCP URL: http://${config.host}:${config.port}${publicEndpointUrl(config.publicBaseUrl, "mcp").pathname}`,
+    );
     console.log(`Client-facing base URLs: ${config.publicBaseUrls.join(", ")}`);
     console.log(`Client-facing base URL: ${config.publicBaseUrl}`);
     console.log(`Client-facing MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
     console.log(`Tool mode: ${config.toolMode}`);
     console.log(`Widgets: ${config.widgets}`);
-    console.log(`Trust proxy: ${config.logging.trustProxy ? "one hop" : "off"}`);
+    console.log(`Trust proxy: ${config.proxyTrust === false ? "off" : config.proxyTrust.join(", ")}`);
     console.log(`Artifacts: ${config.artifactsEnabled ? "enabled" : "disabled"}`);
     console.log(`Subagents: ${config.subagents ? "enabled" : "disabled"}`);
     console.log(`Skills: ${config.skillsEnabled ? "enabled" : "disabled"}`);

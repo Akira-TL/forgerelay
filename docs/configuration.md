@@ -106,12 +106,18 @@ or multiple URLs as an array:
 }
 ```
 
-Each entry keeps its own route prefix. The first URL is canonical and is used for
-generated OAuth/MCP URLs; every configured hostname is included in the derived
-Host-header allowlist. MCP App `_meta.ui.domain` uses the canonical URL's origin,
-while CSP resource/connect entries include every full public base URL. The full
-ordered `publicBaseUrl` list also participates in the MCP App resource cache
-identity, so changing any domain or route produces a new `ui://` resource URI.
+Each entry keeps its own route prefix. Every configured pathname is an accepted
+inbound operational route boundary; the first URL remains canonical for generated
+OAuth/MCP metadata and links. For example, if the only configured URL is
+`https://forge.example.com/forgerelay/main`, MCP, OAuth operations, health, and MCP App
+assets are served below `/forgerelay/main/*`; naked `/mcp`, `/authorize`, `/token`,
+`/healthz`, and `/mcp-app-assets/*` are not parallel deployment routes. Standards-based
+OAuth/MCP discovery metadata remains under its required `/.well-known/...` paths.
+Every configured hostname is included in the derived Host-header allowlist. MCP App
+`_meta.ui.domain` uses the canonical URL's origin, while CSP resource/connect entries
+include every full public base URL. The full ordered `publicBaseUrl` list also
+participates in the MCP App resource cache identity, so changing any domain or route
+produces a new `ui://` resource URI.
 
 A single persisted string remains fully supported, so existing configs require no
 migration. For environment configuration, use a comma-separated list in
@@ -677,7 +683,8 @@ from the normal Skill paths; ForgeRelay does not reserve, delete, or rewrite it.
 | `FORGERELAY_LOG_ASSETS` | `0` |
 | `FORGERELAY_LOG_TOOL_CALLS` | `1` |
 | `FORGERELAY_LOG_SHELL_COMMANDS` | `1` in `pretty`, `0` in `json` |
-| `FORGERELAY_TRUST_PROXY` | auto: `1` only for loopback bind + non-loopback public URL; otherwise `0` |
+| `FORGERELAY_TRUST_PROXY` | legacy compatibility override; `1` is accepted only with a loopback bind |
+| `FORGERELAY_TRUSTED_PROXIES` | explicit comma-separated trusted proxy IP addresses/CIDRs; unset by default |
 
 `pretty` is the human-facing local console format. It uses terminal-aware color,
 short timestamps, workspace-first context, and compact operation results while
@@ -695,12 +702,24 @@ overridden, JSON mode preserves request logging and omits shell command previews
 these format-specific defaults when set.
 
 When ForgeRelay binds to loopback (`127.0.0.1`, `::1`, or `localhost`) but is
-configured with a non-loopback public URL, it automatically trusts exactly one
-upstream proxy hop. This matches the normal tunnel/reverse-proxy topology and
-keeps OAuth rate limiting aligned with Express client-IP resolution. Set
-`FORGERELAY_TRUST_PROXY=0` to disable this inference, or `=1` to enable one-hop
-trust explicitly. ForgeRelay never auto-enables proxy trust when binding to
-`0.0.0.0` or another directly reachable interface.
+configured with a non-loopback public URL, it trusts only the loopback proxy source.
+This matches the normal local tunnel/reverse-proxy topology while preventing a public
+or LAN client from becoming trusted merely because it supplied forwarded headers.
+`forgerelay init` uses this model for **HTTPS reverse proxy / tunnel** mode and binds
+that mode to `127.0.0.1`; **Direct LAN** mode binds to `0.0.0.0` and does not trust a
+proxy by default.
+
+Set `FORGERELAY_TRUST_PROXY=0` to disable inferred loopback trust. The legacy
+`FORGERELAY_TRUST_PROXY=1` form is accepted only when ForgeRelay itself is bound to
+loopback. For an advanced topology that intentionally combines direct LAN reachability
+with a reverse proxy, list only the actual proxy source addresses or CIDRs, for example:
+
+```bash
+FORGERELAY_TRUSTED_PROXIES="127.0.0.1,10.20.30.0/24" forgerelay serve
+```
+
+The same list may be persisted as `trustedProxies` in `config.json`. Wildcard/global
+trust is rejected; do not replace this with Express `trust proxy=true` on a LAN bind.
 
 ## Environment-only example
 

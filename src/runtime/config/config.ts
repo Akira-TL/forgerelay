@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
@@ -15,6 +16,7 @@ import type { LanguageServerConfigInput } from "../../lsp/language-server-config
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
+export type ProxyTrust = false | string[];
 const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ARTIFACT_MAX_FILE_BYTES = 100 * 1024 * 1024;
@@ -32,6 +34,8 @@ export interface ServerConfig {
   publicBaseUrl: string;
   /** All configured public base URLs, each of which may include a route prefix. */
   publicBaseUrls: string[];
+  /** Exact proxy source addresses/CIDRs Express may trust for forwarded client metadata. */
+  proxyTrust: ProxyTrust;
   toolMode: ToolMode;
   workflowInstructions: string | false | undefined;
   appendInstructions: string | undefined;
@@ -204,12 +208,11 @@ function parseNonNegativeInteger(
   return parsed;
 }
 
-function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxyDefault: boolean): LoggingConfig {
+function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxy: boolean): LoggingConfig {
   const format = parseLogFormat(productEnv(env, "LOG_FORMAT"));
   const requests = productEnv(env, "LOG_REQUESTS");
   const toolCalls = productEnv(env, "LOG_TOOL_CALLS");
   const shellCommands = productEnv(env, "LOG_SHELL_COMMANDS");
-  const trustProxy = productEnv(env, "TRUST_PROXY");
   return {
     level: parseLogLevel(productEnv(env, "LOG_LEVEL")),
     format,
@@ -217,12 +220,64 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxyDefault: boolean):
     assets: parseBoolean(productEnv(env, "LOG_ASSETS")),
     toolCalls: toolCalls === undefined ? true : parseBoolean(toolCalls),
     shellCommands: shellCommands === undefined ? format === "pretty" : parseBoolean(shellCommands),
-    trustProxy: trustProxy === undefined ? trustProxyDefault : parseBoolean(trustProxy),
+    trustProxy,
   };
 }
 
-function shouldTrustOneProxyByDefault(host: string, publicBaseUrl: string): boolean {
-  return isLoopbackHost(host) && !isLoopbackHost(new URL(publicBaseUrl).hostname);
+function resolveProxyTrust(
+  env: NodeJS.ProcessEnv,
+  config: ForgeRelayUserConfig,
+  host: string,
+  publicBaseUrl: string,
+): ProxyTrust {
+  const legacyTrustProxy = productEnv(env, "TRUST_PROXY");
+  if (legacyTrustProxy !== undefined) {
+    if (!parseBoolean(legacyTrustProxy)) return false;
+    if (!isLoopbackHost(host)) {
+      throw new Error(
+        "FORGERELAY_TRUST_PROXY=1 is only safe with a loopback bind. Use FORGERELAY_TRUSTED_PROXIES with explicit proxy IP addresses or CIDRs for LAN binds.",
+      );
+    }
+    return ["loopback"];
+  }
+
+  const envTrustedProxies = productEnv(env, "TRUSTED_PROXIES");
+  const explicitTrustedProxies = parseTrustedProxies(
+    envTrustedProxies === undefined ? config.trustedProxies : envTrustedProxies,
+  );
+  if (explicitTrustedProxies !== undefined) return explicitTrustedProxies;
+
+  return isLoopbackHost(host) && !isLoopbackHost(new URL(publicBaseUrl).hostname)
+    ? ["loopback"]
+    : false;
+}
+
+function parseTrustedProxies(value: string | string[] | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  const entries = (Array.isArray(value) ? value : value.split(","))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.length === 0) return undefined;
+  if (entries.some((entry) => !isTrustedProxyAddress(entry))) {
+    throw new Error(
+      "FORGERELAY_TRUSTED_PROXIES must list trusted proxy IP addresses or CIDRs; only the internal `loopback` alias is also accepted.",
+    );
+  }
+  return Array.from(new Set(entries));
+}
+
+function isTrustedProxyAddress(value: string): boolean {
+  if (value === "loopback") return true;
+  if (value === "*" || value === "0.0.0.0/0" || value === "::/0") return false;
+  if (isIP(value) !== 0) return true;
+  const slashIndex = value.lastIndexOf("/");
+  if (slashIndex <= 0 || slashIndex === value.length - 1) return false;
+  const address = value.slice(0, slashIndex);
+  const prefixText = value.slice(slashIndex + 1);
+  const family = isIP(address);
+  const prefix = Number(prefixText);
+  if (!Number.isInteger(prefix) || prefix < 0) return false;
+  return family === 4 ? prefix <= 32 : family === 6 ? prefix <= 128 : false;
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -338,6 +393,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const port = parsePort(env.PORT ?? files.config.port);
   const publicDeployment = resolvePublicDeployment(env, files.config, host, port);
   const publicBaseUrl = publicDeployment.canonicalBaseUrl;
+  const proxyTrust = resolveProxyTrust(env, files.config, host, publicBaseUrl);
   const derivedAllowedHosts = [
     "localhost",
     "127.0.0.1",
@@ -357,6 +413,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedHosts: parseAllowedHosts(productEnv(env, "ALLOWED_HOSTS"), derivedAllowedHosts),
     publicBaseUrl,
     publicBaseUrls: publicDeployment.baseUrls,
+    proxyTrust,
     toolMode: parseToolMode(env),
     workflowInstructions: parseWorkflowInstructions(
       productEnv(env, "WORKFLOW_INSTRUCTIONS"),
@@ -406,7 +463,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       parseHookConfig(files.hooks),
       files.hookFiles,
     ),
-    logging: parseLoggingConfig(env, shouldTrustOneProxyByDefault(host, publicBaseUrl)),
+    logging: parseLoggingConfig(env, proxyTrust !== false),
   };
 }
 

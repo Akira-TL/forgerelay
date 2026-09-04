@@ -7,8 +7,11 @@ import { loadConfig } from "../runtime/config/config.js";
 import {
   classifyClientFacingBaseUrl,
   hasInsecureLanBaseUrl,
+  setupBindAddress,
   validateBindAddress,
   validateClientFacingBaseUrls,
+  validateHttpsProxyBaseUrls,
+  validateLanClientFacingBaseUrls,
 } from "./setup-support.js";
 import { SubagentSessionStore } from "../subagents/sessions/store.js";
 
@@ -34,6 +37,14 @@ assert.equal(hasInsecureLanBaseUrl(["http://10.0.0.8:7676"]), true);
 assert.equal(validateBindAddress("0.0.0.0"), undefined);
 assert.equal(validateBindAddress("127.0.0.1"), undefined);
 assert.match(validateBindAddress("http://0.0.0.0") ?? "", /not a URL/);
+assert.equal(setupBindAddress("local"), "127.0.0.1");
+assert.equal(setupBindAddress("ssh"), "127.0.0.1");
+assert.equal(setupBindAddress("proxy"), "127.0.0.1");
+assert.equal(setupBindAddress("lan"), "0.0.0.0");
+assert.equal(validateLanClientFacingBaseUrls("http://192.168.1.20:7676"), undefined);
+assert.match(validateLanClientFacingBaseUrls("https://forge.example.com") ?? "", /Direct LAN/);
+assert.equal(validateHttpsProxyBaseUrls("https://forge.example.com/forgerelay/debug"), undefined);
+assert.match(validateHttpsProxyBaseUrls("http://192.168.1.20:7676") ?? "", /HTTPS/);
 
 for (const flag of ["-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
@@ -77,6 +88,7 @@ try {
     },
   });
 
+  assert.match(output, /Bind MCP URL: http:\/\/127\.0\.0\.1:7676\/base\/path\/mcp/);
   assert.match(
     output,
     /Client-facing base URLs: https:\/\/forge\.example\.com\/base\/path, https:\/\/forge-alt\.example\.com\/alternate\/path/,
@@ -85,7 +97,7 @@ try {
   assert.match(output, /Client-facing MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
-  assert.match(output, /Trust proxy: one hop/);
+  assert.match(output, /Trust proxy: loopback/);
   assert.match(output, /Artifacts: enabled/);
   assert.match(output, /Subagents: enabled/);
   assert.match(output, /Agent-managed Language Server install: enabled/);

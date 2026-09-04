@@ -297,6 +297,10 @@ assert.equal(
   loadConfig({ ...baseEnv, FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).logging.trustProxy,
   true,
 );
+assert.deepEqual(
+  loadConfig({ ...baseEnv, FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/" }).proxyTrust,
+  ["loopback"],
+);
 assert.equal(
   loadConfig({
     ...baseEnv,
@@ -314,6 +318,28 @@ assert.equal(
   false,
 );
 assert.deepEqual(
+  loadConfig({
+    ...baseEnv,
+    HOST: "0.0.0.0",
+    FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+    FORGERELAY_TRUSTED_PROXIES: "127.0.0.1,10.20.0.0/16",
+  }).proxyTrust,
+  ["127.0.0.1", "10.20.0.0/16"],
+);
+assert.throws(
+  () => loadConfig({
+    ...baseEnv,
+    HOST: "0.0.0.0",
+    FORGERELAY_PUBLIC_BASE_URL: "https://abc.trycloudflare.com/",
+    FORGERELAY_TRUST_PROXY: "1",
+  }),
+  /TRUST_PROXY=1 is only safe with a loopback bind/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, FORGERELAY_TRUSTED_PROXIES: "*" }),
+  /must list trusted proxy IP addresses or CIDRs/,
+);
+assert.deepEqual(
   loadConfig({ ...baseEnv, FORGERELAY_ALLOWED_HOSTS: "*" }).allowedHosts,
   ["*"],
 );
@@ -328,6 +354,7 @@ writeFileSync(
       "https://forgerelay.example.com/forgerelay/main",
       "https://forgerelay-alt.example.com/alternate",
     ],
+    trustedProxies: ["127.0.0.1", "10.20.0.0/16"],
     subagents: true,
     allowAgentLanguageServerInstall: true,
     artifactsEnabled: true,
@@ -357,6 +384,7 @@ assert.deepEqual(fileConfig.publicBaseUrls, [
   "https://forgerelay.example.com/forgerelay/main",
   "https://forgerelay-alt.example.com/alternate",
 ]);
+assert.deepEqual(fileConfig.proxyTrust, ["127.0.0.1", "10.20.0.0/16"]);
 assert.equal(fileConfig.subagents, true);
 assert.equal(fileConfig.allowAgentLanguageServerInstall, true);
 assert.equal(fileConfig.artifactsEnabled, true);

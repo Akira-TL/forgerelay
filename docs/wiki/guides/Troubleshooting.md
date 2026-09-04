@@ -113,7 +113,27 @@ FORGERELAY_PUBLIC_BASE_URL="https://new.example.com/forgerelay/main" forgerelay 
 forgerelay config set publicBaseUrl https://new.example.com/forgerelay/main
 ```
 
-多个入口可以配置为 list / comma-separated value。
+多个入口可以配置为 list / comma-separated value。每个显式配置 URL 的 pathname 都是实际入站 route boundary；如果唯一配置 `/forgerelay/main`，裸 `/mcp` 不再是同一 deployment 的并行入口。
+
+## Reverse proxy 报 `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`
+
+这通常表示 reverse proxy 已经发送 `X-Forwarded-For`，但 ForgeRelay 没有把该 proxy source 配置为可信来源。不要用 Express 风格的全局 `trust proxy=true` 规避；在 LAN bind 上这会允许直连客户端伪造转发头。
+
+标准本机 reverse proxy / tunnel 建议重新运行：
+
+```bash
+forgerelay init --force
+```
+
+选择 **HTTPS reverse proxy / tunnel**。该模式 bind `127.0.0.1` 并只 trust loopback proxy source。
+
+如果确实需要 `0.0.0.0` 上同时接受 LAN 直连和特定 reverse proxy，显式列出 proxy IP/CIDR：
+
+```bash
+FORGERELAY_TRUSTED_PROXIES="10.20.30.5,10.20.31.0/24" forgerelay serve
+```
+
+不要把 LAN 客户端网段本身加入 trusted proxies，除非那些地址确实都是 reverse proxy。
 
 ## Host-header / 403
 

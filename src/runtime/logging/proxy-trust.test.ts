@@ -7,7 +7,7 @@ import test from "node:test";
 import { loadConfig } from "../config/config.js";
 import { createServer } from "../../server.js";
 
-test("loopback public proxy uses one trusted hop without express-rate-limit validation errors", async () => {
+test("routed public proxies trust loopback sources without exposing undeclared root routes", async () => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-proxy-test-"));
   const config = loadConfig({
     FORGERELAY_CONFIG_DIR: join(root, ".config"),
@@ -15,7 +15,7 @@ test("loopback public proxy uses one trusted hop without express-rate-limit vali
     FORGERELAY_STATE_DIR: join(root, ".state"),
     FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),
     FORGERELAY_OAUTH_OWNER_TOKEN: "proxy-test-owner-token-that-is-long-enough",
-    FORGERELAY_PUBLIC_BASE_URL: "https://forge.example.com",
+    FORGERELAY_PUBLIC_BASE_URL: "https://forge.example.com/forgerelay/debug,https://forge-alt.example.com/relay",
     FORGERELAY_WIDGETS: "off",
     HOST: "127.0.0.1",
     PORT: "7676",
@@ -31,16 +31,28 @@ test("loopback public proxy uses one trusted hop without express-rate-limit vali
   try {
     await once(httpServer, "listening");
     assert.equal(config.logging.trustProxy, true);
-    assert.equal(running.app.get("trust proxy"), 1);
+    assert.deepEqual(config.proxyTrust, ["loopback"]);
+    assert.deepEqual(running.app.get("trust proxy"), ["loopback"]);
 
     const address = httpServer.address();
     assert.ok(address && typeof address === "object");
     const response = await fetch(
-      `http://127.0.0.1:${address.port}/authorize?client_id=probe&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcb&response_type=code&code_challenge=x&code_challenge_method=S256`,
+      `http://127.0.0.1:${address.port}/forgerelay/debug/authorize?client_id=probe&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcb&response_type=code&code_challenge=x&code_challenge_method=S256`,
       { headers: { "x-forwarded-for": "203.0.113.42" } },
     );
 
     assert.equal(response.status, 400);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/authorize`)).status, 404);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/mcp`)).status, 404);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/healthz`)).status, 404);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/forgerelay/debug/healthz`)).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${address.port}/relay/healthz`)).status, 200);
+    assert.equal(
+      (await fetch(
+        `http://127.0.0.1:${address.port}/relay/authorize?client_id=probe&redirect_uri=http%3A%2F%2Flocalhost%3A12345%2Fcb&response_type=code&code_challenge=x&code_challenge_method=S256`,
+      )).status,
+      400,
+    );
     const errorText = consoleErrors.flat().map(String).join("\n");
     assert.doesNotMatch(errorText, /ERR_ERL_(?:UNEXPECTED_X_FORWARDED_FOR|PERMISSIVE_TRUST_PROXY)/);
   } finally {

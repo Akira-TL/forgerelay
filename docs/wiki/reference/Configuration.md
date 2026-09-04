@@ -79,7 +79,7 @@ https://forge.example.com/forgerelay/main/mcp
 }
 ```
 
-第一个 URL 是 canonical URL。所有配置 hostname 都会参与 derived Host-header allowlist。
+每个显式配置 URL 的 pathname 都是可接受的入站 operational route boundary；第一个 URL 仍是 canonical，用于生成 OAuth/MCP metadata 和链接。比如唯一配置 `https://forge.example.com/forgerelay/main` 时，MCP、OAuth 操作、health 和 MCP App assets 都位于 `/forgerelay/main/*` 下，不会同时继续暴露裸 `/mcp`、`/authorize`、`/token`、`/healthz`。OAuth/MCP 标准 discovery metadata 仍按规范位于对应的 `/.well-known/...` 路径。所有配置 hostname 都会参与 derived Host-header allowlist。
 
 环境变量中使用逗号分隔：
 
@@ -290,16 +290,21 @@ FORGERELAY_LOG_SHELL_COMMANDS=0
 
 ## Proxy trust
 
-当 ForgeRelay bind 在 loopback，但配置了非 loopback public URL 时，会自动 trust 一个上游 proxy hop，以匹配常见 Tunnel/reverse-proxy 拓扑。
+当 ForgeRelay bind 在 loopback，但配置了非 loopback public URL 时，只 trust loopback proxy source，而不是按 hop 数信任任意来源。`forgerelay init` 的 **HTTPS reverse proxy / tunnel** 模式固定 bind `127.0.0.1`；**Direct LAN** 模式固定 bind `0.0.0.0` 且默认不信任 proxy。
 
-可显式覆盖：
+可显式关闭自动 loopback trust：
 
 ```bash
 FORGERELAY_TRUST_PROXY=0
-FORGERELAY_TRUST_PROXY=1
 ```
 
-直接 bind `0.0.0.0` 等外部可达接口时不会自动开启 proxy trust。
+旧的 `FORGERELAY_TRUST_PROXY=1` 只允许用于 loopback bind。需要高级 LAN + reverse proxy 拓扑时，明确列出真实 proxy IP/CIDR：
+
+```bash
+FORGERELAY_TRUSTED_PROXIES="127.0.0.1,10.20.30.0/24" forgerelay serve
+```
+
+也可以在 `config.json` 中持久化 `trustedProxies` 数组。全局/wildcard trust 会被拒绝；不要在 LAN bind 上使用 `trust proxy=true`。
 
 ## Environment-only 示例
 
