@@ -262,7 +262,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   });
   assert.deepEqual(catalog[2], {
     name: "workspace.checkpoint",
-    description: "Create, list, inspect, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
+    description: "Create, list, inspect, safely restore, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
     available: true,
     batchPolicy: "unsupported",
     guide: {

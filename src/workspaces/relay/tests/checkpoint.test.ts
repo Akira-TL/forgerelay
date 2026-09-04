@@ -14,7 +14,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-test("Relay routes workspace.checkpoint ownership and cleanup to the Execution ForgeRelay", async (t) => {
+test("Relay routes workspace.checkpoint ownership, restore, and cleanup to the Execution ForgeRelay", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-checkpoint-"));
   const remoteRepo = join(root, "remote-repo");
   const gatewayRoot = join(root, "gateway-root");
@@ -89,6 +89,39 @@ test("Relay routes workspace.checkpoint ownership and cleanup to the Execution F
   assert.equal(listed.isError, undefined, resultText(listed));
   const checkpoints = (structured(listed).result as Record<string, unknown>).checkpoints as Array<Record<string, unknown>>;
   assert.equal(checkpoints[0]?.id, checkpointId);
+
+  await writeFile(join(remoteRepo, "relay-checkpoint.txt"), "gateway must restore on execution forge\n");
+  const preflight = await client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: gatewayWorkspaceId,
+      name: "workspace.checkpoint",
+      action: "run",
+      arguments: { operation: "restore.preflight", checkpointId },
+    },
+  });
+  assert.equal(preflight.isError, undefined, resultText(preflight));
+  const preflightResult = structured(preflight).result as Record<string, unknown>;
+  assert.equal(preflightResult.workspaceId, gatewayWorkspaceId);
+  const restored = await client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: gatewayWorkspaceId,
+      name: "workspace.checkpoint",
+      action: "run",
+      arguments: {
+        operation: "restore",
+        checkpointId,
+        expectedCurrentSnapshot: preflightResult.currentSnapshot,
+      },
+    },
+  });
+  assert.equal(restored.isError, undefined, resultText(restored));
+  assert.equal((structured(restored).result as Record<string, unknown>).workspaceId, gatewayWorkspaceId);
+  assert.equal(
+    (await readFile(join(remoteRepo, "relay-checkpoint.txt"), "utf8")).replace(/\r\n/g, "\n"),
+    "execution-owned checkpoint\n",
+  );
 
   const deletedWorkspace = await client.callTool({
     name: "close_workspace",

@@ -638,7 +638,7 @@ export function createCapabilityRegistry(
     ...(dependencies.workspaceCheckpoint
       ? [{
           name: "workspace.checkpoint",
-          description: "Create, list, inspect, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
+          description: "Create, list, inspect, safely restore, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
           guideName: "workspace-checkpoints",
           readGuideBeforeFirstUse: true,
           batchPolicy: "unsupported",

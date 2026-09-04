@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -105,6 +105,134 @@ test("workspace.checkpoint creates an immutable Git-visible snapshot without mut
     "--verify",
     `refs/forgerelay/checkpoints/${workspaceId}/${checkpointId}`,
   ], { cwd: context.project }));
+});
+
+test("workspace.checkpoint restore reproduces Git-visible content without moving HEAD, index state, or ignored files", async (t) => {
+  const context = await fixture(t, { git: true });
+  await writeFile(join(context.project, ".gitignore"), "ignored.bin\n");
+  await writeFile(join(context.project, "modified.txt"), "base modified\n");
+  await writeFile(join(context.project, "rename-source.txt"), "rename target content\n");
+  await writeFile(join(context.project, "removed-at-checkpoint.txt"), "base removable\n");
+  await writeFile(join(context.project, "staged.txt"), "base staged\n");
+  await writeFile(join(context.project, "binary.bin"), Buffer.from([0, 1, 2, 3, 255, 10]));
+  await git(context.project, ["add", "."]);
+  await git(context.project, ["commit", "-m", "test: checkpoint restore base"]);
+
+  const opened = await callOpen(context.client, context.project, "checkpoint-restore");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  await writeFile(join(context.project, "modified.txt"), "checkpoint modified\n");
+  await writeFile(join(context.project, "checkpoint-added.txt"), "checkpoint added\n");
+  await rename(join(context.project, "rename-source.txt"), join(context.project, "renamed.txt"));
+  await rm(join(context.project, "removed-at-checkpoint.txt"));
+  await writeFile(join(context.project, "staged.txt"), "checkpoint staged\n");
+  const checkpointBinary = Buffer.from([9, 8, 0, 7, 255, 6]);
+  await writeFile(join(context.project, "binary.bin"), checkpointBinary);
+  await writeFile(join(context.project, "ignored.bin"), Buffer.from([10, 11, 12]));
+
+  const created = await checkpointCall(context.client, workspaceId, {
+    operation: "create",
+    name: "restore target",
+  });
+  assert.equal(created.isError, undefined, allResponseText(created));
+  const checkpoint = (structuredContent(created).result as Record<string, unknown>).checkpoint as Record<string, unknown>;
+  const checkpointId = String(checkpoint.id);
+
+  await writeFile(join(context.project, "modified.txt"), "current modified\n");
+  await rm(join(context.project, "checkpoint-added.txt"));
+  await rename(join(context.project, "renamed.txt"), join(context.project, "renamed-later.txt"));
+  await writeFile(join(context.project, "removed-at-checkpoint.txt"), "recreated later\n");
+  await writeFile(join(context.project, "current-only.txt"), "delete on restore\n");
+  await writeFile(join(context.project, "binary.bin"), Buffer.from([1, 2, 3, 0, 4, 5]));
+  await writeFile(join(context.project, "ignored.bin"), Buffer.from([20, 21, 22]));
+  await writeFile(join(context.project, "staged.txt"), "current staged index\n");
+  await git(context.project, ["add", "staged.txt"]);
+  await writeFile(join(context.project, "staged.txt"), "current staged working tree\n");
+
+  const headBefore = await gitOutput(context.project, ["rev-parse", "HEAD"]);
+  const branchBefore = await gitOutput(context.project, ["branch", "--show-current"]);
+  const stagedBefore = await gitOutputRaw(context.project, ["diff", "--cached", "--binary", "--no-color"]);
+  const preflight = await checkpointCall(context.client, workspaceId, {
+    operation: "restore.preflight",
+    checkpointId,
+  });
+  assert.equal(preflight.isError, undefined, allResponseText(preflight));
+  const preflightResult = structuredContent(preflight).result as Record<string, unknown>;
+  assert.match(String(preflightResult.checkpointSnapshot), /^[a-f0-9]{40,64}$/);
+  assert.match(String(preflightResult.currentSnapshot), /^[a-f0-9]{40,64}$/);
+  assert.notEqual(preflightResult.currentSnapshot, preflightResult.checkpointSnapshot);
+  assert.equal(preflightResult.ignoredFilesIncluded, false);
+  assert.equal(preflightResult.stagingStateRestored, false);
+  assert.ok(Number((preflightResult.restoreSummary as Record<string, unknown>).files) >= 6);
+
+  const restored = await checkpointCall(context.client, workspaceId, {
+    operation: "restore",
+    checkpointId,
+    expectedCurrentSnapshot: preflightResult.currentSnapshot,
+  });
+  assert.equal(restored.isError, undefined, allResponseText(restored));
+  const restoreResult = structuredContent(restored).result as Record<string, unknown>;
+  assert.equal(restoreResult.restored, true);
+  assert.equal(restoreResult.previousSnapshot, preflightResult.currentSnapshot);
+  assert.equal(restoreResult.currentSnapshot, preflightResult.checkpointSnapshot);
+  assert.equal(restoreResult.stagingStateRestored, false);
+  assert.equal(restoreResult.ignoredFilesIncluded, false);
+
+  assert.equal(await gitOutput(context.project, ["rev-parse", "HEAD"]), headBefore);
+  assert.equal(await gitOutput(context.project, ["branch", "--show-current"]), branchBefore);
+  assert.equal(await gitOutputRaw(context.project, ["diff", "--cached", "--binary", "--no-color"]), stagedBefore);
+  assert.equal(normalizeText(await readFile(join(context.project, "modified.txt"), "utf8")), "checkpoint modified\n");
+  assert.equal(normalizeText(await readFile(join(context.project, "checkpoint-added.txt"), "utf8")), "checkpoint added\n");
+  assert.equal(normalizeText(await readFile(join(context.project, "renamed.txt"), "utf8")), "rename target content\n");
+  await assert.rejects(readFile(join(context.project, "renamed-later.txt")), /ENOENT/);
+  await assert.rejects(readFile(join(context.project, "removed-at-checkpoint.txt")), /ENOENT/);
+  await assert.rejects(readFile(join(context.project, "current-only.txt")), /ENOENT/);
+  assert.deepEqual(await readFile(join(context.project, "binary.bin")), checkpointBinary);
+  assert.deepEqual(await readFile(join(context.project, "ignored.bin")), Buffer.from([20, 21, 22]));
+  assert.equal(normalizeText(await readFile(join(context.project, "staged.txt"), "utf8")), "checkpoint staged\n");
+
+  const after = await checkpointCall(context.client, workspaceId, {
+    operation: "restore.preflight",
+    checkpointId,
+  });
+  const afterResult = structuredContent(after).result as Record<string, unknown>;
+  assert.equal(afterResult.currentSnapshot, afterResult.checkpointSnapshot);
+});
+
+test("workspace.checkpoint restore refuses stale preflight tokens before any restore mutation", async (t) => {
+  const context = await fixture(t, { git: true });
+  await writeFile(join(context.project, "restore-target.txt"), "checkpoint target\n");
+  await git(context.project, ["add", "restore-target.txt"]);
+  await git(context.project, ["commit", "-m", "test: restore conflict base"]);
+  const opened = await callOpen(context.client, context.project, "checkpoint-restore-conflict");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const created = await checkpointCall(context.client, workspaceId, {
+    operation: "create",
+    name: "conflict target",
+  });
+  const checkpoint = (structuredContent(created).result as Record<string, unknown>).checkpoint as Record<string, unknown>;
+  const checkpointId = String(checkpoint.id);
+  await writeFile(join(context.project, "restore-target.txt"), "current before preflight\n");
+  const preflight = await checkpointCall(context.client, workspaceId, {
+    operation: "restore.preflight",
+    checkpointId,
+  });
+  const expectedCurrentSnapshot = String((structuredContent(preflight).result as Record<string, unknown>).currentSnapshot);
+
+  await writeFile(join(context.project, "external-after-preflight.txt"), "external edit must survive\n");
+  const statusBefore = await gitOutputRaw(context.project, ["status", "--porcelain=v1", "-z"]);
+  const targetBefore = await readFile(join(context.project, "restore-target.txt"));
+  const externalBefore = await readFile(join(context.project, "external-after-preflight.txt"));
+  const rejected = await checkpointCall(context.client, workspaceId, {
+    operation: "restore",
+    checkpointId,
+    expectedCurrentSnapshot,
+  });
+  assert.equal(rejected.isError, true);
+  assert.match(allResponseText(rejected), /current working snapshot changed|restore\.preflight/i);
+  assert.deepEqual(await readFile(join(context.project, "restore-target.txt")), targetBefore);
+  assert.deepEqual(await readFile(join(context.project, "external-after-preflight.txt")), externalBefore);
+  assert.equal(await gitOutputRaw(context.project, ["status", "--porcelain=v1", "-z"]), statusBefore);
 });
 
 test("workspace.checkpoint serializes concurrent mutations without losing persistent checkpoint identities", async (t) => {
@@ -267,6 +395,67 @@ test("workspace.checkpoint survives managed-worktree finalize and backing recrea
   assert.equal(finalClose.isError, undefined, allResponseText(finalClose));
 });
 
+test("workspace.checkpoint restore and managed-worktree recovery remain independent operations", async (t) => {
+  const context = await fixture(t, { git: true });
+  const opened = await callOpen(context.client, context.project, "checkpoint-recovery-independent", "worktree");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const oldRoot = String(structuredContent(opened).root);
+  await writeFile(join(oldRoot, "checkpoint-only.txt"), "checkpoint content outside managed branch\n");
+  const created = await checkpointCall(context.client, workspaceId, {
+    operation: "create",
+    name: "independent recovery checkpoint",
+  });
+  const checkpoint = (structuredContent(created).result as Record<string, unknown>).checkpoint as Record<string, unknown>;
+  const checkpointId = String(checkpoint.id);
+
+  await rm(oldRoot, { recursive: true, force: true });
+  const restoreWithoutBacking = await checkpointCall(context.client, workspaceId, {
+    operation: "restore.preflight",
+    checkpointId,
+  });
+  assert.equal(restoreWithoutBacking.isError, true);
+  await assert.rejects(stat(oldRoot), /ENOENT/);
+
+  const repaired = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "workspace.recovery",
+      action: "run",
+      arguments: { operation: "repair" },
+    },
+  });
+  assert.equal(repaired.isError, undefined, allResponseText(repaired));
+  const repairResult = structuredContent(repaired).result as Record<string, unknown>;
+  assert.equal(repairResult.repaired, true);
+  const newRoot = String(repairResult.root);
+  assert.notEqual(newRoot, oldRoot);
+  await assert.rejects(readFile(join(newRoot, "checkpoint-only.txt")), /ENOENT/);
+
+  const preflight = await checkpointCall(context.client, workspaceId, {
+    operation: "restore.preflight",
+    checkpointId,
+  });
+  assert.equal(preflight.isError, undefined, allResponseText(preflight));
+  const currentSnapshot = String((structuredContent(preflight).result as Record<string, unknown>).currentSnapshot);
+  const restored = await checkpointCall(context.client, workspaceId, {
+    operation: "restore",
+    checkpointId,
+    expectedCurrentSnapshot: currentSnapshot,
+  });
+  assert.equal(restored.isError, undefined, allResponseText(restored));
+  assert.equal(
+    normalizeText(await readFile(join(newRoot, "checkpoint-only.txt"), "utf8")),
+    "checkpoint content outside managed branch\n",
+  );
+
+  const closed = await context.client.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId, commitMessage: "TEST: (checkpoint) finalize independent restore" },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+});
+
 test("Workspace idle GC and close preserve checkpoints while Workspace delete removes them", async (t) => {
   const context = await fixture(t, { git: true });
   const opened = await callOpen(context.client, context.project);
@@ -374,6 +563,37 @@ test("Composite workspace.checkpoint requires and scopes through an explicit fil
   const checkpoints = (structuredContent(memberList).result as Record<string, unknown>).checkpoints as Array<Record<string, unknown>>;
   assert.equal(checkpoints.length, 1);
   assert.equal(checkpoints[0]?.name, "member checkpoint");
+  const checkpointId = String(checkpoints[0]?.id);
+
+  await writeFile(join(context.project, "README.md"), "composite member changed\n");
+  const preflight = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      name: "workspace.checkpoint",
+      action: "run",
+      arguments: { operation: "restore.preflight", checkpointId },
+    },
+  });
+  assert.equal(preflight.isError, undefined, allResponseText(preflight));
+  const preflightResult = structuredContent(preflight).result as Record<string, unknown>;
+  const restored = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      member: "code",
+      name: "workspace.checkpoint",
+      action: "run",
+      arguments: {
+        operation: "restore",
+        checkpointId,
+        expectedCurrentSnapshot: preflightResult.currentSnapshot,
+      },
+    },
+  });
+  assert.equal(restored.isError, undefined, allResponseText(restored));
+  assert.equal(normalizeText(await readFile(join(context.project, "README.md"), "utf8")), "hello\n");
 });
 
 async function checkpointCall(
@@ -390,6 +610,10 @@ async function checkpointCall(
       arguments: args,
     },
   });
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\r\n/g, "\n");
 }
 
 async function gitOutput(cwd: string, args: string[]): Promise<string> {

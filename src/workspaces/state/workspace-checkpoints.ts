@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as z from "zod/v4";
@@ -37,6 +37,27 @@ export interface WorkspaceCheckpointListResult {
     hasMore: boolean;
   };
   ignoredFilesIncluded: false;
+}
+
+export interface WorkspaceCheckpointRestorePreflight {
+  workspaceId: string;
+  checkpoint: WorkspaceCheckpoint;
+  checkpointSnapshot: string;
+  currentSnapshot: string;
+  restoreSummary: WorkspaceCheckpointSummary;
+  ignoredFilesIncluded: false;
+  stagingStateRestored: false;
+}
+
+export interface WorkspaceCheckpointRestoreResult {
+  workspaceId: string;
+  checkpointId: string;
+  restored: true;
+  checkpointSnapshot: string;
+  previousSnapshot: string;
+  currentSnapshot: string;
+  ignoredFilesIncluded: false;
+  stagingStateRestored: false;
 }
 
 interface PersistedWorkspaceCheckpointState {
@@ -163,6 +184,87 @@ export class WorkspaceCheckpointStore {
     const checkpoint = requireCheckpoint(state, cpId);
     await assertCheckpointRef(state.gitCommonDir, id, checkpoint);
     return { workspaceId: id, checkpoint: cloneCheckpoint(checkpoint), ignoredFilesIncluded: false };
+  }
+
+  async preflightRestore(
+    workspaceId: string,
+    workspaceRoot: string,
+    checkpointId: string,
+  ): Promise<WorkspaceCheckpointRestorePreflight> {
+    const id = normalizeWorkspaceId(workspaceId);
+    const cpId = normalizeCheckpointId(checkpointId);
+    const repository = await resolveRepository(workspaceRoot);
+    const state = this.requireState(id);
+    await assertSameRepository(state.gitCommonDir, repository.gitCommonDir, id);
+    const checkpoint = requireCheckpoint(state, cpId);
+    await assertCheckpointRef(state.gitCommonDir, id, checkpoint);
+    const [checkpointSnapshot, current] = await Promise.all([
+      checkpointTree(repository.gitRoot, checkpoint.commit),
+      snapshotWorkingTree(repository.gitRoot),
+    ]);
+    const restoreSummary = summarizeNumstat((await git(repository.gitRoot, [
+      "diff",
+      "--numstat",
+      "-z",
+      "--no-renames",
+      current.tree,
+      checkpointSnapshot,
+      "--",
+      ".",
+    ], { maxBuffer: 50 * 1024 * 1024 })).stdout);
+    return {
+      workspaceId: id,
+      checkpoint: cloneCheckpoint(checkpoint),
+      checkpointSnapshot,
+      currentSnapshot: current.tree,
+      restoreSummary,
+      ignoredFilesIncluded: false,
+      stagingStateRestored: false,
+    };
+  }
+
+  async restore(
+    workspaceId: string,
+    workspaceRoot: string,
+    checkpointId: string,
+    expectedCurrentSnapshot: string,
+  ): Promise<WorkspaceCheckpointRestoreResult> {
+    const id = normalizeWorkspaceId(workspaceId);
+    const cpId = normalizeCheckpointId(checkpointId);
+    const expected = normalizeSnapshotId(expectedCurrentSnapshot);
+    return this.runMutation(id, async () => {
+      const repository = await resolveRepository(workspaceRoot);
+      const state = this.requireState(id);
+      await assertSameRepository(state.gitCommonDir, repository.gitCommonDir, id);
+      const checkpoint = requireCheckpoint(state, cpId);
+      await assertCheckpointRef(state.gitCommonDir, id, checkpoint);
+      const checkpointSnapshot = await checkpointTree(repository.gitRoot, checkpoint.commit);
+      const current = await snapshotWorkingTree(repository.gitRoot);
+      assertExpectedCurrentSnapshot(expected, current.tree);
+
+      if (current.tree !== checkpointSnapshot) {
+        await applyTreeRestore(repository.gitRoot, current.tree, checkpointSnapshot, async () => {
+          const immediate = await snapshotWorkingTree(repository.gitRoot);
+          assertExpectedCurrentSnapshot(expected, immediate.tree);
+        });
+      }
+      const restored = await snapshotWorkingTree(repository.gitRoot);
+      if (restored.tree !== checkpointSnapshot) {
+        throw new Error(
+          `Workspace checkpoint restore did not reproduce checkpoint snapshot ${checkpointSnapshot}; current snapshot is ${restored.tree}.`,
+        );
+      }
+      return {
+        workspaceId: id,
+        checkpointId: cpId,
+        restored: true,
+        checkpointSnapshot,
+        previousSnapshot: current.tree,
+        currentSnapshot: restored.tree,
+        ignoredFilesIncluded: false,
+        stagingStateRestored: false,
+      };
+    });
   }
 
   async delete(
@@ -300,6 +402,22 @@ async function resolveRepository(workspaceRoot: string): Promise<{ gitRoot: stri
 async function createWorkingTreeSnapshot(
   gitRoot: string,
 ): Promise<{ commit: string; baseHead: string; summary: WorkspaceCheckpointSummary }> {
+  const snapshot = await snapshotWorkingTree(gitRoot);
+  const commit = (await git(gitRoot, [
+    "commit-tree",
+    snapshot.tree,
+    "-p",
+    snapshot.baseHead,
+    "-m",
+    "ForgeRelay persistent workspace checkpoint",
+  ], { env: checkpointIdentityEnv() })).stdout.trim();
+  const numstat = (await git(gitRoot, ["diff", "--numstat", "-z", snapshot.baseHead, commit], {
+    maxBuffer: 50 * 1024 * 1024,
+  })).stdout;
+  return { commit, baseHead: snapshot.baseHead, summary: summarizeNumstat(numstat) };
+}
+
+async function snapshotWorkingTree(gitRoot: string): Promise<{ tree: string; baseHead: string }> {
   const tempDir = await mkdtemp(join(tmpdir(), "forgerelay-checkpoint-index-"));
   const indexPath = join(tempDir, "index");
   const env = checkpointEnv(indexPath);
@@ -308,18 +426,41 @@ async function createWorkingTreeSnapshot(
     await git(gitRoot, ["add", "-A", "--", "."], { env });
     const tree = (await git(gitRoot, ["write-tree"], { env })).stdout.trim();
     const baseHead = (await git(gitRoot, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim();
-    const commit = (await git(gitRoot, [
-      "commit-tree",
-      tree,
-      "-p",
-      baseHead,
-      "-m",
-      "ForgeRelay persistent workspace checkpoint",
-    ], { env })).stdout.trim();
-    const numstat = (await git(gitRoot, ["diff", "--numstat", "-z", baseHead, commit], {
-      maxBuffer: 50 * 1024 * 1024,
-    })).stdout;
-    return { commit, baseHead, summary: summarizeNumstat(numstat) };
+    return { tree, baseHead };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function checkpointTree(gitRoot: string, checkpointCommit: string): Promise<string> {
+  return (await git(gitRoot, ["rev-parse", "--verify", `${checkpointCommit}^{tree}`])).stdout.trim();
+}
+
+async function applyTreeRestore(
+  gitRoot: string,
+  currentTree: string,
+  checkpointTreeId: string,
+  verifyImmediatelyBeforeApply: () => Promise<void>,
+): Promise<void> {
+  const tempDir = await mkdtemp(join(tmpdir(), "forgerelay-checkpoint-restore-"));
+  const patchPath = join(tempDir, "restore.patch");
+  try {
+    const patch = (await git(gitRoot, [
+      "diff",
+      "--binary",
+      "--full-index",
+      "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
+      currentTree,
+      checkpointTreeId,
+      "--",
+      ".",
+    ], { maxBuffer: 100 * 1024 * 1024 })).stdout;
+    await writeFile(patchPath, patch, { encoding: "utf8", mode: 0o600 });
+    await git(gitRoot, ["apply", "--check", "--binary", "--whitespace=nowarn", patchPath]);
+    await verifyImmediatelyBeforeApply();
+    await git(gitRoot, ["apply", "--binary", "--whitespace=nowarn", patchPath]);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -349,7 +490,13 @@ function parseStatNumber(value: string | undefined): number {
 
 function checkpointEnv(indexPath: string): NodeJS.ProcessEnv {
   return {
+    ...checkpointIdentityEnv(),
     GIT_INDEX_FILE: indexPath,
+  };
+}
+
+function checkpointIdentityEnv(): NodeJS.ProcessEnv {
+  return {
     GIT_AUTHOR_NAME: "ForgeRelay",
     GIT_AUTHOR_EMAIL: "forgerelay@users.noreply.local",
     GIT_COMMITTER_NAME: "ForgeRelay",
@@ -420,6 +567,22 @@ function normalizeCheckpointId(checkpointId: string): string {
   const value = checkpointId.trim();
   if (!/^cp_[a-f0-9]{10}$/.test(value)) throw new Error(`Invalid checkpoint id ${checkpointId}.`);
   return value;
+}
+
+function normalizeSnapshotId(snapshotId: string): string {
+  const value = snapshotId.trim();
+  if (!/^[a-f0-9]{40,64}$/.test(value)) {
+    throw new Error("Workspace checkpoint snapshot identity must be a Git object id.");
+  }
+  return value;
+}
+
+function assertExpectedCurrentSnapshot(expected: string, actual: string): void {
+  if (actual !== expected) {
+    throw new Error(
+      `Workspace checkpoint restore refused because the current working snapshot changed: expected ${expected}, found ${actual}. Run restore.preflight again before retrying.`,
+    );
+  }
 }
 
 function normalizeCheckpointName(name: string): string {

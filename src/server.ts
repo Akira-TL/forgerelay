@@ -230,6 +230,17 @@ export function createMcpServer(
             return { value: await workspaceCheckpoints.list(context.workspaceId, root, input) };
           case "inspect":
             return { value: await workspaceCheckpoints.inspect(context.workspaceId, root, input.checkpointId) };
+          case "restore.preflight":
+            return { value: await workspaceCheckpoints.preflightRestore(context.workspaceId, root, input.checkpointId) };
+          case "restore":
+            return {
+              value: await workspaceCheckpoints.restore(
+                context.workspaceId,
+                root,
+                input.checkpointId,
+                input.expectedCurrentSnapshot,
+              ),
+            };
           case "delete":
             return { value: await workspaceCheckpoints.delete(context.workspaceId, root, input.checkpointId) };
         }

@@ -15,6 +15,15 @@ export type WorkspaceCheckpointCapabilityInput =
       checkpointId: string;
     }
   | {
+      operation: "restore.preflight";
+      checkpointId: string;
+    }
+  | {
+      operation: "restore";
+      checkpointId: string;
+      expectedCurrentSnapshot: string;
+    }
+  | {
       operation: "delete";
       checkpointId: string;
     };
@@ -32,6 +41,15 @@ export const workspaceCheckpointInputSchema = z.discriminatedUnion("operation", 
   z.object({
     operation: z.literal("inspect"),
     checkpointId: z.string().regex(/^cp_[a-f0-9]{10}$/),
+  }).strict(),
+  z.object({
+    operation: z.literal("restore.preflight"),
+    checkpointId: z.string().regex(/^cp_[a-f0-9]{10}$/),
+  }).strict(),
+  z.object({
+    operation: z.literal("restore"),
+    checkpointId: z.string().regex(/^cp_[a-f0-9]{10}$/),
+    expectedCurrentSnapshot: z.string().regex(/^[a-f0-9]{40,64}$/),
   }).strict(),
   z.object({
     operation: z.literal("delete"),
