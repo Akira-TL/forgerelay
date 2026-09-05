@@ -133,8 +133,8 @@ writeFileSync(
     commandShell: {
       mode: "pinned",
       family: defaultShellConfig.commandShellRuntime.family,
-      executable: defaultShellConfig.commandShellRuntime.executable,
-    },
+      executable: process.execPath,
+    }
   }),
 );
 const pinnedShellConfig = loadConfig({
@@ -145,10 +145,7 @@ assert.equal(
   pinnedShellConfig.commandShellRuntime.family,
   defaultShellConfig.commandShellRuntime.family,
 );
-assert.equal(
-  pinnedShellConfig.commandShellRuntime.executable,
-  defaultShellConfig.commandShellRuntime.executable,
-);
+assert.equal(pinnedShellConfig.commandShellRuntime.executable, process.execPath);
 assert.equal(pinnedShellConfig.commandShellRuntime.source, "explicit");
 
 writeFileSync(
