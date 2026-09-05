@@ -35,6 +35,9 @@ try {
     ],
   };
 
+  console.error(`[pwsh-acceptance:baseline-resources] ${JSON.stringify({
+    resources: process.getActiveResourcesInfo?.() ?? [],
+  })}`);
   await exerciseAgentRuntime(runtime);
   await exerciseHookRuntime(runtime);
   await exercisePackagedPowerShellShim(pwsh, version);
