@@ -30,6 +30,13 @@ import {
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { publicEndpointUrl } from "./mcp/oauth/public-url.js";
 import {
+  assertRuntimePrivilegeAllowed,
+  detectRuntimePrivilege,
+  elevatedRuntimeWarning,
+  formatRuntimePrivilege,
+  type RuntimePrivilegeState,
+} from "./runtime/security/runtime-privilege.js";
+import {
   authenticateRemote,
   defaultRemoteAlias,
   isRemoteMcpUnauthorized,
@@ -59,14 +66,21 @@ const require = createRequire(import.meta.url);
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
 
-  const [rawCommand, ...args] = argv;
-  const command = normalizeCommand(rawCommand);
+  const [rawCommand, ...rest] = argv;
+  const defaultServeFlag = rawCommand === "--allow-elevated";
+  const command = defaultServeFlag ? "serve" : normalizeCommand(rawCommand);
+  const args = defaultServeFlag ? argv : rest;
 
   switch (command) {
-    case "serve":
+    case "serve": {
+      const serveOptions = parseServeCommandArgs(args);
+      const runtimePrivilege = detectRuntimePrivilege();
+      assertRuntimePrivilegeAllowed(runtimePrivilege, serveOptions.allowElevated);
+      if (serveOptions.allowElevated) console.warn(elevatedRuntimeWarning(runtimePrivilege));
       await ensureConfigured();
-      await serve();
+      await serve(runtimePrivilege);
       return;
+    }
     case "init":
       await runInit({ force: args.includes("--force") });
       return;
@@ -105,6 +119,23 @@ function normalizeCommand(command: string | undefined): Command {
   throw new Error(`Unknown command: ${command}`);
 }
 
+interface ServeCommandOptions {
+  allowElevated: boolean;
+}
+
+function parseServeCommandArgs(args: string[]): ServeCommandOptions {
+  let allowElevated = false;
+  for (const arg of args) {
+    if (arg === "--allow-elevated") {
+      if (allowElevated) throw new Error("--allow-elevated may only be supplied once.");
+      allowElevated = true;
+      continue;
+    }
+    throw new Error(`Unknown serve option: ${arg}`);
+  }
+  return { allowElevated };
+}
+
 async function ensureConfigured(): Promise<void> {
   const files = loadForgeRelayFiles();
   if (files.configExists && files.authExists) {
@@ -132,7 +163,7 @@ async function ensureConfigured(): Promise<void> {
   await runInit({ force: false });
 }
 
-async function serve(): Promise<void> {
+async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
   const sqliteStatus = checkSqliteNative();
   if (sqliteStatus !== "ok") {
     throw new Error(
@@ -148,6 +179,7 @@ async function serve(): Promise<void> {
 
   const { createServer } = await import("./server.js");
   const config = loadConfig();
+  config.runtimePrivilege = runtimePrivilege;
   const runtimeLease = acquireRuntimeLease(config.stateDir);
   let server: ReturnType<typeof createServer>;
   try {
@@ -168,6 +200,7 @@ async function serve(): Promise<void> {
       console.warn("warning: Host header allowlist is disabled because FORGERELAY_ALLOWED_HOSTS=*");
     }
     console.log("auth: Owner password approval required");
+    console.log(`runtime privilege: ${formatRuntimePrivilege(runtimePrivilege)}`);
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
     if (config.subagents) {
       console.log(`subagent providers: ${formatSubagentProviderAvailabilitySummary(subagentProviders)}`);
@@ -371,6 +404,7 @@ async function runDoctor(): Promise<void> {
   console.log(`Node: ${process.version} (${nodeVersionStatus()})`);
   console.log(`Node ABI: ${process.versions.modules}`);
   console.log(`Platform: ${process.platform} ${process.arch}`);
+  console.log(`Runtime privilege: ${formatRuntimePrivilege(detectRuntimePrivilege())}`);
   console.log(`Git: ${checkGitAvailable()}`);
   console.log(`Bash shell: ${checkBashShell()}`);
   console.log(`SQLite native dependency: ${checkSqliteNative()}`);
@@ -431,6 +465,8 @@ function printHelp(): void {
       "Usage:",
       "  forgerelay                 Run first-time setup if needed, then start the server",
       "  forgerelay serve           Start the server",
+      "  forgerelay serve --allow-elevated",
+      "                            Explicitly allow this invocation to run with elevated/unknown OS privilege",
       "  forgerelay init            Create or update ~/.forgerelay/config.json and auth.json",
       "  forgerelay doctor          Show config, runtime, and native dependency status",
       "  forgerelay config get      Print persisted config",

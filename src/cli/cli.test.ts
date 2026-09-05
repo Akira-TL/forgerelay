@@ -55,6 +55,25 @@ for (const flag of ["-v", "--version"]) {
   assert.equal(output, packageJson.version);
 }
 
+const helpOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", "help"], {
+  encoding: "utf8",
+  env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-help-test" },
+});
+assert.match(helpOutput, /forgerelay serve --allow-elevated/);
+assert.match(helpOutput, /Explicitly allow this invocation/);
+
+const invalidServeOption = spawnSync(
+  "node",
+  ["--import", "tsx", "src/cli.ts", "serve", "--definitely-not-a-serve-option"],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-invalid-serve-option-test" },
+  },
+);
+assert.equal(invalidServeOption.status, 1);
+assert.match(invalidServeOption.stderr, /Unknown serve option: --definitely-not-a-serve-option/);
+
 const doctorRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-doctor-test-"));
 try {
   const configDir = join(doctorRoot, ".forgerelay");
@@ -95,6 +114,7 @@ try {
   );
   assert.match(output, /Client-facing base URL: https:\/\/forge\.example\.com\/base\/path/);
   assert.match(output, /Client-facing MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
+  assert.match(output, /Runtime privilege: (standard|elevated|unknown)/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
   assert.match(output, /Trust proxy: loopback/);

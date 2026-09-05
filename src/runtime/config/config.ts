@@ -13,6 +13,7 @@ import {
   type ForgeRelayUserConfig,
 } from "./user-config.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
+import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -57,6 +58,8 @@ export interface ServerConfig {
   systemInstructionsPath: string;
   hooks: HookConfig;
   logging: LoggingConfig;
+  /** Runtime-only privilege state. Never persisted in config.json. */
+  runtimePrivilege?: RuntimePrivilegeState;
 }
 
 function parsePort(value: string | number | undefined): number {

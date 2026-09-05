@@ -53,6 +53,37 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.doesNotMatch(result, /target branch diverged/);
 });
 
+test("elevated runtime injects a mandatory non-disableable Agent safety notice", () => {
+  const config = loadConfig(baseEnv);
+  config.runtimePrivilege = {
+    level: "elevated",
+    platform: "linux",
+    source: "posix-euid",
+  };
+  config.workflowInstructions = false;
+  config.appendInstructions = undefined;
+
+  const result = buildServerInstructions(config);
+
+  assert.match(result, /Runtime security: ForgeRelay is running with elevated operating-system privileges/);
+  assert.match(result, /Agent and Hook shell commands inherit this authority/);
+  assert.match(result, /system-wide, privileged, security-sensitive, or irreversible mutations/);
+  assert.match(result, /mandatory and is not disabled by shell-guidance settings/);
+});
+
+test("unverified privilege accepted through the explicit override gets the same safety class", () => {
+  const config = loadConfig(baseEnv);
+  config.runtimePrivilege = {
+    level: "unknown",
+    platform: "win32",
+    source: "windows-token",
+    detail: "token inspection unavailable",
+  };
+
+  const result = buildServerInstructions(config);
+  assert.match(result, /unverified operating-system privilege level accepted through --allow-elevated/);
+});
+
 test("minimal and full share the same regular workflow instructions", () => {
   const minimal = instructions({ FORGERELAY_TOOL_MODE: "minimal" });
   const full = instructions({ FORGERELAY_TOOL_MODE: "full" });

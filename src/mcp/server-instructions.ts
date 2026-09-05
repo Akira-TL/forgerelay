@@ -30,6 +30,7 @@ export function buildShellMutationPolicy(): string {
 
 export function buildServerInstructions(config: ServerConfig): string {
   return joinInstructions(
+    runtimePrivilegeInstructions(config),
     capabilityContractInstructions(config),
     selectedWorkflowInstructions(config),
     config.appendInstructions,
@@ -55,6 +56,14 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     shell: `Run or manage a shell process inside an open workspace.${shellSurface} Commands run with the local user's authority; workspace containment does not make shell execution a sandbox. For action=run, yieldTimeMs is the feedback wait (default 10000ms; 0 returns processId) and timeoutMs is the independent execution limit. action=process waits/interacts with processId. For long-running commands or wait-only process calls, set a long yieldTimeMs near the Host deadline (60000ms when supported), not short polling. This wait is a maximum: if the process finishes sooner, the call returns immediately. If still running, reuse processId with another long wait; use short waits only for interaction. Background completions can arrive later. Call ${toolNames.openWorkspace} first with workspaceId. Expose only behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
+}
+
+function runtimePrivilegeInstructions(config: ServerConfig): string {
+  if (!config.runtimePrivilege || config.runtimePrivilege.level === "standard") return "";
+  const status = config.runtimePrivilege.level === "elevated"
+    ? "elevated operating-system privileges"
+    : "an unverified operating-system privilege level accepted through --allow-elevated";
+  return `Runtime security: ForgeRelay is running with ${status}. Agent and Hook shell commands inherit this authority. Do not perform system-wide, privileged, security-sensitive, or irreversible mutations unless the user's current request explicitly authorizes that exact change. This safety notice is mandatory and is not disabled by shell-guidance settings.`;
 }
 
 function capabilityContractInstructions(config: ServerConfig): string {
