@@ -39,42 +39,12 @@ try {
   await exerciseHookRuntime(runtime);
   await exercisePackagedPowerShellShim(pwsh, version);
 
+  console.error(`[pwsh-acceptance:exit-diagnostic] ${JSON.stringify({
+    resources: process.getActiveResourcesInfo?.() ?? [],
+  })}`);
   console.log(`PowerShell 7 acceptance passed with ${pwsh} (${version}).`);
-  armExitDiagnostics();
 } finally {
   await rm(root, { recursive: true, force: true });
-}
-
-function armExitDiagnostics() {
-  const timer = setTimeout(() => {
-    const getActiveHandles = process._getActiveHandles;
-    const handles = typeof getActiveHandles === "function"
-      ? getActiveHandles.call(process).map((handle) => ({
-          type: handle?.constructor?.name ?? typeof handle,
-          ...(Number.isInteger(handle?.pid) ? { pid: handle.pid } : {}),
-          ...(Number.isInteger(handle?.fd) ? { fd: handle.fd } : {}),
-          ...(typeof handle?.destroyed === "boolean" ? { destroyed: handle.destroyed } : {}),
-          ...(typeof handle?.readable === "boolean" ? { readable: handle.readable } : {}),
-          ...(typeof handle?.writable === "boolean" ? { writable: handle.writable } : {}),
-        }))
-      : [];
-    const report = process.report?.getReport?.();
-    const libuv = Array.isArray(report?.libuv)
-      ? report.libuv
-          .filter((entry) => entry?.is_active || entry?.is_referenced)
-          .map((entry) => ({
-            type: entry.type,
-            isActive: entry.is_active,
-            isReferenced: entry.is_referenced,
-          }))
-      : [];
-    console.error(`[pwsh-acceptance:exit-diagnostic] ${JSON.stringify({
-      resources: process.getActiveResourcesInfo?.() ?? [],
-      handles,
-      libuv,
-    })}`);
-  }, 5_000);
-  timer.unref();
 }
 
 function resolvePowerShell7() {
