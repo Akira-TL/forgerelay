@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-05
+
+### Added
+
+- Added a first-class Command Shell Runtime identity with launch-shell/fallback selection, explicit pinned shell executable support, owner-visible diagnostics, and one shared shell contract for Agent commands and Hooks.
+- Added editable ForgeRelay shell Instructions for PowerShell 7, Windows PowerShell 5.1, cmd, zsh, and fish. `forgerelay init` seeds exact-release-tag templates into the user config directory, preserves user edits, and projects loaded/disabled/unavailable state through the existing Workspace Instructions UI and context-delta path.
+
+### Security
+
+- ForgeRelay now refuses elevated root/Administrator/SYSTEM-equivalent runtime authority by default across supported platforms. Intentional elevated startup requires the invocation-scoped `--allow-elevated` acknowledgement and always exposes a mandatory Agent safety notice.
+
 ## [0.9.4] - 2026-09-04
 
 ### Added
