@@ -635,7 +635,7 @@ export class ProcessManager {
     processEntry.process = {
       write: (data) => pty.write(data),
       kill: (signal = "SIGTERM") => process.platform === "win32"
-        ? terminateProcessTree({ pid: pty.pid, kill: (fallbackSignal) => { pty.kill(fallbackSignal); return true; } }, signal, false)
+        ? terminateProcessTree({ pid: pty.pid, kill: () => { pty.kill(); return true; } }, signal, false)
         : pty.kill(signal),
       resize: (columns, rows) => pty.resize(columns, rows),
     };
