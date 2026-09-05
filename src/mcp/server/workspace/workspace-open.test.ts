@@ -260,7 +260,7 @@ test("disabled config-owned shell Instructions remain visible and App-readable w
   });
   assert.equal(detail.isError, undefined, allResponseText(detail));
   assert.deepEqual(structuredContent(detail), {
-    path: shellPath,
+    path: shellInstruction.path,
     content: "disabled shell guidance\n",
     status: "disabled",
   });
