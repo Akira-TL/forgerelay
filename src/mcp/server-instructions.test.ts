@@ -54,10 +54,13 @@ test("default instructions keep a compact core capability contract and built-in 
 });
 
 test("non-Bash command shell identity is mandatory even without optional workflow guidance", () => {
-  const config = loadConfig({
-    ...baseEnv,
-    FORGERELAY_COMMAND_SHELL: "/bin/zsh",
-  });
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "zsh",
+    executable: "test-zsh",
+    source: "explicit",
+    capabilities: ["zsh", "profile-isolation", "posix-command-language"],
+  };
   config.workflowInstructions = false;
   config.appendInstructions = undefined;
   config.shellInstructionsEnabled = false;
@@ -65,7 +68,7 @@ test("non-Bash command shell identity is mandatory even without optional workflo
   const result = buildServerInstructions(config);
 
   assert.match(result, /Command shell runtime: zsh/);
-  assert.match(result, /Executable: \/bin\/zsh/);
+  assert.match(result, /Executable: test-zsh/);
   assert.match(result, /Selection source: explicit/);
   assert.match(result, /rather than assuming Bash syntax/);
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import { loadConfig } from "./config.js";
 import { forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
 
@@ -116,8 +117,12 @@ assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
-assert.equal(loadConfig(baseEnv).shellInstructionsEnabled, true);
-assert.equal(loadConfig(baseEnv).shellInstructionPath, undefined);
+const defaultShellConfig = loadConfig(baseEnv);
+assert.equal(defaultShellConfig.shellInstructionsEnabled, true);
+assert.equal(
+  defaultShellConfig.shellInstructionPath,
+  shellInstructionPath(emptyConfigDir, defaultShellConfig.commandShellRuntime.family),
+);
 assert.equal(loadConfig(baseEnv).stateDir, join(homedir(), ".local", "share", "forgerelay"));
 assert.equal(loadConfig(baseEnv).worktreeRoot, join(homedir(), ".forgerelay", "worktrees"));
 
