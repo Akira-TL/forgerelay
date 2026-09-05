@@ -36,6 +36,7 @@ import {
   formatRuntimePrivilege,
   type RuntimePrivilegeState,
 } from "./runtime/security/runtime-privilege.js";
+import { formatCommandShellRuntime } from "./runtime/shell/command-shell-runtime.js";
 import {
   authenticateRemote,
   defaultRemoteAlias,
@@ -200,6 +201,7 @@ async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
       console.warn("warning: Host header allowlist is disabled because FORGERELAY_ALLOWED_HOSTS=*");
     }
     console.log("auth: Owner password approval required");
+    console.log(`command shell: ${formatCommandShellRuntime(config.commandShellRuntime)}`);
     console.log(`runtime privilege: ${formatRuntimePrivilege(runtimePrivilege)}`);
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
     if (config.subagents) {
@@ -417,6 +419,7 @@ async function runDoctor(): Promise<void> {
     console.log(`Client-facing base URLs: ${config.publicBaseUrls.join(", ")}`);
     console.log(`Client-facing base URL: ${config.publicBaseUrl}`);
     console.log(`Client-facing MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
+    console.log(`Command shell: ${formatCommandShellRuntime(config.commandShellRuntime)}`);
     console.log(`Tool mode: ${config.toolMode}`);
     console.log(`Widgets: ${config.widgets}`);
     console.log(`Trust proxy: ${config.proxyTrust === false ? "off" : config.proxyTrust.join(", ")}`);
