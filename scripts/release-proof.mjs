@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 
 const PROOF_VERSION = 1;
 const PROOF_RELATIVE_PATH = join("forgerelay", "release-proof.json");
+const DEFAULT_NPM_REGISTRY_URL = "https://registry.npmjs.org/";
+const DEFAULT_GITHUB_API_URL = "https://api.github.com/";
 
 function fail(message) {
   console.error(`Release proof failed: ${message}`);
@@ -21,12 +23,16 @@ function git(args, options = {}) {
   }).trim();
 }
 
-function packageVersion() {
+function packageMetadata() {
   const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
   if (typeof pkg.version !== "string" || !pkg.version) {
     throw new Error("package.json must contain a version string");
   }
-  return pkg.version;
+  return pkg;
+}
+
+function packageVersion() {
+  return packageMetadata().version;
 }
 
 function requireDedicatedReleaseNotes(version) {
@@ -132,21 +138,81 @@ function hookTag() {
     || /(?:^|\s)\+(?:refs\/tags\/)?v\d+\.\d+\.\d+(?:-rc\.\d+)?(?=$|\s)/.test(pushCommand)) {
     throw new Error("force push is not allowed for release tags");
   }
-  if (/(?:^|\s)(?:-d|--delete)(?=$|\s)/.test(pushCommand)) {
-    throw new Error("deleting a release tag is not allowed");
-  }
+  const deleting = /(?:^|\s)(?:-d|--delete)(?=$|\s)/.test(pushCommand);
   const tagMatch = /(?:^|\s)(?:tag\s+)?(?:refs\/tags\/)?(v\d+\.\d+\.\d+(?:-rc\.\d+)?)(?=$|\s)/.exec(pushCommand);
   if (!tagMatch?.[1]) {
     throw new Error("release Hook payload does not contain a release tag push");
   }
-  return tagMatch[1];
+  return { tag: tagMatch[1], deleting };
 }
 
-function checkHookTag() {
+function githubRepositorySlug(repository) {
+  const raw = typeof repository === "string" ? repository : repository?.url;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("package.json must contain a GitHub repository URL before rebuilding a release tag");
+  }
+  const normalized = raw.trim().replace(/^git\+/, "").replace(/\.git$/, "");
+  const match = /github\.com(?::|\/)([^/\s]+\/[^/\s]+)$/.exec(normalized);
+  if (!match?.[1]) {
+    throw new Error(`unable to determine GitHub repository from package.json repository URL: ${raw}`);
+  }
+  return match[1];
+}
+
+function testEndpoint(name, fallback) {
+  if (process.env.NODE_ENV === "test" && process.env[name]) return process.env[name];
+  return fallback;
+}
+
+async function artifactExists(label, url, headers = {}) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`unable to verify ${label} before deleting the release tag: ${detail}`);
+  }
+  if (response.status === 404) return false;
+  if (response.ok) return true;
+  throw new Error(`unable to verify ${label} before deleting the release tag: HTTP ${response.status}`);
+}
+
+async function assertReleaseTagMutable(tag, version) {
+  const pkg = packageMetadata();
+  if (typeof pkg.name !== "string" || !pkg.name) {
+    throw new Error("package.json must contain a package name before rebuilding a release tag");
+  }
+  const repository = githubRepositorySlug(pkg.repository);
+  const npmBase = testEndpoint("FORGERELAY_TEST_NPM_REGISTRY_URL", DEFAULT_NPM_REGISTRY_URL);
+  const githubBase = testEndpoint("FORGERELAY_TEST_GITHUB_API_URL", DEFAULT_GITHUB_API_URL);
+  const npmUrl = new URL(`${encodeURIComponent(pkg.name)}/${encodeURIComponent(version)}`, npmBase).toString();
+  const githubUrl = new URL(
+    `repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
+    githubBase,
+  ).toString();
+  const [npmPublished, githubReleased] = await Promise.all([
+    artifactExists(`npm package ${pkg.name}@${version}`, npmUrl),
+    artifactExists(`GitHub Release ${tag}`, githubUrl, {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "ForgeRelay-release-tag-gate",
+    }),
+  ]);
+  if (npmPublished) {
+    throw new Error(`npm package ${pkg.name}@${version} already exists; release tag ${tag} is immutable`);
+  }
+  if (githubReleased) {
+    throw new Error(`GitHub Release ${tag} already exists; release tag ${tag} is immutable`);
+  }
+}
+
+async function checkHookTag() {
   assertReleaseTreeClean("pushing a release tag");
   const head = currentHead();
   const version = packageVersion();
-  const tag = hookTag();
+  const { tag, deleting } = hookTag();
   const expectedTag = `v${version}`;
 
   if (tag !== expectedTag) {
@@ -160,6 +226,16 @@ function checkHookTag() {
   } catch {
     throw new Error(`local tag ${tag} does not exist or does not resolve to a commit`);
   }
+
+  if (deleting) {
+    checkProof();
+    await assertReleaseTagMutable(tag, version);
+    console.log(
+      `Release tag rebuild gate OK: ${tag}; npm package and GitHub Release are absent, so the existing tag may be deleted and rebuilt.`,
+    );
+    return;
+  }
+
   if (tagHead !== head) {
     throw new Error(`tag ${tag} points to ${tagHead.slice(0, 12)}, but current HEAD is ${head.slice(0, 12)}`);
   }
@@ -171,7 +247,7 @@ const action = process.argv[2];
 try {
   if (action === "write") writeProof();
   else if (action === "check") checkProof();
-  else if (action === "check-hook") checkHookTag();
+  else if (action === "check-hook") await checkHookTag();
   else throw new Error("usage: node scripts/release-proof.mjs <write|check|check-hook>");
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));

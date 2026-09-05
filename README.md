@@ -222,7 +222,7 @@ Hook 是 ForgeRelay 的自动生命周期规则。首选方式是一个 Hook 一
 }
 ```
 
-命中 `BeforeTool` 后，Hook 只快速验证 clean working tree（含 untracked）、tag 与 package version 一致，以及本地 tag 指向当前 HEAD；成功才继续原始 `git push`，失败则直接阻断。Hook 不运行、也不要求本地 CI。tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后才进入发布。`npm run release:verify` 仅作为可选的本地云端复现工具。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
+命中 `BeforeTool` 后，普通 tag push 的 Hook 只快速验证 clean working tree（含 untracked）、tag 与 package version 一致，以及本地 tag 指向当前 HEAD；成功才继续原始 `git push`，失败则直接阻断。force release-tag push 始终拒绝。对于失败发布后显式执行的 `git push --delete origin vX.Y.Z`，Hook 仅在当前 HEAD 有有效 `release:verify` proof，且联网确认 npm 对应版本与 GitHub Release 都不存在时允许删除；任一不可撤回产物存在或远端状态无法确认都会拒绝。因此仅有 tag 时可以重建同版本，一旦 GitHub Release 或包仓库版本存在就进入不可变状态。tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后才进入发布。Hook 结果会回到 Agent，Agent 应向用户说明重要 Hook 是否通过或阻断了操作。`report:false` 可以隐藏不重要的成功报告，但阻断失败始终可见。
 
 旧的 inline `hooks` 和聚合 `hooks.json` 仍兼容；新配置建议都用独立 `hooks/*.json` 文件。
 

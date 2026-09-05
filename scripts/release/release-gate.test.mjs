@@ -21,6 +21,7 @@ test("release tag Hook is a fast repository-state gate for common origin tag pus
     "git push origin v1.2.3",
     "git push --atomic origin v1.2.3",
     "git push origin refs/tags/v1.2.3",
+    "git push --delete origin v1.2.3",
     "git status && git push origin tag v1.2.3 && echo done",
   ]) {
     assert.match(command, matcher);

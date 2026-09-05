@@ -547,7 +547,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 }
 ```
 
-这个例子可以保存为 `.forgerelay/hooks/release-tag-gate.json`。Agent 通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 只执行轻量仓库状态门禁：拒绝 force/delete 形式，校验 clean working tree（含 untracked）、tag 与 package version 一致，并要求本地 tag 指向当前 HEAD。Hook 不运行、也不要求本地 CI；tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后发布 job 才会继续。`npm run release:verify` 仅用于需要时本地复现云端环境。
+这个例子可以保存为 `.forgerelay/hooks/release-tag-gate.json`。Agent 通过 ForgeRelay `bash` 请求推送稳定版本 tag 时，Hook 默认只执行轻量仓库状态门禁：拒绝 force 形式，校验 clean working tree（含 untracked）、tag 与 package version 一致，并要求本地 tag 指向当前 HEAD。若显式使用 `git push --delete origin vX.Y.Z` 重建一个失败发布的同版本 tag，Hook 还要求当前 HEAD 已有有效的 `release:verify` proof，并联网确认对应 npm 包版本和 GitHub Release 都不存在；任一产物存在、网络状态无法确认或返回非预期 HTTP 状态都会拒绝删除。因此仅有可撤回 tag 时允许重建，一旦出现 GitHub Release 或包仓库版本就进入不可变状态。普通 tag push 的 Hook 不运行、也不要求本地 CI；tag 推送后由 GitHub Actions 的 Linux/macOS/Windows 矩阵执行权威验证，全部通过后发布 job 才会继续。`npm run release:verify` 主要用于本地复现云端环境，也是安全重建失败 tag 前的必要 proof。
 
 独立 Hook 文件支持这些顶层字段：
 
