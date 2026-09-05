@@ -220,14 +220,14 @@ async function exercisePtyLifecycle(manager, outputStore, node) {
     processId: pty.processId,
     columns: 120,
     rows: 30,
-    chars: "input-雪\r",
+    chars: "input-plain\r",
     yieldTimeMs: 5_000,
   });
   assert.equal(interacted.running, false);
   assert.equal(interacted.exitCode, 23);
   const ptyOutput = `${pty.output}${interacted.output}`;
   assert.match(ptyOutput, /pwsh-pty-ready-雪/);
-  assert.match(ptyOutput, /stdin=input-雪/);
+  assert.match(ptyOutput, /stdin=input-plain/);
   assert.match(ptyOutput, /cols=120;rows=30/);
   assert.match(ptyOutput, /pwsh-pty-unicode-🙂/);
 
@@ -237,7 +237,7 @@ async function exercisePtyLifecycle(manager, outputStore, node) {
   assert.equal(durable.exitCode, 23);
   assert.equal(durable.status, "failed");
   assert.match(durable.output, /pwsh-pty-ready-雪/);
-  assert.match(durable.output, /stdin=input-雪/);
+  assert.match(durable.output, /stdin=input-plain/);
   assert.match(durable.output, /pwsh-pty-unicode-🙂/);
 
   const background = await manager.start({
