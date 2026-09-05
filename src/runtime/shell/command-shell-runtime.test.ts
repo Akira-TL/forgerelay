@@ -7,6 +7,7 @@ import {
   inferCommandShellFamily,
   resolveCommandShellRuntime,
   resolveCompatibilityCommandShellRuntime,
+  resolveConfiguredCommandShellRuntime,
 } from "./command-shell-runtime.js";
 
 test("command shell precedence is explicit > launcher > recorded fallback", () => {
@@ -92,6 +93,41 @@ test("launcher detection classifies the observable parent shell and resolves PAT
     parentExecutable: () => "/bin/zsh",
   });
   assert.deepEqual(detected, { family: "zsh", executable: "/bin/zsh" });
+});
+
+test("configured pinned shell outranks launcher detection and keeps the recorded executable", () => {
+  const runtime = resolveConfiguredCommandShellRuntime({
+    mode: "pinned",
+    family: "bash",
+    executable: "/bin/bash",
+  }, "linux", { PATH: "/bin:/usr/bin" });
+  assert.equal(runtime.family, "bash");
+  assert.equal(runtime.executable, "/bin/bash");
+  assert.equal(runtime.source, "explicit");
+});
+
+test("follow-launcher falls back to the recorded shell when npm hides its wrapper launcher", () => {
+  const runtime = resolveConfiguredCommandShellRuntime({
+    mode: "follow-launcher",
+    family: "bash",
+    executable: "/bin/bash",
+  }, "linux", {
+    PATH: "/bin:/usr/bin",
+    npm_lifecycle_event: "start",
+  });
+  assert.equal(runtime.family, "bash");
+  assert.equal(runtime.source, "recorded");
+});
+
+test("unavailable pinned shell fails instead of changing command language", () => {
+  assert.throws(
+    () => resolveConfiguredCommandShellRuntime({
+      mode: "pinned",
+      family: "zsh",
+      executable: "/definitely/missing/forgerelay-zsh",
+    }, "linux", { PATH: "/bin:/usr/bin" }),
+    /Configured command-shell executable is unavailable/,
+  );
 });
 
 test("compatibility runtime preserves the current Bash and cmd defaults", () => {

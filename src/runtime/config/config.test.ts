@@ -118,6 +118,32 @@ assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
 assert.equal(loadConfig(baseEnv).stateDir, join(homedir(), ".local", "share", "forgerelay"));
 assert.equal(loadConfig(baseEnv).worktreeRoot, join(homedir(), ".forgerelay", "worktrees"));
+
+const commandShellConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-command-shell-config-test-"));
+writeFileSync(
+  join(commandShellConfigDir, "config.json"),
+  JSON.stringify({
+    commandShell: { mode: "pinned", family: "bash", executable: "/bin/bash" },
+  }),
+);
+const pinnedShellConfig = loadConfig({
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: commandShellConfigDir,
+});
+assert.equal(pinnedShellConfig.commandShellRuntime.family, "bash");
+assert.equal(pinnedShellConfig.commandShellRuntime.executable, "/bin/bash");
+assert.equal(pinnedShellConfig.commandShellRuntime.source, "explicit");
+
+writeFileSync(
+  join(commandShellConfigDir, "config.json"),
+  JSON.stringify({
+    commandShell: { mode: "pinned", family: "zsh", executable: "/definitely/missing/forgerelay-zsh" },
+  }),
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, FORGERELAY_CONFIG_DIR: commandShellConfigDir }),
+  /Configured command-shell executable is unavailable/,
+);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "0" }).taskReminderInterval, 0);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "45" }).taskReminderInterval, 45);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_ARTIFACTS: "1" }).artifactsEnabled, true);

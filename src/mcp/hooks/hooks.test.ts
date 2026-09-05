@@ -117,6 +117,34 @@ test("tool and command matchers run only for matching operations and expose the 
   });
 });
 
+test("HookRunner uses the same fixed command-shell runtime as Agent commands", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-shell-runtime-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const marker = join(root, "shell.txt");
+  const runner = new HookRunner(
+    parseHookConfig({
+      AfterTool: [{ handlers: [{ command: `printf '%s' "$0" > ${JSON.stringify(marker)}` }] }],
+    }),
+    silentLogging,
+    process.env,
+    undefined,
+    {
+      family: "sh",
+      executable: "/bin/sh",
+      source: "explicit",
+      capabilities: ["posix-sh", "posix-command-language"],
+    },
+  );
+
+  await runner.run("AfterTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: root,
+    workspaceMode: "checkout",
+    payload: { tool: "bash" },
+  });
+  assert.equal(await readFile(marker, "utf8"), "/bin/sh");
+});
+
 test("project hook files load by filename and report that filename as the hook name", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));

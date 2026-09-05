@@ -15,7 +15,7 @@ import {
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
 import {
-  resolveCompatibilityCommandShellRuntime,
+  resolveConfiguredCommandShellRuntime,
   type CommandShellRuntime,
 } from "../shell/command-shell-runtime.js";
 
@@ -472,7 +472,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       files.hookFiles,
     ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
-    commandShellRuntime: resolveCompatibilityCommandShellRuntime(process.platform, env),
+    commandShellRuntime: resolveConfiguredCommandShellRuntime(files.config.commandShell, process.platform, env),
   };
 }
 

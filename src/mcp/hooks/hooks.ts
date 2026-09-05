@@ -4,7 +4,12 @@ import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "../../workspaces/state/workspace-store.js";
 import type { LoggingConfig } from "../../runtime/logging/logger.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../runtime/logging/logger.js";
-import { resolveShellCommand } from "../process/process-platform.js";
+import {
+  resolveCompatibilityCommandShellRuntime,
+  snapshotCommandShellRuntime,
+  type CommandShellRuntime,
+} from "../../runtime/shell/command-shell-runtime.js";
+import { resolveShellCommandForRuntime } from "../process/process-platform.js";
 import { executeHookCommand, hookFailureOutput } from "./command-runner.js";
 
 
@@ -317,12 +322,19 @@ function formatHookReports(executions: HookExecutionReport[]): string {
 }
 
 export class HookRunner {
+  private readonly commandShellRuntime: CommandShellRuntime;
+
   constructor(
     private readonly hooks: HookConfig,
     private readonly logging: LoggingConfig,
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
     private readonly resultDecorator?: (workspaceId: string, result: unknown) => unknown,
-  ) {}
+    commandShellRuntime?: CommandShellRuntime,
+  ) {
+    this.commandShellRuntime = snapshotCommandShellRuntime(
+      commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
+    );
+  }
 
   decorateResult<T>(workspaceId: string, result: T): T {
     return (this.resultDecorator?.(workspaceId, result) ?? result) as T;
@@ -394,7 +406,7 @@ export class HookRunner {
   ): Promise<HookExecutionReport> {
     const startedAt = performance.now();
     const name = handler.name ?? `${event} handler ${index + 1}`;
-    const shell = resolveShellCommand(handler.command, process.platform, this.baseEnv);
+    const shell = resolveShellCommandForRuntime(handler.command, this.commandShellRuntime);
     const detached = process.platform !== "win32";
     const env = hookEnvironment(this.baseEnv, event, invocation);
 

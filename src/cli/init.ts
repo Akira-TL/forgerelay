@@ -3,6 +3,11 @@ import * as prompts from "@clack/prompts";
 import { publicEndpointUrl } from "../mcp/oauth/public-url.js";
 import { expandHomePath } from "../mcp/filesystem/roots.js";
 import {
+  detectLauncherCommandShell,
+  type CommandShellFamily,
+  type CommandShellPreference,
+} from "../runtime/shell/command-shell-runtime.js";
+import {
   installManagedLanguageServers,
   installedManagedLanguageServers,
   managedLanguageServerOptions,
@@ -31,6 +36,17 @@ import {
   validatePort,
   type SetupNetworkMode,
 } from "./setup-support.js";
+import {
+  commandShellCompatibilityWarning,
+  commandShellSetupOptions,
+  customPinnedPreference,
+  defaultCommandShellSetupChoice,
+  followLauncherPreference,
+  pinnedFamilyPreference,
+  preservePinnedPreference,
+  shellFamiliesForCustomSelection,
+  type CommandShellSetupChoice,
+} from "./shell/setup.js";
 
 export async function runInit({ force }: { force: boolean }): Promise<void> {
   const files = loadForgeRelayFiles();
@@ -153,6 +169,40 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       publicBaseUrl = compactPublicBaseUrlConfig(clientFacingBaseUrls);
     }
 
+    const launcherShell = detectLauncherCommandShell();
+    const selectedShellChoice = await prompts.select({
+      message: "Which command shell should Agent commands and Hooks use?",
+      initialValue: defaultCommandShellSetupChoice(files.config.commandShell),
+      options: commandShellSetupOptions(process.platform, files.config.commandShell, launcherShell),
+    });
+    if (prompts.isCancel(selectedShellChoice)) throw new SetupCancelledError();
+
+    let commandShell: CommandShellPreference;
+    const shellChoice = selectedShellChoice as CommandShellSetupChoice;
+    if (shellChoice === "follow-launcher") {
+      commandShell = followLauncherPreference(files.config.commandShell, launcherShell);
+    } else if (shellChoice === "keep-pinned") {
+      commandShell = preservePinnedPreference(files.config.commandShell);
+    } else if (shellChoice === "custom") {
+      const customFamily = await prompts.select({
+        message: "Which command language does the custom executable implement?",
+        options: shellFamiliesForCustomSelection(),
+      });
+      if (prompts.isCancel(customFamily)) throw new SetupCancelledError();
+      const executable = await textPrompt({
+        message: "What is the command-shell executable path?",
+        placeholder: process.platform === "win32" ? "D:\\Portable\\PowerShell\\pwsh.exe" : "/opt/custom/bin/zsh",
+        defaultValue: "",
+        validate: (value) => value?.trim() ? undefined : "Enter an executable path.",
+      });
+      commandShell = customPinnedPreference(customFamily as CommandShellFamily, executable);
+    } else {
+      commandShell = pinnedFamilyPreference(shellChoice);
+    }
+
+    const shellWarning = commandShellCompatibilityWarning(commandShell.family);
+    if (shellWarning) prompts.note(shellWarning, "Command shell compatibility");
+
     const installedManaged = installedManagedLanguageServers(files.dir);
     const selectedManaged = await prompts.multiselect({
       message: "Which Language Servers should ForgeRelay manage with npm?",
@@ -188,6 +238,7 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
     }
 
     const config: ForgeRelayUserConfig = {
+      ...files.config,
       host,
       port,
       allowedRoots,
@@ -196,6 +247,7 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       trustedProxies,
       workflowInstructions: files.config.workflowInstructions,
       appendInstructions: files.config.appendInstructions,
+      commandShell,
       subagents: resolveSubagentsFlag(files.config),
       languageServers: files.config.languageServers,
       allowAgentLanguageServerInstall,
@@ -212,6 +264,7 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       `Config: ${configPath}`,
       `Auth: ${authPath}`,
       `Bind: http://${config.host}:${config.port}`,
+      `Command shell: ${commandShell.mode} ${commandShell.family} (${commandShell.executable})`,
       ...clientFacingBaseUrls.map((baseUrl, index) =>
         `${index === 0 ? "Client-facing MCP URL" : "Client-facing MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
       ),

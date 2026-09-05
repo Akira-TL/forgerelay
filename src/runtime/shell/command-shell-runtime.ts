@@ -24,6 +24,12 @@ export interface CommandShellSelection {
   capabilities?: string[];
 }
 
+export interface CommandShellPreference {
+  mode: "follow-launcher" | "pinned";
+  family: CommandShellFamily;
+  executable: string;
+}
+
 export interface CommandShellRuntime {
   family: CommandShellFamily;
   executable: string;
@@ -73,6 +79,29 @@ export function resolveCommandShellRuntime(
  * strict precedence resolver above: new configuration should call
  * resolveCommandShellRuntime instead of inventing another fallback.
  */
+export function resolveConfiguredCommandShellRuntime(
+  preference: CommandShellPreference | undefined,
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+): CommandShellRuntime {
+  const legacyExplicit = environment.FORGERELAY_COMMAND_SHELL?.trim();
+  if (legacyExplicit) {
+    const explicit = normalizeCommandShellSelection({ executable: legacyExplicit }, platform, environment, true);
+    return resolveCommandShellRuntime({ explicit });
+  }
+  if (!preference) return resolveCompatibilityCommandShellRuntime(platform, environment);
+
+  if (preference.mode === "pinned") {
+    const explicit = normalizeCommandShellSelection(preference, platform, environment, true);
+    return resolveCommandShellRuntime({ explicit });
+  }
+
+  const launcher = detectLauncherCommandShell({ platform, environment });
+  if (launcher) return resolveCommandShellRuntime({ launcher });
+  const recordedFallback = normalizeCommandShellSelection(preference, platform, environment, true);
+  return resolveCommandShellRuntime({ recordedFallback });
+}
+
 export function resolveCompatibilityCommandShellRuntime(
   platform: NodeJS.Platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
@@ -127,6 +156,38 @@ export function detectLauncherCommandShell(
     family,
     executable: resolveExecutablePath(parentExecutable, platform, environment),
   };
+}
+
+export function normalizeCommandShellSelection(
+  selection: CommandShellSelection,
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+  requireAvailable = false,
+): CommandShellSelection {
+  const executable = resolveExecutablePath(selection.executable, platform, environment);
+  if (requireAvailable && !executableExists(executable, platform, environment)) {
+    throw new Error(
+      `Configured command-shell executable is unavailable: ${selection.executable}. Choose an installed shell or update the explicit executable path.`,
+    );
+  }
+  return { ...selection, executable };
+}
+
+export function defaultCommandShellSelection(
+  family: CommandShellFamily,
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+): CommandShellSelection {
+  const candidate = family === "bash" && platform !== "win32"
+    ? "/bin/bash"
+    : family === "sh" && platform !== "win32"
+      ? "/bin/sh"
+      : family === "cmd"
+        ? environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe"
+        : family === "powershell"
+          ? "powershell.exe"
+          : family;
+  return normalizeCommandShellSelection({ family, executable: candidate }, platform, environment);
 }
 
 export function inferCommandShellFamily(executable: string): CommandShellFamily | undefined {
@@ -205,6 +266,15 @@ function defaultCapabilities(family: CommandShellFamily): string[] {
 function executableBasename(executable: string): string {
   const normalized = executable.trim().replace(/^"|"$/g, "");
   return win32.basename(normalized.replaceAll("/", "\\"));
+}
+
+function executableExists(
+  executable: string,
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  if (existsSync(executable)) return true;
+  return resolveExecutablePath(executable, platform, environment) !== executable;
 }
 
 function resolveExecutablePath(
