@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ProcessAuditContext, ProcessOutputAuditSink, ProcessOutputChannel } from "../../activity/runtime/process-output-audit.js";
-import { resolveShellCommandForRuntime, terminateProcessTree } from "./process-platform.js";
+import { resolveShellCommandForRuntime, terminateProcessTree, terminatePtyProcessTree } from "./process-platform.js";
 import { resolveCompatibilityCommandShellRuntime, snapshotCommandShellRuntime, type CommandShellRuntime } from "../../runtime/shell/command-shell-runtime.js";
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -634,9 +634,7 @@ export class ProcessManager {
     });
     processEntry.process = {
       write: (data) => pty.write(data),
-      kill: (signal = "SIGTERM") => process.platform === "win32"
-        ? terminateProcessTree({ pid: pty.pid, kill: () => { pty.kill(); return true; } }, signal, false)
-        : pty.kill(signal),
+      kill: (signal = "SIGTERM") => terminatePtyProcessTree(pty, signal),
       resize: (columns, rows) => pty.resize(columns, rows),
     };
     pty.onData((data) => this.append(processEntry, "pty", data));

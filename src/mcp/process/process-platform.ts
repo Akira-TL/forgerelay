@@ -15,6 +15,11 @@ export interface KillableProcess {
   kill(signal?: NodeJS.Signals): boolean;
 }
 
+export interface KillablePtyProcess {
+  pid: number;
+  kill(signal?: string): void;
+}
+
 interface ProcessTreeRuntime {
   platform: NodeJS.Platform;
   killGroup(pid: number, signal: NodeJS.Signals): void;
@@ -106,4 +111,22 @@ export function terminateProcessTree(
   }
 
   child.kill(signal);
+}
+
+export function terminatePtyProcessTree(
+  pty: KillablePtyProcess,
+  signal: NodeJS.Signals,
+  runtime: ProcessTreeRuntime = defaultProcessTreeRuntime,
+): void {
+  if (runtime.platform === "win32") {
+    runtime.killWindowsTree(pty.pid);
+    try {
+      pty.kill();
+    } catch {
+      // The PTY may already have completed after tree termination.
+    }
+    return;
+  }
+
+  pty.kill(signal);
 }

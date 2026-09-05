@@ -3,6 +3,7 @@ import {
   resolveShellCommand,
   resolveShellCommandForRuntime,
   terminateProcessTree,
+  terminatePtyProcessTree,
 } from "./process-platform.js";
 
 assert.deepEqual(resolveShellCommand("echo ok", "win32", { ComSpec: "C:\\Windows\\cmd.exe" }), {
@@ -94,6 +95,30 @@ terminateProcessTree(
   },
 );
 assert.deepEqual(windowsCalls, ["tree:42"]);
+
+const windowsPtyCalls: string[] = [];
+terminatePtyProcessTree(
+  { pid: 45, kill: (signal) => windowsPtyCalls.push(`pty:${signal ?? "default"}`) },
+  "SIGINT",
+  {
+    platform: "win32",
+    killGroup: () => undefined,
+    killWindowsTree: (pid) => (windowsPtyCalls.push(`tree:${pid}`), true),
+  },
+);
+assert.deepEqual(windowsPtyCalls, ["tree:45", "pty:default"]);
+
+const posixPtyCalls: string[] = [];
+terminatePtyProcessTree(
+  { pid: 46, kill: (signal) => posixPtyCalls.push(`pty:${signal ?? "default"}`) },
+  "SIGINT",
+  {
+    platform: "darwin",
+    killGroup: () => undefined,
+    killWindowsTree: () => false,
+  },
+);
+assert.deepEqual(posixPtyCalls, ["pty:SIGINT"]);
 
 const posixCalls: string[] = [];
 terminateProcessTree(
