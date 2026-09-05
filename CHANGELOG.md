@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-05
+
+### Added
+
+- Added native PowerShell 7 (`pwsh`) execution for Agent commands, Hooks, and PTY sessions with one versioned Command Shell Runtime, no-profile invocation, PowerShell-native command semantics, and Windows packaged-shim acceptance in cloud CI.
+- Added an exact-release-tag PowerShell guidance Skill seeded into the ForgeRelay config Skills directory without bundling prompt templates into the npm package or overwriting user edits.
+
 ## [0.10.0] - 2026-09-05
 
 ### Added
