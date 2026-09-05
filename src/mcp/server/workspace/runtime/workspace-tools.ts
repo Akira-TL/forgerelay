@@ -94,7 +94,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       outputSchema: {
         path: z.string(),
         content: z.string(),
-        status: z.enum(["loaded", "available"]),
+        status: z.enum(["loaded", "available", "disabled"]),
       },
       _meta: { ui: { visibility: ["app"] } },
       annotations: {

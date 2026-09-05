@@ -80,6 +80,10 @@ export interface ToolResultCard {
   availableAgentsFiles?: Array<{
     path?: string;
   }>;
+  workspaceInstructions?: Array<{
+    path?: string;
+    status?: "loaded" | "available" | "disabled" | "unavailable";
+  }>;
   skills?: Array<{
     name?: string;
     description?: string;
@@ -195,6 +199,7 @@ export function isExpandableCard(card: ToolResultCard): boolean {
       Number(card.summary?.agents ?? 0) > 0 ||
       Boolean(card.agentsFiles?.length) ||
       Boolean(card.availableAgentsFiles?.length) ||
+      Boolean(card.workspaceInstructions?.length) ||
       Boolean(card.skills?.length) ||
       Boolean(card.agentProviders?.length) ||
       Boolean(card.agents?.length) ||

@@ -32,6 +32,12 @@ export function compactWorkspacePresentation(
   );
   assignProjectedArray(
     presentation,
+    "workspaceInstructions",
+    card.workspaceInstructions,
+    (entry) => pickFields(entry, ["path", "status"]),
+  );
+  assignProjectedArray(
+    presentation,
     "skills",
     card.skills,
     (entry) => pickFields(entry, ["name"]),

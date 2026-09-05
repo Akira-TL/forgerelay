@@ -14,6 +14,9 @@ test("compact Workspace presentation restores display metadata without carrying 
     availableAgentsFiles: [
       { path: "/tmp/project/packages/app/AGENTS.md", content: "AVAILABLE-BODY-SENTINEL" },
     ],
+    workspaceInstructions: [
+      { path: "/tmp/config/instructions/zsh.md", status: "disabled", content: "SHELL-BODY-SENTINEL" },
+    ],
     skills: [
       { name: "tdd", description: "Test-driven development", path: "/secret/skill/path" },
     ],
@@ -38,6 +41,10 @@ test("compact Workspace presentation restores display metadata without carrying 
 
   assert.deepEqual(presentation.agentsFiles, [{ path: "/tmp/project/AGENTS.md" }]);
   assert.deepEqual(presentation.availableAgentsFiles, [{ path: "/tmp/project/packages/app/AGENTS.md" }]);
+  assert.deepEqual(presentation.workspaceInstructions, [{
+    path: "/tmp/config/instructions/zsh.md",
+    status: "disabled",
+  }]);
   assert.deepEqual(presentation.skills, [{ name: "tdd" }]);
   assert.deepEqual(presentation.agentProviders, [{ name: "claude", available: true }]);
   assert.deepEqual(presentation.agents, [{
@@ -52,6 +59,7 @@ test("compact Workspace presentation restores display metadata without carrying 
   for (const sentinel of [
     "INSTRUCTION-BODY-SENTINEL",
     "AVAILABLE-BODY-SENTINEL",
+    "SHELL-BODY-SENTINEL",
     "PROVIDER-SECRET",
     "AGENT-SECRET",
     "GUIDE-BODY-SENTINEL",

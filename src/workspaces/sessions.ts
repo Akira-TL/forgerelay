@@ -340,6 +340,7 @@ export class WorkspaceSessionService {
     workspace.knownInstructionPathsByDir.clear();
     workspace.loadedInstructionRealPaths.clear();
     workspace.loadedInstructionPaths.clear();
+    workspace.workspaceInstructions.length = 0;
     const agentsFiles = await this.context.loadInitialAgentsFiles(workspace);
     const availableAgentsFiles = await this.context.findAvailableAgentsFiles(workspace, agentsFiles);
     this.context.trackWorkspaceResources(workspace, agentsFiles, availableAgentsFiles);
@@ -614,6 +615,7 @@ export class WorkspaceSessionService {
       knownInstructionPathsByDir: new Map(),
       loadedInstructionRealPaths: new Set(),
       loadedInstructionPaths: new Set(),
+      workspaceInstructions: [],
     };
     if (touch) this.store?.touchSession(session.id);
     this.workspaces.set(restoredWorkspace.id, restoredWorkspace);

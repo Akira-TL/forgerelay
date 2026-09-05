@@ -45,6 +45,7 @@ export interface ForgeRelayUserConfig {
   agentDir?: string;
   systemInstructionsPath?: string;
   commandShell?: CommandShellPreference;
+  shellInstructions?: boolean;
   subagents?: boolean;
   languageServers?: LanguageServerConfigInput;
   allowAgentLanguageServerInstall?: boolean;

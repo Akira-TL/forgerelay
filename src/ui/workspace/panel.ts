@@ -14,7 +14,7 @@ interface WorkspaceInstruction {
   path?: string;
   label: string;
   content?: string;
-  status: "loaded" | "available";
+  status: "loaded" | "available" | "disabled" | "unavailable";
 }
 
 interface WorkspaceChip {
@@ -133,7 +133,12 @@ export class WorkspacePanelController {
       );
     }
 
-    this.appendInstructions(rows, card.agentsFiles ?? [], card.availableAgentsFiles ?? []);
+    this.appendInstructions(
+      rows,
+      card.agentsFiles ?? [],
+      card.availableAgentsFiles ?? [],
+      card.workspaceInstructions ?? [],
+    );
     this.appendSkills(rows, card.skills ?? []);
     this.appendAgents(rows, card);
 
@@ -174,6 +179,7 @@ export class WorkspacePanelController {
     container: HTMLElement,
     loadedFiles: NonNullable<ToolResultCard["agentsFiles"]>,
     availableFiles: NonNullable<ToolResultCard["availableAgentsFiles"]>,
+    workspaceInstructions: NonNullable<ToolResultCard["workspaceInstructions"]>,
   ): void {
     const loaded: WorkspaceInstruction[] = loadedFiles.map((file, index) => ({
       key: `loaded:${index}`,
@@ -192,13 +198,30 @@ export class WorkspacePanelController {
         status: "available" as const,
       }];
     });
-    if (loaded.length === 0 && available.length === 0) return;
+    const knownPaths = new Set(
+      [...loaded, ...available].map((item) => item.path).filter((path): path is string => Boolean(path)),
+    );
+    const supplemental: WorkspaceInstruction[] = workspaceInstructions.flatMap((instruction, index) => {
+      if (!instruction.status) return [];
+      if (instruction.path && knownPaths.has(instruction.path) && instruction.status !== "disabled" && instruction.status !== "unavailable") {
+        return [];
+      }
+      return [{
+        key: `workspace:${index}`,
+        path: instruction.path,
+        label: instruction.path ?? "Shell instructions",
+        status: instruction.status,
+      }];
+    });
+    const alwaysVisible = [...loaded, ...supplemental.filter((item) => item.status !== "available")];
+    const lazyAvailable = [...available, ...supplemental.filter((item) => item.status === "available")];
+    if (alwaysVisible.length === 0 && lazyAvailable.length === 0) return;
 
-    const instructions = this.showAvailableInstructions ? [...loaded, ...available] : loaded;
+    const instructions = this.showAvailableInstructions ? [...alwaysVisible, ...lazyAvailable] : alwaysVisible;
     const list = element("span", "workspace-instruction-list");
     for (const instruction of instructions) list.append(this.renderInstruction(instruction, list));
 
-    if (available.length > 0) {
+    if (lazyAvailable.length > 0) {
       const toggle = element(
         "button",
         "workspace-instructions-toggle",
@@ -232,7 +255,7 @@ export class WorkspacePanelController {
       ? this.instructionContents.get(instruction.path)
       : undefined;
     const content = instruction.content ?? cachedContent;
-    const canExpand = content !== undefined || instruction.path !== undefined;
+    const canExpand = instruction.status !== "unavailable" && (content !== undefined || instruction.path !== undefined);
     const header = element(
       canExpand ? "button" : "span",
       `workspace-instruction-header${canExpand ? " interactive" : ""}`,
@@ -244,12 +267,21 @@ export class WorkspacePanelController {
 
     const status = element("span", `workspace-instruction-status ${instruction.status}`);
     status.setAttribute("role", "img");
-    status.setAttribute(
-      "aria-label",
-      instruction.status === "loaded" ? "Loaded into the current workspace context" : "Available for a nested directory",
-    );
+    const statusLabel = instruction.status === "loaded"
+      ? "Loaded into the current workspace context"
+      : instruction.status === "disabled"
+        ? "Available but disabled for the current workspace context"
+        : instruction.status === "unavailable"
+          ? "Configured instruction file is unavailable"
+          : "Available for a nested directory";
+    status.setAttribute("aria-label", statusLabel);
+    status.title = statusLabel;
     status.append(renderIcon(
-      instruction.status === "loaded" ? toolIcons.instructionLoaded : toolIcons.instructionAvailable,
+      instruction.status === "loaded"
+        ? toolIcons.instructionLoaded
+        : instruction.status === "unavailable"
+          ? toolIcons.warning
+          : toolIcons.instructionAvailable,
       "workspace-instruction-status-svg",
     ));
 

@@ -116,6 +116,8 @@ assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
+assert.equal(loadConfig(baseEnv).shellInstructionsEnabled, true);
+assert.equal(loadConfig(baseEnv).shellInstructionPath, undefined);
 assert.equal(loadConfig(baseEnv).stateDir, join(homedir(), ".local", "share", "forgerelay"));
 assert.equal(loadConfig(baseEnv).worktreeRoot, join(homedir(), ".forgerelay", "worktrees"));
 
@@ -133,6 +135,23 @@ const pinnedShellConfig = loadConfig({
 assert.equal(pinnedShellConfig.commandShellRuntime.family, "bash");
 assert.equal(pinnedShellConfig.commandShellRuntime.executable, "/bin/bash");
 assert.equal(pinnedShellConfig.commandShellRuntime.source, "explicit");
+
+writeFileSync(
+  join(commandShellConfigDir, "config.json"),
+  JSON.stringify({
+    commandShell: { mode: "pinned", family: "zsh", executable: "/bin/sh" },
+    shellInstructions: false,
+  }),
+);
+const disabledShellInstructionConfig = loadConfig({
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: commandShellConfigDir,
+});
+assert.equal(disabledShellInstructionConfig.shellInstructionsEnabled, false);
+assert.equal(
+  disabledShellInstructionConfig.shellInstructionPath,
+  join(commandShellConfigDir, "instructions", "zsh.md"),
+);
 
 writeFileSync(
   join(commandShellConfigDir, "config.json"),
@@ -386,6 +405,7 @@ writeFileSync(
     artifactsEnabled: true,
     artifactMaxFileBytes: 321,
     taskReminderInterval: 12,
+    shellInstructions: false,
     workflowInstructions: false,
     appendInstructions: "Follow repository workflow instructions.",
     systemInstructionsPath: "~/configured-system.md",
@@ -416,6 +436,7 @@ assert.equal(fileConfig.allowAgentLanguageServerInstall, true);
 assert.equal(fileConfig.artifactsEnabled, true);
 assert.equal(fileConfig.artifactMaxFileBytes, 321);
 assert.equal(fileConfig.taskReminderInterval, 12);
+assert.equal(fileConfig.shellInstructionsEnabled, false);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));

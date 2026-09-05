@@ -83,7 +83,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "init":
-      await runInit({ force: args.includes("--force") });
+      await runInit({ force: args.includes("--force"), version: installedForgeRelayVersion() });
       return;
     case "doctor":
       await runDoctor();
@@ -161,7 +161,7 @@ async function ensureConfigured(): Promise<void> {
     );
   }
 
-  await runInit({ force: false });
+  await runInit({ force: false, version: installedForgeRelayVersion() });
 }
 
 async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
@@ -676,13 +676,16 @@ function printAgentsHelp(): void {
   );
 }
 
-function printVersion(): void {
+function installedForgeRelayVersion(): string {
   const packageJson = require("../package.json") as { version?: unknown };
-  if (typeof packageJson.version !== "string") {
+  if (typeof packageJson.version !== "string" || packageJson.version.length === 0) {
     throw new Error("Unable to read ForgeRelay package version.");
   }
+  return packageJson.version;
+}
 
-  console.log(packageJson.version);
+function printVersion(): void {
+  console.log(installedForgeRelayVersion());
 }
 
 main(process.argv.slice(2)).catch((error) => {

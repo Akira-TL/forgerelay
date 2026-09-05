@@ -198,6 +198,98 @@ test("Workspace Panel loads advertised instruction bodies on demand without acti
   }]);
 });
 
+test("loaded config-owned shell Instructions join bootstrap context and reuse the existing resource delta monitor", async (t) => {
+  const context = await fixture(t);
+  const shellPath = join(context.config.configDir, "instructions", "zsh.md");
+  await mkdir(dirname(shellPath), { recursive: true });
+  await writeFile(shellPath, "shell guidance before\n");
+  context.config.shellInstructionPath = shellPath;
+  context.config.shellInstructionsEnabled = true;
+
+  const opened = await callOpen(context.client, context.project, "chat-shell-loaded");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const agentsFiles = structuredContent(opened).agentsFiles as Array<{ path?: string; content?: string }>;
+  assert.equal(agentsFiles.some((file) => file.content === "shell guidance before\n"), true);
+
+  const card = responseCard(opened) as {
+    workspaceInstructions?: Array<{ path?: string; status?: string }>;
+  };
+  const shellInstruction = card.workspaceInstructions?.find((instruction) => instruction.status === "loaded");
+  assert.ok(shellInstruction?.path);
+
+  const detail = await context.client.callTool({
+    name: "workspace_instruction",
+    arguments: { workspaceId, path: shellInstruction.path },
+  });
+  assert.equal(detail.isError, undefined, allResponseText(detail));
+  assert.equal(structuredContent(detail).status, "loaded");
+  assert.equal(structuredContent(detail).content, "shell guidance before\n");
+
+  await writeFile(shellPath, "shell guidance after\n");
+  const repeated = await callOpen(context.client, context.project, "chat-shell-loaded");
+  assert.match(allResponseText(repeated), /Workspace instruction delta:/);
+  assert.match(allResponseText(repeated), /shell guidance after/);
+  const repeatedCard = responseCard(repeated) as {
+    workspaceInstructions?: Array<{ path?: string; status?: string }>;
+  };
+  assert.equal(repeatedCard.workspaceInstructions?.length, 1);
+  assert.equal(repeatedCard.workspaceInstructions?.[0]?.status, "loaded");
+});
+
+test("disabled config-owned shell Instructions remain visible and App-readable without entering Agent bootstrap", async (t) => {
+  const context = await fixture(t);
+  const shellPath = join(context.config.configDir, "instructions", "zsh.md");
+  await mkdir(dirname(shellPath), { recursive: true });
+  await writeFile(shellPath, "disabled shell guidance\n");
+  context.config.shellInstructionPath = shellPath;
+  context.config.shellInstructionsEnabled = false;
+
+  const opened = await callOpen(context.client, context.project, "chat-shell-disabled");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.doesNotMatch(JSON.stringify(structuredContent(opened).agentsFiles), /disabled shell guidance/);
+
+  const card = responseCard(opened) as {
+    workspaceInstructions?: Array<{ path?: string; status?: string }>;
+  };
+  const shellInstruction = card.workspaceInstructions?.find((instruction) => instruction.status === "disabled");
+  assert.ok(shellInstruction?.path);
+
+  const detail = await context.client.callTool({
+    name: "workspace_instruction",
+    arguments: { workspaceId, path: shellInstruction.path },
+  });
+  assert.equal(detail.isError, undefined, allResponseText(detail));
+  assert.deepEqual(structuredContent(detail), {
+    path: shellPath,
+    content: "disabled shell guidance\n",
+    status: "disabled",
+  });
+});
+
+test("missing configured shell Instructions are advertised as unavailable without fake bootstrap content", async (t) => {
+  const context = await fixture(t);
+  const shellPath = join(context.config.configDir, "instructions", "zsh.md");
+  context.config.shellInstructionPath = shellPath;
+  context.config.shellInstructionsEnabled = true;
+
+  const opened = await callOpen(context.client, context.project, "chat-shell-unavailable");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.doesNotMatch(JSON.stringify(structuredContent(opened).agentsFiles), /zsh\.md/);
+
+  const card = responseCard(opened) as {
+    workspaceInstructions?: Array<{ path?: string; status?: string }>;
+  };
+  const shellInstruction = card.workspaceInstructions?.find((instruction) => instruction.status === "unavailable");
+  assert.ok(shellInstruction?.path);
+
+  const detail = await context.client.callTool({
+    name: "workspace_instruction",
+    arguments: { workspaceId, path: shellInstruction.path },
+  });
+  assert.equal(detail.isError, true);
+  assert.match(allResponseText(detail), /no longer available/);
+});
+
 test("open_workspace context policy suppresses, automatically delivers, and forces bootstrap context", async (t) => {
   const context = await fixture(t);
   const skipped = await context.client.callTool({

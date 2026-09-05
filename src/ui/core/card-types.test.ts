@@ -109,6 +109,16 @@ test("a workspace card expands when it contains available instruction files", ()
   );
 });
 
+test("a workspace card expands when it contains shell instruction state", () => {
+  assert.equal(
+    isExpandableCard({
+      tool: "open_workspace",
+      workspaceInstructions: [{ path: "/tmp/config/instructions/zsh.md", status: "disabled" }],
+    }),
+    true,
+  );
+});
+
 test("an empty workspace card stays collapsed", () => {
   assert.equal(isExpandableCard({ tool: "open_workspace" }), false);
 });

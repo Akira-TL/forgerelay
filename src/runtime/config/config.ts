@@ -14,6 +14,7 @@ import {
 } from "./user-config.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
+import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import {
   resolveConfiguredCommandShellRuntime,
   type CommandShellRuntime,
@@ -63,6 +64,8 @@ export interface ServerConfig {
   hooks: HookConfig;
   logging: LoggingConfig;
   commandShellRuntime: CommandShellRuntime;
+  shellInstructionsEnabled: boolean;
+  shellInstructionPath?: string;
   /** Runtime-only privilege state. Never persisted in config.json. */
   runtimePrivilege?: RuntimePrivilegeState;
 }
@@ -402,6 +405,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const publicDeployment = resolvePublicDeployment(env, files.config, host, port);
   const publicBaseUrl = publicDeployment.canonicalBaseUrl;
   const proxyTrust = resolveProxyTrust(env, files.config, host, publicBaseUrl);
+  const commandShellRuntime = resolveConfiguredCommandShellRuntime(files.config.commandShell, process.platform, env);
   const derivedAllowedHosts = [
     "localhost",
     "127.0.0.1",
@@ -472,7 +476,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       files.hookFiles,
     ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
-    commandShellRuntime: resolveConfiguredCommandShellRuntime(files.config.commandShell, process.platform, env),
+    commandShellRuntime,
+    shellInstructionsEnabled: files.config.shellInstructions !== false,
+    shellInstructionPath: shellInstructionPath(files.dir, commandShellRuntime.family),
   };
 }
 

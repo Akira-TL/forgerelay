@@ -116,6 +116,10 @@ export async function presentLocalWorkspaceOpen(
       const cardAvailableAgentsFiles = availableAgentsFiles.map((file) => ({
         path: formatAgentsPath(file.path, workspace.root),
       }));
+      const cardWorkspaceInstructions = workspace.workspaceInstructions.map((instruction) => ({
+        path: formatAgentsPath(instruction.path, workspace.root),
+        status: instruction.status,
+      }));
       const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(effectiveBootstrapContextComponents);
       const visibleSkills = bootstrapComponents.has("skills") ? cardSkills : [];
       const visibleSkillDiagnostics = bootstrapComponents.has("skillDiagnostics")
@@ -232,6 +236,7 @@ export async function presentLocalWorkspaceOpen(
         capabilityCatalog,
         agentsFiles: cardAgentsFiles,
         availableAgentsFiles: cardAvailableAgentsFiles,
+        workspaceInstructions: cardWorkspaceInstructions,
         skills: cardSkills,
         agentProviders: cardAgentProviders,
         agents: cardAgents,
@@ -240,6 +245,7 @@ export async function presentLocalWorkspaceOpen(
           mode: workspace.mode,
           agentsFiles: cardAgentsFiles.length,
           availableAgentsFiles: cardAvailableAgentsFiles.length,
+          workspaceInstructions: cardWorkspaceInstructions.length,
           skills: cardSkills.length,
           capabilities: capabilityCatalog.length,
           agentProviders: cardAgentProviders.length,

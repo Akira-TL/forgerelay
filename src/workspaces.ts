@@ -16,7 +16,8 @@ import {
   type CapabilityGuideReadResolution,
 } from "./mcp/server/core/capabilities.js";
 import type { ServerConfig } from "./runtime/config/config.js";
-import { WorkspaceContextService, formatAgentsPath } from "./workspaces/context.js";
+import { WorkspaceContextService, formatAgentsPath, type AdvertisedWorkspaceInstruction,
+  type WorkspaceInstructionState } from "./workspaces/context.js";
 import {
   BOOTSTRAP_CONTEXT_COMPONENTS,
   bootstrapContextFingerprints,
@@ -61,12 +62,6 @@ export interface AvailableAgentsFile {
   path: string;
 }
 
-export interface AdvertisedWorkspaceInstruction {
-  path: string;
-  content: string;
-  status: "loaded" | "available";
-}
-
 export interface WorkspaceWorktree {
   path: string;
   baseRef: string;
@@ -94,6 +89,7 @@ export interface Workspace {
   knownInstructionPathsByDir: Map<string, string[]>;
   loadedInstructionRealPaths: Set<string>;
   loadedInstructionPaths: Set<string>;
+  workspaceInstructions: WorkspaceInstructionState[];
 }
 
 export type WorkspaceBootstrapContextMode = "auto" | "full" | "none";
@@ -735,6 +731,7 @@ export class WorkspaceRegistry {
       knownInstructionPathsByDir: new Map(),
       loadedInstructionRealPaths: new Set(),
       loadedInstructionPaths: new Set(),
+      workspaceInstructions: [],
     };
 
     this.store?.createSession({

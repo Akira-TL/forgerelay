@@ -60,6 +60,7 @@ test("non-Bash command shell identity is mandatory even without optional workflo
   });
   config.workflowInstructions = false;
   config.appendInstructions = undefined;
+  config.shellInstructionsEnabled = false;
 
   const result = buildServerInstructions(config);
 

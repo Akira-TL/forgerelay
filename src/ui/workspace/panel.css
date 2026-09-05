@@ -521,9 +521,19 @@ body {
   color: var(--color-success-text, #6fda83);
 }
 
-.workspace-instruction-status.available {
+.workspace-instruction-status.available,
+.workspace-instruction-status.disabled {
   background: color-mix(in srgb, var(--color-text-tertiary, #a3a3aa) 9%, transparent);
   color: var(--color-text-tertiary, #a3a3aa);
+}
+
+.workspace-instruction-status.disabled {
+  opacity: 0.65;
+}
+
+.workspace-instruction-status.unavailable {
+  background: color-mix(in srgb, var(--color-warning-text, #e6b566) 12%, transparent);
+  color: var(--color-warning-text, #e6b566);
 }
 
 .workspace-instruction-status-svg {

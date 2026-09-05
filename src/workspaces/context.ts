@@ -6,6 +6,7 @@ import {
   resolveCapabilityGuideReadPath,
 } from "../mcp/server/core/capabilities.js";
 import type { ServerConfig } from "../runtime/config/config.js";
+import { readShellInstruction } from "../runtime/instructions/shell-instructions.js";
 import {
   assertAllowedPath,
   isPathInsideRoot,
@@ -22,12 +23,23 @@ import {
 } from "./resources/resource-monitor.js";
 import type { WorkspaceMode } from "./state/workspace-store.js";
 import type {
-  AdvertisedWorkspaceInstruction,
   AvailableAgentsFile,
   LoadedAgentsFile,
   Workspace,
   WorkspaceReadPath,
 } from "../workspaces.js";
+export type WorkspaceInstructionStateStatus = "loaded" | "disabled" | "unavailable";
+
+export interface WorkspaceInstructionState {
+  path: string;
+  status: WorkspaceInstructionStateStatus;
+}
+
+export interface AdvertisedWorkspaceInstruction {
+  path: string;
+  content: string;
+  status: "loaded" | "available" | "disabled";
+}
 
 const INITIAL_INSTRUCTION_DISCOVERY_DEPTH = 1;
 const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
@@ -139,6 +151,7 @@ export class WorkspaceContextService {
   ): Promise<AdvertisedWorkspaceInstruction> {
     const candidates = [
       ...workspace.loadedInstructionPaths,
+      ...workspace.workspaceInstructions.map((instruction) => instruction.path),
       ...new Set([...workspace.knownInstructionPathsByDir.values()].flat()),
     ];
     const selectedPath = candidates.find((candidate) =>
@@ -153,20 +166,29 @@ export class WorkspaceContextService {
       throw new Error(`Instruction file is no longer available: ${inputPath}`);
     }
 
-    // Project instructions must resolve inside the Workspace. The configured
-    // system instruction is intentionally exempt because it is trusted global
-    // input and may be a symlink outside the project tree.
-    if (resolve(selectedPath) !== resolve(this.config.systemInstructionsPath)) {
+    // Project instructions must resolve inside the Workspace. Config-owned
+    // system/shell instructions are intentionally exempt because they are
+    // trusted inputs explicitly advertised by ForgeRelay.
+    const trustedExternalInstructionPaths = new Set([
+      resolve(this.config.systemInstructionsPath),
+      ...(this.config.shellInstructionPath ? [resolve(this.config.shellInstructionPath)] : []),
+    ]);
+    if (!trustedExternalInstructionPaths.has(resolve(selectedPath))) {
       const realRoot = (await tryRealpath(workspace.root)) ?? resolve(workspace.root);
       if (!isPathInsideRoot(realPath, realRoot)) {
         throw new Error(`Instruction path escaped the Workspace after discovery: ${inputPath}`);
       }
     }
 
+    const workspaceInstruction = workspace.workspaceInstructions.find((instruction) =>
+      resolve(instruction.path) === resolve(selectedPath)
+    );
     return {
       path: selectedPath,
       content: await readFile(realPath, "utf8"),
-      status: workspace.loadedInstructionPaths.has(selectedPath) ? "loaded" : "available",
+      status: workspaceInstruction?.status === "disabled"
+        ? "disabled"
+        : workspace.loadedInstructionPaths.has(selectedPath) ? "loaded" : "available",
     };
   }
 
@@ -204,6 +226,22 @@ export class WorkspaceContextService {
       loadedFiles.push({ path: systemInstructionsPath, content: systemInstructions });
       workspace.loadedInstructionPaths.add(systemInstructionsPath);
       if (systemInstructionsRealPath) workspace.loadedInstructionRealPaths.add(systemInstructionsRealPath);
+    }
+
+    const shellInstructionPath = this.config.shellInstructionPath;
+    if (shellInstructionPath) {
+      const shellInstruction = await readShellInstruction(shellInstructionPath);
+      if (shellInstruction === undefined) {
+        workspace.workspaceInstructions.push({ path: shellInstructionPath, status: "unavailable" });
+      } else if (this.config.shellInstructionsEnabled) {
+        loadedFiles.push({ path: shellInstructionPath, content: shellInstruction });
+        workspace.loadedInstructionPaths.add(shellInstructionPath);
+        const shellInstructionRealPath = await tryRealpath(shellInstructionPath);
+        if (shellInstructionRealPath) workspace.loadedInstructionRealPaths.add(shellInstructionRealPath);
+        workspace.workspaceInstructions.push({ path: shellInstructionPath, status: "loaded" });
+      } else {
+        workspace.workspaceInstructions.push({ path: shellInstructionPath, status: "disabled" });
+      }
     }
 
     await this.discoverInstructionTree(workspace, workspace.root, INITIAL_INSTRUCTION_DISCOVERY_DEPTH);

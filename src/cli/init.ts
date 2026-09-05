@@ -8,6 +8,11 @@ import {
   type CommandShellPreference,
 } from "../runtime/shell/command-shell-runtime.js";
 import {
+  seedShellInstructionFiles,
+  shellInstructionFamiliesToSeed,
+  type ShellInstructionSeedResult,
+} from "../runtime/instructions/shell-instructions.js";
+import {
   installManagedLanguageServers,
   installedManagedLanguageServers,
   managedLanguageServerOptions,
@@ -48,7 +53,7 @@ import {
   type CommandShellSetupChoice,
 } from "./shell/setup.js";
 
-export async function runInit({ force }: { force: boolean }): Promise<void> {
+export async function runInit({ force, version }: { force: boolean; version: string }): Promise<void> {
   const files = loadForgeRelayFiles();
   if (!force && files.configExists && files.authExists) {
     prompts.log.info(`ForgeRelay is already configured at ${files.dir}`);
@@ -203,6 +208,32 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
     const shellWarning = commandShellCompatibilityWarning(commandShell.family);
     if (shellWarning) prompts.note(shellWarning, "Command shell compatibility");
 
+    const shellInstructionFamilies = shellInstructionFamiliesToSeed(process.platform, commandShell.family);
+    let shellInstructions = files.config.shellInstructions;
+    let shellInstructionSeedResults: ShellInstructionSeedResult[] = [];
+    if (shellInstructionFamilies.length > 0) {
+      const shellInstructionsAnswer = await prompts.confirm({
+        message: "Load ForgeRelay-provided extra Instructions for this command shell?",
+        initialValue: files.config.shellInstructions !== false,
+      });
+      if (prompts.isCancel(shellInstructionsAnswer)) throw new SetupCancelledError();
+      shellInstructions = shellInstructionsAnswer === true;
+      shellInstructionSeedResults = await seedShellInstructionFiles({
+        configDir: files.dir,
+        version,
+        families: shellInstructionFamilies,
+      });
+      const failedShellInstructions = shellInstructionSeedResults.filter((result) => result.status === "failed");
+      if (failedShellInstructions.length > 0) {
+        prompts.note(
+          failedShellInstructions.map((result) =>
+            `${result.family}: ${result.error ?? "download failed"}\n${result.sourceUrl}`
+          ).join("\n\n"),
+          "Shell Instructions unavailable",
+        );
+      }
+    }
+
     const installedManaged = installedManagedLanguageServers(files.dir);
     const selectedManaged = await prompts.multiselect({
       message: "Which Language Servers should ForgeRelay manage with npm?",
@@ -248,6 +279,7 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       workflowInstructions: files.config.workflowInstructions,
       appendInstructions: files.config.appendInstructions,
       commandShell,
+      shellInstructions,
       subagents: resolveSubagentsFlag(files.config),
       languageServers: files.config.languageServers,
       allowAgentLanguageServerInstall,
@@ -265,6 +297,14 @@ export async function runInit({ force }: { force: boolean }): Promise<void> {
       `Auth: ${authPath}`,
       `Bind: http://${config.host}:${config.port}`,
       `Command shell: ${commandShell.mode} ${commandShell.family} (${commandShell.executable})`,
+      ...(shellInstructionFamilies.length > 0
+        ? [
+            `Shell Instructions: ${shellInstructions ? "enabled" : "disabled"}`,
+            ...shellInstructionSeedResults.map((result) =>
+              `Shell Instructions ${result.family}: ${result.status} (${result.path})`
+            ),
+          ]
+        : []),
       ...clientFacingBaseUrls.map((baseUrl, index) =>
         `${index === 0 ? "Client-facing MCP URL" : "Client-facing MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`
       ),
