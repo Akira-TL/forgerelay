@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ProcessAuditContext, ProcessOutputAuditSink, ProcessOutputChannel } from "../../activity/runtime/process-output-audit.js";
-import { resolveShellCommandForRuntime, terminateProcessTree, terminatePtyProcessTree } from "./process-platform.js";
+import { releasePtyProcessResources, resolveShellCommandForRuntime, terminateProcessTree, terminatePtyProcessTree } from "./process-platform.js";
 import { resolveCompatibilityCommandShellRuntime, snapshotCommandShellRuntime, type CommandShellRuntime } from "../../runtime/shell/command-shell-runtime.js";
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
@@ -639,6 +639,7 @@ export class ProcessManager {
     };
     pty.onData((data) => this.append(processEntry, "pty", data));
     pty.onExit(({ exitCode, signal }) => {
+      releasePtyProcessResources(pty);
       this.finish(processEntry, exitCode, signal === 0 ? undefined : String(signal));
     });
   }

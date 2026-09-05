@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  releasePtyProcessResources,
   resolveShellCommand,
   resolveShellCommandForRuntime,
   terminateProcessTree,
@@ -119,6 +120,20 @@ terminatePtyProcessTree(
   },
 );
 assert.deepEqual(posixPtyCalls, ["pty:SIGINT"]);
+
+const windowsPtyResourceCalls: string[] = [];
+const windowsPtyWithLeakedInput = {
+  pid: 47,
+  kill: () => undefined,
+  _agent: {
+    inSocket: {
+      destroyed: false,
+      destroy: () => windowsPtyResourceCalls.push("destroy-input"),
+    },
+  },
+};
+releasePtyProcessResources(windowsPtyWithLeakedInput, "win32");
+assert.deepEqual(windowsPtyResourceCalls, ["destroy-input"]);
 
 const posixCalls: string[] = [];
 terminateProcessTree(

@@ -20,6 +20,15 @@ export interface KillablePtyProcess {
   kill(signal?: string): void;
 }
 
+interface NodePtyWindowsInternals {
+  _agent?: {
+    inSocket?: {
+      destroyed?: boolean;
+      destroy?: () => void;
+    };
+  };
+}
+
 interface ProcessTreeRuntime {
   platform: NodeJS.Platform;
   killGroup(pid: number, signal: NodeJS.Signals): void;
@@ -111,6 +120,24 @@ export function terminateProcessTree(
   }
 
   child.kill(signal);
+}
+
+export function releasePtyProcessResources(
+  pty: KillablePtyProcess,
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform !== "win32") return;
+
+  // node-pty 1.1.0 leaves the ConPTY input PipeWrap referenced after exit
+  // (microsoft/node-pty#947). Keep the workaround at the PTY boundary so the
+  // shared ProcessManager does not grow a separate Windows lifecycle.
+  const inputSocket = (pty as KillablePtyProcess & NodePtyWindowsInternals)._agent?.inSocket;
+  if (!inputSocket || inputSocket.destroyed || typeof inputSocket.destroy !== "function") return;
+  try {
+    inputSocket.destroy();
+  } catch {
+    // Completion must remain observable even if node-pty already released it.
+  }
 }
 
 export function terminatePtyProcessTree(
