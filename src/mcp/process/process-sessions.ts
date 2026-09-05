@@ -378,7 +378,7 @@ export class ProcessManager {
     this.processes.set(processEntry.id, processEntry);
 
     try {
-      if (input.tty && process.platform !== "win32") await this.startPty(processEntry, input);
+      if (input.tty) await this.startPty(processEntry, input);
       else this.startPipe(processEntry, input);
     } catch (error) {
       this.finishAudit(processEntry, {
@@ -605,7 +605,6 @@ export class ProcessManager {
     processEntry.process = {
       write: (data) => child.stdin.write(data),
       kill: (signal = "SIGTERM") => terminateProcessTree(child, signal, detached),
-      resize: input.tty ? () => undefined : undefined,
     };
     child.stdout.on("data", (data: Buffer) => this.append(processEntry, "stdout", data));
     child.stderr.on("data", (data: Buffer) => this.append(processEntry, "stderr", data));
@@ -622,26 +621,22 @@ export class ProcessManager {
     }
 
     const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime, { interactive: true });
-    let pty: import("node-pty").IPty;
-    try {
-      pty = nodePty.spawn(shell.executable, shell.args, {
-        cwd: input.cwd,
-        env: processEnvironment({
-          workspaceId: input.workspaceId,
-          workspaceRoot: input.workspaceRoot,
-          codexCi: input.codexCi,
-        }),
-        name: "xterm-256color",
-        cols: processEntry.columns,
-        rows: processEntry.rows,
-      });
-    } catch (error) {
-      throw error;
-    }
-
+    const pty = nodePty.spawn(shell.executable, shell.args, {
+      cwd: input.cwd,
+      env: processEnvironment({
+        workspaceId: input.workspaceId,
+        workspaceRoot: input.workspaceRoot,
+        codexCi: input.codexCi,
+      }),
+      name: "xterm-256color",
+      cols: processEntry.columns,
+      rows: processEntry.rows,
+    });
     processEntry.process = {
       write: (data) => pty.write(data),
-      kill: (signal) => pty.kill(signal),
+      kill: (signal = "SIGTERM") => process.platform === "win32"
+        ? terminateProcessTree({ pid: pty.pid, kill: (fallbackSignal) => { pty.kill(fallbackSignal); return true; } }, signal, false)
+        : pty.kill(signal),
       resize: (columns, rows) => pty.resize(columns, rows),
     };
     pty.onData((data) => this.append(processEntry, "pty", data));
