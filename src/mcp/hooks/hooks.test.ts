@@ -121,19 +121,36 @@ test("HookRunner uses the same fixed command-shell runtime as Agent commands", a
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-shell-runtime-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const marker = join(root, "shell.txt");
+  const windows = process.platform === "win32";
+  const executable = windows
+    ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe"
+    : "/bin/sh";
   const runner = new HookRunner(
     parseHookConfig({
-      AfterTool: [{ handlers: [{ command: `printf '%s' "$0" > ${JSON.stringify(marker)}` }] }],
+      AfterTool: [{
+        handlers: [{
+          command: windows
+            ? `echo %ComSpec%>"${marker}"`
+            : `printf '%s' "$0" > ${JSON.stringify(marker)}`,
+        }],
+      }],
     }),
     silentLogging,
-    process.env,
+    windows ? { ...process.env, ComSpec: executable } : process.env,
     undefined,
-    {
-      family: "sh",
-      executable: "/bin/sh",
-      source: "explicit",
-      capabilities: ["posix-sh", "posix-command-language"],
-    },
+    windows
+      ? {
+          family: "cmd",
+          executable,
+          source: "explicit",
+          capabilities: ["cmd", "windows-command-language"],
+        }
+      : {
+          family: "sh",
+          executable,
+          source: "explicit",
+          capabilities: ["posix-sh", "posix-command-language"],
+        },
   );
 
   await runner.run("AfterTool", {
@@ -142,7 +159,7 @@ test("HookRunner uses the same fixed command-shell runtime as Agent commands", a
     workspaceMode: "checkout",
     payload: { tool: "bash" },
   });
-  assert.equal(await readFile(marker, "utf8"), "/bin/sh");
+  assert.equal((await readFile(marker, "utf8")).trim(), executable);
 });
 
 test("project hook files load by filename and report that filename as the hook name", async (t) => {
