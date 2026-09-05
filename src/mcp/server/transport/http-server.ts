@@ -113,7 +113,10 @@ export function createHttpServer(
       activityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
   const reviewCheckpoints = createReviewCheckpointManager();
-  const processSessions = new ProcessManager({ outputAudit: bashOutputStore });
+  const processSessions = new ProcessManager({
+    outputAudit: bashOutputStore,
+    commandShellRuntime: config.commandShellRuntime,
+  });
   const codeIntelligence = new CodeIntelligenceManager(config);
   const subagentProviders = config.subagents
     ? getSubagentProviderAvailabilitySnapshot()

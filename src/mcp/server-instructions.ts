@@ -1,4 +1,5 @@
 import type { ServerConfig } from "../runtime/config/config.js";
+import { commandShellAgentInstruction } from "../runtime/shell/command-shell-runtime.js";
 
 export const toolNames = {
   openWorkspace: "open_workspace",
@@ -31,6 +32,7 @@ export function buildShellMutationPolicy(): string {
 export function buildServerInstructions(config: ServerConfig): string {
   return joinInstructions(
     runtimePrivilegeInstructions(config),
+    commandShellAgentInstruction(config.commandShellRuntime),
     capabilityContractInstructions(config),
     selectedWorkflowInstructions(config),
     config.appendInstructions,

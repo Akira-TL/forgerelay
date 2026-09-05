@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
+import {
+  resolveShellCommand,
+  resolveShellCommandForRuntime,
+  terminateProcessTree,
+} from "./process-platform.js";
 
 assert.deepEqual(resolveShellCommand("echo ok", "win32", { ComSpec: "C:\\Windows\\cmd.exe" }), {
   executable: "C:\\Windows\\cmd.exe",
@@ -42,6 +46,26 @@ assert.deepEqual(resolveShellCommand("echo ok", "linux", {
   executable: "/bin/zsh",
   args: ["-f", "-c", "echo ok"],
 });
+
+assert.deepEqual(resolveShellCommandForRuntime("echo ok", {
+  family: "sh",
+  executable: "/bin/dash",
+  source: "recorded",
+  capabilities: ["posix-sh", "posix-command-language"],
+}), {
+  executable: "/bin/dash",
+  args: ["-c", "echo ok"],
+});
+
+assert.throws(
+  () => resolveShellCommandForRuntime("Write-Output ok", {
+    family: "pwsh",
+    executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    source: "launcher",
+    capabilities: ["powershell-command-language", "powershell-core"],
+  }),
+  /will not silently execute the command through another shell/,
+);
 
 const windowsCalls: string[] = [];
 terminateProcessTree(

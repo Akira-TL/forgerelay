@@ -1,5 +1,8 @@
-import { basename } from "node:path";
 import { spawnSync } from "node:child_process";
+import {
+  resolveCompatibilityCommandShellRuntime,
+  type CommandShellRuntime,
+} from "../../runtime/shell/command-shell-runtime.js";
 
 export interface ShellCommand {
   executable: string;
@@ -30,44 +33,48 @@ const defaultProcessTreeRuntime: ProcessTreeRuntime = {
   },
 };
 
-const POSIX_SHELLS = new Set(["ash", "dash", "ksh", "sh"]);
-
 export function resolveShellCommand(
   command: string,
   platform: NodeJS.Platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
 ): ShellCommand {
-  if (platform === "win32") {
-    return {
-      executable: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
-      // Match Node's native `spawn(command, { shell: cmd.exe })` quoting.
-      // cmd.exe /S applies special quote stripping, so the whole command must
-      // be wrapped even when the executable inside it is already quoted.
-      args: ["/d", "/s", "/c", `"${command}"`],
-      windowsVerbatimArguments: true,
-    };
-  }
+  return resolveShellCommandForRuntime(
+    command,
+    resolveCompatibilityCommandShellRuntime(platform, environment),
+  );
+}
 
+export function resolveShellCommandForRuntime(
+  command: string,
+  runtime: CommandShellRuntime,
+): ShellCommand {
   // Agent and Hook commands must not source the user's interactive/login shell
   // configuration. ForgeRelay already inherits PATH and other environment from
   // the process that launched the server; re-running zsh/bash as a login shell
   // can inject prompts, banners, aliases, plugins, or other user-only behavior.
-  const configuredShell = environment.FORGERELAY_COMMAND_SHELL?.trim();
-  const executable = configuredShell || (platform === "linux" || platform === "darwin"
-    ? "/bin/bash"
-    : "/bin/sh");
-  const shellName = basename(executable);
-  if (shellName === "bash") {
-    return { executable, args: ["--noprofile", "--norc", "-c", command] };
+  switch (runtime.family) {
+    case "cmd":
+      return {
+        executable: runtime.executable,
+        // Match Node's native `spawn(command, { shell: cmd.exe })` quoting.
+        // cmd.exe /S applies special quote stripping, so the whole command must
+        // be wrapped even when the executable inside it is already quoted.
+        args: ["/d", "/s", "/c", `"${command}"`],
+        windowsVerbatimArguments: true,
+      };
+    case "bash":
+      return { executable: runtime.executable, args: ["--noprofile", "--norc", "-c", command] };
+    case "zsh":
+      return { executable: runtime.executable, args: ["-f", "-c", command] };
+    case "sh":
+      return { executable: runtime.executable, args: ["-c", command] };
+    case "fish":
+    case "pwsh":
+    case "powershell":
+      throw new Error(
+        `Command shell runtime ${runtime.family} is identified but native execution support is not enabled in this release stage. ForgeRelay will not silently execute the command through another shell.`,
+      );
   }
-  if (shellName === "zsh") {
-    return { executable, args: ["-f", "-c", command] };
-  }
-  if (POSIX_SHELLS.has(shellName)) {
-    return { executable, args: ["-c", command] };
-  }
-
-  return { executable: "/bin/sh", args: ["-c", command] };
 }
 
 export function terminateProcessTree(

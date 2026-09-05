@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProcessAuditContext, ProcessOutputAuditSink, ProcessOutputChannel } from "../../activity/runtime/process-output-audit.js";
-import { resolveShellCommand, terminateProcessTree } from "./process-platform.js";
-
+import { resolveShellCommandForRuntime, terminateProcessTree } from "./process-platform.js";
+import { resolveCompatibilityCommandShellRuntime, snapshotCommandShellRuntime, type CommandShellRuntime } from "../../runtime/shell/command-shell-runtime.js";
 const DEFAULT_EXEC_YIELD_MS = 10_000;
 const DEFAULT_INTERACTIVE_YIELD_MS = 250;
 export const DEFAULT_POLL_YIELD_MS = 60_000;
@@ -35,7 +35,6 @@ export interface StartCommandInput {
   codexCi?: boolean;
   signal?: AbortSignal;
 }
-
 export interface WriteStdinInput {
   workspaceId: string;
   processId?: number;
@@ -118,6 +117,7 @@ export interface ProcessManagerOptions {
   maxStartYieldMs?: number;
   monotonicNow?: () => number;
   outputAudit?: ProcessOutputAuditSink;
+  commandShellRuntime?: CommandShellRuntime;
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -345,6 +345,7 @@ export class ProcessManager {
   private readonly maxStartYieldMs: number;
   private readonly monotonicNow: () => number;
   private readonly outputAudit?: ProcessOutputAuditSink;
+  private readonly commandShellRuntime: CommandShellRuntime;
   private nextProcessId = 1;
 
   constructor(options: ProcessManagerOptions = {}) {
@@ -363,8 +364,8 @@ export class ProcessManager {
     this.maxStartYieldMs = options.maxStartYieldMs ?? MAX_START_YIELD_MS;
     this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.outputAudit = options.outputAudit;
+    this.commandShellRuntime = snapshotCommandShellRuntime(options.commandShellRuntime ?? resolveCompatibilityCommandShellRuntime());
   }
-
   async start(input: StartCommandInput): Promise<ProcessSnapshot> {
     input.signal?.throwIfAborted();
     if (this.stats().running >= this.maxActiveProcesses) {
@@ -586,7 +587,7 @@ export class ProcessManager {
   }
 
   private startPipe(processEntry: ProcessEntry, input: StartCommandInput): void {
-    const shell = resolveShellCommand(input.command);
+    const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime);
     const detached = process.platform !== "win32";
     const child = spawn(shell.executable, shell.args, {
       cwd: input.cwd,
@@ -620,7 +621,7 @@ export class ProcessManager {
       throw new Error("PTY support requires the optional node-pty dependency.");
     }
 
-    const shell = resolveShellCommand(input.command);
+    const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime);
     let pty: import("node-pty").IPty;
     try {
       pty = nodePty.spawn(shell.executable, shell.args, {

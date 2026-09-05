@@ -53,6 +53,27 @@ test("default instructions keep a compact core capability contract and built-in 
   assert.doesNotMatch(result, /target branch diverged/);
 });
 
+test("non-Bash command shell identity is mandatory even without optional workflow guidance", () => {
+  const config = loadConfig({
+    ...baseEnv,
+    FORGERELAY_COMMAND_SHELL: "/bin/zsh",
+  });
+  config.workflowInstructions = false;
+  config.appendInstructions = undefined;
+
+  const result = buildServerInstructions(config);
+
+  assert.match(result, /Command shell runtime: zsh/);
+  assert.match(result, /Executable: \/bin\/zsh/);
+  assert.match(result, /Selection source: explicit/);
+  assert.match(result, /rather than assuming Bash syntax/);
+});
+
+test("ordinary Bash keeps the compact default without redundant shell identity text", () => {
+  const result = instructions();
+  assert.doesNotMatch(result, /Command shell runtime:/);
+});
+
 test("elevated runtime injects a mandatory non-disableable Agent safety notice", () => {
   const config = loadConfig(baseEnv);
   config.runtimePrivilege = {

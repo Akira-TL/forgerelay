@@ -47,6 +47,27 @@ const manager = new ProcessManager({
   completedProcessTtlMs: 1_000,
 });
 
+if (process.platform !== "win32") {
+  const runtime = {
+    family: "bash" as const,
+    executable: "/bin/bash",
+    source: "recorded" as const,
+    capabilities: ["bash", "profile-isolation", "posix-command-language"],
+  };
+  const stableRuntimeManager = new ProcessManager({ commandShellRuntime: runtime });
+  runtime.family = "bash";
+  runtime.executable = "/definitely/not/the-runtime-after-construction";
+  const stableRuntime = await stableRuntimeManager.start({
+    workspaceId: "stable-runtime",
+    cwd: process.cwd(),
+    command: "printf stable-shell-runtime",
+    yieldTimeMs: 2_000,
+  });
+  assert.equal(stableRuntime.exitCode, 0);
+  assert.match(stableRuntime.output, /stable-shell-runtime/);
+  stableRuntimeManager.shutdown();
+}
+
 const node = process.platform === "win32"
   ? `"${process.execPath}"`
   : JSON.stringify(process.execPath);

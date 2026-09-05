@@ -14,6 +14,10 @@ import {
 } from "./user-config.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
+import {
+  resolveCompatibilityCommandShellRuntime,
+  type CommandShellRuntime,
+} from "../shell/command-shell-runtime.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -58,6 +62,7 @@ export interface ServerConfig {
   systemInstructionsPath: string;
   hooks: HookConfig;
   logging: LoggingConfig;
+  commandShellRuntime: CommandShellRuntime;
   /** Runtime-only privilege state. Never persisted in config.json. */
   runtimePrivilege?: RuntimePrivilegeState;
 }
@@ -467,6 +472,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       files.hookFiles,
     ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
+    commandShellRuntime: resolveCompatibilityCommandShellRuntime(process.platform, env),
   };
 }
 
