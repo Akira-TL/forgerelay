@@ -26,6 +26,9 @@ interface NodePtyWindowsInternals {
       destroyed?: boolean;
       destroy?: () => void;
     };
+    _conoutSocketWorker?: {
+      dispose?: () => void;
+    };
   };
 }
 
@@ -128,10 +131,18 @@ export function releasePtyProcessResources(
 ): void {
   if (platform !== "win32") return;
 
-  // node-pty 1.1.0 leaves the ConPTY input PipeWrap referenced after exit
-  // (microsoft/node-pty#947). Keep the workaround at the PTY boundary so the
-  // shared ProcessManager does not grow a separate Windows lifecycle.
-  const inputSocket = (pty as KillablePtyProcess & NodePtyWindowsInternals)._agent?.inSocket;
+  // node-pty 1.1.0 leaves ConPTY resources referenced after exit: the input
+  // PipeWrap is not destroyed (microsoft/node-pty#947), and the system-ConPTY
+  // natural-exit path does not dispose its conout worker. Keep both workarounds
+  // at the PTY boundary so the shared ProcessManager stays platform-neutral.
+  const agent = (pty as KillablePtyProcess & NodePtyWindowsInternals)._agent;
+  try {
+    agent?._conoutSocketWorker?.dispose?.();
+  } catch {
+    // The worker may already be disposing after an explicit PTY kill.
+  }
+
+  const inputSocket = agent?.inSocket;
   if (!inputSocket || inputSocket.destroyed || typeof inputSocket.destroy !== "function") return;
   try {
     inputSocket.destroy();

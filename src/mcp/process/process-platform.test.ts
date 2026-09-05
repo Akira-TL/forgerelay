@@ -122,7 +122,7 @@ terminatePtyProcessTree(
 assert.deepEqual(posixPtyCalls, ["pty:SIGINT"]);
 
 const windowsPtyResourceCalls: string[] = [];
-const windowsPtyWithLeakedInput = {
+const windowsPtyWithLeakedResources = {
   pid: 47,
   kill: () => undefined,
   _agent: {
@@ -130,10 +130,13 @@ const windowsPtyWithLeakedInput = {
       destroyed: false,
       destroy: () => windowsPtyResourceCalls.push("destroy-input"),
     },
+    _conoutSocketWorker: {
+      dispose: () => windowsPtyResourceCalls.push("dispose-conout"),
+    },
   },
 };
-releasePtyProcessResources(windowsPtyWithLeakedInput, "win32");
-assert.deepEqual(windowsPtyResourceCalls, ["destroy-input"]);
+releasePtyProcessResources(windowsPtyWithLeakedResources, "win32");
+assert.deepEqual(windowsPtyResourceCalls, ["dispose-conout", "destroy-input"]);
 
 const posixCalls: string[] = [];
 terminateProcessTree(
