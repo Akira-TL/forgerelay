@@ -277,16 +277,17 @@ bash(action="process", processId=...)
 
 ## Windows Shell 命令失败
 
-ForgeRelay 当前要求 Bash-compatible shell。
+ForgeRelay 在 Windows 上支持原生 PowerShell 7 (`pwsh`) Command Shell Runtime，也继续支持 Bash-compatible 路径。
 
 支持的常见 Windows 方案：
 
+- PowerShell 7 (`pwsh`)；
 - Git Bash；
 - WSL；
 - MSYS2；
 - Cygwin Bash。
 
-仅有 PowerShell / `cmd.exe` 不属于当前 supported shell runtime。
+Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 仍不属于当前 supported shell runtime。
 
 检查：
 

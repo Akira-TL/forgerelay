@@ -64,6 +64,27 @@ test("Bash default instructions keep a compact core capability contract and buil
   assert.doesNotMatch(result, /target branch diverged/);
 });
 
+test("PowerShell 7 command shell identity includes the probed runtime version", () => {
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "pwsh",
+    executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    source: "launcher",
+    version: "7.6.1",
+    capabilities: [
+      "powershell-command-language",
+      "powershell-core",
+      "profile-isolation",
+      "pipeline-chain-operators",
+    ],
+  };
+
+  const result = buildServerInstructions(config);
+  assert.match(result, /Command shell runtime: pwsh 7\.6\.1/);
+  assert.match(result, /Executable: C:\\Program Files\\PowerShell\\7\\pwsh\.exe/);
+  assert.match(result, /Selection source: launcher/);
+});
+
 test("non-Bash command shell identity is mandatory even without optional workflow guidance", () => {
   const config = loadConfig(baseEnv);
   config.commandShellRuntime = {

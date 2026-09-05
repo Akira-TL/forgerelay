@@ -47,6 +47,7 @@ export function resolveShellCommand(
 export function resolveShellCommandForRuntime(
   command: string,
   runtime: CommandShellRuntime,
+  options: { interactive?: boolean } = {},
 ): ShellCommand {
   // Agent and Hook commands must not source the user's interactive/login shell
   // configuration. ForgeRelay already inherits PATH and other environment from
@@ -68,8 +69,18 @@ export function resolveShellCommandForRuntime(
       return { executable: runtime.executable, args: ["-f", "-c", command] };
     case "sh":
       return { executable: runtime.executable, args: ["-c", command] };
-    case "fish":
     case "pwsh":
+      return {
+        executable: runtime.executable,
+        args: [
+          "-NoLogo",
+          "-NoProfile",
+          ...(options.interactive ? [] : ["-NonInteractive"]),
+          "-Command",
+          command,
+        ],
+      };
+    case "fish":
     case "powershell":
       throw new Error(
         `Command shell runtime ${runtime.family} is identified but native execution support is not enabled in this release stage. ForgeRelay will not silently execute the command through another shell.`,

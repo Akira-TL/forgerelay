@@ -162,10 +162,12 @@ ForgeRelay does not intentionally leave the source checkout in a merge-conflict 
 
 ## Windows shell commands fail
 
-ForgeRelay shell execution requires Bash. Native PowerShell and `cmd.exe` command
-execution are not currently supported by the shell runtime.
+ForgeRelay supports PowerShell 7 (`pwsh`) as a native Windows Command Shell Runtime.
+Agent commands and Hooks share that runtime and do not load the user PowerShell profile.
+Windows PowerShell 5.1 (`powershell.exe`) and `cmd.exe` remain separate follow-up runtimes.
+Git Bash, WSL, MSYS2, and Cygwin Bash also remain supported compatibility paths.
 
-Use Git Bash, WSL, MSYS2, or Cygwin Bash, then run:
+Check the selected runtime with:
 
 ```bash
 forgerelay doctor

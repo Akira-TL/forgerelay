@@ -57,12 +57,27 @@ assert.deepEqual(resolveShellCommandForRuntime("echo ok", {
   args: ["-c", "echo ok"],
 });
 
+const pwshRuntime = {
+  family: "pwsh" as const,
+  executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+  source: "launcher" as const,
+  version: "7.6.0",
+  capabilities: ["powershell-command-language", "powershell-core"],
+};
+assert.deepEqual(resolveShellCommandForRuntime("Write-Output ok", pwshRuntime), {
+  executable: pwshRuntime.executable,
+  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Write-Output ok"],
+});
+assert.deepEqual(resolveShellCommandForRuntime("Write-Output ok", pwshRuntime, { interactive: true }), {
+  executable: pwshRuntime.executable,
+  args: ["-NoLogo", "-NoProfile", "-Command", "Write-Output ok"],
+});
 assert.throws(
   () => resolveShellCommandForRuntime("Write-Output ok", {
-    family: "pwsh",
-    executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    family: "powershell",
+    executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     source: "launcher",
-    capabilities: ["powershell-command-language", "powershell-core"],
+    capabilities: ["powershell-command-language", "windows-powershell"],
   }),
   /will not silently execute the command through another shell/,
 );

@@ -51,6 +51,10 @@ interface LauncherDetectionDependencies {
   parentExecutable?: (platform: NodeJS.Platform, ppid: number) => string | undefined;
 }
 
+interface CommandShellMetadataDependencies {
+  probePowerShell7Version?: (executable: string) => string;
+}
+
 const POSIX_SH_NAMES = new Set(["ash", "dash", "ksh", "sh"]);
 
 export function resolveCommandShellRuntime(
@@ -83,23 +87,32 @@ export function resolveConfiguredCommandShellRuntime(
   preference: CommandShellPreference | undefined,
   platform: NodeJS.Platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
+  metadata: CommandShellMetadataDependencies = {},
 ): CommandShellRuntime {
   const legacyExplicit = environment.FORGERELAY_COMMAND_SHELL?.trim();
+  let runtime: CommandShellRuntime;
   if (legacyExplicit) {
     const explicit = normalizeCommandShellSelection({ executable: legacyExplicit }, platform, environment, true);
-    return resolveCommandShellRuntime({ explicit });
-  }
-  if (!preference) return resolveCompatibilityCommandShellRuntime(platform, environment);
-
-  if (preference.mode === "pinned") {
+    runtime = resolveCommandShellRuntime({ explicit });
+  } else if (!preference) {
+    runtime = resolveCompatibilityCommandShellRuntime(platform, environment);
+  } else if (preference.mode === "pinned") {
     const explicit = normalizeCommandShellSelection(preference, platform, environment, true);
-    return resolveCommandShellRuntime({ explicit });
+    runtime = resolveCommandShellRuntime({ explicit });
+  } else {
+    const launcher = detectLauncherCommandShell({ platform, environment });
+    if (launcher) {
+      runtime = resolveCommandShellRuntime({ launcher });
+    } else {
+      const recordedFallback = normalizeCommandShellSelection(preference, platform, environment, true);
+      runtime = resolveCommandShellRuntime({ recordedFallback });
+    }
   }
 
-  const launcher = detectLauncherCommandShell({ platform, environment });
-  if (launcher) return resolveCommandShellRuntime({ launcher });
-  const recordedFallback = normalizeCommandShellSelection(preference, platform, environment, true);
-  return resolveCommandShellRuntime({ recordedFallback });
+  return enrichConfiguredCommandShellRuntime(
+    runtime,
+    metadata.probePowerShell7Version ?? probePowerShell7Version,
+  );
 }
 
 export function resolveCompatibilityCommandShellRuntime(
@@ -209,6 +222,50 @@ export function formatCommandShellRuntime(runtime: CommandShellRuntime): string 
 
 export function snapshotCommandShellRuntime(runtime: CommandShellRuntime): CommandShellRuntime {
   return { ...runtime, capabilities: [...runtime.capabilities] };
+}
+
+function enrichConfiguredCommandShellRuntime(
+  runtime: CommandShellRuntime,
+  powerShell7VersionProbe: (executable: string) => string,
+): CommandShellRuntime {
+  if (runtime.family !== "pwsh") return runtime;
+  const version = powerShell7VersionProbe(runtime.executable).trim();
+  const major = Number.parseInt(version.split(".", 1)[0] ?? "", 10);
+  if (!version || !Number.isInteger(major)) {
+    throw new Error(`Unable to determine PowerShell 7 version from ${runtime.executable}.`);
+  }
+  if (major < 7) {
+    throw new Error(`Configured pwsh runtime must be PowerShell 7 or newer; detected ${version} at ${runtime.executable}.`);
+  }
+  return {
+    ...runtime,
+    version,
+    capabilities: Array.from(new Set([
+      ...runtime.capabilities,
+      "profile-isolation",
+      "pipeline-chain-operators",
+    ])),
+  };
+}
+
+function probePowerShell7Version(executable: string): string {
+  const result = spawnSync(
+    executable,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+    { encoding: "utf8", windowsHide: true, timeout: 5_000 },
+  );
+  if (result.error) {
+    throw new Error(`Unable to query PowerShell 7 version from ${executable}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = result.stderr?.trim();
+    throw new Error(
+      `Unable to query PowerShell 7 version from ${executable}: exited with code ${result.status ?? "unknown"}${detail ? `: ${detail}` : ""}.`,
+    );
+  }
+  const version = result.stdout?.trim();
+  if (!version) throw new Error(`Unable to query PowerShell 7 version from ${executable}: no version was reported.`);
+  return version;
 }
 
 export function commandShellAgentInstruction(runtime: CommandShellRuntime): string {

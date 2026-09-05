@@ -295,8 +295,9 @@ See [Security Model](docs/security.md) for the full boundary and threat model.
 | --- | --- | --- |
 | Linux | Supported | Requires Node, npm, Git, and Bash. |
 | macOS | Supported | Requires Node, npm, Git, and Bash. |
-| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Git Bash is the simplest native Windows setup. |
-| Windows PowerShell or `cmd.exe` only | Not supported yet | Install Git Bash or use WSL. |
+| Windows with PowerShell 7 (`pwsh`) | Supported | Agent commands and Hooks use one native `pwsh` runtime without loading the user profile. |
+| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Bash remains available as a compatibility path. |
+| Windows PowerShell 5.1 (`powershell.exe`) or `cmd.exe` only | Not supported yet | These runtimes are separate follow-up stages. |
 
 You can check the local runtime with:
 

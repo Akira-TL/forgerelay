@@ -621,7 +621,7 @@ export class ProcessManager {
       throw new Error("PTY support requires the optional node-pty dependency.");
     }
 
-    const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime);
+    const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime, { interactive: true });
     let pty: import("node-pty").IPty;
     try {
       pty = nodePty.spawn(shell.executable, shell.args, {

@@ -48,6 +48,6 @@ PTY 依赖 optional `node-pty`。缺少该依赖时 ForgeRelay 会明确报错�
 
 ## Platform notes
 
-ForgeRelay shell runtime 需要 Bash。Windows 上原生 PowerShell 和 `cmd.exe` 当前不是该 runtime 的执行 shell；使用 Git Bash、WSL、MSYS2 或 Cygwin Bash，并用 `forgerelay doctor` 检查环境。
+ForgeRelay 在 Windows 上支持 PowerShell 7 (`pwsh`) 作为原生 Command Shell Runtime；非 TTY Agent 命令与 Hooks 使用同一个 `pwsh`，禁止加载用户 profile，PTY 也复用同一 executable。公共工具名仍保留为 `bash` 以兼容 Host contract，实际命令语言以 ForgeRelay 报告的 Command Shell Runtime 为准。Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 仍属于后续 runtime 阶段；Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。用 `forgerelay doctor` 检查当前 shell identity、version 与 executable。
 
 Shell 可以作为用户开发任务的一部分修改普通项目文件，但始终受 ForgeRelay core mutation/safety contract 约束。涉及 privileged OS files、credentials、configuration 或外部硬件持久写入时，不要用本指南替代 core authorization/safety 规则。

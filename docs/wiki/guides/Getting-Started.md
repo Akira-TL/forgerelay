@@ -12,7 +12,7 @@ ForgeRelay 需要：
 - Bash 兼容 Shell
 - 当 Host 无法直接访问 localhost 时，一个由你自行管理的公网 HTTPS 入口
 
-Linux 和 macOS 可以直接使用系统常见 Bash 环境。Windows 需要 Git Bash、WSL、MSYS2 或 Cygwin Bash；仅有 PowerShell 或 `cmd.exe` 还不够。
+Linux 和 macOS 可以直接使用系统常见 Bash 环境。Windows 可以原生使用 PowerShell 7 (`pwsh`)，也可以使用 Git Bash、WSL、MSYS2 或 Cygwin Bash；Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 仍属于后续 runtime 阶段。
 
 ## 2. 安装
 

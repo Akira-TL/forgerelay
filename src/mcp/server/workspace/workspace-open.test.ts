@@ -200,16 +200,16 @@ test("Workspace Panel loads advertised instruction bodies on demand without acti
 
 test("loaded config-owned shell Instructions join bootstrap context and reuse the existing resource delta monitor", async (t) => {
   const context = await fixture(t);
-  const shellPath = join(context.config.configDir, "instructions", "zsh.md");
+  const shellPath = join(context.config.configDir, "instructions", "pwsh.md");
   await mkdir(dirname(shellPath), { recursive: true });
-  await writeFile(shellPath, "shell guidance before\n");
+  await writeFile(shellPath, "PowerShell 7 shell guidance before\n");
   context.config.shellInstructionPath = shellPath;
   context.config.shellInstructionsEnabled = true;
 
   const opened = await callOpen(context.client, context.project, "chat-shell-loaded");
   const workspaceId = String(structuredContent(opened).workspaceId);
   const agentsFiles = structuredContent(opened).agentsFiles as Array<{ path?: string; content?: string }>;
-  assert.equal(agentsFiles.some((file) => file.content === "shell guidance before\n"), true);
+  assert.equal(agentsFiles.some((file) => file.content === "PowerShell 7 shell guidance before\n"), true);
 
   const card = responseCard(opened) as {
     workspaceInstructions?: Array<{ path?: string; status?: string }>;
@@ -223,12 +223,12 @@ test("loaded config-owned shell Instructions join bootstrap context and reuse th
   });
   assert.equal(detail.isError, undefined, allResponseText(detail));
   assert.equal(structuredContent(detail).status, "loaded");
-  assert.equal(structuredContent(detail).content, "shell guidance before\n");
+  assert.equal(structuredContent(detail).content, "PowerShell 7 shell guidance before\n");
 
-  await writeFile(shellPath, "shell guidance after\n");
+  await writeFile(shellPath, "PowerShell 7 shell guidance after\n");
   const repeated = await callOpen(context.client, context.project, "chat-shell-loaded");
   assert.match(allResponseText(repeated), /Workspace instruction delta:/);
-  assert.match(allResponseText(repeated), /shell guidance after/);
+  assert.match(allResponseText(repeated), /PowerShell 7 shell guidance after/);
   const repeatedCard = responseCard(repeated) as {
     workspaceInstructions?: Array<{ path?: string; status?: string }>;
   };

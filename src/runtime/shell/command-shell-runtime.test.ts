@@ -119,6 +119,40 @@ test("follow-launcher falls back to the recorded shell when npm hides its wrappe
   assert.equal(runtime.source, "recorded");
 });
 
+test("configured pwsh records the probed PowerShell 7 version and runtime capabilities", () => {
+  const runtime = resolveConfiguredCommandShellRuntime({
+    mode: "pinned",
+    family: "pwsh",
+    executable: process.execPath,
+  }, "linux", { PATH: process.env.PATH }, {
+    probePowerShell7Version: (executable) => {
+      assert.equal(executable, process.execPath);
+      return "7.6.1";
+    },
+  });
+
+  assert.equal(runtime.family, "pwsh");
+  assert.equal(runtime.version, "7.6.1");
+  assert.equal(runtime.source, "explicit");
+  assert.ok(runtime.capabilities.includes("powershell-core"));
+  assert.ok(runtime.capabilities.includes("profile-isolation"));
+  assert.ok(runtime.capabilities.includes("pipeline-chain-operators"));
+  assert.match(commandShellAgentInstruction(runtime), /Command shell runtime: pwsh 7\.6\.1/);
+});
+
+test("configured pwsh rejects runtimes older than PowerShell 7", () => {
+  assert.throws(
+    () => resolveConfiguredCommandShellRuntime({
+      mode: "pinned",
+      family: "pwsh",
+      executable: process.execPath,
+    }, "linux", { PATH: process.env.PATH }, {
+      probePowerShell7Version: () => "6.2.7",
+    }),
+    /must be PowerShell 7 or newer/,
+  );
+});
+
 test("unavailable pinned shell fails instead of changing command language", () => {
   assert.throws(
     () => resolveConfiguredCommandShellRuntime({
