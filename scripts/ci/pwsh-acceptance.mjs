@@ -35,16 +35,10 @@ try {
     ],
   };
 
-  console.error(`[pwsh-acceptance:baseline-resources] ${JSON.stringify({
-    resources: process.getActiveResourcesInfo?.() ?? [],
-  })}`);
   await exerciseAgentRuntime(runtime);
   await exerciseHookRuntime(runtime);
   await exercisePackagedPowerShellShim(pwsh, version);
 
-  console.error(`[pwsh-acceptance:exit-diagnostic] ${JSON.stringify({
-    resources: process.getActiveResourcesInfo?.() ?? [],
-  })}`);
   console.log(`PowerShell 7 acceptance passed with ${pwsh} (${version}).`);
 } finally {
   await rm(root, { recursive: true, force: true });
