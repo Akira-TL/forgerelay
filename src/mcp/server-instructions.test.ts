@@ -20,8 +20,19 @@ function instructions(env: NodeJS.ProcessEnv = {}): string {
   return buildServerInstructions(loadConfig({ ...baseEnv, ...env }));
 }
 
-test("default instructions keep a compact core capability contract and built-in workflow preference", () => {
-  const result = instructions();
+function bashInstructions(env: NodeJS.ProcessEnv = {}): string {
+  const config = loadConfig({ ...baseEnv, ...env });
+  config.commandShellRuntime = {
+    family: "bash",
+    executable: "test-bash",
+    source: "compatibility-default",
+    capabilities: ["bash", "profile-isolation", "posix-command-language"],
+  };
+  return buildServerInstructions(config);
+}
+
+test("Bash default instructions keep a compact core capability contract and built-in workflow preference", () => {
+  const result = bashInstructions();
 
   assert.ok(result.length < 3_000, `default instructions should stay compact, got ${result.length} characters`);
   assert.match(result, /Default to the user's existing checkout/);
@@ -74,7 +85,7 @@ test("non-Bash command shell identity is mandatory even without optional workflo
 });
 
 test("ordinary Bash keeps the compact default without redundant shell identity text", () => {
-  const result = instructions();
+  const result = bashInstructions();
   assert.doesNotMatch(result, /Command shell runtime:/);
 });
 
@@ -125,11 +136,10 @@ test("capability contract requires agents to report visible hook results", () =>
 });
 
 test("optional artifact and review features do not expand the core instruction payload", () => {
-  const result = buildServerInstructions(loadConfig({
-    ...baseEnv,
+  const result = bashInstructions({
     FORGERELAY_ARTIFACTS: "1",
     FORGERELAY_WIDGETS: "changes",
-  }));
+  });
 
   assert.ok(result.length < 3_000, `feature-enabled instructions should stay compact, got ${result.length} characters`);
   assert.doesNotMatch(result, /signed URLs/);
