@@ -130,21 +130,31 @@ const commandShellConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-command-she
 writeFileSync(
   join(commandShellConfigDir, "config.json"),
   JSON.stringify({
-    commandShell: { mode: "pinned", family: "bash", executable: "/bin/bash" },
+    commandShell: {
+      mode: "pinned",
+      family: defaultShellConfig.commandShellRuntime.family,
+      executable: defaultShellConfig.commandShellRuntime.executable,
+    },
   }),
 );
 const pinnedShellConfig = loadConfig({
   ...baseEnv,
   FORGERELAY_CONFIG_DIR: commandShellConfigDir,
 });
-assert.equal(pinnedShellConfig.commandShellRuntime.family, "bash");
-assert.equal(pinnedShellConfig.commandShellRuntime.executable, "/bin/bash");
+assert.equal(
+  pinnedShellConfig.commandShellRuntime.family,
+  defaultShellConfig.commandShellRuntime.family,
+);
+assert.equal(
+  pinnedShellConfig.commandShellRuntime.executable,
+  defaultShellConfig.commandShellRuntime.executable,
+);
 assert.equal(pinnedShellConfig.commandShellRuntime.source, "explicit");
 
 writeFileSync(
   join(commandShellConfigDir, "config.json"),
   JSON.stringify({
-    commandShell: { mode: "pinned", family: "zsh", executable: "/bin/sh" },
+    commandShell: { mode: "pinned", family: "zsh", executable: process.execPath },
     shellInstructions: false,
   }),
 );
