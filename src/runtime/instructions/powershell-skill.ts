@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 export type PowerShellSkillSeedStatus = "created" | "preserved" | "failed";
@@ -64,17 +64,6 @@ export async function seedPowerShellSkill(
       sourceUrl,
       error: error instanceof Error ? error.message : String(error),
     };
-  }
-}
-
-export async function readPowerShellSkill(configDir: string): Promise<string | undefined> {
-  try {
-    return await readFile(powerShellSkillPath(configDir), "utf8");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
-      return undefined;
-    }
-    throw error;
   }
 }
 
