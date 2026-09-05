@@ -1,0 +1,34 @@
+name: Windows Shell Acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-shell:
+    name: Windows shell runtime acceptance
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Use pinned verification npm
+        run: npm install --global npm@11.19.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: PowerShell 7 acceptance
+        run: npm run pwsh:accept
