@@ -30,6 +30,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Command runtime tests
+        run: npm test
+
       - name: PowerShell 7 acceptance
         run: npm run pwsh:accept
 
