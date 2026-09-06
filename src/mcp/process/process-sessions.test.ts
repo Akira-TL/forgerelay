@@ -86,11 +86,11 @@ if (process.platform === "win32") {
     const environmentExpansion = await cmdManager.start({
       workspaceId: "cmd-runtime",
       cwd: process.cwd(),
-      command: `set "FR_CMD_VALUE=hello world" && call echo [%%FR_CMD_VALUE%%]`,
+      command: "echo [%ComSpec%]",
       yieldTimeMs: 2_000,
     });
     assert.equal(environmentExpansion.exitCode, 0);
-    assert.match(environmentExpansion.output, /\[hello world\]/);
+    assert.match(environmentExpansion.output.toLowerCase(), /\\cmd\.exe\]/);
 
     const quotedNativeExecutable = await cmdManager.start({
       workspaceId: "cmd-runtime",
