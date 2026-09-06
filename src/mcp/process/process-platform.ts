@@ -7,6 +7,7 @@ import {
 export interface ShellCommand {
   executable: string;
   args: string[];
+  ptyCommandLine?: string;
   windowsVerbatimArguments?: boolean;
 }
 
@@ -78,6 +79,10 @@ export function resolveShellCommandForRuntime(
         // cmd.exe /S applies special quote stripping, so the whole command must
         // be wrapped even when the executable inside it is already quoted.
         args: ["/d", "/s", "/c", `"${command}"`],
+        // node-pty accepts a pre-escaped Windows CommandLine string. Passing the
+        // cmd arguments as string[] makes node-pty escape embedded quotes using
+        // CommandLineToArgvW rules, which changes cmd.exe /S /C semantics.
+        ...(options.interactive ? { ptyCommandLine: `/d /s /c "${command}"` } : {}),
         windowsVerbatimArguments: true,
       };
     case "bash":

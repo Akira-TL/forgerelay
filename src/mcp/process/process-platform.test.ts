@@ -31,6 +31,30 @@ assert.deepEqual(
   },
 );
 
+assert.deepEqual(
+  resolveShellCommandForRuntime(
+    "\"C:\\Program Files\\nodejs\\node.exe\" -e \"console.log('pty')\" & exit /b 23",
+    {
+      family: "cmd",
+      executable: "C:\\Windows\\System32\\cmd.exe",
+      source: "explicit",
+      capabilities: ["cmd-command-language"],
+    },
+    { interactive: true },
+  ),
+  {
+    executable: "C:\\Windows\\System32\\cmd.exe",
+    args: [
+      "/d",
+      "/s",
+      "/c",
+      "\"\"C:\\Program Files\\nodejs\\node.exe\" -e \"console.log('pty')\" & exit /b 23\"",
+    ],
+    ptyCommandLine: "/d /s /c \"\"C:\\Program Files\\nodejs\\node.exe\" -e \"console.log('pty')\" & exit /b 23\"",
+    windowsVerbatimArguments: true,
+  },
+);
+
 assert.deepEqual(resolveShellCommand("echo ok", "darwin", { SHELL: "/bin/zsh" }), {
   executable: "/bin/bash",
   args: ["--noprofile", "--norc", "-c", "echo ok"],

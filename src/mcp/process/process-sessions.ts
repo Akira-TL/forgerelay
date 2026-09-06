@@ -621,7 +621,7 @@ export class ProcessManager {
     }
 
     const shell = resolveShellCommandForRuntime(input.command, this.commandShellRuntime, { interactive: true });
-    const pty = nodePty.spawn(shell.executable, shell.args, {
+    const pty = nodePty.spawn(shell.executable, shell.ptyCommandLine ?? shell.args, {
       cwd: input.cwd,
       env: processEnvironment({
         workspaceId: input.workspaceId,
