@@ -1,14 +1,24 @@
-# ForgeRelay
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/forgerelay-lockup-dark.png">
+    <img src="docs/assets/forgerelay-lockup-light.png" alt="ForgeRelay" width="620">
+  </picture>
+</p>
 
-**Give MCP coding agents a real local workspace.**
+<p align="center">
+  <strong>Give MCP coding agents a real local workspace.</strong><br>
+  <strong>让 MCP 编码 Agent 真正接入你的本地开发环境。</strong>
+</p>
 
-**让 MCP 编码 Agent 真正接入你的本地开发环境。**
+<p align="center">
+  <a href="#中文">中文</a> · <a href="#english">English</a>
+</p>
 
-[中文](#中文) · [English](#english)
-
-[![npm](https://img.shields.io/npm/v/%40akira-tl%2Fforgerelay?style=flat-square)](https://www.npmjs.com/package/@akira-tl/forgerelay)
-[![Release](https://img.shields.io/github/actions/workflow/status/Akira-TL/forgerelay/release.yml?style=flat-square&label=release)](https://github.com/Akira-TL/forgerelay/actions/workflows/release.yml)
-[![License](https://img.shields.io/npm/l/%40akira-tl%2Fforgerelay?style=flat-square)](LICENSE)
+<p align="center">
+  <a href="https://www.npmjs.com/package/@akira-tl/forgerelay"><img src="https://img.shields.io/npm/v/%40akira-tl%2Fforgerelay?style=flat-square" alt="npm"></a>
+  <a href="https://github.com/Akira-TL/forgerelay/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/Akira-TL/forgerelay/release.yml?style=flat-square&label=release" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/%40akira-tl%2Fforgerelay?style=flat-square" alt="License"></a>
+</p>
 
 ---
 
