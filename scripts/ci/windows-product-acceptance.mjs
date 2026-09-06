@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -44,6 +44,8 @@ try {
 
   const installedRoot = join(prefix, "node_modules", "@akira-tl", "forgerelay");
   assert.ok(existsSync(join(installedRoot, "dist", "cli.js")), `installed package is missing dist/cli.js: ${installedRoot}`);
+  const workspaceProbe = join(root, "packaged-workspace-probe.mjs");
+  await writeFile(workspaceProbe, PACKAGED_WORKSPACE_PROBE, "utf8");
 
   const pwsh = resolveWhere("pwsh.exe", "PowerShell 7");
   const powershell = resolveWhere("powershell.exe", "Windows PowerShell 5.1");
@@ -63,6 +65,7 @@ try {
       projectRoot,
       shim,
       installedRoot,
+      workspaceProbe,
     });
   }
 
@@ -72,7 +75,7 @@ try {
   await rm(root, { recursive: true, force: true });
 }
 
-async function exercisePackagedRuntime({ family, executable, doctorIdentity, root, projectRoot, shim, installedRoot }) {
+async function exercisePackagedRuntime({ family, executable, doctorIdentity, root, projectRoot, shim, installedRoot, workspaceProbe }) {
   const configDir = join(root, `config-${family}`);
   const stateDir = join(root, `state-${family}`);
   const instructionsDir = join(configDir, "instructions");
@@ -115,32 +118,35 @@ async function exercisePackagedRuntime({ family, executable, doctorIdentity, roo
   assert.match(doctor.stdout, /Shell Instructions: enabled \(.+; available\)/);
   assert.doesNotMatch(doctor.stdout, /Bash shell:/);
 
-  const [{ loadConfig }, { SqliteWorkspaceStore }, { WorkspaceRegistry }] = await Promise.all([
-    importInstalled(installedRoot, "dist/runtime/config/config.js"),
-    importInstalled(installedRoot, "dist/workspaces/state/workspace-store.js"),
-    importInstalled(installedRoot, "dist/workspaces.js"),
-  ]);
-  const config = loadConfig(env);
-  const store = new SqliteWorkspaceStore(stateDir);
-  try {
-    const registry = new WorkspaceRegistry(config, store);
-    const opened = await registry.openWorkspace(
-      { path: projectRoot, context: "full" },
-      { conversationScopeId: `windows-product-${family}` },
-    );
-    assert.equal(opened.workspace.root, projectRoot);
-    const loadedShellInstruction = opened.agentsFiles.find((file) => file.path === instructionPath);
-    assert.ok(loadedShellInstruction, `${family} shell Instructions were not loaded from the packaged runtime`);
-    assert.match(loadedShellInstruction.content, new RegExp(instructionMarker));
-    assert.ok(
-      opened.workspace.workspaceInstructions.some((entry) =>
-        entry.path === instructionPath && entry.status === "loaded"
-      ),
-      `${family} shell Instructions were not advertised as loaded`,
-    );
-  } finally {
-    store.close();
+  const probeResultPath = join(root, `workspace-probe-${family}.json`);
+  const probe = spawnSync(
+    process.execPath,
+    [
+      workspaceProbe,
+      installedRoot,
+      projectRoot,
+      stateDir,
+      instructionPath,
+      instructionMarker,
+      `windows-product-${family}`,
+      probeResultPath,
+    ],
+    {
+      cwd: process.cwd(),
+      env,
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 20_000,
+    },
+  );
+  if (probe.error || probe.status !== 0) {
+    throw new Error(`Packaged Workspace probe failed for ${family}: ${probe.error?.message ?? probe.stderr ?? probe.status}`);
   }
+  const opened = JSON.parse(await readFile(probeResultPath, "utf8"));
+  assert.equal(opened.workspaceRoot, projectRoot);
+  assert.equal(opened.instructionPath, instructionPath);
+  assert.match(opened.instructionContent ?? "", new RegExp(instructionMarker));
+  assert.equal(opened.instructionStatus, "loaded", `${family} shell Instructions were not advertised as loaded`);
 }
 
 async function exercisePackagedElevationContract(installedRoot, { root, projectRoot, shim, cmd }) {
@@ -202,6 +208,42 @@ async function exercisePackagedElevationContract(installedRoot, { root, projectR
   );
   assert.doesNotThrow(() => assertRuntimePrivilegeAllowed(unknown, true));
 }
+
+const PACKAGED_WORKSPACE_PROBE = String.raw`
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const [installedRoot, projectRoot, stateDir, instructionPath, instructionMarker, conversationScopeId, resultPath] = process.argv.slice(2);
+const importInstalled = (relativePath) => import(pathToFileURL(join(installedRoot, relativePath)).href);
+const [{ loadConfig }, { SqliteWorkspaceStore }, { WorkspaceRegistry }] = await Promise.all([
+  importInstalled("dist/runtime/config/config.js"),
+  importInstalled("dist/workspaces/state/workspace-store.js"),
+  importInstalled("dist/workspaces.js"),
+]);
+const config = loadConfig(process.env);
+const store = new SqliteWorkspaceStore(stateDir);
+try {
+  const registry = new WorkspaceRegistry(config, store);
+  const opened = await registry.openWorkspace(
+    { path: projectRoot, context: "full" },
+    { conversationScopeId },
+  );
+  const loadedShellInstruction = opened.agentsFiles.find((file) => file.path === instructionPath);
+  const instructionState = opened.workspace.workspaceInstructions.find((entry) => entry.path === instructionPath);
+  if (!loadedShellInstruction || !loadedShellInstruction.content.includes(instructionMarker)) {
+    throw new Error("Packaged shell Instructions were not loaded from the editable instruction file.");
+  }
+  await writeFile(resultPath, JSON.stringify({
+    workspaceRoot: opened.workspace.root,
+    instructionPath: loadedShellInstruction.path,
+    instructionContent: loadedShellInstruction.content,
+    instructionStatus: instructionState?.status ?? null,
+  }), "utf8");
+} finally {
+  store.close();
+}
+`;
 
 function cleanAcceptanceEnv(configDir) {
   const env = Object.fromEntries(
