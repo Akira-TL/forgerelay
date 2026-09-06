@@ -116,10 +116,18 @@ test("tool hooks observe success, failure, and file changes through the MCP surf
 });
 
 test("MCP tool hooks use the configured command-shell runtime instead of a compatibility fallback", async (t) => {
+  const windows = process.platform === "win32";
+  const configuredShell = windows
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    : "/bin/sh";
   const context = await fixture(t, {
-    env: { FORGERELAY_COMMAND_SHELL: "/bin/sh" },
+    env: { FORGERELAY_COMMAND_SHELL: configuredShell },
     hooks: {
-      AfterTool: [{ command: "printf '%s' \"$0\" > configured-hook-shell.txt" }],
+      AfterTool: [{
+        command: windows
+          ? "Set-Content -Path configured-hook-shell.txt -Value powershell"
+          : "printf '%s' \"$0\" > configured-hook-shell.txt",
+      }],
     },
   });
   const opened = await callOpen(context.client, context.project, "chat-configured-hook-shell");
@@ -130,7 +138,10 @@ test("MCP tool hooks use the configured command-shell runtime instead of a compa
     arguments: { workspaceId, path: "AGENTS.md" },
   });
 
-  assert.equal((await readFile(join(context.project, "configured-hook-shell.txt"), "utf8")).trim(), "/bin/sh");
+  assert.equal(
+    (await readFile(join(context.project, "configured-hook-shell.txt"), "utf8")).trim(),
+    windows ? "powershell" : configuredShell,
+  );
 });
 
 test("WorkspaceOpen hook reports are visible on the open_workspace result", async (t) => {
