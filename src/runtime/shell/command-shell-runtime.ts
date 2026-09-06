@@ -53,6 +53,7 @@ interface LauncherDetectionDependencies {
 
 interface CommandShellMetadataDependencies {
   probePowerShell7Version?: (executable: string) => string;
+  probeWindowsPowerShellVersion?: (executable: string) => string;
 }
 
 const POSIX_SH_NAMES = new Set(["ash", "dash", "ksh", "sh"]);
@@ -112,6 +113,7 @@ export function resolveConfiguredCommandShellRuntime(
   return enrichConfiguredCommandShellRuntime(
     runtime,
     metadata.probePowerShell7Version ?? probePowerShell7Version,
+    metadata.probeWindowsPowerShellVersion ?? probeWindowsPowerShellVersion,
   );
 }
 
@@ -227,44 +229,80 @@ export function snapshotCommandShellRuntime(runtime: CommandShellRuntime): Comma
 function enrichConfiguredCommandShellRuntime(
   runtime: CommandShellRuntime,
   powerShell7VersionProbe: (executable: string) => string,
+  windowsPowerShellVersionProbe: (executable: string) => string,
 ): CommandShellRuntime {
-  if (runtime.family !== "pwsh") return runtime;
-  const version = powerShell7VersionProbe(runtime.executable).trim();
-  const major = Number.parseInt(version.split(".", 1)[0] ?? "", 10);
-  if (!version || !Number.isInteger(major)) {
-    throw new Error(`Unable to determine PowerShell 7 version from ${runtime.executable}.`);
+  if (runtime.family === "pwsh") {
+    const version = powerShell7VersionProbe(runtime.executable).trim();
+    const major = Number.parseInt(version.split(".", 1)[0] ?? "", 10);
+    if (!version || !Number.isInteger(major)) {
+      throw new Error(`Unable to determine PowerShell 7 version from ${runtime.executable}.`);
+    }
+    if (major < 7) {
+      throw new Error(`Configured pwsh runtime must be PowerShell 7 or newer; detected ${version} at ${runtime.executable}.`);
+    }
+    return {
+      ...runtime,
+      version,
+      capabilities: Array.from(new Set([
+        ...runtime.capabilities,
+        "profile-isolation",
+        "pipeline-chain-operators",
+      ])),
+    };
   }
-  if (major < 7) {
-    throw new Error(`Configured pwsh runtime must be PowerShell 7 or newer; detected ${version} at ${runtime.executable}.`);
+
+  if (runtime.family === "powershell") {
+    const version = windowsPowerShellVersionProbe(runtime.executable).trim();
+    const [majorText, minorText] = version.split(".", 3);
+    const major = Number.parseInt(majorText ?? "", 10);
+    const minor = Number.parseInt(minorText ?? "", 10);
+    if (!version || !Number.isInteger(major) || !Number.isInteger(minor)) {
+      throw new Error(`Unable to determine Windows PowerShell version from ${runtime.executable}.`);
+    }
+    if (major !== 5 || minor !== 1) {
+      throw new Error(
+        `Configured powershell runtime must be Windows PowerShell 5.1; detected ${version} at ${runtime.executable}. ForgeRelay will not substitute pwsh for the selected runtime.`,
+      );
+    }
+    return {
+      ...runtime,
+      version,
+      capabilities: Array.from(new Set([
+        ...runtime.capabilities,
+        "profile-isolation",
+        "powershell-5.1",
+      ])),
+    };
   }
-  return {
-    ...runtime,
-    version,
-    capabilities: Array.from(new Set([
-      ...runtime.capabilities,
-      "profile-isolation",
-      "pipeline-chain-operators",
-    ])),
-  };
+
+  return runtime;
 }
 
 function probePowerShell7Version(executable: string): string {
+  return probePowerShellVersion(executable, "PowerShell 7");
+}
+
+function probeWindowsPowerShellVersion(executable: string): string {
+  return probePowerShellVersion(executable, "Windows PowerShell");
+}
+
+function probePowerShellVersion(executable: string, label: string): string {
   const result = spawnSync(
     executable,
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"],
     { encoding: "utf8", windowsHide: true, timeout: 5_000 },
   );
   if (result.error) {
-    throw new Error(`Unable to query PowerShell 7 version from ${executable}: ${result.error.message}`);
+    throw new Error(`Unable to query ${label} version from ${executable}: ${result.error.message}`);
   }
   if (result.status !== 0) {
     const detail = result.stderr?.trim();
     throw new Error(
-      `Unable to query PowerShell 7 version from ${executable}: exited with code ${result.status ?? "unknown"}${detail ? `: ${detail}` : ""}.`,
+      `Unable to query ${label} version from ${executable}: exited with code ${result.status ?? "unknown"}${detail ? `: ${detail}` : ""}.`,
     );
   }
   const version = result.stdout?.trim();
-  if (!version) throw new Error(`Unable to query PowerShell 7 version from ${executable}: no version was reported.`);
+  if (!version) throw new Error(`Unable to query ${label} version from ${executable}: no version was reported.`);
   return version;
 }
 
@@ -276,6 +314,9 @@ export function commandShellAgentInstruction(runtime: CommandShellRuntime): stri
     `Executable: ${runtime.executable}.`,
     `Selection source: ${runtime.source}.`,
     "Write shell commands for this runtime rather than assuming Bash syntax.",
+    ...(runtime.family === "powershell"
+      ? ["Windows PowerShell 5.1 does not support PowerShell 7 pipeline-chain operators && or ||."]
+      : []),
   ].join(" ");
 }
 

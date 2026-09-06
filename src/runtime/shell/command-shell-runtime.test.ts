@@ -153,6 +153,41 @@ test("configured pwsh rejects runtimes older than PowerShell 7", () => {
   );
 });
 
+test("configured Windows PowerShell records 5.1 identity without PowerShell 7-only capabilities", () => {
+  const runtime = resolveConfiguredCommandShellRuntime({
+    mode: "pinned",
+    family: "powershell",
+    executable: process.execPath,
+  }, "linux", { PATH: process.env.PATH }, {
+    probeWindowsPowerShellVersion: (executable) => {
+      assert.equal(executable, process.execPath);
+      return "5.1.26100.7019";
+    },
+  });
+
+  assert.equal(runtime.family, "powershell");
+  assert.equal(runtime.version, "5.1.26100.7019");
+  assert.equal(runtime.source, "explicit");
+  assert.ok(runtime.capabilities.includes("windows-powershell"));
+  assert.ok(runtime.capabilities.includes("profile-isolation"));
+  assert.ok(!runtime.capabilities.includes("pipeline-chain-operators"));
+  assert.match(commandShellAgentInstruction(runtime), /Windows PowerShell 5\.1/);
+  assert.match(commandShellAgentInstruction(runtime), /does not support .*&&.*\|\|/);
+});
+
+test("configured Windows PowerShell rejects non-5.1 runtimes instead of silently changing families", () => {
+  assert.throws(
+    () => resolveConfiguredCommandShellRuntime({
+      mode: "pinned",
+      family: "powershell",
+      executable: process.execPath,
+    }, "linux", { PATH: process.env.PATH }, {
+      probeWindowsPowerShellVersion: () => "7.6.1",
+    }),
+    /must be Windows PowerShell 5\.1/,
+  );
+});
+
 test("unavailable pinned shell fails instead of changing command language", () => {
   assert.throws(
     () => resolveConfiguredCommandShellRuntime({

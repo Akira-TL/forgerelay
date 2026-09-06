@@ -115,6 +115,24 @@ test("tool hooks observe success, failure, and file changes through the MCP surf
   );
 });
 
+test("MCP tool hooks use the configured command-shell runtime instead of a compatibility fallback", async (t) => {
+  const context = await fixture(t, {
+    env: { FORGERELAY_COMMAND_SHELL: "/bin/sh" },
+    hooks: {
+      AfterTool: [{ command: "printf '%s' \"$0\" > configured-hook-shell.txt" }],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "chat-configured-hook-shell");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "AGENTS.md" },
+  });
+
+  assert.equal((await readFile(join(context.project, "configured-hook-shell.txt"), "utf8")).trim(), "/bin/sh");
+});
+
 test("WorkspaceOpen hook reports are visible on the open_workspace result", async (t) => {
   const context = await fixture(t);
   await mkdir(join(context.project, ".forgerelay"), { recursive: true });

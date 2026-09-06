@@ -87,6 +87,7 @@ export function resolveShellCommandForRuntime(
     case "sh":
       return { executable: runtime.executable, args: ["-c", command] };
     case "pwsh":
+    case "powershell":
       return {
         executable: runtime.executable,
         args: [
@@ -98,7 +99,6 @@ export function resolveShellCommandForRuntime(
         ],
       };
     case "fish":
-    case "powershell":
       throw new Error(
         `Command shell runtime ${runtime.family} is identified but native execution support is not enabled in this release stage. ForgeRelay will not silently execute the command through another shell.`,
       );

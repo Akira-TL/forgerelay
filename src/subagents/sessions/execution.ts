@@ -53,7 +53,13 @@ export async function executeSubagentRun(
     if (record.activeRun?.id !== input.runId) {
       throw new Error(`Subagent Run ${input.runId} is not active for Session ${record.id}.`);
     }
-    const hooks = new HookRunner(config.hooks, config.logging);
+    const hooks = new HookRunner(
+      config.hooks,
+      config.logging,
+      process.env,
+      undefined,
+      config.commandShellRuntime,
+    );
     const hookInvocation = {
       workspaceId: record.workspaceId,
       workspaceRoot: record.workspaceRoot,

@@ -32,3 +32,6 @@ jobs:
 
       - name: PowerShell 7 acceptance
         run: npm run pwsh:accept
+
+      - name: Windows PowerShell 5.1 acceptance
+        run: npm run powershell51:accept

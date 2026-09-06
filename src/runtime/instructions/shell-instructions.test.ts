@@ -21,6 +21,21 @@ test("template URLs are pinned to the exact ForgeRelay release tag", () => {
   );
 });
 
+test("Windows PowerShell 5.1 guidance stays independent from PowerShell 7 guidance", () => {
+  const root = join(tmpdir(), "forgerelay-shell-instruction-paths");
+  const pwshPath = shellInstructionPath(root, "pwsh");
+  const powershellPath = shellInstructionPath(root, "powershell");
+  assert.ok(pwshPath);
+  assert.ok(powershellPath);
+  assert.notEqual(powershellPath, pwshPath);
+  assert.match(pwshPath, /instructions[/\\]pwsh\.md$/);
+  assert.match(powershellPath, /instructions[/\\]powershell\.md$/);
+  assert.equal(
+    shellInstructionTemplateUrl("0.10.2", "powershell"),
+    "https://raw.githubusercontent.com/Akira-TL/forgerelay/v0.10.2/templates/instructions/powershell.md",
+  );
+});
+
 test("Windows seeds all native guidance families while explicit zsh/fish selections also seed their compatibility guidance", () => {
   assert.deepEqual(shellInstructionFamiliesToSeed("win32", "cmd"), ["pwsh", "powershell", "cmd"]);
   assert.deepEqual(shellInstructionFamiliesToSeed("win32", "zsh"), ["pwsh", "powershell", "cmd", "zsh"]);

@@ -74,14 +74,23 @@ assert.deepEqual(resolveShellCommandForRuntime("Write-Output ok", pwshRuntime, {
   executable: pwshRuntime.executable,
   args: ["-NoLogo", "-NoProfile", "-Command", "Write-Output ok"],
 });
-assert.throws(
-  () => resolveShellCommandForRuntime("Write-Output ok", {
-    family: "powershell",
-    executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-    source: "launcher",
-    capabilities: ["powershell-command-language", "windows-powershell"],
-  }),
-  /will not silently execute the command through another shell/,
+const windowsPowerShellRuntime = {
+  family: "powershell" as const,
+  executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  source: "launcher" as const,
+  version: "5.1.26100.7019",
+  capabilities: ["powershell-command-language", "windows-powershell", "profile-isolation"],
+};
+assert.deepEqual(resolveShellCommandForRuntime("Write-Output ok", windowsPowerShellRuntime), {
+  executable: windowsPowerShellRuntime.executable,
+  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Write-Output ok"],
+});
+assert.deepEqual(
+  resolveShellCommandForRuntime("Write-Output ok", windowsPowerShellRuntime, { interactive: true }),
+  {
+    executable: windowsPowerShellRuntime.executable,
+    args: ["-NoLogo", "-NoProfile", "-Command", "Write-Output ok"],
+  },
 );
 
 const windowsCalls: string[] = [];

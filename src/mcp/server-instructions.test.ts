@@ -85,6 +85,22 @@ test("PowerShell 7 command shell identity includes the probed runtime version", 
   assert.match(result, /Selection source: launcher/);
 });
 
+test("Windows PowerShell 5.1 identity and syntax boundary remain mandatory when optional shell guidance is disabled", () => {
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "powershell",
+    executable: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    source: "launcher",
+    version: "5.1.26100.7019",
+    capabilities: ["powershell-command-language", "windows-powershell", "profile-isolation", "powershell-5.1"],
+  };
+  config.shellInstructionsEnabled = false;
+
+  const result = buildServerInstructions(config);
+  assert.match(result, /Command shell runtime: powershell 5\.1\.26100\.7019/);
+  assert.match(result, /Windows PowerShell 5\.1 does not support PowerShell 7 pipeline-chain operators && or \|\|/);
+});
+
 test("non-Bash command shell identity is mandatory even without optional workflow guidance", () => {
   const config = loadConfig(baseEnv);
   config.commandShellRuntime = {

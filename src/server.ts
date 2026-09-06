@@ -198,6 +198,7 @@ export function createMcpServer(
       result,
       (snapshot) => recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId),
     ),
+    config.commandShellRuntime,
   );
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
