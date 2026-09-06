@@ -185,6 +185,32 @@ export const openWorkspaceToolDefinition =
     capabilityFingerprint: capabilityFingerprintOutputSchema.optional(),
     contextFingerprint: z.string().optional(),
     capabilityCatalog: z.array(capabilityCatalogOutputSchema).optional(),
+    executionContext: z.object({
+      platform: z.string(),
+      commandShellRuntime: z.object({
+        family: z.enum(["bash", "zsh", "fish", "sh", "pwsh", "powershell", "cmd"]),
+        executable: z.string(),
+        source: z.enum(["explicit", "launcher", "recorded", "compatibility-default"]),
+        version: z.string().optional(),
+        capabilities: z.array(z.string()),
+      }),
+      runtimePrivilege: z.object({
+        level: z.enum(["standard", "elevated", "unknown"]),
+        platform: z.string(),
+        source: z.enum(["posix-euid", "windows-token", "unsupported"]),
+        detail: z.string().optional(),
+      }).optional(),
+      shellInstructions: z.object({
+        enabled: z.boolean(),
+        path: z.string().optional(),
+        status: z.enum(["loaded", "disabled", "unavailable"]).optional(),
+      }),
+      agentInstruction: z.string(),
+    }).optional(),
+    workspaceInstructions: z.array(z.object({
+      path: z.string(),
+      status: z.enum(["loaded", "disabled", "unavailable"]),
+    })).optional(),
     capabilityGuides: z.array(capabilityGuideOutputSchema).optional(),
     agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
     availableAgentsFiles: z.array(workspaceAvailableAgentsFileOutputSchema).optional(),

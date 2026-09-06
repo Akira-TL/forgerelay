@@ -13,6 +13,7 @@ import { formatUnavailableSubagentProvider, type SubagentProviderAvailability } 
 import { capabilityContextFor } from "../../core/capability-support.js";
 import { redactSkillDiagnosticPaths } from "../../core/schemas.js";
 import { logToolCall, workspaceLogContext, type ToolContent } from "../../core/tool-support.js";
+import { buildExecutionShellContext } from "../../../server-instructions.js";
 import type { OpenWorkspaceToolInput } from "./workspace-open-schema.js";
 
 export const workspaceTaskUsageInstruction =
@@ -120,6 +121,18 @@ export async function presentLocalWorkspaceOpen(
         path: formatAgentsPath(instruction.path, workspace.root),
         status: instruction.status,
       }));
+      const rawShellInstruction = config.shellInstructionPath
+        ? workspace.workspaceInstructions.find((instruction) => instruction.path === config.shellInstructionPath)
+        : undefined;
+      const executionContext = buildExecutionShellContext(
+        config,
+        rawShellInstruction
+          ? {
+              path: formatAgentsPath(rawShellInstruction.path, workspace.root),
+              status: rawShellInstruction.status,
+            }
+          : undefined,
+      );
       const bootstrapComponents = new Set<WorkspaceBootstrapComponent>(effectiveBootstrapContextComponents);
       const visibleSkills = bootstrapComponents.has("skills") ? cardSkills : [];
       const visibleSkillDiagnostics = bootstrapComponents.has("skillDiagnostics")
@@ -141,8 +154,8 @@ export async function presentLocalWorkspaceOpen(
           : undefined,
       ].filter(Boolean).join(" ");
       const cardInstruction = config.skillsEnabled
-        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`
-        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction}`;
+        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
+        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`;
       const instruction = workspaceReused
         ? effectiveIncludeBootstrapContext
           ? [
@@ -153,6 +166,7 @@ export async function presentLocalWorkspaceOpen(
                 : "Only Workspace context deltas are included in this response; unchanged bootstrap context is not repeated.",
               workspaceContextInstruction,
               workspaceManagementInstruction,
+              executionContext.agentInstruction,
             ].join("\n\n")
           : [
               `Workspace already open as ${workspace.id}.`,
@@ -160,9 +174,10 @@ export async function presentLocalWorkspaceOpen(
               "Continue following the project instructions, nested instruction files, skills, capability guides, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
               workspaceContextInstruction,
               workspaceManagementInstruction,
+              executionContext.agentInstruction,
             ].join("\n\n")
         : workspace.mode === "worktree"
-          ? `Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree. ${workspaceManagementInstruction}`
+          ? `Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree. ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
           : cardInstruction;
       const resultContent: ToolContent[] = [
         {
@@ -237,6 +252,7 @@ export async function presentLocalWorkspaceOpen(
         agentsFiles: cardAgentsFiles,
         availableAgentsFiles: cardAvailableAgentsFiles,
         workspaceInstructions: cardWorkspaceInstructions,
+        executionContext,
         skills: cardSkills,
         agentProviders: cardAgentProviders,
         agents: cardAgents,
@@ -273,6 +289,8 @@ export async function presentLocalWorkspaceOpen(
           capabilityFingerprint,
           contextFingerprint,
           capabilityCatalog,
+          workspaceInstructions: cardWorkspaceInstructions,
+          executionContext,
           ...(bootstrapComponents.has("capabilityGuides")
             ? { capabilityGuides: visibleCapabilityGuides }
             : {}),

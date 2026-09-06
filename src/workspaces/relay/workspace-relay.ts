@@ -185,6 +185,12 @@ export class RemoteWorkspaceRelay {
       ...(structured?.capabilityCatalog !== undefined
         ? { capabilityCatalog: remapContext(structured.capabilityCatalog) }
         : {}),
+      ...(structured?.executionContext !== undefined
+        ? { executionContext: remapContext(structured.executionContext) }
+        : {}),
+      ...(structured?.workspaceInstructions !== undefined
+        ? { workspaceInstructions: remapContext(structured.workspaceInstructions) }
+        : {}),
       ...(structured?.capabilityGuides !== undefined
         ? { capabilityGuides: remapContext(structured.capabilityGuides) }
         : {}),

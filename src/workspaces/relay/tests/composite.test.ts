@@ -304,6 +304,182 @@ void test("Composite Workspace mounts and explicitly routes a Workspace Relay me
   assert.match(resultText(availableAgain), /execution-remote-content/);
   t.after(() => rm(root, { recursive: true, force: true }));
 });
+
+void test("Composite members preserve execution shell identity across Linux, cmd, and pwsh routes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-shell-identity-"));
+  const gatewayRoot = join(root, "gateway-root");
+  const cmdRoot = join(root, "cmd-root");
+  const pwshRoot = join(root, "pwsh-root");
+  await Promise.all([
+    mkdir(gatewayRoot, { recursive: true }),
+    mkdir(cmdRoot, { recursive: true }),
+    mkdir(pwshRoot, { recursive: true }),
+  ]);
+
+  const cmdRemote = await startForge(t, {
+    root: join(root, "cmd-remote"),
+    allowedRoot: cmdRoot,
+    ownerToken: "remote-cmd-shell-owner-token-long-enough",
+    instanceId: "forge-relay-shell-cmd",
+    executionRuntime: {
+      platform: "win32",
+      commandShellRuntime: {
+        family: "cmd",
+        executable: "C:\\Windows\\System32\\cmd.exe",
+        source: "explicit",
+        capabilities: ["cmd-command-language"],
+      },
+      runtimePrivilege: {
+        level: "elevated",
+        platform: "win32",
+        source: "windows-token",
+        detail: "test high-integrity token",
+      },
+      shellInstructionContent: "CMD_MEMBER_SHELL_INSTRUCTIONS %NAME% %ERRORLEVEL%\n",
+    },
+  });
+  const pwshRemote = await startForge(t, {
+    root: join(root, "pwsh-remote"),
+    allowedRoot: pwshRoot,
+    ownerToken: "remote-pwsh-shell-owner-token-long-enough",
+    instanceId: "forge-relay-shell-pwsh",
+    executionRuntime: {
+      platform: "win32",
+      commandShellRuntime: {
+        family: "pwsh",
+        executable: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        source: "explicit",
+        version: "7.6.1",
+        capabilities: ["powershell-command-language", "powershell-core", "profile-isolation"],
+      },
+      shellInstructionContent: "PWSH_MEMBER_SHELL_INSTRUCTIONS $env:NAME\n",
+    },
+  });
+  const [cmdRecord, pwshRecord] = await Promise.all([
+    authenticateRemote(cmdRemote.endpoint, cmdRemote.ownerToken),
+    authenticateRemote(pwshRemote.endpoint, pwshRemote.ownerToken),
+  ]);
+
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-shell-owner-token-long-enough",
+    instanceId: "forge-relay-shell-gateway",
+    remotes: {
+      cmdbox: cmdRecord,
+      pwshbox: pwshRecord,
+    },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    executionRuntime: {
+      platform: "linux",
+      commandShellRuntime: {
+        family: "bash",
+        executable: "/bin/bash",
+        source: "explicit",
+        capabilities: ["bash", "profile-isolation", "posix-command-language"],
+      },
+    },
+  });
+
+  const localOpened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: gatewayRoot, context: "full" },
+  });
+  assert.equal(localOpened.isError, undefined, resultText(localOpened));
+  const localWorkspaceId = String(structuredContent(localOpened).workspaceId);
+  const localExecution = structuredContent(localOpened).executionContext as Record<string, unknown>;
+  assert.equal(localExecution.platform, "linux");
+  assert.equal((localExecution.commandShellRuntime as Record<string, unknown>).family, "bash");
+
+  const cmdOpened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: cmdRoot, relay: "cmdbox", context: "full" },
+  });
+  assert.equal(cmdOpened.isError, undefined, resultText(cmdOpened));
+  const cmdWorkspaceId = String(structuredContent(cmdOpened).workspaceId);
+  const cmdExecution = structuredContent(cmdOpened).executionContext as Record<string, unknown>;
+  assert.equal(cmdExecution.platform, "win32");
+  assert.equal((cmdExecution.commandShellRuntime as Record<string, unknown>).family, "cmd");
+  assert.match(String(cmdExecution.agentInstruction), /%NAME%/);
+  assert.match(String(cmdExecution.agentInstruction), /overrides the Gateway ForgeRelay shell identity/);
+  assert.match(String(cmdExecution.agentInstruction), /elevated operating-system privileges/);
+  assert.equal((cmdExecution.runtimePrivilege as Record<string, unknown>).level, "elevated");
+  assert.equal((cmdExecution.shellInstructions as Record<string, unknown>).status, "loaded");
+  assert.match(JSON.stringify(structuredContent(cmdOpened).agentsFiles), /CMD_MEMBER_SHELL_INSTRUCTIONS/);
+
+  const pwshOpened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: pwshRoot, relay: "pwshbox", context: "full" },
+  });
+  assert.equal(pwshOpened.isError, undefined, resultText(pwshOpened));
+  const pwshWorkspaceId = String(structuredContent(pwshOpened).workspaceId);
+  const pwshExecution = structuredContent(pwshOpened).executionContext as Record<string, unknown>;
+  assert.equal(pwshExecution.platform, "win32");
+  assert.equal((pwshExecution.commandShellRuntime as Record<string, unknown>).family, "pwsh");
+  assert.equal((pwshExecution.commandShellRuntime as Record<string, unknown>).version, "7.6.1");
+  assert.doesNotMatch(String(pwshExecution.agentInstruction), /%ERRORLEVEL%/);
+  assert.doesNotMatch(String(pwshExecution.agentInstruction), /elevated operating-system privileges/);
+  assert.match(JSON.stringify(structuredContent(pwshOpened).agentsFiles), /PWSH_MEMBER_SHELL_INSTRUCTIONS/);
+
+  const composite = await client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "mixed-shells" },
+  });
+  assert.equal(composite.isError, undefined, resultText(composite));
+  const compositeId = String(structuredContent(composite).workspaceId);
+  for (const member of [
+    { name: "linux", purpose: "Local Linux member", workspaceId: localWorkspaceId },
+    { name: "cmd", purpose: "Remote Windows cmd member", workspaceId: cmdWorkspaceId },
+    { name: "pwsh", purpose: "Remote Windows PowerShell member", workspaceId: pwshWorkspaceId },
+  ]) {
+    const mounted = await client.callTool({
+      name: "open_workspace",
+      arguments: { action: "member", workspaceId: compositeId, memberAction: "add", member },
+    });
+    assert.equal(mounted.isError, undefined, resultText(mounted));
+  }
+
+  const memberExecution = async (memberName: string, context: "full" | "none" = "full") => {
+    const opened = await client.callTool({
+      name: "open_workspace",
+      arguments: { workspaceId: compositeId, memberName, context },
+      _meta: { "openai/session": `chat-shell-${memberName}-${context}` },
+    });
+    assert.equal(opened.isError, undefined, resultText(opened));
+    const memberContext = structuredContent(opened).memberContext as Record<string, unknown>;
+    assert.equal(memberContext.workspaceId, compositeId);
+    return memberContext;
+  };
+
+  const linuxMember = await memberExecution("linux");
+  const cmdMember = await memberExecution("cmd");
+  const pwshMember = await memberExecution("pwsh");
+  assert.equal((linuxMember.executionContext as Record<string, unknown>).platform, "linux");
+  assert.equal(((linuxMember.executionContext as Record<string, unknown>).commandShellRuntime as Record<string, unknown>).family, "bash");
+  assert.equal((cmdMember.executionContext as Record<string, unknown>).platform, "win32");
+  assert.equal(((cmdMember.executionContext as Record<string, unknown>).commandShellRuntime as Record<string, unknown>).family, "cmd");
+  assert.match(String((cmdMember.executionContext as Record<string, unknown>).agentInstruction), /elevated operating-system privileges/);
+  assert.match(JSON.stringify(cmdMember.agentsFiles), /CMD_MEMBER_SHELL_INSTRUCTIONS/);
+  assert.doesNotMatch(JSON.stringify(cmdMember.agentsFiles), /PWSH_MEMBER_SHELL_INSTRUCTIONS/);
+  assert.equal((pwshMember.executionContext as Record<string, unknown>).platform, "win32");
+  assert.equal(((pwshMember.executionContext as Record<string, unknown>).commandShellRuntime as Record<string, unknown>).family, "pwsh");
+  assert.doesNotMatch(String((pwshMember.executionContext as Record<string, unknown>).agentInstruction), /elevated operating-system privileges/);
+  assert.match(JSON.stringify(pwshMember.agentsFiles), /PWSH_MEMBER_SHELL_INSTRUCTIONS/);
+  assert.doesNotMatch(JSON.stringify(pwshMember.agentsFiles), /CMD_MEMBER_SHELL_INSTRUCTIONS/);
+
+  const cmdMetadataOnly = await memberExecution("cmd", "none");
+  assert.equal(cmdMetadataOnly.agentsFiles, undefined);
+  assert.equal((cmdMetadataOnly.executionContext as Record<string, unknown>).platform, "win32");
+  assert.equal(((cmdMetadataOnly.executionContext as Record<string, unknown>).commandShellRuntime as Record<string, unknown>).family, "cmd");
+  assert.ok(Array.isArray(cmdMetadataOnly.workspaceInstructions));
+
+  t.after(() => rm(root, { recursive: true, force: true }));
+});
+
 void test("Composite Workspace routes Codex patch and process tools through a relayed member", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-composite-codex-relay-"));
 

@@ -3,7 +3,7 @@ import { execFileSync, type SpawnOptions } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -13,7 +13,10 @@ import { BashOutputStore } from "../../../activity/history/bash-output-store.js"
 import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../../activity/history/query-service.js";
-import { loadConfig } from "../../../runtime/config/config.js";
+import { loadConfig, type ServerConfig } from "../../../runtime/config/config.js";
+import { shellInstructionPath } from "../../../runtime/instructions/shell-instructions.js";
+import type { CommandShellRuntime } from "../../../runtime/shell/command-shell-runtime.js";
+import type { RuntimePrivilegeState } from "../../../runtime/security/runtime-privilege.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
 import { createReviewCheckpointManager } from "../../review/review-checkpoints.js";
 import { ProcessManager } from "../../../mcp/process/process-sessions.js";
@@ -46,6 +49,35 @@ interface RunningForge {
   openAdditionalEndpoint(): Promise<string>;
 }
 
+interface TestExecutionRuntime {
+  platform: NodeJS.Platform;
+  commandShellRuntime: CommandShellRuntime;
+  runtimePrivilege?: RuntimePrivilegeState;
+  shellInstructionContent?: string;
+}
+
+async function applyTestExecutionRuntime(
+  config: ServerConfig,
+  configDir: string,
+  executionRuntime: TestExecutionRuntime | undefined,
+): Promise<void> {
+  if (!executionRuntime) return;
+  config.commandShellRuntime = {
+    ...executionRuntime.commandShellRuntime,
+    capabilities: [...executionRuntime.commandShellRuntime.capabilities],
+  };
+  config.runtimePrivilege = executionRuntime.runtimePrivilege ?? {
+    level: "standard",
+    platform: executionRuntime.platform,
+    source: "unsupported",
+  };
+  config.shellInstructionPath = shellInstructionPath(configDir, config.commandShellRuntime.family);
+  if (config.shellInstructionPath && executionRuntime.shellInstructionContent !== undefined) {
+    await mkdir(dirname(config.shellInstructionPath), { recursive: true });
+    await writeFile(config.shellInstructionPath, executionRuntime.shellInstructionContent);
+  }
+}
+
 export async function startForge(
   t: TestContext,
   options: {
@@ -57,6 +89,7 @@ export async function startForge(
     hooks?: unknown;
     toolMode?: "minimal" | "full" | "codex";
     taskReminderInterval?: number;
+    executionRuntime?: TestExecutionRuntime;
   },
 ): Promise<RunningForge> {
   const configDir = options.existingConfigDir ?? join(options.root, "config");
@@ -87,7 +120,9 @@ export async function startForge(
     FORGERELAY_WIDGETS: "off",
     FORGERELAY_SKILLS: "0",
   };
-  const running = createServer(loadConfig(env));
+  const config = loadConfig(env);
+  await applyTestExecutionRuntime(config, configDir, options.executionRuntime);
+  const running = createServer(config);
   const httpServer = running.app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => httpServer.once("listening", resolve));
   const port = (httpServer.address() as AddressInfo).port;
@@ -117,6 +152,7 @@ export async function startGatewayClient(
     stateDir?: string;
     hooks?: unknown;
     toolMode?: "minimal" | "full" | "codex";
+    executionRuntime?: TestExecutionRuntime;
   },
 ): Promise<Client> {
   const stateDir = options.stateDir ?? join(options.root, "state");
@@ -133,6 +169,7 @@ export async function startGatewayClient(
     FORGERELAY_WIDGETS: "off",
     FORGERELAY_SKILLS: "0",
   });
+  await applyTestExecutionRuntime(config, options.configDir, options.executionRuntime);
   const workspaceStore = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
   const auditStore = new ActivityAuditStore(stateDir);

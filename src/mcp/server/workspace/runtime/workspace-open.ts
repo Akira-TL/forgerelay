@@ -496,6 +496,7 @@ async function handleOpenWorkspace(
             ? `Members: ${composite.members.map((member) => `${member.name} — ${member.purpose}`).join("; ")}.`
             : "This Composite Workspace currently has no members.",
           "Member names and purposes are structural context and are always returned when this Composite Workspace is opened. context=auto/full/none controls only heavy member bootstrap context, not this Composite identity.",
+          "Composite members may execute on different operating systems and command shells. Never treat one member's shell syntax or privilege level as a Composite-wide default; memberContext.executionContext is authoritative for the selected member and overrides the Gateway shell identity.",
           compositeCapabilityCatalog.length > 0
             ? `Composite-owned capabilities: ${compositeCapabilityCatalog.map((entry) => entry.name).join(", ")}. Use these without member because their state belongs to the Composite Workspace itself.`
             : undefined,
@@ -621,6 +622,12 @@ async function handleOpenWorkspace(
               : {}),
             ...(opened.capabilityCatalog !== undefined
               ? { capabilityCatalog: opened.capabilityCatalog }
+              : {}),
+            ...(opened.executionContext !== undefined
+              ? { executionContext: opened.executionContext }
+              : {}),
+            ...(opened.workspaceInstructions !== undefined
+              ? { workspaceInstructions: opened.workspaceInstructions }
               : {}),
             ...(opened.capabilityGuides !== undefined
               ? { capabilityGuides: opened.capabilityGuides }

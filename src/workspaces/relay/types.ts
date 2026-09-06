@@ -57,6 +57,8 @@ export interface RelayedWorkspaceOpenResult {
   contextFingerprint?: unknown;
   capabilityFingerprint?: unknown;
   capabilityCatalog?: unknown;
+  executionContext?: unknown;
+  workspaceInstructions?: unknown;
   capabilityGuides?: unknown;
   agentsFiles?: unknown;
   availableAgentsFiles?: unknown;

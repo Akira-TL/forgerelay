@@ -23,7 +23,7 @@ import {
 } from "./lsp/runtime/managed-language-servers.js";
 import { HookRunner } from "./mcp/hooks/hooks.js";
 import { checkHookConfiguration } from "./mcp/hooks/hook-cli.js";
-import { buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
+import { buildExecutionShellContext, buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
 import { IncomingArtifactAdapterRegistry, type IncomingArtifactAdapter } from "./mcp/artifacts/incoming-artifacts.js";
 import { BatchExecutor } from "./mcp/operations/batch/executor.js";
 import { type CoreOperationContext } from "./mcp/operations/core-operation-executor.js";
@@ -398,6 +398,22 @@ export function createMcpServer(
       artifactDownloadSupported: isArtifactDownloadSupportedPlatform(),
     });
     const capabilityCatalog = capabilityRegistry.catalog(capabilityContextFor(workspace));
+    const workspaceInstructions = workspace.workspaceInstructions.map((instruction) => ({
+      path: formatAgentsPath(instruction.path, workspace.root),
+      status: instruction.status,
+    }));
+    const rawShellInstruction = config.shellInstructionPath
+      ? workspace.workspaceInstructions.find((instruction) => instruction.path === config.shellInstructionPath)
+      : undefined;
+    const executionContext = buildExecutionShellContext(
+      config,
+      rawShellInstruction
+        ? {
+            path: formatAgentsPath(rawShellInstruction.path, workspace.root),
+            status: rawShellInstruction.status,
+          }
+        : undefined,
+    );
     const agentsFiles = opened.agentsFiles.map((file) => ({
       path: formatAgentsPath(file.path, workspace.root),
       content: file.content,
@@ -433,6 +449,8 @@ export function createMcpServer(
       contextFingerprint: opened.contextFingerprint,
       capabilityFingerprint,
       capabilityCatalog,
+      workspaceInstructions,
+      executionContext,
       includeBootstrapContext: opened.includeBootstrapContext,
       ...(bootstrapComponents.has("capabilityGuides") ? { capabilityGuides } : {}),
       ...(bootstrapComponents.has("agentsFiles") ? { agentsFiles } : {}),
@@ -442,11 +460,14 @@ export function createMcpServer(
       ...(bootstrapComponents.has("skillDiagnostics")
         ? { skillDiagnostics: redactSkillDiagnosticPaths(workspace.skillDiagnostics) }
         : {}),
-      instruction: opened.includeBootstrapContext
-        ? `Bootstrap context for Composite member ${memberName}. Keep using Composite workspaceId ${compositeWorkspaceId} and pass member=${memberName} for work operations.`
-        : contextPolicy === "none"
-          ? `Bootstrap context for Composite member ${memberName} was intentionally suppressed by context=none. Keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}; request context=auto or context=full when member bootstrap is needed.`
-          : `Composite member ${memberName} context was already delivered for this Host context; keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}.`,
+      instruction: [
+        opened.includeBootstrapContext
+          ? `Bootstrap context for Composite member ${memberName}. Keep using Composite workspaceId ${compositeWorkspaceId} and pass member=${memberName} for work operations.`
+          : contextPolicy === "none"
+            ? `Bootstrap context for Composite member ${memberName} was intentionally suppressed by context=none. Keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}; request context=auto or context=full when member bootstrap is needed.`
+            : `Composite member ${memberName} context was already delivered for this Host context; keep using Composite workspaceId ${compositeWorkspaceId} with member=${memberName}.`,
+        executionContext.agentInstruction,
+      ].join(" "),
     };
   };
   const operationRuntime = createOperationRuntime({

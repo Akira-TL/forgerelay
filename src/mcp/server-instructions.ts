@@ -1,5 +1,11 @@
 import type { ServerConfig } from "../runtime/config/config.js";
-import { commandShellAgentInstruction } from "../runtime/shell/command-shell-runtime.js";
+import {
+  commandShellAgentInstruction,
+  formatCommandShellRuntime,
+  snapshotCommandShellRuntime,
+  type CommandShellRuntime,
+} from "../runtime/shell/command-shell-runtime.js";
+import type { RuntimePrivilegeState } from "../runtime/security/runtime-privilege.js";
 
 export const toolNames = {
   openWorkspace: "open_workspace",
@@ -23,6 +29,52 @@ export interface ToolDescriptions {
   applyPatch: string;
   shell: string;
   shellCommand: string;
+}
+
+export interface ExecutionShellContext {
+  platform: NodeJS.Platform;
+  commandShellRuntime: CommandShellRuntime;
+  runtimePrivilege?: RuntimePrivilegeState;
+  shellInstructions: {
+    enabled: boolean;
+    path?: string;
+    status?: "loaded" | "disabled" | "unavailable";
+  };
+  agentInstruction: string;
+}
+
+export function buildExecutionShellContext(
+  config: ServerConfig,
+  shellInstruction?: {
+    path: string;
+    status: "loaded" | "disabled" | "unavailable";
+  },
+): ExecutionShellContext {
+  const platform = config.runtimePrivilege?.platform ?? process.platform;
+  const commandShellRuntime = snapshotCommandShellRuntime(config.commandShellRuntime);
+  const runtimePrivilege = config.runtimePrivilege
+    ? { ...config.runtimePrivilege }
+    : undefined;
+  const scopeInstruction = [
+    `Execution Workspace runtime: platform=${platform}; shell=${formatCommandShellRuntime(commandShellRuntime)}.`,
+    "For commands routed to this Workspace or Composite member, this execution context overrides the Gateway ForgeRelay shell identity.",
+  ].join(" ");
+  const agentInstruction = joinInstructions(
+    scopeInstruction,
+    commandShellAgentInstruction(commandShellRuntime),
+    runtimePrivilegeInstructions(config),
+  );
+
+  return {
+    platform,
+    commandShellRuntime,
+    ...(runtimePrivilege ? { runtimePrivilege } : {}),
+    shellInstructions: {
+      enabled: config.shellInstructionsEnabled,
+      ...(shellInstruction ? shellInstruction : {}),
+    },
+    agentInstruction,
+  };
 }
 
 export function buildShellMutationPolicy(): string {

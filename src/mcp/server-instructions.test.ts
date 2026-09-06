@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadConfig } from "../runtime/config/config.js";
 import {
+  buildExecutionShellContext,
   buildServerInstructions,
   buildToolDescriptions,
 } from "./server-instructions.js";
@@ -62,6 +63,46 @@ test("Bash default instructions keep a compact core capability contract and buil
   assert.doesNotMatch(result, /forgerelay\/\* branches/);
   assert.doesNotMatch(result, /fast-forwards the original target branch/);
   assert.doesNotMatch(result, /target branch diverged/);
+});
+
+test("Workspace execution shell context is explicit, member-safe, and independent from Gateway identity", () => {
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "cmd",
+    executable: "C:\\Windows\\System32\\cmd.exe",
+    source: "explicit",
+    capabilities: ["cmd-command-language"],
+  };
+  config.runtimePrivilege = {
+    level: "elevated",
+    platform: "win32",
+    source: "windows-token",
+    detail: "test high-integrity token",
+  };
+  config.shellInstructionsEnabled = true;
+  config.shellInstructionPath = "C:\\ForgeRelay\\instructions\\cmd.md";
+
+  const context = buildExecutionShellContext(config, {
+    path: "~/.forgerelay/instructions/cmd.md",
+    status: "loaded",
+  });
+
+  assert.equal(context.platform, "win32");
+  assert.equal(context.commandShellRuntime.family, "cmd");
+  assert.equal(context.commandShellRuntime.executable, "C:\\Windows\\System32\\cmd.exe");
+  assert.notEqual(context.commandShellRuntime.capabilities, config.commandShellRuntime.capabilities);
+  assert.equal(context.runtimePrivilege?.level, "elevated");
+  assert.deepEqual(context.shellInstructions, {
+    enabled: true,
+    path: "~/.forgerelay/instructions/cmd.md",
+    status: "loaded",
+  });
+  assert.match(context.agentInstruction, /Execution Workspace runtime: platform=win32/);
+  assert.match(context.agentInstruction, /Command shell runtime: cmd/);
+  assert.match(context.agentInstruction, /%NAME%/);
+  assert.match(context.agentInstruction, /%ERRORLEVEL%/);
+  assert.match(context.agentInstruction, /overrides the Gateway ForgeRelay shell identity/);
+  assert.match(context.agentInstruction, /elevated operating-system privileges/);
 });
 
 test("PowerShell 7 command shell identity includes the probed runtime version", () => {
