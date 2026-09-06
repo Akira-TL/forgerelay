@@ -58,6 +58,24 @@ async function exercisePtyLifecycle(runtime) {
 
   try {
     const node = quoteCmdArg(process.execPath);
+    const ptyScriptDir = join(root, "cmd pty script");
+    const ptyScript = join(ptyScriptDir, "interactive lifecycle.cmd");
+    await mkdir(ptyScriptDir, { recursive: true });
+    await writeFile(
+      ptyScript,
+      [
+        "@echo off",
+        "chcp 65001 >nul",
+        "echo cmd-pty-ready-雪",
+        "set /p FR_CMD_LINE=",
+        "echo stdin=%FR_CMD_LINE%",
+        `${node} -e "console.log('cols=' + process.stdout.columns + ';rows=' + process.stdout.rows)"`,
+        `${node} -e "console.log('cmd-pty-unicode-🙂')"`,
+        "exit /b 23",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
     const pty = await manager.start({
       workspaceId: "cmd-agent",
       workspaceRoot: process.cwd(),
@@ -67,16 +85,7 @@ async function exercisePtyLifecycle(runtime) {
         conversationScopeId: "conversation-cmd-pty",
       },
       cwd: process.cwd(),
-      command: [
-        "chcp 65001 >nul",
-        "setlocal EnableDelayedExpansion",
-        "echo cmd-pty-ready-雪",
-        "set /p FR_CMD_LINE=",
-        "echo stdin=!FR_CMD_LINE!",
-        `${node} -e "console.log('cols=' + process.stdout.columns + ';rows=' + process.stdout.rows)"`,
-        `${node} -e "console.log('cmd-pty-unicode-🙂')"`,
-        "exit /b 23",
-      ].join(" & "),
+      command: quoteCmdArg(ptyScript),
       tty: true,
       columns: 80,
       rows: 24,
