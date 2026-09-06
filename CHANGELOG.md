@@ -4,6 +4,21 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-09-06
+
+### Added
+
+- Added execution-owned Command Shell Runtime identity across Relay and Composite Workspaces so mixed-platform and mixed-shell operations expose the shell of the ForgeRelay instance that actually owns execution.
+
+### Changed
+
+- Made Doctor, Agent/tool descriptions, Workspace UI, Instructions state, and product documentation consistently shell-aware while preserving the public Core `bash` tool name for Host compatibility.
+- Made explicit non-Bash POSIX selections report their compatibility boundary instead of silently implying Bash semantics.
+
+### Fixed
+
+- Completed real packaged Windows product acceptance for PowerShell 7, Windows PowerShell 5.1, and `cmd.exe`, including editable shell Instructions and elevated-startup protection, while hardening the acceptance harness against Windows native-module handle retention and host-specific fixture assumptions.
+
 ## [0.10.3] - 2026-09-06
 
 ### Added
