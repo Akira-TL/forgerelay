@@ -102,10 +102,10 @@ test("configured pinned shell outranks launcher detection and keeps the recorded
   const runtime = resolveConfiguredCommandShellRuntime({
     mode: "pinned",
     family: "bash",
-    executable: "/bin/bash",
-  }, "linux", { PATH: "/bin:/usr/bin" });
+    executable: process.execPath,
+  }, "linux", {});
   assert.equal(runtime.family, "bash");
-  assert.equal(runtime.executable, "/bin/bash");
+  assert.equal(runtime.executable, process.execPath);
   assert.equal(runtime.source, "explicit");
 });
 
@@ -113,12 +113,12 @@ test("follow-launcher falls back to the recorded shell when npm hides its wrappe
   const runtime = resolveConfiguredCommandShellRuntime({
     mode: "follow-launcher",
     family: "bash",
-    executable: "/bin/bash",
+    executable: process.execPath,
   }, "linux", {
-    PATH: "/bin:/usr/bin",
     npm_lifecycle_event: "start",
   });
   assert.equal(runtime.family, "bash");
+  assert.equal(runtime.executable, process.execPath);
   assert.equal(runtime.source, "recorded");
 });
 
