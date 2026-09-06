@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -75,8 +75,19 @@ function powerShellVersion(executable) {
 }
 
 async function exerciseAgentRuntime(runtime) {
-  const { ProcessManager } = await import("../../dist/mcp/process/process-sessions.js");
-  const manager = new ProcessManager({ commandShellRuntime: runtime });
+  const [{ ProcessManager }, { BashOutputStore }] = await Promise.all([
+    import("../../dist/mcp/process/process-sessions.js"),
+    import("../../dist/activity/history/bash-output-store.js"),
+  ]);
+  const durableStateDir = join(root, "durable-output-state");
+  const outputStore = new BashOutputStore(durableStateDir, {
+    outputId: () => "out_powershell51_pty_acceptance",
+    flushBytes: 1,
+  });
+  const manager = new ProcessManager({
+    commandShellRuntime: runtime,
+    outputAudit: outputStore,
+  });
   const originalMarker = process.env.FORGERELAY_POWERSHELL51_ACCEPTANCE;
   process.env.FORGERELAY_POWERSHELL51_ACCEPTANCE = "inherited environment";
   try {
@@ -88,6 +99,7 @@ async function exerciseAgentRuntime(runtime) {
         'Write-Output "edition=$($PSVersionTable.PSEdition)"',
         'Write-Output "version=$($PSVersionTable.PSVersion.ToString())"',
         'Write-Output "env=$env:FORGERELAY_POWERSHELL51_ACCEPTANCE"',
+        "Write-Output 'pipe-unicode-雪'",
         '1,2,3 | Measure-Object -Sum | ForEach-Object { Write-Output "sum=$($_.Sum)" }',
         `$exe = ${node}`,
         "& $exe -e 'console.log(JSON.stringify(process.argv.slice(1)))' 'native arg with spaces' 'plain-arg'",
@@ -104,6 +116,7 @@ async function exerciseAgentRuntime(runtime) {
     assert.match(semantics.output, /edition=Desktop/);
     assert.match(semantics.output, /version=5\.1\./);
     assert.match(semantics.output, /env=inherited environment/);
+    assert.match(semantics.output, /pipe-unicode-雪/);
     assert.match(semantics.output, /sum=6/);
     assert.match(semantics.output, /\["native arg with spaces","plain-arg"\]/);
     assert.match(semantics.output, /redirected-through-windows-powershell/);
@@ -168,37 +181,141 @@ async function exerciseAgentRuntime(runtime) {
     assert.equal(timedOut.running, false);
     assert.equal(timedOut.timedOut, true);
 
-    const pty = await manager.start({
+    const interruptible = await manager.start({
       workspaceId: "powershell51-agent",
       cwd: process.cwd(),
-      command: [
-        "Write-Output 'powershell51-pty-ready'",
-        "$line = [Console]::In.ReadLine()",
-        'Write-Output "stdin=$line"',
-        "exit 23",
-      ].join("; "),
-      tty: true,
-      columns: 80,
-      rows: 24,
+      command: "Write-Output 'powershell51-interrupt-ready'; Start-Sleep -Seconds 30",
       yieldTimeMs: 5,
     });
-    assert.equal(pty.running, true);
-    assert.ok(pty.processId);
-    const interacted = await manager.write({
+    assert.equal(interruptible.running, true);
+    assert.ok(interruptible.processId);
+    const interrupted = await manager.write({
       workspaceId: "powershell51-agent",
-      processId: pty.processId,
-      chars: "input-plain\r",
+      processId: interruptible.processId,
+      chars: "\u0003",
       yieldTimeMs: 5_000,
     });
-    assert.equal(interacted.running, false);
-    assert.equal(interacted.exitCode, 23);
-    assert.match(`${pty.output}${interacted.output}`, /powershell51-pty-ready/);
-    assert.match(`${pty.output}${interacted.output}`, /stdin=input-plain/);
+    assert.equal(interrupted.running, false);
+
+    await exercisePtyLifecycle(manager, outputStore, node);
   } finally {
     if (originalMarker === undefined) delete process.env.FORGERELAY_POWERSHELL51_ACCEPTANCE;
     else process.env.FORGERELAY_POWERSHELL51_ACCEPTANCE = originalMarker;
     manager.shutdown();
+    outputStore.close();
   }
+}
+
+async function exercisePtyLifecycle(manager, outputStore, node) {
+  const pty = await manager.start({
+    workspaceId: "powershell51-agent",
+    workspaceRoot: process.cwd(),
+    audit: {
+      activityId: "act-powershell51-pty",
+      turnId: "turn-powershell51-pty",
+      conversationScopeId: "conversation-powershell51-pty",
+    },
+    cwd: process.cwd(),
+    command: [
+      "Write-Output 'powershell51-pty-ready-雪'",
+      "$line = [Console]::In.ReadLine()",
+      "Start-Sleep -Milliseconds 100",
+      'Write-Output "stdin=$line"',
+      'Write-Output "cols=$([Console]::WindowWidth);rows=$([Console]::WindowHeight)"',
+      "Write-Output 'powershell51-pty-unicode-雪'",
+      "exit 23",
+    ].join("; "),
+    tty: true,
+    columns: 80,
+    rows: 24,
+    yieldTimeMs: 5,
+  });
+  assert.equal(pty.running, true);
+  assert.ok(pty.processId);
+  assert.equal(pty.outputId, "out_powershell51_pty_acceptance");
+
+  const interacted = await manager.write({
+    workspaceId: "powershell51-agent",
+    processId: pty.processId,
+    columns: 120,
+    rows: 30,
+    chars: "input-plain\r",
+    yieldTimeMs: 5_000,
+  });
+  assert.equal(interacted.running, false);
+  assert.equal(interacted.exitCode, 23);
+  const ptyOutput = `${pty.output}${interacted.output}`;
+  assert.match(ptyOutput, /powershell51-pty-ready-雪/);
+  assert.match(ptyOutput, /stdin=input-plain/);
+  assert.match(ptyOutput, /cols=120;rows=30/);
+  assert.match(ptyOutput, /powershell51-pty-unicode-雪/);
+
+  const durable = outputStore.read(pty.outputId);
+  assert.ok(durable);
+  assert.equal(durable.tty, true);
+  assert.equal(durable.exitCode, 23);
+  assert.equal(durable.status, "failed");
+  assert.match(durable.output, /powershell51-pty-ready-雪/);
+  assert.match(durable.output, /stdin=input-plain/);
+  assert.match(durable.output, /powershell51-pty-unicode-雪/);
+
+  const background = await manager.start({
+    workspaceId: "powershell51-agent",
+    cwd: process.cwd(),
+    command: "Write-Output 'powershell51-pty-background-start'; Start-Sleep -Milliseconds 250; Write-Output 'powershell51-pty-background-done'",
+    tty: true,
+    yieldTimeMs: 5,
+  });
+  assert.equal(background.running, true);
+  assert.ok(background.processId);
+  const backgroundDone = await manager.write({
+    workspaceId: "powershell51-agent",
+    processId: background.processId,
+    yieldTimeMs: 5_000,
+  });
+  assert.equal(backgroundDone.running, false);
+  assert.equal(backgroundDone.exitCode, 0);
+  assert.match(`${background.output}${backgroundDone.output}`, /powershell51-pty-background-done/);
+
+  const timedOut = await manager.start({
+    workspaceId: "powershell51-agent",
+    cwd: process.cwd(),
+    command: "Start-Sleep -Seconds 30",
+    tty: true,
+    yieldTimeMs: 5_000,
+    timeoutMs: 100,
+  });
+  assert.equal(timedOut.running, false);
+  assert.equal(timedOut.timedOut, true);
+
+  const pidPath = join(root, "powershell51-pty-child.pid");
+  const childScript = "require('node:fs').writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1000)";
+  const interruptible = await manager.start({
+    workspaceId: "powershell51-agent",
+    cwd: process.cwd(),
+    command: [
+      "Write-Output 'powershell51-pty-interrupt-ready'",
+      `$exe = ${node}`,
+      `& $exe -e ${powerShellLiteral(childScript)} ${powerShellLiteral(pidPath)}`,
+    ].join("; "),
+    tty: true,
+    yieldTimeMs: 5,
+  });
+  assert.equal(interruptible.running, true);
+  assert.ok(interruptible.processId);
+  const childPid = Number.parseInt(await waitForFile(pidPath), 10);
+  assert.ok(Number.isInteger(childPid) && childPid > 0, `invalid PTY child pid: ${childPid}`);
+  assert.equal(windowsProcessExists(childPid), true);
+
+  const interrupted = await manager.write({
+    workspaceId: "powershell51-agent",
+    processId: interruptible.processId,
+    chars: "\u0003",
+    yieldTimeMs: 5_000,
+  });
+  assert.equal(interrupted.running, false);
+  await waitForWindowsProcessExit(childPid);
+  assert.equal(windowsProcessExists(childPid), false, `PTY child process ${childPid} leaked after interrupt`);
 }
 
 async function exerciseHookRuntime(runtime) {
@@ -323,6 +440,38 @@ function runNpm(args) {
     throw new Error(`npm ${args.join(" ")} failed: ${result.error?.message ?? result.stderr ?? result.status}`);
   }
   return result;
+}
+
+async function waitForFile(path, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for file: ${path}`);
+}
+
+function windowsProcessExists(pid) {
+  const result = spawnSync(
+    "tasklist.exe",
+    ["/fi", `PID eq ${pid}`, "/fo", "csv", "/nh"],
+    { encoding: "utf8", windowsHide: true },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`tasklist.exe failed with exit ${result.status ?? "unknown"}`);
+  return new RegExp(`"${pid}"(?:,|$)`).test(result.stdout ?? "");
+}
+
+async function waitForWindowsProcessExit(pid, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!windowsProcessExists(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 function powerShellLiteral(value) {
