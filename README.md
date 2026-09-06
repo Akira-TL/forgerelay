@@ -20,6 +20,12 @@
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/%40akira-tl%2Fforgerelay?style=flat-square" alt="License"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/forgerelay-ui-preview.png" alt="ForgeRelay UI preview" width="640">
+</p>
+
+<p align="center"><sub>ForgeRelay Activity Panel · 实时查看 Workspace 与 Agent 操作</sub></p>
+
 ---
 
 # 中文
