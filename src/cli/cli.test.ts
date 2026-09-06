@@ -136,7 +136,11 @@ try {
   assert.ok(output.includes(`Command shell executable: ${doctorShell.executable}`));
   assert.match(output, /Command shell source: explicit/);
   assert.ok(output.includes(`Command shell compatibility: ${doctorShell.compatibility}`));
-  assert.match(output, /Shell Instructions: disabled \(not applicable\)/);
+  if (doctorShell.family === "cmd") {
+    assert.match(output, /Shell Instructions: disabled \(.+instructions\\cmd\.md; unavailable\)/);
+  } else {
+    assert.match(output, /Shell Instructions: disabled \(not applicable\)/);
+  }
   assert.doesNotMatch(output, /Bash shell:/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
