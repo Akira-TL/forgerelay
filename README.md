@@ -30,46 +30,32 @@
 
 # 中文
 
-ForgeRelay 是一个自托管 MCP Server，让 ChatGPT 和其他支持 MCP 的 Host 可以直接在你现有的开发环境中工作：读取和修改文件、运行命令、操作 Git、使用 LSP、管理 Workspace、创建隔离 worktree、调用本地 Subagent，并通过 Relay / Composite Workspace 跨设备协作。
+ForgeRelay 是一个自托管 MCP Server。它让 ChatGPT 和其他支持 MCP 的 Host 直接使用你已经存在的开发环境：项目文件、Shell、Git、语言服务器、本地 Coding Agent，以及另一台机器上的 ForgeRelay。
 
-它不是模型，也不是另一套 Coding Agent UI。ForgeRelay 的职责是把 **Host 的推理能力** 和 **你机器上的真实开发工具** 连接起来。
-
-你的项目仍然留在原来的目录里，继续使用你已经安装的编译器、包管理器、Git、Shell、SSH、语言服务器和本地凭据。
+它不是模型，也不是另一套 Coding Agent UI。Host 负责推理和对话，ForgeRelay 负责把这些决策落到真实环境里执行。项目仍在原来的目录，继续使用你已经安装的编译器、包管理器、Git、SSH、Shell 和本地凭据。
 
 > [!NOTE]
-> ForgeRelay 是基于 MIT License 的 [Waishnav/devspace](https://github.com/Waishnav/devspace) 独立维护的衍生项目，不是官方 DevSpace Release。原始版权与 MIT License 保留在 [LICENSE](LICENSE)，详细来源与修改说明见 [NOTICE.md](NOTICE.md)。
+> ForgeRelay 是基于 MIT License 的 [Waishnav/devspace](https://github.com/Waishnav/devspace) 独立衍生项目，不是官方 DevSpace Release。原始版权与 MIT License 保留在 [LICENSE](LICENSE)，来源与修改说明见 [NOTICE.md](NOTICE.md)。
 
-## 为什么使用 ForgeRelay
+## 主要能力
 
-ForgeRelay 重点解决的是“让远端或 Host 内的 AI 安全、稳定、低上下文成本地使用真实本地开发环境”，而不是再造一套 Agent Runtime。
+ForgeRelay 默认直接使用现有 checkout。只有明确需要隔离或并行开发时，才创建 managed worktree。
 
-它提供：
+你可以用它：
 
-- **持久 Workspace**：同一个 checkout / managed worktree 会复用稳定的 Workspace identity；关闭不等于删除。
-- **真实文件与命令执行**：Agent 可以在允许的项目根目录内读写文件，并使用你选择的真实 Command Shell Runtime。
-- **跨平台 Shell**：Linux / macOS 支持 Bash、zsh、POSIX sh；Windows 原生支持 PowerShell 7、Windows PowerShell 5.1 和 `cmd.exe`。
-- **Git 与 managed worktree**：需要隔离或并行开发时才创建 `forgerelay/*` branch-backed worktree，并提供安全的 close / finalize 生命周期。
-- **LSP Code Intelligence**：通过 `code.intelligence` 提供 definition、hover、references、symbols 和 diagnostics，而不增加一组语言专用 MCP tools。
-- **Agent Skills**：Workspace 打开时只向 Agent 暴露已发现 Skill 的 `name + description`，Agent 匹配到任务后再通过 `read("skills://<name>")` 按需加载正文。
-- **渐进式 Capability 披露**：常用 Core tools 保持稳定，低频能力通过 Capability Gateway 和按需 guide 暴露，避免 MCP 首次加载越来越臃肿。
-- **Workspace Tasks**：为跨 Host Turn / 跨会话的长任务保存轻量、持久的 Workspace-owned Task Lists。
-- **Subagent Session**：可调用用户已经安装并配置的本地 Coding Agent Runtime；ForgeRelay 不捆绑这些执行器。
-- **Workspace Relay**：通过另一个 ForgeRelay 实例执行远端 Workspace 操作，支持直连或 SSH 路由。
-- **Composite Workspace**：把多个本地 / 远端 Workspace 组合到一个 Host-facing 工作上下文，同时保持各成员自己的文件、Git、Shell、Hook、Skill、Process 和 Audit 所有权。
-- **Activity / Audit**：持久记录语义操作和 Bash 输出，并可通过 MCP App Activity Panel 展示当前 Host Turn。
-- **Lifecycle Hooks**：在 Workspace、tool、文件变化、worktree close 和 Subagent 生命周期上执行用户定义的自动规则。
-- **Recovery / Checkpoint / Maintenance**：支持 managed-worktree recovery、持久 Workspace checkpoint、安全 restore，以及显式授权的历史状态维护。
-
-ForgeRelay 默认使用你现有的 checkout。只有你明确要求隔离或并行工作时，才应该创建 managed worktree。
+- 在允许的项目根目录内读写文件，并运行真实的本地命令；
+- 在 Linux / macOS 使用 Bash、zsh 或 POSIX sh，在 Windows 原生使用 PowerShell 7、Windows PowerShell 5.1 或 `cmd.exe`；
+- 通过 `code.intelligence` 获取 definition、hover、references、symbols 和 diagnostics；
+- 复用持久 Workspace，并用 Workspace Tasks 保存跨 Host Turn / 跨会话的轻量任务状态；
+- 在需要隔离时创建 branch-backed managed worktree，并通过安全的 close/finalize 流程集成回目标分支；
+- 按需加载 Agent Skills、Capability guides 和本地 Subagent profiles，而不是把所有说明一次塞给 Host；
+- 通过 Workspace Relay 使用远端执行环境，或用 Composite Workspace 在一个 Host context 中协调多个独立 Workspace；
+- 用 Activity / Audit 记录语义操作和 Bash 输出，用 Lifecycle Hooks 在关键动作前后执行项目规则；
+- 诊断和修复部分 managed-worktree 状态，创建持久 checkpoint，并在显式授权下清理历史数据。
 
 ## 快速开始
 
-要求：
-
-- Node.js `>=22.19 <27`
-- npm
-- Git
-- 一个受支持的 Command Shell Runtime
+要求：Node.js `>=22.19 <27`、npm、Git，以及一个受支持的 Command Shell Runtime。
 
 全局安装：
 
@@ -97,7 +83,7 @@ npx @akira-tl/forgerelay serve
 http://127.0.0.1:7676/mcp
 ```
 
-检查当前运行环境：
+检查实际生效的运行配置：
 
 ```bash
 forgerelay doctor
@@ -105,37 +91,34 @@ forgerelay doctor
 
 ## 从公网 Host 连接
 
-如果 MCP Host 无法访问你的 localhost，可以把 ForgeRelay 放在 HTTPS reverse proxy 或 tunnel 后面，例如 Cloudflare Tunnel、ngrok、Pinggy、Tailscale Funnel，或者你自己的反向代理。
+如果 MCP Host 不能访问你的 localhost，需要给 ForgeRelay 一个可达的 HTTPS 入口。Cloudflare Tunnel、ngrok、Pinggy、Tailscale Funnel 或普通反向代理都可以。
 
-`forgerelay init` 会区分：
+`forgerelay init` 会把两种常见场景分开处理：Direct LAN 绑定 `0.0.0.0`；HTTPS reverse proxy / tunnel 绑定 `127.0.0.1`，只信任 loopback proxy。
 
-- **Direct LAN**：绑定 `0.0.0.0`
-- **HTTPS reverse proxy / tunnel**：绑定 `127.0.0.1`，只信任 loopback proxy
-
-例如公开入口为：
+例如公开入口是：
 
 ```text
 https://example.com/forgerelay/main
 ```
 
-则 MCP Host 使用：
+Host 连接：
 
 ```text
 https://example.com/forgerelay/main/mcp
 ```
 
-ForgeRelay 使用 Owner-password OAuth approval。新安装默认配置位于：
+ForgeRelay 使用 Owner-password OAuth approval。新安装默认写入：
 
 ```text
 ~/.forgerelay/config.json
 ~/.forgerelay/auth.json
 ```
 
-请保护好 `auth.json` 和 Owner password。
+`auth.json` 和 Owner password 都应保持私密。
 
-## MCP 接口设计
+## MCP 接口
 
-ForgeRelay 的长期 Core tool surface 保持小而稳定：
+ForgeRelay 长期保持九个 Core tools：
 
 ```text
 open_workspace
@@ -149,76 +132,60 @@ bash
 capability
 ```
 
-低频能力，例如 Code Intelligence、Hooks 检查、Workspace Tasks、Checkpoint、Recovery 和 Subagent Session，通过 Capability Gateway 按需提供，而不是不断新增顶层 MCP tools。
+Code Intelligence、Hooks 检查、Workspace Tasks、Checkpoint、Recovery、Subagent Session 等低频能力通过 `capability` 暴露。这样新增功能不会不断扩大 Host 的顶层 tool schema。
 
-`open_workspace(context="auto")` 只在项目上下文发生变化时补充新的 AGENTS / CLAUDE instructions、Skills、Capability guides、profiles 或 diagnostics；不会在每次调用时重复塞入完整上下文。
+`open_workspace(context="auto")` 只补充发生变化的项目上下文，例如 AGENTS / CLAUDE instructions、Skills、Capability guides、profiles 或 diagnostics。没有变化时，不会重复发送整份 bootstrap。
 
 ## Skills
 
-ForgeRelay 会从配置的 Skill 目录发现 Skill，但不会替 Agent 做语义匹配，也不会自动把 Skill 正文注入上下文。
+ForgeRelay 负责发现 Skill，不替 Agent 做任务匹配，也不会自动注入 Skill 正文。
 
-流程是：
+Agent 在 `open_workspace` 返回的信息里看到 Skill 的 `name` 和 `description`。如果当前任务匹配，再读取：
 
 ```text
-用户任务
-  ↓
-Agent 看到 Skill name + description
-  ↓
-Agent 判断任务是否匹配
-  ↓
 read("skills://<name>")
-  ↓
-Skill activated
-  ↓
-允许继续读取该 Skill 内部资源
 ```
 
-旧的 `disable-model-invocation` frontmatter 不再用于隐藏 Skill；发现到的 Skill 都保持 model-visible，由 Agent 自己判断是否需要加载。
+入口读取成功后，该 Skill 被视为已加载，内部资源才可以继续读取。
+
+旧的 `disable-model-invocation` frontmatter 不再隐藏 Skill。只要 ForgeRelay 发现了它，Agent 就能看到基本 metadata，再自行决定是否加载。
 
 ## LSP Code Intelligence
 
-`code.intelligence` 当前支持：
+`code.intelligence` 支持：
 
-- definition
-- hover / type information
-- references
-- document symbols
-- workspace symbols
-- diagnostics
+- definition 与 hover / type information；
+- references；
+- document / workspace symbols；
+- diagnostics。
 
-ForgeRelay 可以使用系统或项目已配置的 Language Server。TypeScript / JavaScript 和 Pyright 也可以在 `forgerelay init` 中由用户显式授权后安装到 ForgeRelay 私有配置目录，并在运行中动态生效。
+ForgeRelay 可以使用系统或项目已经配置好的 Language Server。TypeScript / JavaScript 和 Pyright 也可以在 `forgerelay init` 中由用户显式授权，安装到 ForgeRelay 私有配置目录；安装完成后不需要重启服务。
 
-ForgeRelay **不会未经授权自动安装语言服务器**。`rust-analyzer`、`gopls`、`clangd` 等仍由系统或项目工具链提供。
+ForgeRelay 不会未经授权安装 Language Server。`rust-analyzer`、`gopls`、`clangd` 仍由系统或项目工具链提供。
 
 详见 [Configuration Reference](docs/configuration.md#lsp-code-intelligence)。
 
 ## Managed worktree
 
-当用户明确需要隔离 / 并行开发时，ForgeRelay 可以创建 branch-backed managed worktree，而不是 detached HEAD。
+需要隔离或并行开发时，ForgeRelay 可以创建带 `forgerelay/*` 分支的 managed worktree，而不是 detached HEAD。
 
-关闭 active managed-worktree Workspace 时，ForgeRelay 会：
+关闭 active managed-worktree Workspace 时，它会先确认 source checkout 仍然 clean 且位于预期 target branch，然后提交 worktree 剩余修改。只有目标分支可以安全 fast-forward 时，ForgeRelay 才会推进目标分支并删除已经合并的 worktree / managed branch。
 
-1. 验证 source checkout 仍然 clean 且位于预期 target branch；
-2. commit worktree 中剩余修改；
-3. 验证 target 可以安全 fast-forward；
-4. fast-forward target branch；
-5. 删除 worktree 和已经 merge 的 managed branch。
+如果历史已经分叉，close 会拒绝继续，worktree 保留。ForgeRelay 不会把 source checkout 推进 merge conflict。
 
-如果历史已经分叉，close 会被拒绝，worktree 保留，不会把 source checkout 推入 merge conflict。
-
-需要复制 `.gitignore` 中的本地文件时，可以由 Agent 或用户显式复制；ForgeRelay 不额外维护一套 ignored-file provisioning 机制。
+Git ignored 的本地文件由用户或 Agent 在需要时显式复制。ForgeRelay 不额外维护 ignored-file provisioning 机制。
 
 ## Relay 与 Composite Workspace
 
-Workspace Relay 允许 Gateway ForgeRelay 把操作路由到另一个 Execution ForgeRelay。远端 Workspace 的文件、Git、Shell、Process、Skill、Hook、LSP、Activity 和 Audit 事实仍由远端实例拥有。
+Workspace Relay 把操作路由到另一个 ForgeRelay 实例。真正执行命令的 Execution ForgeRelay 继续拥有那边的文件、Git、Shell、Process、Skills、Hooks、LSP、Activity 和 Audit 状态。
 
-Composite Workspace 则把多个 Workspace 组合到一个 Host-facing context：
+Composite Workspace 则把多个 Workspace 放到同一个 Host context 中：
 
 ```text
 open_workspace({ kind: "composite", name: "research-project" })
 ```
 
-成员操作始终显式指定 member：
+成员操作始终显式写 member：
 
 ```text
 read({ workspaceId: "cws_...", member: "code", path: "src/model.py" })
@@ -236,7 +203,7 @@ Composite 不合并成员文件系统，也不会根据 tool type 或 purpose �
 <repo>/.forgerelay/hooks/<hook-name>.json
 ```
 
-例如项目可以在稳定 tag push 前执行本地 release gate：
+下面这个例子会在稳定版本 tag push 前执行本地 release gate：
 
 ```json
 {
@@ -251,7 +218,7 @@ Composite 不合并成员文件系统，也不会根据 tool type 或 purpose �
 }
 ```
 
-检查当前 Hook 配置：
+只检查 Hook 配置，不执行规则：
 
 ```bash
 forgerelay hooks list
@@ -263,9 +230,9 @@ forgerelay hooks list --project /path/to/project
 
 ## 本地 Subagent
 
-ForgeRelay 可以通过用户定义的 profiles 调用已经安装在服务器上的本地 Coding Agent Runtime。当前 adapter 支持 Codex、Claude、OpenCode、Pi、Cursor 和 Copilot；ForgeRelay 本身不安装、不捆绑这些执行器。
+ForgeRelay 可以调用用户已经安装并配置好的本地 Coding Agent Runtime。当前 adapter 支持 Codex、Claude、OpenCode、Pi、Cursor 和 Copilot；ForgeRelay 不安装、不捆绑这些执行器。
 
-Profiles：
+Profiles 放在：
 
 ```text
 ~/.forgerelay/agents/*.md
@@ -280,19 +247,17 @@ forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
 
-MCP Host 通过 `subagent.session` Capability 使用这套能力。
+MCP Host 通过 `subagent.session` Capability 调用同一套能力。
 
 ## 安全边界
 
-ForgeRelay 是真实的本地执行能力，不是模拟环境。
+ForgeRelay 操作的是真实本机环境。
 
-- 文件系统工具受 Workspace / allowed roots 约束。
-- Shell 命令使用运行 ForgeRelay 的本地用户权限。
-- Shell **不是 ForgeRelay 提供的 OS sandbox**。
-- 默认拒绝 elevated / administrator 启动；只有用户显式选择高权限运行时才允许继续，并会提示 AI 操作可能产生不可逆系统修改。
-- 只应连接你信任的 MCP Host。
-- 只暴露你确实希望 Agent 访问的项目根目录。
-- Owner password 必须保持私密。
+文件工具受 Workspace 和 allowed roots 约束；Shell 命令则使用启动 ForgeRelay 的本地用户权限执行。ForgeRelay 不给 Shell 再套一层 OS sandbox。
+
+默认情况下，ForgeRelay 会拒绝 elevated / administrator 启动。用户显式选择高权限运行时才允许继续，并会提示 AI 操作可能造成系统级、不可逆的修改。
+
+只连接你信任的 MCP Host，只开放确实需要访问的项目根目录，并保护好 Owner password。
 
 详见 [Security Model](docs/security.md)。
 
@@ -307,21 +272,13 @@ ForgeRelay 是真实的本地执行能力，不是模拟环境。
 | Windows + `cmd.exe` | 支持 | 原生 cmd / ConPTY / `.cmd` launcher |
 | Windows + Git Bash / WSL / MSYS2 / Cygwin | 兼容路径 | 使用对应 Bash command language |
 
-Linux、macOS、Windows 都进入稳定 Release 的云端验证矩阵。
+稳定版本发布前会经过 Linux、macOS 和 Windows 云端验证。
 
-## ForgeRelay 不打算做什么
+## ForgeRelay 不负责什么
 
-ForgeRelay 有意保持边界，不计划把自己扩张成完整 Agent 平台：
+ForgeRelay 不打算变成完整 Agent 平台。模型推理、对话、planning、web、multimodal 和 model selection 仍属于 Host。
 
-- 不提供自己的模型或推理 runtime；
-- 不提供另一套对话 / session runtime；
-- 不提供长期记忆或 autonomous memory system；
-- 不提供 plugin marketplace；
-- 不提供操作系统级 Shell sandbox；
-- 不接管 Host 的 web、multimodal、planning、model selection 等能力；
-- 不为了“自动化更多”而持续扩张本地环境 provisioning。
-
-目标始终是：**把 MCP Host 可靠地连接到用户真实、已有的开发环境。**
+项目也不计划增加自己的长期记忆系统、plugin marketplace、第二套 conversation/session runtime 或 OS 级 Shell sandbox。对于本地环境 provisioning，ForgeRelay 只做产品本身需要的部分，不追求“什么都自动化”。
 
 ## 文档
 
@@ -348,52 +305,38 @@ npm test
 npm run build
 ```
 
-`npm run dev` 使用 7677 debug runtime，不占用正常产品端口 7676。开发验收也应使用 7677 / 7678，不要触碰正常安装实例。
+`npm run dev` 使用 7677 debug runtime，不占用正常产品端口 7676。开发验收也应使用 7677 / 7678，不要修改正常安装实例。
 
 ---
 
 # English
 
-ForgeRelay is a self-hosted MCP server that lets ChatGPT and other MCP-capable hosts work directly inside your existing development environment: files, commands, Git, LSP, persistent Workspaces, isolated worktrees, local Subagents, and multi-device execution through Relay and Composite Workspaces.
+ForgeRelay is a self-hosted MCP server for coding hosts such as ChatGPT. It gives the Host controlled access to the development environment you already use: project files, shells, Git, language servers, local coding agents, and ForgeRelay instances on other machines.
 
-It is not a model and it is not another coding-agent UI. ForgeRelay connects the **reasoning performed by the Host** to the **real development tools on your machine**.
-
-Your repositories stay where they already are and continue to use the compilers, package managers, Git installation, shells, SSH setup, language servers, and local credentials you already maintain.
+ForgeRelay is not a model and it is not another coding-agent UI. The Host does the reasoning and conversation; ForgeRelay carries those decisions into the real environment. Repositories stay where they are and continue using your existing compilers, package managers, Git installation, SSH setup, shells, and local credentials.
 
 > [!NOTE]
 > ForgeRelay is an independently maintained derivative of the MIT-licensed [Waishnav/devspace](https://github.com/Waishnav/devspace) project. It is not an official DevSpace release. The original copyright and MIT License are preserved in [LICENSE](LICENSE); provenance and modification details are documented in [NOTICE.md](NOTICE.md).
 
-## Why ForgeRelay
+## What it provides
 
-ForgeRelay focuses on one job: giving a remote or Host-based AI reliable, low-overhead access to a real local development environment without rebuilding the Agent runtime itself.
+Normal work happens in the existing checkout. ForgeRelay creates a managed worktree only when isolation or parallel development is explicitly requested.
 
-It provides:
+You can use it to:
 
-- **Persistent Workspaces** — the same checkout or managed worktree reuses a stable Workspace identity; close is not delete.
-- **Real files and commands** — Agents can work inside configured roots and execute through the selected native Command Shell Runtime.
-- **Cross-platform shells** — Bash, zsh, and POSIX sh on Linux/macOS; native PowerShell 7, Windows PowerShell 5.1, and `cmd.exe` on Windows.
-- **Git and managed worktrees** — branch-backed `forgerelay/*` worktrees for explicitly requested isolation or parallel work, with a safe close/finalize lifecycle.
-- **LSP Code Intelligence** — definition, hover, references, symbols, and diagnostics through `code.intelligence` without language-specific top-level MCP tools.
-- **Agent Skills** — discovered Skills are advertised as `name + description`; the Agent loads a matching Skill on demand with `read("skills://<name>")`.
-- **Progressive Capability disclosure** — stable Core tools stay small while low-frequency capabilities and guides are loaded only when needed.
-- **Workspace Tasks** — lightweight, persistent Workspace-owned Task Lists for work that spans Host Turns or conversations.
-- **Subagent Sessions** — delegation to local coding runtimes that the user has already installed and configured; ForgeRelay does not bundle those runtimes.
-- **Workspace Relay** — execute against a Workspace owned by another ForgeRelay instance over direct or SSH-routed connectivity.
-- **Composite Workspaces** — combine several local or remote Workspaces into one Host-facing context while preserving each member's file, Git, shell, Hook, Skill, process, and audit ownership.
-- **Activity and Audit** — durable semantic activity and Bash output, with an MCP App Activity Panel for the current Host Turn.
-- **Lifecycle Hooks** — user-defined rules around Workspace, tool, file-change, worktree-close, and Subagent lifecycle events.
-- **Recovery, checkpoints, and maintenance** — managed-worktree recovery, persistent Workspace checkpoints, safe restore, and explicitly authorized historical-state maintenance.
-
-Normal work stays in the existing checkout. ForgeRelay should create a managed worktree only when isolation or parallel development is explicitly requested.
+- read and change files inside configured roots, then run real local commands;
+- use Bash, zsh, or POSIX sh on Linux/macOS and native PowerShell 7, Windows PowerShell 5.1, or `cmd.exe` on Windows;
+- query definition, hover, references, symbols, and diagnostics through `code.intelligence`;
+- reuse persistent Workspaces and keep lightweight cross-turn work in Workspace Task Lists;
+- create branch-backed managed worktrees and finalize them back into the target branch through a guarded close lifecycle;
+- discover Skills, Capability guides, and local Subagent profiles without injecting every manual into the Host up front;
+- route work to another ForgeRelay instance with Workspace Relay, or coordinate several independent Workspaces through a Composite Workspace;
+- keep durable Activity / Audit records and run Lifecycle Hooks around selected operations;
+- diagnose and repair supported managed-worktree states, create persistent checkpoints, and prune eligible history only with explicit authorization.
 
 ## Quick start
 
-Requirements:
-
-- Node.js `>=22.19 <27`
-- npm
-- Git
-- a supported Command Shell Runtime
+Requirements: Node.js `>=22.19 <27`, npm, Git, and a supported Command Shell Runtime.
 
 Install globally:
 
@@ -421,7 +364,7 @@ Default local MCP endpoint:
 http://127.0.0.1:7676/mcp
 ```
 
-Inspect the resolved runtime:
+Inspect the resolved runtime configuration:
 
 ```bash
 forgerelay doctor
@@ -429,37 +372,34 @@ forgerelay doctor
 
 ## Connecting from a public Host
 
-If the MCP Host cannot reach localhost, expose ForgeRelay through an HTTPS reverse proxy or tunnel such as Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or your own reverse proxy.
+If the MCP Host cannot reach localhost, give ForgeRelay a reachable HTTPS endpoint. Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel, or a conventional reverse proxy all work.
 
-`forgerelay init` distinguishes:
+`forgerelay init` treats the common cases separately. Direct LAN mode binds to `0.0.0.0`; HTTPS reverse proxy / tunnel mode binds to `127.0.0.1` and trusts only loopback proxies.
 
-- **Direct LAN** — bind to `0.0.0.0`
-- **HTTPS reverse proxy / tunnel** — bind to `127.0.0.1` with loopback-only proxy trust
-
-For example, with this public base URL:
+For this public base URL:
 
 ```text
 https://example.com/forgerelay/main
 ```
 
-the MCP Host connects to:
+the Host connects to:
 
 ```text
 https://example.com/forgerelay/main/mcp
 ```
 
-ForgeRelay uses an Owner-password OAuth approval flow. New installations use:
+ForgeRelay uses an Owner-password OAuth approval flow. New installations write configuration to:
 
 ```text
 ~/.forgerelay/config.json
 ~/.forgerelay/auth.json
 ```
 
-Keep `auth.json` and the Owner password private.
+Keep both `auth.json` and the Owner password private.
 
-## MCP interface design
+## MCP interface
 
-ForgeRelay keeps its long-term Core tool surface intentionally small and stable:
+ForgeRelay keeps nine long-term Core tools:
 
 ```text
 open_workspace
@@ -473,94 +413,78 @@ bash
 capability
 ```
 
-Low-frequency functionality such as Code Intelligence, Hook inspection, Workspace Tasks, checkpoints, recovery, and Subagent Sessions is exposed through the Capability Gateway instead of continuously adding top-level MCP tools.
+Code Intelligence, Hook inspection, Workspace Tasks, checkpoints, recovery, and Subagent Sessions are low-frequency capabilities exposed through `capability`. Adding one of these features does not require another permanent top-level MCP tool.
 
-`open_workspace(context="auto")` incrementally delivers changed AGENTS / CLAUDE instructions, Skills, Capability guides, profiles, and diagnostics instead of resending the complete project context on every call.
+`open_workspace(context="auto")` sends only project context that changed, such as AGENTS / CLAUDE instructions, Skills, Capability guides, profiles, or diagnostics. Unchanged bootstrap content is not resent on every call.
 
 ## Skills
 
-ForgeRelay discovers Skills from configured Skill roots, but it does not perform semantic task matching for the Agent and does not automatically inject Skill bodies.
+ForgeRelay discovers Skills. The Agent still decides whether a Skill matches the task, and ForgeRelay does not inject the Skill body automatically.
 
-The intended flow is:
+`open_workspace` advertises each discovered Skill with its `name` and `description`. To load one, the Agent reads:
 
 ```text
-user task
-  ↓
-Agent sees Skill name + description
-  ↓
-Agent decides whether it matches
-  ↓
 read("skills://<name>")
-  ↓
-Skill activated
-  ↓
-nested Skill resources become readable
 ```
 
-Legacy `disable-model-invocation` frontmatter no longer hides a discovered Skill. Discovered Skills remain model-visible and matching stays with the Agent.
+After the entry file loads successfully, nested resources for that Skill become readable.
+
+Legacy `disable-model-invocation` frontmatter no longer hides a discovered Skill. If ForgeRelay discovers it, the Agent can see the basic metadata and decide whether to load it.
 
 ## LSP Code Intelligence
 
-`code.intelligence` currently supports:
+`code.intelligence` supports:
 
-- definition
-- hover / type information
-- references
-- document symbols
-- workspace symbols
-- diagnostics
+- definition and hover / type information;
+- references;
+- document / workspace symbols;
+- diagnostics.
 
-ForgeRelay can use Language Servers already available through the system or project configuration. TypeScript / JavaScript and Pyright can also be installed into ForgeRelay's private config directory after explicit user authorization during `forgerelay init`, and become available live without a server restart.
+ForgeRelay can use Language Servers already installed or configured by the system or project. TypeScript / JavaScript and Pyright can also be installed into ForgeRelay's private config directory after explicit authorization during `forgerelay init`; they become available without restarting the server.
 
-ForgeRelay **never installs a Language Server without user authorization**. `rust-analyzer`, `gopls`, and `clangd` remain external system/toolchain dependencies.
+ForgeRelay never installs a Language Server without that authorization. `rust-analyzer`, `gopls`, and `clangd` remain external system/toolchain dependencies.
 
 See [Configuration Reference](docs/configuration.md#lsp-code-intelligence).
 
 ## Managed worktrees
 
-When isolation or parallel development is explicitly requested, ForgeRelay can create a branch-backed managed worktree instead of a detached HEAD.
+When isolation or parallel development is requested, ForgeRelay can create a managed worktree on a `forgerelay/*` branch instead of using a detached HEAD.
 
-When closing an active managed-worktree Workspace, ForgeRelay:
+Closing an active managed-worktree Workspace first verifies that the source checkout is clean and still on the expected target branch. ForgeRelay then commits remaining worktree changes. It advances the target branch only when a clean fast-forward is possible, then removes the merged worktree and managed branch.
 
-1. verifies that the source checkout is clean and still on the expected target branch;
-2. commits remaining worktree changes;
-3. verifies that the target can be advanced safely without a merge commit;
-4. fast-forwards the target branch;
-5. removes the worktree and the already-merged managed branch.
+If the histories diverge, close stops and preserves the worktree. ForgeRelay does not push the source checkout into a merge conflict.
 
-If histories diverge, close is refused and the worktree is preserved. ForgeRelay does not put the source checkout into a merge-conflict state.
-
-If a task needs a local file that is ignored by Git, the user or Agent can copy it explicitly. ForgeRelay does not maintain a separate ignored-file provisioning system.
+Git-ignored local files can be copied explicitly by the user or Agent when needed. ForgeRelay does not maintain a separate ignored-file provisioning mechanism.
 
 ## Relay and Composite Workspaces
 
-Workspace Relay lets a Gateway ForgeRelay route operations to a Workspace owned by another Execution ForgeRelay. Files, Git state, shell runtime, processes, Skills, Hooks, LSP services, Activity, and Audit facts remain owned by the execution instance.
+Workspace Relay routes operations to another ForgeRelay instance. The Execution ForgeRelay still owns the files, Git state, shell runtime, processes, Skills, Hooks, LSP services, Activity, and Audit data on that machine.
 
-A Composite Workspace combines several Workspaces into one Host-facing context:
+A Composite Workspace places several Workspaces in one Host context:
 
 ```text
 open_workspace({ kind: "composite", name: "research-project" })
 ```
 
-Member operations stay explicit:
+Member operations always name the member:
 
 ```text
 read({ workspaceId: "cws_...", member: "code", path: "src/model.py" })
 bash({ workspaceId: "cws_...", member: "compute", command: "python train.py" })
 ```
 
-Composite Workspaces do not merge member filesystems and never infer a member from tool type or purpose text.
+Composite Workspaces do not merge member filesystems and do not infer a member from the tool type or purpose text.
 
 ## Lifecycle Hooks
 
-The recommended layout is one JSON file per Hook:
+Use one JSON file per Hook:
 
 ```text
 ~/.forgerelay/hooks/<hook-name>.json
 <repo>/.forgerelay/hooks/<hook-name>.json
 ```
 
-For example, a repository can gate stable tag pushes through a local release check:
+This example runs a local release gate before a stable version tag is pushed:
 
 ```json
 {
@@ -575,7 +499,7 @@ For example, a repository can gate stable tag pushes through a local release che
 }
 ```
 
-Inspect Hook configuration without executing it:
+Inspect Hook configuration without running it:
 
 ```bash
 forgerelay hooks list
@@ -587,7 +511,7 @@ See [Configuration Reference](docs/configuration.md#lifecycle-hooks).
 
 ## Local Subagents
 
-ForgeRelay can delegate work to user-configured local coding runtimes that are already installed on the server. The current adapter layer supports Codex, Claude, OpenCode, Pi, Cursor, and Copilot. ForgeRelay does not install or bundle those executors.
+ForgeRelay can call local coding runtimes that the user has already installed and configured. The current adapter layer supports Codex, Claude, OpenCode, Pi, Cursor, and Copilot. ForgeRelay does not install or bundle those executors.
 
 Profiles live in:
 
@@ -596,7 +520,7 @@ Profiles live in:
 .forgerelay/agents/*.md
 ```
 
-CLI workflow:
+CLI:
 
 ```bash
 forgerelay agents ls
@@ -604,19 +528,17 @@ forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
 
-MCP Hosts use the `subagent.session` Capability for delegation.
+MCP Hosts use the `subagent.session` Capability for the same delegation path.
 
 ## Security boundary
 
-ForgeRelay provides real local execution capability, not a simulated environment.
+ForgeRelay operates on the real local machine.
 
-- Filesystem operations are constrained by Workspace and allowed-root boundaries.
-- Shell commands run with the authority of the local user running ForgeRelay.
-- The shell is **not** contained by an operating-system sandbox provided by ForgeRelay.
-- Elevated / administrator startup is rejected by default. Explicit elevated startup requires an opt-in and warns that AI-driven changes may become irreversible at system scope.
-- Connect only MCP Hosts you trust.
-- Expose only project roots you actually want an Agent to access.
-- Keep the Owner password private.
+Filesystem tools are constrained by Workspace and allowed-root boundaries. Shell commands run with the authority of the local user that started ForgeRelay; ForgeRelay does not add an operating-system sandbox around them.
+
+Elevated / administrator startup is rejected by default. If the user explicitly opts into elevated execution, ForgeRelay warns that AI-driven changes can become irreversible at system scope.
+
+Connect only MCP Hosts you trust, expose only the project roots you want an Agent to reach, and keep the Owner password private.
 
 See [Security Model](docs/security.md).
 
@@ -633,19 +555,11 @@ See [Security Model](docs/security.md).
 
 Stable releases are verified in Linux, macOS, and Windows cloud jobs before publication.
 
-## What ForgeRelay deliberately does not do
+## What ForgeRelay does not own
 
-ForgeRelay intentionally keeps a narrow product boundary. It does not aim to become a complete Agent platform:
+ForgeRelay is not intended to become a complete Agent platform. Model reasoning, conversation, planning, web access, multimodal tools, and model selection belong to the Host.
 
-- no model or reasoning runtime;
-- no second conversation/session runtime;
-- no long-term or autonomous memory system;
-- no plugin marketplace;
-- no ForgeRelay-provided operating-system shell sandbox;
-- no replacement for Host-native web, multimodal, planning, or model-selection capabilities;
-- no continuous expansion into local environment provisioning merely for the sake of more automation.
-
-The goal remains simple: **reliably connect an MCP Host to the user's real, existing development environment.**
+The project also does not plan to add its own long-term memory system, plugin marketplace, second conversation/session runtime, or ForgeRelay-provided OS shell sandbox. Local environment provisioning stays limited to what the product actually needs rather than expanding automation for its own sake.
 
 ## Documentation
 

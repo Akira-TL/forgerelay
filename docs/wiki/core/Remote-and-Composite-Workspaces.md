@@ -1,23 +1,16 @@
 # 远端与复合工作区
 
-ForgeRelay 可以把真实执行放到另一台 ForgeRelay 实例上，也可以把多个彼此独立的 Workspace 组合成一个 Host-facing 工作上下文。两者解决的是不同问题：
+ForgeRelay 可以把实际执行放到另一台机器，也可以让一个 Host 同时协调多个独立 Workspace。这两个功能经常一起用，但解决的问题不同。
 
-- **Workspace Relay**：决定一次 Workspace 实际在哪里执行；
-- **Composite Workspace**：让一个 Host 同时协调多个独立 Workspace。
+Workspace Relay 决定“这个 Workspace 在哪台 ForgeRelay 上执行”。Composite Workspace 解决“一个 Host 怎么同时使用多个 Workspace”。
 
-## 三个角色
+## Gateway、Execution 和 alias
 
-### Gateway ForgeRelay
+Gateway ForgeRelay 是直接连接 ChatGPT / MCP Host 的实例。Host 看到的 Workspace handle 由它返回。
 
-直接连接 ChatGPT / MCP Host 的 ForgeRelay。Host 看到的 Workspace handle 由它提供。
+Execution ForgeRelay 才真正拥有远端文件、Git、进程、Hooks、Skills、Language Service 和 Activity 状态。
 
-### Execution ForgeRelay
-
-真正拥有远端文件系统、Git、进程、Hook、Skill、语言服务和 Activity 事实的 ForgeRelay。
-
-### Forge alias
-
-Gateway 本地保存的远端实例名称，例如：
+Gateway 用 Forge alias 记住远端实例，例如：
 
 ```text
 workstation
@@ -25,56 +18,51 @@ compute
 gpu-server
 ```
 
-后续 Workspace Relay 只通过 alias 选择远端，不需要把网络地址、SSH topology 或 credential 暴露给 Agent。
+Agent 以后只需要引用 alias，不需要看到网络地址、SSH topology 或 credential。
 
-## 先认证远端 ForgeRelay
+## 认证远端 ForgeRelay
 
-远端认证通过 CLI 完成，与 ChatGPT 使用的网页 OAuth 流程分离。
+远端认证通过 CLI 完成，和 Host 使用的网页 OAuth 流程分开。
 
-### 直接访问
-
-如果 Gateway 可以直接访问远端服务：
+Gateway 能直接访问远端服务时：
 
 ```bash
 forgerelay auth 10.11.12.13:7676 --alias workstation
 ```
 
-交互终端会隐藏输入 Owner token。也可以显式传入：
+交互式终端会隐藏 Owner token 输入。也可以显式传入：
 
 ```bash
 forgerelay auth 10.11.12.13:7676 --alias workstation --token '<owner-token>'
 ```
 
-不要把 token 写进脚本、Shell history 或日志。
+不要把 token 放进脚本、Shell history 或日志。
 
-认证成功会同时建立/更新本机远端实例记录，不需要另一个“add remote”步骤。
+认证成功后会直接创建或更新本机远端记录，不需要额外的 add-remote 步骤。
 
 ## 通过 SSH route 访问
 
-如果远端 ForgeRelay 只从最终 SSH 主机可访问，使用 `-J`：
+如果 ForgeRelay 服务只能从最终 SSH 主机访问，可以用 `-J`：
 
 ```bash
 forgerelay auth -J user@jump,user@target 127.0.0.1:7676 --alias compute --ssh-auth
 ```
 
-`-J` 表示完整 SSH route：最后一个节点是最终 SSH target，前面的节点按 ProxyJump 顺序使用。
+最后一个节点是最终 SSH target，前面的节点按 ProxyJump 顺序使用。这里的 `127.0.0.1:7676` 是从最终 SSH target 的视角解释的。
 
-此时远端 service target 是从**最终 SSH target 的视角**解释的。ForgeRelay 使用系统 SSH 做端口转发，把目标服务临时映射到本机随机 loopback 端口，然后继续走和直接访问相同的认证/MCP 路径。
+ForgeRelay 调用系统 SSH 建立临时端口转发，把远端服务映射到本机随机 loopback 端口，再走和直连相同的认证 / MCP 路径。
 
-ForgeRelay 不会先尝试直连、失败后自动切到 SSH。是否使用 SSH 由参数明确决定。
+它不会先直连，失败后自动猜测要不要切 SSH。是否走 SSH 由参数明确决定。
 
 ### `--ssh-auth`
 
-当你已经拥有 SSH 登录权限时，`--ssh-auth` 可以让最终目标机上的 ForgeRelay 固定子命令读取该机 Owner token，并只通过 SSH stdout 返回给发起进程，用于这一次认证交换。
+已经有 SSH 登录权限时，`--ssh-auth` 可以在最终目标机读取该机 Owner token，并通过 SSH stdout 只返回给这一次认证流程。
 
-这个 Owner token 不应被写入远端记录、命令参数、日志或 Activity audit。
+这个 token 不应写入远端记录、命令参数、日志或 Activity audit。
 
-`--ssh-auth`：
+`--ssh-auth` 必须和 `-J` 一起使用，并且不能和 `--token` 同时传。
 
-- 必须与 `-J` 一起使用；
-- 与 `--token` 互斥。
-
-## 管理已认证远端
+## 管理远端记录
 
 ```bash
 forgerelay auth list
@@ -83,13 +71,11 @@ forgerelay auth rename workstation build-server
 forgerelay auth remove build-server
 ```
 
-`list` 和管理命令不应该打印已保存 credential。
-
-`test` 会验证远端 MCP 连接，并在需要时刷新访问凭据。
+`list` 和其他管理命令不会打印已保存的 credential。`test` 会检查远端 MCP 连接，并在需要时刷新访问凭据。
 
 ## 打开 Relay Workspace
 
-认证得到 alias 后，Agent 可以通过普通 `open_workspace` 生命周期选择这个 Execution ForgeRelay：
+有 alias 后，普通 `open_workspace` 就可以指定远端执行位置：
 
 ```text
 open_workspace(
@@ -98,23 +84,23 @@ open_workspace(
 )
 ```
 
-这里的 `path` 是 **Execution ForgeRelay 所在机器上的 Workspace path**，不是 Gateway 本机路径。
+这里的 `path` 是 Execution ForgeRelay 所在机器上的路径，不是 Gateway 本机路径。
 
-Host 仍然使用 Gateway 返回的 Workspace handle，但文件、Git、Shell、Hook、Skill、语言服务和 Activity 事实实际属于远端 Execution ForgeRelay。
+Host 继续使用 Gateway 返回的 Workspace handle，但文件、Git、Shell、Hooks、Skills、Language Service 和 Activity 状态都属于远端 Execution ForgeRelay。
 
-Workspace Relay 不等于文件同步。Gateway 不维护远端项目的本地镜像。
+Workspace Relay 不是文件同步。Gateway 不会维护远端项目的本地镜像。
 
 ## Composite Workspace
 
-当一个任务需要同时使用多个独立执行环境时，可以创建 Composite Workspace：
+一个任务需要同时使用多个执行环境时，可以创建 Composite Workspace：
 
 ```text
 open_workspace(kind="composite", name="research-project")
 ```
 
-Composite 本身没有 filesystem root，可以先是空的，再逐个加入 member。
+Composite 本身没有 filesystem root。它可以先为空，再加入 member。
 
-### 加入已有 Workspace
+加入已有 Workspace：
 
 ```text
 open_workspace(
@@ -129,7 +115,7 @@ open_workspace(
 )
 ```
 
-### 直接定义 path-backed / Relay member
+也可以直接定义 path-backed / Relay member：
 
 ```text
 open_workspace(
@@ -145,9 +131,9 @@ open_workspace(
 )
 ```
 
-Member 也可以使用 managed worktree mode，由其实际 Workspace 生命周期负责隔离和 finalize。
+Member 也可以使用 managed worktree mode，隔离和 finalize 仍由这个 member 自己的 Workspace lifecycle 负责。
 
-## 每次执行都显式选择 member
+## 每次操作都写明 member
 
 ```text
 read(
@@ -165,36 +151,19 @@ bash(
 )
 ```
 
-`purpose` 只是给 Host/Agent 的语义说明，不产生自动路由。
+`purpose` 只是给 Host / Agent 的说明，不参与自动路由。
 
-ForgeRelay 不会因为：
+如果某个 member 离线、执行失败，或者某个工具“看起来更适合 GPU”，ForgeRelay 都不会偷偷切到另一个 member 或本机执行。目标执行位置必须一直可解释。
 
-- 某个工具“看起来更适合 GPU”；
-- member 离线；
-- 某个 member 执行失败；
-- purpose 中写了 `code` / `compute`；
+## Composite 不合并底层状态
 
-就自动切换到另一个 member 或本机执行。
+每个 member 继续拥有自己的 filesystem、Git state、process、Hooks、Skills、Language Service 和 Activity / Audit facts。
 
-这保证执行位置始终可解释。
+Activity Panel 可以把当前 Host Turn 的 member operations 放到一起展示，但事实仍归底层 Workspace 所有。
 
-## Member 的状态不会被合并
+## 加载某个 member 的完整上下文
 
-Composite 不会把这些内容合并成一个共享环境：
-
-- filesystem；
-- Git state；
-- process；
-- Lifecycle Hook；
-- Agent Skill；
-- Language service；
-- Activity audit facts。
-
-Composite Activity Panel 可以把当前 Host Turn 的 member operations 聚合展示，但真实事实仍归底层 Workspace 所有。
-
-## 加载某个 member 的完整项目上下文
-
-Composite 本身可以拥有自己的 bootstrap。需要某个 member 的 AGENTS、Skill、Capability guide 等较重上下文时，可以在 reopen Composite 时显式指定 member：
+需要重新加载某个 member 的 AGENTS、Skills、Capability guides 等 bootstrap 时，可以：
 
 ```text
 open_workspace(
@@ -204,39 +173,25 @@ open_workspace(
 )
 ```
 
-这只是加载该 member 的上下文，不会建立隐式“当前 member”。后续 Core tool 仍然要写明 `member=`。
+这只加载该 member 的上下文，不会建立隐式“当前 member”。后续 Core tool 仍然必须写 `member=`。
 
-## Composite close 与 delete
+## Close 和 Delete
 
-### Close
+Close 只把 Composite identity 置为 `closed`，保留名称、member topology 和 Composite-owned durable state。它不会关闭 member Workspace、finalize member worktree、停止 member process、删除 Forge alias 或修改 member 文件。
 
-关闭 Composite 只把 Composite identity 置为 closed，并保留 name、member topology 和 Composite-owned state。
+Delete 才会 dissolve Composite 自己的 identity 和 member relationships，但仍不会顺带关闭或删除 member Workspace。
 
-它不会：
+## 几个容易混淆的概念
 
-- close member Workspace；
-- finalize member worktree；
-- stop member process；
-- 删除远端 Forge alias；
-- 修改 member 文件。
-
-### Delete
-
-显式 delete 才 dissolve Composite-owned identity 和 member relationships，但仍然不会顺带删除或关闭 member Workspace。
-
-## 设计上的重要区别
-
-| 概念 | 负责什么 | 不负责什么 |
+| 概念 | 作用 | 不做什么 |
 | --- | --- | --- |
 | Remote Authentication | 建立 Gateway 到 Execution ForgeRelay 的可信访问 | 不选择项目 Workspace |
-| SSH route | 到达远端服务的网络路径 | 不代表 ForgeRelay member |
-| Forge alias | 命名已认证远端实例 | 不等于设备权限角色 |
-| Workspace Relay | 把一个 Workspace 的实际执行委托给远端 | 不同步文件 |
-| Composite Workspace | 在一个 Host-facing context 中协调多个 Workspace | 不合并底层执行事实 |
+| SSH route | 定义到远端服务的网络路径 | 不代表 Composite member |
+| Forge alias | 给已认证远端实例命名 | 不定义权限角色 |
+| Workspace Relay | 把一个 Workspace 的执行交给远端 | 不同步文件 |
+| Composite Workspace | 在一个 Host context 中协调多个 Workspace | 不合并底层执行状态 |
 
-## 推荐拓扑
-
-一个常见的多设备开发拓扑：
+一个常见拓扑：
 
 ```text
 ChatGPT
@@ -248,7 +203,5 @@ Gateway ForgeRelay (laptop)
    │
    └── compute ── Workspace Relay ──► GPU server ForgeRelay
 ```
-
-Host 只需要维护一个 Composite Workspace，但每次文件或进程操作都清楚标明目标 member。
 
 更多架构边界见主仓库 [ADR-0007](https://github.com/Akira-TL/forgerelay/blob/main/docs/adr/0007-separate-host-and-cli-auth.md)、[ADR-0008](https://github.com/Akira-TL/forgerelay/blob/main/docs/adr/0008-composite-workspace-lifecycle.md) 和 [ADR-0009](https://github.com/Akira-TL/forgerelay/blob/main/docs/adr/0009-persistent-workspace-identity-and-state.md)。

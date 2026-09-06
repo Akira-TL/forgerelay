@@ -1,6 +1,6 @@
 # 故障排查
 
-遇到 ForgeRelay 问题时，先尽量判断失败发生在哪一层：
+先判断错误发生在哪一层，再改配置：
 
 ```text
 Host / MCP metadata
@@ -16,38 +16,28 @@ Execution ForgeRelay（Relay 时）
 本地工具 / Git / Language Server / 项目本身
 ```
 
-不要因为最外层看到一个错误，就直接修改最底层配置。
+最外层报错，不代表最底层一定有问题。
 
-## 第一条命令：`forgerelay doctor`
+## 先跑 `forgerelay doctor`
 
 ```bash
 forgerelay doctor
 ```
 
-先检查实际解析到的：
+它会显示实际生效的 config directory、Node / Git / platform、runtime privilege、Command Shell Runtime、public URL、allowed hosts、SQLite native dependency、tool / widget mode 和可选能力状态。
 
-- config directory；
-- Node / Git / platform / runtime privilege；
-- 实际 Command Shell Runtime、executable/source、compatibility boundary 与 Shell Instructions 状态；
-- public URL；
-- allowed hosts；
-- SQLite/native dependency；
-- tool mode；
-- widget mode；
-- optional capability 状态。
-
-很多“配置明明写了但不生效”的问题，本质上是进程读取了另一套 config directory 或环境变量。
+“配置明明写了但没生效”经常只是当前进程读了另一套配置目录或环境变量。
 
 ## `forgerelay: command not found`
 
-直接用 `npx`：
+可以直接用 `npx`：
 
 ```bash
 npx @akira-tl/forgerelay init
 npx @akira-tl/forgerelay serve
 ```
 
-如果已经全局安装，检查 npm global bin directory 是否在 `PATH`。
+已经全局安装时，检查 npm global bin directory 是否在 `PATH`。
 
 ## Node 版本不支持
 
@@ -67,8 +57,6 @@ node --version
 
 常见原因是 native dependency 在另一套 Node runtime 下安装。
 
-尝试：
-
 ```bash
 npm rebuild better-sqlite3
 npx @akira-tl/forgerelay doctor
@@ -76,13 +64,13 @@ npx @akira-tl/forgerelay doctor
 
 ## Public Base URL 写成了 `/mcp`
 
-错误：
+错误配置：
 
 ```text
 https://forge.example.com/forgerelay/main/mcp
 ```
 
-持久配置应该是：
+`publicBaseUrl` 应该是：
 
 ```text
 https://forge.example.com/forgerelay/main
@@ -102,57 +90,59 @@ forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main
 
 ## Tunnel URL 变了
 
-一次性覆盖：
+临时覆盖：
 
 ```bash
 FORGERELAY_PUBLIC_BASE_URL="https://new.example.com/forgerelay/main" forgerelay serve
 ```
 
-稳定修改：
+持久修改：
 
 ```bash
 forgerelay config set publicBaseUrl https://new.example.com/forgerelay/main
 ```
 
-多个入口可以配置为 list / comma-separated value。每个显式配置 URL 的 pathname 都是实际入站 route boundary；如果唯一配置 `/forgerelay/main`，裸 `/mcp` 不再是同一 deployment 的并行入口。
+多个入口可以用 list / comma-separated value。每个显式 pathname 都是实际 route boundary；如果唯一入口是 `/forgerelay/main`，裸 `/mcp` 不会作为同一 deployment 的另一个入口继续存在。
 
-## Reverse proxy 报 `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`
+## `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`
 
-这通常表示 reverse proxy 已经发送 `X-Forwarded-For`，但 ForgeRelay 没有把该 proxy source 配置为可信来源。不要用 Express 风格的全局 `trust proxy=true` 规避；在 LAN bind 上这会允许直连客户端伪造转发头。
+Reverse proxy 已经发送 `X-Forwarded-For`，但 ForgeRelay 没把该 proxy source 识别为可信来源时会出现这个错误。
 
-标准本机 reverse proxy / tunnel 建议重新运行：
+本机 reverse proxy / tunnel 建议重新运行：
 
 ```bash
 forgerelay init --force
 ```
 
-选择 **HTTPS reverse proxy / tunnel**。该模式 bind `127.0.0.1` 并只 trust loopback proxy source。
+选择 HTTPS reverse proxy / tunnel。该模式 bind `127.0.0.1`，只 trust loopback proxy source。
 
-如果确实需要 `0.0.0.0` 上同时接受 LAN 直连和特定 reverse proxy，显式列出 proxy IP/CIDR：
+不要用全局 `trust proxy=true` 绕过错误。在 LAN bind 上，这会让直连客户端有机会伪造转发头。
+
+确实需要 `0.0.0.0` 同时接受 LAN 和指定 reverse proxy 时，明确列 proxy IP / CIDR：
 
 ```bash
 FORGERELAY_TRUSTED_PROXIES="10.20.30.5,10.20.31.0/24" forgerelay serve
 ```
 
-不要把 LAN 客户端网段本身加入 trusted proxies，除非那些地址确实都是 reverse proxy。
+不要把普通 LAN 客户端网段误加进 trusted proxies。
 
 ## Host-header / 403
 
-先：
+先看：
 
 ```bash
 forgerelay doctor
 ```
 
-确认公网 hostname 出现在 resolved allowed hosts。
+确认公网 hostname 在 resolved allowed hosts 中。
 
-只在明确的本地 debug 环境中考虑：
+下面配置只适合明确的本地 debug：
 
 ```bash
 FORGERELAY_ALLOWED_HOSTS="*" forgerelay serve
 ```
 
-不要把 `*` 当成长期公网修复方案。
+不要把 `*` 当成长期公网方案。
 
 ## OAuth redirect host rejected
 
@@ -164,7 +154,7 @@ localhost
 127.0.0.1
 ```
 
-其他 MCP client：
+其他 MCP client 可以扩展 allowlist：
 
 ```bash
 FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay serve
@@ -172,35 +162,27 @@ FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay ser
 
 ## Owner password 不接受
 
-检查 `doctor` 报告的 auth file。
-
-新安装通常是：
+先看 `doctor` 报告的 auth file。新安装通常是：
 
 ```text
 ~/.forgerelay/auth.json
 ```
 
-确实需要重新初始化时：
+确实要重建认证配置时：
 
 ```bash
 forgerelay init --force
 ```
 
-注意这属于有意修改认证配置，不应作为每次 OAuth 错误的第一反应。
+不要把重新初始化当成每次 OAuth 错误的第一步。
 
 ## Host 看不到新工具 / schema 还是旧的
 
-先观察 `open_workspace` 返回的 `capabilityFingerprint`。
+先看 `open_workspace` 返回的 `capabilityFingerprint`。
 
-如果 Server version/capability 已经是新的，但 ChatGPT 当前 MCP tool schema 仍然缺旧工具或字段，问题通常是 **Host metadata cache**。
+Server 已经报告新版本 / 新 capability，但 Host 仍显示旧 schema 时，通常是 Host metadata cache。刷新或重连 MCP integration，让 Host 重新加载 `tools/list`。
 
-处理：
-
-1. refresh/reconnect integration；
-2. 或创建一个会重新加载 `tools/list` 的 Host context；
-3. 再检查实际 schema。
-
-不要通过反复重装 ForgeRelay 来修复一个 Host 端缓存问题。
+反复重装 ForgeRelay 不会修复 Host 端缓存。
 
 ## Unknown `workspaceId`
 
@@ -210,97 +192,85 @@ forgerelay init --force
 open_workspace(path="~/project")
 ```
 
-然后继续使用返回的 canonical Workspace ID。
+继续使用返回的 canonical Workspace ID。
 
-同一个 checkout 会复用持久 identity；Managed Worktree 是独立物理 Workspace target。
+整理旧工作时，用：
 
-如果是在整理旧工作，使用 `open_workspace(action="list")` 查 inventory，而不是盲猜 ID。
+```text
+open_workspace(action="list")
+```
+
+不要盲猜历史 ID。
 
 ## Workspace 显示 stale
 
-`stale` 表示仍然是 active persisted record，但长时间没有使用，不等于损坏，也不等于应该自动删除。
+`stale` 表示 persisted record 仍是 active，只是很久没有使用。它不是损坏状态，也不是自动删除信号。
 
-需要时 resume；需要清理时先确认用户意图，再按 close/delete 生命周期处理。
+需要就 resume；需要清理时先确认用户意图，再走 close / delete lifecycle。
 
 ## Workspace 显示 invalid
 
-通常说明持久记录还存在，但 backing root 已不存在或不可用。
+说明记录还在，但 backing root 已不存在或不可用。常见原因是 checkout 被外部移动 / 删除、managed worktree 被手动删除，或 remote backing 已不可达。
 
-例如：
-
-- checkout 被外部移动/删除；
-- managed worktree 被用户手动删除；
-- remote backing 不再可达。
-
-先确认真实文件系统 / remote state，不要直接删除 Workspace record 来掩盖根因。
+先检查真实 filesystem / remote state，不要靠删除 Workspace record 隐藏根因。
 
 ## Worktree mode 创建失败
 
-检查：
+检查当前目录是不是 Git repository、至少有一个 commit、source checkout 是否在 attached local branch、显式 `baseRef` 是否指向 local branch，以及 worktree root 是否可写。
 
-- 当前目录真的是 Git repository；
-- repository 至少有一个 commit；
-- source checkout 在 attached local branch；
-- 显式 `baseRef` 指向 local branch；
-- worktree root 可写。
-
-主 checkout 的 uncommitted changes 不会自动复制到新 worktree。
+Source checkout 的 uncommitted changes 不会自动复制进新 worktree。
 
 ## `close_workspace` 拒绝 finalize worktree
 
-常见保护条件：
+常见阻断原因：
 
-- source checkout dirty；
-- source checkout 离开记录的 target branch；
+- source checkout dirty 或已经离开 target branch；
 - managed worktree 离开记录的 branch；
 - source 与 worktree histories diverged；
-- 仍有 active process；
-- 仍有 active Language Service semantic work；
+- 仍有 active process 或 active Language Service semantic work；
 - `BeforeWorktreeClose` Hook 阻断。
 
-如果 histories diverged：在 managed worktree 中 rebase 到最新 target、验证，然后重试 close。
+如果 histories diverged，在 managed worktree 中 rebase 到最新 target，重新验证，再重试 close。
 
-ForgeRelay 不会为了“自动成功”给 source checkout 制造 merge conflict。
+ForgeRelay 不会为了自动成功把 source checkout 推进 merge conflict。
 
 ## `close_workspace` 被 running process 阻止
 
-用原来的 `processId` 检查或等待：
+继续使用原 `processId`：
 
 ```text
 bash(action="process", processId=...)
 ```
 
-如果用户明确不再需要该进程，可以 interrupt。
+可以等待、检查输出，或者在用户明确不再需要时 interrupt。
 
-不要启动第二个同样命令来“看看第一个结束没”。
-
-已经完成的后台进程不会继续阻止 close。
+不要启动第二个同样的命令只为了判断第一个有没有结束。已经完成的后台进程不会继续阻止 close。
 
 ## Windows Shell 命令失败
 
-ForgeRelay 在 Windows 上原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe`。三者的 Agent 命令、Hooks、pipe/PTY 生命周期与 packaged launcher 都按所选 runtime 执行；Git Bash、WSL、MSYS2、Cygwin Bash 仍是 Bash-compatible 路径。
+Windows 原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`) 和 `cmd.exe`。公共 Core tool 名仍叫 `bash`，但这只是 Host contract 名称，不表示命令一定使用 Bash 语法。
 
-公共 Core tool 名为了 Host contract 兼容仍叫 `bash`，**它不代表命令一定使用 Bash 语法**。先看 `open_workspace.executionContext.commandShellRuntime` 或 `forgerelay doctor`，再按实际 runtime 写命令。
-
-`cmd.exe` 被选择时，按 `%NAME%`、`%ERRORLEVEL%`、`^` escaping、cmd quoting/chaining/redirection 与 delayed-expansion 语义执行；PowerShell runtime 使用各自 PowerShell 语义。ForgeRelay 不会为了兼容静默改用另一种 shell。Relay / Composite 场景下，以对应 Execution ForgeRelay / member 的 `executionContext` 为准，不要复用 Gateway 或另一个 member 的 shell 方言。
-
-检查：
+先检查：
 
 ```bash
 forgerelay doctor
 ```
 
+或看 `open_workspace.executionContext.commandShellRuntime`。
+
+`cmd.exe` 使用 `%NAME%`、`%ERRORLEVEL%`、`^` escaping 和 cmd 自己的 quoting / chaining / redirection 语义；PowerShell 使用对应版本的 PowerShell 语义。ForgeRelay 不会为了兼容静默换 Shell。
+
+Relay / Composite 下以实际 Execution ForgeRelay / member 的 `executionContext` 为准，不要套用 Gateway 的 Shell 方言。
+
 ## Skills 不出现
 
-Skills 默认启用。
-
-检查是否被关闭：
+Skills 默认启用。确认没有关闭：
 
 ```bash
 FORGERELAY_SKILLS=1 forgerelay serve
 ```
 
-标准路径：
+常见发现位置：
 
 ```text
 ~/.agents/skills
@@ -310,7 +280,7 @@ FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
 
-另外要区分：Skill 与 ForgeRelay Capability Guide 不是同一个系统。
+发现到的 Skill 应通过 `open_workspace` 向 Agent 暴露 `name + description`。Skill 和 ForgeRelay Capability Guide 是两个系统。
 
 ## Subagent profiles 不出现
 
@@ -320,26 +290,26 @@ FORGERELAY_SKILL_PATHS
 FORGERELAY_SUBAGENTS=1 forgerelay serve
 ```
 
-Profile 常见位置：
+常见 profile 位置：
 
 ```text
 ~/.forgerelay/agents/*.md
 <project>/.forgerelay/agents/*.md
 ```
 
-注意 `forgerelay agents ls` 主要查看 Subagent Session，不等于“列出所有 profile definition”。Host 获取 compact profile catalog 的路径与 CLI session list 不完全相同。
+`forgerelay agents ls` 主要查看 Subagent Session，不等于列出所有 profile definition。Host 的 compact profile catalog 走自己的 discovery 路径。
 
 ## `code.intelligence` 不工作
 
-分层检查：
+按这个顺序检查：
 
 1. Capability catalog 是否 advertise `code.intelligence`；
 2. Host schema 是否过旧；
-3. 目标 Language Server 是否安装并在 Server `PATH`；
-4. `.forgerelay/language-servers.json` 是否匹配文件扩展名和 project marker；
-5. monorepo 的 `path` 是否选择了正确 Language Project。
+3. Language Server 是否安装，并且 ForgeRelay 进程能在 `PATH` 找到；
+4. `.forgerelay/language-servers.json` 是否匹配扩展名和 project marker；
+5. monorepo 调用的 `path` 是否落在正确 Language Project。
 
-ForgeRelay 不自动安装 Language Server。
+TypeScript / JavaScript 和 Pyright 只有在用户显式授权 managed install 后才会由 ForgeRelay 安装。其他 Language Server 不会自动安装。
 
 详见 [代码智能](Code-Intelligence)。
 
@@ -352,19 +322,11 @@ forgerelay hooks list --project /path/to/project
 forgerelay hooks check --project /path/to/project
 ```
 
-确认：
+确认文件是 `*.json`、event 正确、matcher 匹配 ForgeRelay 收到的 request，并且没有把脚本内部命令误当成新的 MCP request。
 
-- 文件真的是 `*.json`；
-- event 正确；
-- matcher 匹配的是 ForgeRelay 收到的 tool request；
-- `commandRegex` 没有错误假设脚本内部命令也会被观察；
-- 修改全局 Hook 后是否重启了 Server。
-
-项目 Hook 每次 event 会重新读取，全局 Hook 则在 Server 启动时加载。
+项目 Hook 每次 event 重新读取；全局 Hook 修改后需要重启 Server。
 
 ## Hook 报错但 Tool 还是完成了
-
-确认事件是不是 observational。
 
 只有：
 
@@ -375,92 +337,64 @@ BeforeWorktreeClose
 
 是 blocking。
 
-`AfterTool`、`AfterFileChange` 等发生在事实已经成立之后，失败不会回滚原操作。
+`AfterTool`、`AfterFileChange` 等发生在原事实成立之后，Hook 失败不会回滚原操作。
 
 ## Review / Activity UI 不出现
 
-先确认 Widget mode：
+先确认：
 
 ```bash
 FORGERELAY_WIDGETS=full
 ```
 
-纯 MCP client 可以忽略 MCP App UI metadata，这不代表基础 tool 调用失败。
+纯 MCP client 忽略 MCP App UI metadata 很正常，不影响 Core tools。
 
-如果 ChatGPT 报 `Failed to fetch template`，ForgeRelay 项目开发环境可以运行：
+ChatGPT 报 `Failed to fetch template` 时，项目开发环境可以运行：
 
 ```bash
 npm run build
 npm run debug:accept
 ```
 
-正式用户应优先判断：
+正式部署则分别检查 Server 是否 advertise MCP App resource、Host 是否刷新 template metadata、public asset route 是否可达，以及错误发生在 template callback、`resources/read` 还是 asset fetch。
 
-- Server 是否真实暴露 MCP App resource；
-- Host 是否刷新到当前 template metadata；
-- public route / asset URL 是否可达；
-- 错误是在 Host template callback、`resources/read` 还是 asset fetch。
-
-不要把“tool command 成功”误判成“UI 一定渲染成功”。
+Tool command 成功和 UI 成功渲染是两件事。
 
 ## Remote auth 失败
 
-### 没有 `-J` 却使用 `--ssh-auth`
+`--ssh-auth` 必须和 `-J` 一起用，并且和 `--token` 互斥。
 
-`--ssh-auth` 必须和显式 SSH route 一起使用。
+使用 `-J` 时，service target 从最终 SSH target 主机的视角解释，不是 Gateway 本机视角。
 
-### 同时使用 `--ssh-auth` 与 `--token`
-
-二者互斥。
-
-### SSH route 下 target 写错
-
-有 `-J` 时，service target 从**最终 SSH target 主机**视角解释，而不是 Gateway 本机视角。
-
-### Relay alias 不存在/离线
-
-先：
+Relay alias 不存在或离线时先检查：
 
 ```bash
 forgerelay auth list
 forgerelay auth test <alias>
 ```
 
-确认 remote record 和 MCP connectivity，再排查 Workspace path。
+先确认 remote record 和 MCP connectivity，再排查 Workspace path。
 
 ## Composite member 操作失败
 
-确认每次 Core work call 都显式指定：
+每次 Core work call 都要显式指定：
 
 ```text
 member="..."
 ```
 
-Composite 不维护隐式 current member，也不会在 member offline 时 fallback 到其他 member。
-
-关闭 Composite 后需要先 reopen，不能直接继续 member routing。
+Composite 没有隐式 current member，也不会在 member offline 时 fallback 到其他 member。Composite 已关闭时要先 reopen。
 
 ## 数据为什么还在
 
-ForgeRelay 的 Workspace identity、Task List 等 durable coordination state 不会因为 conversation 结束就自动删除。
+Workspace identity、Task List 等 durable state 不会因为 conversation 结束而删除。Close 也不是 delete。
 
-Close 也不是 delete。
+永久删除 ForgeRelay-owned Workspace state 时使用显式 delete lifecycle。不要假设长期未使用记录会自动 GC。
 
-需要永久删除 ForgeRelay-owned Workspace state 时，应使用显式 delete lifecycle。不要假设长期未使用记录会自动 GC。
+## 还是定位不了
 
-## 仍然无法定位时
+保留原始错误，并把问题缩到一个边界：Host tool schema、OAuth HTTP response、ForgeRelay tool result、Hook report、Git status / history、Language Server stderr、remote `auth test` 或 `doctor` 输出。
 
-把问题缩小到一个明确边界，并保留原始错误：
-
-- Host tool schema；
-- OAuth HTTP response；
-- ForgeRelay tool result；
-- Hook report；
-- Git status/history；
-- Language Server stderr；
-- remote `auth test`；
-- `doctor` 输出。
-
-一个 adapter exception 不等于模型失败；一条 Shell command exit 0 也不等于 Host UI 已经成功刷新。
+Adapter exception 不等于模型失败；Shell command exit 0 也不代表 Host UI 一定刷新成功。
 
 更多已知问题见主仓库 [Troubleshooting Gotchas](https://github.com/Akira-TL/forgerelay/blob/main/docs/gotchas.md)。

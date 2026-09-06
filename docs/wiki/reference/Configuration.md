@@ -1,16 +1,10 @@
 # 配置指南
 
-这篇页面只覆盖日常最常用的 ForgeRelay 配置。完整字段和低频选项请查主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
+这里列日常最常用的 ForgeRelay 配置。完整字段和低频选项见主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
 
 ## 配置来源
 
-ForgeRelay 可以通过：
-
-- `forgerelay init` 生成的持久配置；
-- 环境变量；
-- 项目级 `.forgerelay/` 配置；
-
-共同决定运行行为。
+运行行为可以同时来自 `forgerelay init` 写入的持久配置、环境变量和项目级 `.forgerelay/` 文件。
 
 新安装默认目录：
 
@@ -19,7 +13,7 @@ ForgeRelay 可以通过：
 ~/.forgerelay/auth.json
 ```
 
-## 常用 CLI
+常用命令：
 
 ```bash
 forgerelay init
@@ -29,13 +23,13 @@ forgerelay config get
 forgerelay config set publicBaseUrl https://forge.example.com
 ```
 
-修改配置后，如果不确定最终生效值，优先运行：
+不确定最终生效值时，直接跑：
 
 ```bash
 forgerelay doctor
 ```
 
-## 核心环境变量
+## 常用环境变量
 
 | Variable | 用途 |
 | --- | --- |
@@ -52,21 +46,19 @@ forgerelay doctor
 
 ## Public Base URL
 
-公网 URL 填写到 **MCP endpoint 之前**。
-
-正确：
+`publicBaseUrl` 写到 MCP endpoint 之前。
 
 ```text
 https://forge.example.com/forgerelay/main
 ```
 
-Host 连接：
+Host 实际连接：
 
 ```text
 https://forge.example.com/forgerelay/main/mcp
 ```
 
-不要把最后 `/mcp` 写进 `publicBaseUrl`。
+不要把最后的 `/mcp` 写进 `publicBaseUrl`。
 
 可以配置多个入口：
 
@@ -79,9 +71,13 @@ https://forge.example.com/forgerelay/main/mcp
 }
 ```
 
-每个显式配置 URL 的 pathname 都是可接受的入站 operational route boundary；第一个 URL 仍是 canonical，用于生成 OAuth/MCP metadata 和链接。比如唯一配置 `https://forge.example.com/forgerelay/main` 时，MCP、OAuth 操作、health 和 MCP App assets 都位于 `/forgerelay/main/*` 下，不会同时继续暴露裸 `/mcp`、`/authorize`、`/token`、`/healthz`。OAuth/MCP 标准 discovery metadata 仍按规范位于对应的 `/.well-known/...` 路径。所有配置 hostname 都会参与 derived Host-header allowlist。
+第一个 URL 是 canonical，用于生成 OAuth / MCP metadata 和链接。每个显式配置 URL 的 pathname 都会成为可接受的入站 route boundary。
 
-环境变量中使用逗号分隔：
+例如只有 `https://forge.example.com/forgerelay/main` 时，MCP、OAuth 操作、health 和 MCP App assets 都位于 `/forgerelay/main/*` 下，不会同时暴露裸 `/mcp`、`/authorize`、`/token`、`/healthz`。标准 discovery metadata 仍按规范使用对应的 `/.well-known/...` 路径。
+
+所有配置 hostname 都参与 derived Host-header allowlist。
+
+环境变量中用逗号分隔多个入口：
 
 ```bash
 FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com/main,https://forge-alt.example.com/relay"
@@ -89,9 +85,7 @@ FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com/main,https://forge-alt.exa
 
 ## Tool mode
 
-### `minimal`
-
-默认 canonical surface：
+默认 `minimal` 和兼容值 `full` 都使用同一套 canonical 9-tool surface：
 
 ```text
 open_workspace
@@ -105,15 +99,9 @@ delete
 bash
 ```
 
-搜索和目录 inspection 直接通过 `bash` 使用系统 `rg`、`find`、`ls` 等工具。
+目录和文本搜索直接通过 `bash` 使用系统 `rg`、`find`、`ls` 等工具。
 
-### `full`
-
-当前仅作为兼容值保留，与 `minimal` 使用相同 canonical 9-tool surface。
-
-### `codex`
-
-实验性 Codex-shaped adapter，面向兼容性，不代表 ForgeRelay 的 canonical MCP interface。
+`codex` 是实验性的 Codex-shaped compatibility adapter，不代表 ForgeRelay 的长期 canonical interface。
 
 ## Widget mode
 
@@ -123,11 +111,7 @@ FORGERELAY_WIDGETS=changes
 FORGERELAY_WIDGETS=off
 ```
 
-当前语义：
-
-- `full`：默认，使用 ForgeRelay Panel；
-- `changes`：保留同一 Panel，并启用 change-review checkpoint 行为；
-- `off`：关闭 Widget UI。
+`full` 使用常规 ForgeRelay Panel；`changes` 在同一 Panel 上启用 change-review checkpoint 行为；`off` 关闭 Widget UI metadata。
 
 Activity Panel 默认在第一次 Activity 出现后折叠。需要新 Host Turn 默认展开：
 
@@ -135,7 +119,7 @@ Activity Panel 默认在第一次 Activity 出现后折叠。需要新 Host Turn
 FORGERELAY_ACTIVITY_PANEL_EXPANDED=1
 ```
 
-也可以持久化为：
+持久配置：
 
 ```json
 {
@@ -145,19 +129,17 @@ FORGERELAY_ACTIVITY_PANEL_EXPANDED=1
 
 ## Workspace Task reminder
 
-默认每 30 次成功语义 Workspace 操作，在仍有 unfinished Tasks 且长时间没有 Task mutation 时提醒 Agent 更新进度。
+默认每 30 次成功的语义 Workspace 操作检查一次：如果 active Task List 仍有 unfinished Task，而 Agent 长时间没有更新 Task，就附加 reminder。
 
 ```bash
 FORGERELAY_TASK_REMINDER_INTERVAL=30
 ```
 
-设置为 `0` 关闭 reminder。
-
-Task 数据本身仍然持久，不受 reminder counter 是否在 Server restart 后重置影响。
+设为 `0` 关闭。Task 本身是持久数据，Server restart 只会重置 reminder counter。
 
 ## LSP Code Intelligence
 
-Language Server definition 按优先级读取：
+Language Server definition 按以下优先级解析：
 
 ```text
 <project>/.forgerelay/language-servers.json
@@ -166,13 +148,15 @@ ForgeRelay-managed private npm executables
 inherited PATH built-in discovery
 ```
 
-`forgerelay init` 可以私有安装 TypeScript/JavaScript 与 Pyright Language Servers。Agent 按需安装默认关闭；只有配置 `allowAgentLanguageServerInstall: true` 后，`code.intelligence` 的 `managed.install` 才允许产生网络下载和持久化安装。安装后下一次 semantic request 即可使用，无需重启 Server。
+`forgerelay init` 可以把 TypeScript / JavaScript 和 Pyright Language Server 安装到 ForgeRelay 私有目录。Agent 按需安装默认关闭；只有 `allowAgentLanguageServerInstall: true` 时，`code.intelligence` 的 `managed.install` 才能下载并持久化安装。
+
+安装完成后，下一次 semantic request 即可使用，不需要重启 Server。
 
 详见 [代码智能](Code-Intelligence)。
 
 ## Lifecycle Hooks
 
-推荐：
+推荐文件位置：
 
 ```text
 ~/.forgerelay/hooks/<hook-name>.json
@@ -194,33 +178,31 @@ forgerelay hooks check --project /path/to/project
 
 ## System Instructions
 
-ForgeRelay 只加载一个全局 system-instructions 文件，默认：
+ForgeRelay 默认加载一个全局 system-instructions 文件：
 
 ```text
 ~/.agents/AGENTS.md
 ```
 
-更改路径：
+更换路径：
 
 ```bash
 FORGERELAY_SYSTEM_INSTRUCTIONS_PATH=/path/to/AGENTS.md
 ```
 
-项目 root 的 `AGENTS.md` / `CLAUDE.md` 仍然单独加载；更深目录的指令按访问路径懒发现。
+项目 root 的 `AGENTS.md` / `CLAUDE.md` 仍然单独加载，更深目录按访问路径懒发现。
 
-`FORGERELAY_AGENT_DIR` **不是** system-instructions 路径，它只保留 Agent Skill 兼容用途。
+`FORGERELAY_AGENT_DIR` 不是 system-instructions 路径，它只保留 Agent Skill 兼容用途。
 
 ## Agent Skills
 
-Skills 默认启用。
+Skills 默认启用。关闭 discovery：
 
 ```bash
 FORGERELAY_SKILLS=0
 ```
 
-可关闭 Skill discovery。
-
-标准发现位置包括：
+标准发现位置：
 
 ```text
 ~/.agents/skills
@@ -229,6 +211,8 @@ FORGERELAY_SKILLS=0
 FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
+
+发现到的 Skill 会向 Agent 暴露 `name + description`；Agent 需要时再通过 `skills://<name>` 加载正文。
 
 ## Subagents
 
@@ -245,7 +229,7 @@ FORGERELAY_SUBAGENTS=1
 <project>/.forgerelay/agents/*.md
 ```
 
-本地 CLI diagnostics：
+本地诊断：
 
 ```bash
 forgerelay agents ls
@@ -253,23 +237,21 @@ forgerelay agents run <profile-or-provider-or-id> "<prompt>"
 forgerelay agents show <id>
 ```
 
-Host 正常委派应按运行版本的 `subagents` Capability Guide 使用 Capability Gateway，而不是把 CLI 当成长期 MCP interface。
+正常 MCP 委派应使用运行版本提供的 Subagent Capability Guide，而不是把 CLI 当成长期 Host interface。
 
 ## Native Artifact Download
 
-默认关闭：
+默认关闭。启用：
 
 ```bash
 FORGERELAY_ARTIFACTS=1
 ```
 
-启用后才 advertise `artifact.download` Capability。
+启用后才会 advertise `artifact.download` Capability。单文件默认最大 100 MiB。
 
-单文件默认最大 100 MiB。该能力接受 Host 提供的受支持 native file transport，不接受随意替换成 URL、本地路径、base64 或 embedded credential。
+它接受 Host 提供的受支持 native file transport，不接受随意替换成 URL、本地路径、base64 或 embedded credential。
 
 ## Logging
-
-常见变量：
 
 | Variable | 默认 |
 | --- | --- |
@@ -280,33 +262,37 @@ FORGERELAY_ARTIFACTS=1
 | `FORGERELAY_LOG_TOOL_CALLS` | `1` |
 | `FORGERELAY_LOG_SHELL_COMMANDS` | `pretty: 1`, `json: 0` |
 
-`pretty` 面向本地人类阅读，会显示截断 Shell command preview。命令参数可能包含秘密时：
+`pretty` 适合本地查看，会显示截断后的 Shell command preview。命令参数可能带 secret 时关闭它：
 
 ```bash
 FORGERELAY_LOG_SHELL_COMMANDS=0
 ```
 
-`json` 适合机器收集，默认保留 request log 并关闭 Shell command preview。
+`json` 更适合机器收集，默认保留 request log，并关闭 Shell command preview。
 
 ## Proxy trust
 
-当 ForgeRelay bind 在 loopback，但配置了非 loopback public URL 时，只 trust loopback proxy source，而不是按 hop 数信任任意来源。`forgerelay init` 的 **HTTPS reverse proxy / tunnel** 模式固定 bind `127.0.0.1`；**Direct LAN** 模式固定 bind `0.0.0.0` 且默认不信任 proxy。
+ForgeRelay bind 在 loopback、同时配置了非 loopback public URL 时，只 trust loopback proxy source，不按 hop 数信任任意来源。
 
-可显式关闭自动 loopback trust：
+`forgerelay init` 的 HTTPS reverse proxy / tunnel 模式固定 bind `127.0.0.1`；Direct LAN 模式固定 bind `0.0.0.0`，默认不信任 proxy。
+
+关闭自动 loopback trust：
 
 ```bash
 FORGERELAY_TRUST_PROXY=0
 ```
 
-旧的 `FORGERELAY_TRUST_PROXY=1` 只允许用于 loopback bind。需要高级 LAN + reverse proxy 拓扑时，明确列出真实 proxy IP/CIDR：
+旧的 `FORGERELAY_TRUST_PROXY=1` 只允许用于 loopback bind。
+
+LAN + reverse proxy 这类高级拓扑应明确写真实 proxy IP / CIDR：
 
 ```bash
 FORGERELAY_TRUSTED_PROXIES="127.0.0.1,10.20.30.0/24" forgerelay serve
 ```
 
-也可以在 `config.json` 中持久化 `trustedProxies` 数组。全局/wildcard trust 会被拒绝；不要在 LAN bind 上使用 `trust proxy=true`。
+也可以在 `config.json` 中保存 `trustedProxies` 数组。全局 / wildcard trust 会被拒绝；不要在 LAN bind 上使用 `trust proxy=true`。
 
-## Environment-only 示例
+## 纯环境变量示例
 
 ```bash
 FORGERELAY_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)" \
