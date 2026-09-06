@@ -73,7 +73,11 @@ const node = process.platform === "win32"
   : JSON.stringify(process.execPath);
 
 if (process.platform === "win32") {
+  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
   const cmdExecutable = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe";
+  const cmdRoot = await mkdtemp(join(tmpdir(), "forgerelay-cmd-runtime-test-"));
   const cmdManager = new ProcessManager({
     commandShellRuntime: {
       family: "cmd",
@@ -101,10 +105,14 @@ if (process.platform === "win32") {
     assert.equal(quotedNativeExecutable.exitCode, 0);
     assert.match(quotedNativeExecutable.output, /cmd-native-ok/);
 
+    await writeFile(
+      join(cmdRoot, "errorlevel.cmd"),
+      `@"${process.execPath}" -e "process.exit(7)"\r\n@echo error=%ERRORLEVEL%\r\n@exit /b 0\r\n`,
+    );
     const errorLevel = await cmdManager.start({
       workspaceId: "cmd-runtime",
-      cwd: process.cwd(),
-      command: `"${process.execPath}" -e "process.exit(7)" & call echo error=%%ERRORLEVEL%%`,
+      cwd: cmdRoot,
+      command: "errorlevel.cmd",
       yieldTimeMs: 2_000,
     });
     assert.equal(errorLevel.exitCode, 0);
@@ -119,6 +127,7 @@ if (process.platform === "win32") {
     assert.equal(propagatedFailure.exitCode, 23);
   } finally {
     cmdManager.shutdown();
+    await rm(cmdRoot, { recursive: true, force: true });
   }
 }
 
