@@ -4,6 +4,16 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-09-06
+
+### Added
+
+- Added first-class Windows PowerShell 5.1 (`powershell.exe`) execution for Agent commands, Hooks, pipe/PTY sessions, shell identity guidance, and packaged Windows acceptance while preserving PowerShell 5.1-specific syntax and quoting semantics.
+
+### Fixed
+
+- Hardened the Windows ConPTY lifecycle used by PowerShell runtimes: process-tree interruption no longer passes unsupported Windows signals, leaked ConPTY input/output resources are released after exit, and Windows PowerShell text I/O is normalized to UTF-8 so PTY completion, Unicode output, durable output, and child cleanup complete reliably.
+
 ## [0.10.1] - 2026-09-05
 
 ### Added
