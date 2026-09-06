@@ -45,7 +45,7 @@ try {
   const installedRoot = join(prefix, "node_modules", "@akira-tl", "forgerelay");
   assert.ok(existsSync(join(installedRoot, "dist", "cli.js")), `installed package is missing dist/cli.js: ${installedRoot}`);
   const workspaceProbe = join(root, "packaged-workspace-probe.mjs");
-  await writeFile(workspaceProbe, PACKAGED_WORKSPACE_PROBE, "utf8");
+  await writeFile(workspaceProbe, packagedWorkspaceProbe(), "utf8");
 
   const pwsh = resolveWhere("pwsh.exe", "PowerShell 7");
   const powershell = resolveWhere("powershell.exe", "Windows PowerShell 5.1");
@@ -209,7 +209,8 @@ async function exercisePackagedElevationContract(installedRoot, { root, projectR
   assert.doesNotThrow(() => assertRuntimePrivilegeAllowed(unknown, true));
 }
 
-const PACKAGED_WORKSPACE_PROBE = String.raw`
+function packagedWorkspaceProbe() {
+  return String.raw`
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -244,6 +245,7 @@ try {
   store.close();
 }
 `;
+}
 
 function cleanAcceptanceEnv(configDir) {
   const env = Object.fromEntries(
