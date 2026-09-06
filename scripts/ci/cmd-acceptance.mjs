@@ -69,9 +69,10 @@ async function exercisePtyLifecycle(runtime) {
       cwd: process.cwd(),
       command: [
         "chcp 65001 >nul",
+        "setlocal EnableDelayedExpansion",
         "echo cmd-pty-ready-雪",
         "set /p FR_CMD_LINE=",
-        "echo stdin=%FR_CMD_LINE%",
+        "echo stdin=!FR_CMD_LINE!",
         `${node} -e "console.log('cols=' + process.stdout.columns + ';rows=' + process.stdout.rows)"`,
         `${node} -e "console.log('cmd-pty-unicode-🙂')"`,
         "exit /b 23",
