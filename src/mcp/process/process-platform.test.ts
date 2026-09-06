@@ -81,15 +81,21 @@ const windowsPowerShellRuntime = {
   version: "5.1.26100.7019",
   capabilities: ["powershell-command-language", "windows-powershell", "profile-isolation"],
 };
+const windowsPowerShellUtf8Command = [
+  "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)",
+  "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+  "$OutputEncoding = [Console]::OutputEncoding",
+  "Write-Output ok",
+].join("; ");
 assert.deepEqual(resolveShellCommandForRuntime("Write-Output ok", windowsPowerShellRuntime), {
   executable: windowsPowerShellRuntime.executable,
-  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Write-Output ok"],
+  args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", windowsPowerShellUtf8Command],
 });
 assert.deepEqual(
   resolveShellCommandForRuntime("Write-Output ok", windowsPowerShellRuntime, { interactive: true }),
   {
     executable: windowsPowerShellRuntime.executable,
-    args: ["-NoLogo", "-NoProfile", "-Command", "Write-Output ok"],
+    args: ["-NoLogo", "-NoProfile", "-Command", windowsPowerShellUtf8Command],
   },
 );
 

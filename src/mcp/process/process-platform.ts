@@ -87,7 +87,6 @@ export function resolveShellCommandForRuntime(
     case "sh":
       return { executable: runtime.executable, args: ["-c", command] };
     case "pwsh":
-    case "powershell":
       return {
         executable: runtime.executable,
         args: [
@@ -98,11 +97,31 @@ export function resolveShellCommandForRuntime(
           command,
         ],
       };
+    case "powershell":
+      return {
+        executable: runtime.executable,
+        args: [
+          "-NoLogo",
+          "-NoProfile",
+          ...(options.interactive ? [] : ["-NonInteractive"]),
+          "-Command",
+          windowsPowerShellUtf8Command(command),
+        ],
+      };
     case "fish":
       throw new Error(
         `Command shell runtime ${runtime.family} is identified but native execution support is not enabled in this release stage. ForgeRelay will not silently execute the command through another shell.`,
       );
   }
+}
+
+function windowsPowerShellUtf8Command(command: string): string {
+  return [
+    "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+    "$OutputEncoding = [Console]::OutputEncoding",
+    command,
+  ].join("; ");
 }
 
 export function terminateProcessTree(
