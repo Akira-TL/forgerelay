@@ -162,13 +162,13 @@ test("cmd Agent commands and Hooks share the selected runtime", { skip: process.
     name: "bash",
     arguments: {
       workspaceId,
-      command: `set "FR_CMD_AGENT=agent" && call echo agent=%%FR_CMD_AGENT%%`,
+      command: "echo %ComSpec%",
       yieldTimeMs: 2_000,
     },
   });
 
   assert.equal(command.isError, undefined, allResponseText(command));
-  assert.match(allResponseText(command), /agent=agent/);
+  assert.ok(allResponseText(command).toLowerCase().includes(configuredShell.toLowerCase()));
   assert.equal(
     (await readFile(join(context.project, "cmd-hook-shell.txt"), "utf8")).trim().toLowerCase(),
     configuredShell.toLowerCase(),
