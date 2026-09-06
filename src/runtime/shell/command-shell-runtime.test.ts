@@ -73,6 +73,9 @@ test("Bash stays compact while non-Bash runtimes produce mandatory identity guid
   assert.equal(commandShellAgentInstruction(bash), "");
   assert.match(commandShellAgentInstruction(cmd), /Command shell runtime: cmd/);
   assert.match(commandShellAgentInstruction(cmd), /Selection source: recorded/);
+  assert.match(commandShellAgentInstruction(cmd), /%NAME%/);
+  assert.match(commandShellAgentInstruction(cmd), /%ERRORLEVEL%/);
+  assert.match(commandShellAgentInstruction(cmd), /Do not emit PowerShell or Bash syntax/);
 });
 
 test("launcher detection ignores npm lifecycle wrapper shells", () => {

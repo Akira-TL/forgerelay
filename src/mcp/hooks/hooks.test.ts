@@ -162,6 +162,34 @@ test("HookRunner uses the same fixed command-shell runtime as Agent commands", a
   assert.equal((await readFile(marker, "utf8")).trim(), executable);
 });
 
+test("cmd blocking Hooks preserve native exit codes", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-cmd-runtime-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const executable = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe";
+  const runner = new HookRunner(
+    parseHookConfig({ BeforeTool: [{ command: "exit /b 23" }] }),
+    silentLogging,
+    process.env,
+    undefined,
+    {
+      family: "cmd",
+      executable,
+      source: "explicit",
+      capabilities: ["cmd-command-language"],
+    },
+  );
+
+  await assert.rejects(
+    () => runner.run("BeforeTool", {
+      workspaceId: "ws_cmd",
+      workspaceRoot: root,
+      workspaceMode: "checkout",
+      payload: { tool: "write", path: "blocked.txt" },
+    }),
+    /BeforeTool handler 1 exited with code 23/,
+  );
+});
+
 test("project hook files load by filename and report that filename as the hook name", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));

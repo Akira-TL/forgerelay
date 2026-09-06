@@ -144,6 +144,37 @@ test("MCP tool hooks use the configured command-shell runtime instead of a compa
   );
 });
 
+test("cmd Agent commands and Hooks share the selected runtime", { skip: process.platform !== "win32" }, async (t) => {
+  const configuredShell = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe";
+  const context = await fixture(t, {
+    env: { FORGERELAY_COMMAND_SHELL: configuredShell },
+    hooks: {
+      AfterTool: [{
+        matcher: { tool: "bash" },
+        handlers: [{ command: "echo %ComSpec%>cmd-hook-shell.txt" }],
+      }],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "chat-cmd-runtime");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const command = await context.client.callTool({
+    name: "bash",
+    arguments: {
+      workspaceId,
+      command: `set "FR_CMD_AGENT=agent" && call echo agent=%%FR_CMD_AGENT%%`,
+      yieldTimeMs: 2_000,
+    },
+  });
+
+  assert.equal(command.isError, undefined, allResponseText(command));
+  assert.match(allResponseText(command), /agent=agent/);
+  assert.equal(
+    (await readFile(join(context.project, "cmd-hook-shell.txt"), "utf8")).trim().toLowerCase(),
+    configuredShell.toLowerCase(),
+  );
+});
+
 test("WorkspaceOpen hook reports are visible on the open_workspace result", async (t) => {
   const context = await fixture(t);
   await mkdir(join(context.project, ".forgerelay"), { recursive: true });

@@ -295,9 +295,10 @@ See [Security Model](docs/security.md) for the full boundary and threat model.
 | --- | --- | --- |
 | Linux | Supported | Requires Node, npm, Git, and Bash. |
 | macOS | Supported | Requires Node, npm, Git, and Bash. |
-| Windows with PowerShell 7 (`pwsh`) | Supported | Agent commands and Hooks use one native `pwsh` runtime without loading the user profile. |
+| Windows with PowerShell 7 (`pwsh`) | Supported | Agent commands, Hooks, and PTY execution use one native `pwsh` runtime without loading the user profile. |
+| Windows with Windows PowerShell 5.1 (`powershell.exe`) | Supported | Agent commands, Hooks, and PTY execution use the selected 5.1 runtime with 5.1-specific syntax guidance. |
+| Windows with `cmd.exe` | Supported for Agent commands and Hooks | ForgeRelay preserves cmd syntax and reports the selected runtime explicitly; PTY/packaged-launcher lifecycle coverage is completed separately. |
 | Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Bash remains available as a compatibility path. |
-| Windows PowerShell 5.1 (`powershell.exe`) or `cmd.exe` only | Not supported yet | These runtimes are separate follow-up stages. |
 
 You can check the local runtime with:
 

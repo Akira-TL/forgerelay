@@ -316,7 +316,9 @@ export function commandShellAgentInstruction(runtime: CommandShellRuntime): stri
     "Write shell commands for this runtime rather than assuming Bash syntax.",
     ...(runtime.family === "powershell"
       ? ["Windows PowerShell 5.1 does not support PowerShell 7 pipeline-chain operators && or ||."]
-      : []),
+      : runtime.family === "cmd"
+        ? ["cmd.exe uses %NAME% environment expansion and %ERRORLEVEL% process status. Do not emit PowerShell or Bash syntax unless explicitly launching those shells as child processes."]
+        : []),
   ].join(" ");
 }
 

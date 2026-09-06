@@ -162,10 +162,7 @@ ForgeRelay does not intentionally leave the source checkout in a merge-conflict 
 
 ## Windows shell commands fail
 
-ForgeRelay supports PowerShell 7 (`pwsh`) as a native Windows Command Shell Runtime.
-Agent commands and Hooks share that runtime and do not load the user PowerShell profile.
-Windows PowerShell 5.1 (`powershell.exe`) and `cmd.exe` remain separate follow-up runtimes.
-Git Bash, WSL, MSYS2, and Cygwin Bash also remain supported compatibility paths.
+ForgeRelay supports PowerShell 7 (`pwsh`) and Windows PowerShell 5.1 (`powershell.exe`) as native Windows Command Shell Runtimes. Agent commands and Hooks share the selected runtime and PowerShell execution does not load the user profile. `cmd.exe` is also a first-class Agent/Hook runtime: use `%NAME%`, `%ERRORLEVEL%`, cmd quoting/chaining/redirection, and `^` escaping rather than silently substituting PowerShell or Bash syntax. cmd PTY/ConPTY and packaged `.cmd` launcher lifecycle coverage is completed separately. Git Bash, WSL, MSYS2, and Cygwin Bash remain supported compatibility paths.
 
 Check the selected runtime with:
 

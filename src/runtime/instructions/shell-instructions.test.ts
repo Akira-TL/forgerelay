@@ -36,6 +36,25 @@ test("Windows PowerShell 5.1 guidance stays independent from PowerShell 7 guidan
   );
 });
 
+test("cmd guidance is independent and documents the first-class command-language boundaries", async () => {
+  const root = join(tmpdir(), "forgerelay-shell-instruction-paths");
+  const cmdPath = shellInstructionPath(root, "cmd");
+  const powershellPath = shellInstructionPath(root, "powershell");
+  assert.ok(cmdPath);
+  assert.notEqual(cmdPath, powershellPath);
+  assert.match(cmdPath, /instructions[/\\]cmd\.md$/);
+
+  const template = await readFile(new URL("../../../templates/instructions/cmd.md", import.meta.url), "utf8");
+  assert.match(template, /%NAME%/);
+  assert.match(template, /%ERRORLEVEL%/);
+  assert.match(template, /\^.*escaping/);
+  assert.match(template, /command chaining/i);
+  assert.match(template, /redirection/i);
+  assert.match(template, /parentheses/i);
+  assert.match(template, /delayed expansion/i);
+  assert.match(template, /Do not silently switch to another shell/);
+});
+
 test("Windows seeds all native guidance families while explicit zsh/fish selections also seed their compatibility guidance", () => {
   assert.deepEqual(shellInstructionFamiliesToSeed("win32", "cmd"), ["pwsh", "powershell", "cmd"]);
   assert.deepEqual(shellInstructionFamiliesToSeed("win32", "zsh"), ["pwsh", "powershell", "cmd", "zsh"]);

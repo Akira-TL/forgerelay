@@ -9,10 +9,10 @@ ForgeRelay 需要：
 - Node.js `>=22.19 <27`
 - npm
 - Git
-- Bash 兼容 Shell
+- 一个受支持的命令 Shell
 - 当 Host 无法直接访问 localhost 时，一个由你自行管理的公网 HTTPS 入口
 
-Linux 和 macOS 可以直接使用系统常见 Bash 环境。Windows 可以原生使用 PowerShell 7 (`pwsh`)，也可以使用 Git Bash、WSL、MSYS2 或 Cygwin Bash；Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 仍属于后续 runtime 阶段。
+Linux 和 macOS 可以直接使用系统常见 Bash 环境。Windows 原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`)；`cmd.exe` 也可作为 Agent 命令与 Hook 的一等 Command Shell Runtime。Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。`cmd.exe` 的 PTY/ConPTY 与 packaged `.cmd` launcher lifecycle 由后续验收阶段覆盖。
 
 ## 2. 安装
 

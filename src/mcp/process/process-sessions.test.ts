@@ -72,6 +72,56 @@ const node = process.platform === "win32"
   ? `"${process.execPath}"`
   : JSON.stringify(process.execPath);
 
+if (process.platform === "win32") {
+  const cmdExecutable = process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe";
+  const cmdManager = new ProcessManager({
+    commandShellRuntime: {
+      family: "cmd",
+      executable: cmdExecutable,
+      source: "explicit",
+      capabilities: ["cmd-command-language"],
+    },
+  });
+  try {
+    const environmentExpansion = await cmdManager.start({
+      workspaceId: "cmd-runtime",
+      cwd: process.cwd(),
+      command: `set "FR_CMD_VALUE=hello world" && call echo [%%FR_CMD_VALUE%%]`,
+      yieldTimeMs: 2_000,
+    });
+    assert.equal(environmentExpansion.exitCode, 0);
+    assert.match(environmentExpansion.output, /\[hello world\]/);
+
+    const quotedNativeExecutable = await cmdManager.start({
+      workspaceId: "cmd-runtime",
+      cwd: process.cwd(),
+      command: `"${process.execPath}" -e "console.log('cmd-native-ok')"`,
+      yieldTimeMs: 2_000,
+    });
+    assert.equal(quotedNativeExecutable.exitCode, 0);
+    assert.match(quotedNativeExecutable.output, /cmd-native-ok/);
+
+    const errorLevel = await cmdManager.start({
+      workspaceId: "cmd-runtime",
+      cwd: process.cwd(),
+      command: `"${process.execPath}" -e "process.exit(7)" & call echo error=%%ERRORLEVEL%%`,
+      yieldTimeMs: 2_000,
+    });
+    assert.equal(errorLevel.exitCode, 0);
+    assert.match(errorLevel.output, /error=7/);
+
+    const propagatedFailure = await cmdManager.start({
+      workspaceId: "cmd-runtime",
+      cwd: process.cwd(),
+      command: "exit /b 23",
+      yieldTimeMs: 2_000,
+    });
+    assert.equal(propagatedFailure.exitCode, 23);
+  } finally {
+    cmdManager.shutdown();
+  }
+}
+
 async function waitForCompleted(
   processManager: ProcessManager,
   workspaceId: string,

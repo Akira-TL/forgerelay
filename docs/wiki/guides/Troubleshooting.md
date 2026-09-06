@@ -282,12 +282,14 @@ ForgeRelay 在 Windows 上支持原生 PowerShell 7 (`pwsh`) Command Shell Runti
 支持的常见 Windows 方案：
 
 - PowerShell 7 (`pwsh`)；
+- Windows PowerShell 5.1 (`powershell.exe`)；
+- `cmd.exe`（Agent 命令与 Hooks）；
 - Git Bash；
 - WSL；
 - MSYS2；
 - Cygwin Bash。
 
-Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 仍不属于当前 supported shell runtime。
+`cmd.exe` 被选择时，Agent 命令与 Hooks 使用同一个 cmd runtime，并按 `%NAME%`、`%ERRORLEVEL%`、`^` escaping、cmd quoting/chaining/redirection 语义执行；ForgeRelay 不会静默改用 PowerShell 或 Bash。`cmd.exe` 的 PTY/ConPTY 与 packaged `.cmd` launcher lifecycle 由后续验收阶段覆盖。
 
 检查：
 

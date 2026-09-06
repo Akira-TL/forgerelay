@@ -101,6 +101,23 @@ test("Windows PowerShell 5.1 identity and syntax boundary remain mandatory when 
   assert.match(result, /Windows PowerShell 5\.1 does not support PowerShell 7 pipeline-chain operators && or \|\|/);
 });
 
+test("cmd identity and syntax boundary remain mandatory when optional shell guidance is disabled", () => {
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "cmd",
+    executable: "C:\\Windows\\System32\\cmd.exe",
+    source: "launcher",
+    capabilities: ["cmd-command-language"],
+  };
+  config.shellInstructionsEnabled = false;
+
+  const result = buildServerInstructions(config);
+  assert.match(result, /Command shell runtime: cmd/);
+  assert.match(result, /%NAME%/);
+  assert.match(result, /%ERRORLEVEL%/);
+  assert.match(result, /Do not emit PowerShell or Bash syntax/);
+});
+
 test("non-Bash command shell identity is mandatory even without optional workflow guidance", () => {
   const config = loadConfig(baseEnv);
   config.commandShellRuntime = {
