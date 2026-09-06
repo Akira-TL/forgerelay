@@ -75,8 +75,14 @@ test("unavailable custom executables fail instead of silently changing shells", 
   );
 });
 
-test("zsh and fish selections expose compatibility warnings", () => {
+test("explicit non-Bash POSIX selections expose compatibility boundaries", () => {
   assert.match(commandShellCompatibilityWarning("zsh") ?? "", /Bash remains ForgeRelay's primary POSIX compatibility target/);
-  assert.match(commandShellCompatibilityWarning("fish") ?? "", /compatibility is less mature than Bash/);
+  assert.match(commandShellCompatibilityWarning("sh") ?? "", /portable sh syntax/);
+  assert.match(commandShellCompatibilityWarning("sh") ?? "", /must not assume Bash-only features/);
+  assert.match(commandShellCompatibilityWarning("fish") ?? "", /native fish command execution is not enabled/);
+  assert.match(commandShellCompatibilityWarning("fish") ?? "", /will not silently substitute Bash/);
   assert.equal(commandShellCompatibilityWarning("bash"), undefined);
+  assert.equal(commandShellCompatibilityWarning("pwsh"), undefined);
+  assert.equal(commandShellCompatibilityWarning("powershell"), undefined);
+  assert.equal(commandShellCompatibilityWarning("cmd"), undefined);
 });

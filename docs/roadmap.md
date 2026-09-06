@@ -349,8 +349,9 @@ results. Development acceptance remains on isolated 7677/7678 instances and neve
 the normal 7676 installation.
 
 Later refinements may add `.worktreeinclude`-style explicit copying of selected
-Git-ignored files. Native PowerShell/`cmd.exe` shell execution is also a separate
-compatibility decision rather than part of the 0.9 recovery/history line.
+Git-ignored files. Native Windows Command Shell Runtime support was intentionally
+kept out of the 0.9 recovery/history line and was subsequently delivered across
+the 0.10.x P3 work for PowerShell 7, Windows PowerShell 5.1, and `cmd.exe`.
 
 ## Workspace Task Lists
 

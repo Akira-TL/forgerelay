@@ -203,18 +203,3 @@ export function checkGitAvailable(): string {
     return `unavailable (${message})`;
   }
 }
-
-export function checkBashShell(): string {
-  try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const command = process.env.BASH?.trim() || "bash";
-    const version = execFileSync(command, ["--version"], {
-      encoding: "utf8",
-      windowsHide: true,
-    }).split(/\r?\n/, 1)[0]?.trim();
-    return version ? `${command} (${version})` : command;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return `unavailable (${message})`;
-  }
-}

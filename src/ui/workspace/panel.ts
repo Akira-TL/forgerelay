@@ -121,6 +121,7 @@ export class WorkspacePanelController {
     const rows = element("div", "workspace-rows");
     appendWorkspaceTextRow(rows, "Root", card.root, toolIcons.folderOpen, true);
     appendWorkspaceTextRow(rows, "Mode", card.mode ?? "workspace", toolIcons.folderTree);
+    this.appendExecutionContextRows(rows, card);
 
     if (card.worktree) this.appendWorktreeRows(rows, card);
     if (card.sourceRoot && card.sourceRoot !== card.root) {
@@ -145,6 +146,34 @@ export class WorkspacePanelController {
     details.append(rows);
     section.append(header, details);
     return section;
+  }
+
+  private appendExecutionContextRows(container: HTMLElement, card: WorkspacePanelCard): void {
+    const execution = card.executionContext;
+    if (!execution) return;
+    if (execution.platform) {
+      appendWorkspaceTextRow(container, "Execution platform", execution.platform, toolIcons.terminalSquare);
+    }
+    const shell = execution.commandShellRuntime;
+    if (shell?.family) {
+      const shellIdentity = [
+        shell.family,
+        shell.version,
+        shell.source ? `[${shell.source}]` : undefined,
+      ].filter((value): value is string => Boolean(value)).join(" ");
+      appendWorkspaceTextRow(container, "Command shell", shellIdentity, toolIcons.terminalSquare);
+      if (shell.executable) {
+        appendWorkspaceTextRow(container, "Shell executable", shell.executable, toolIcons.terminal, true);
+      }
+    }
+    if (execution.runtimePrivilege?.level) {
+      appendWorkspaceTextRow(
+        container,
+        "Runtime privilege",
+        execution.runtimePrivilege.level,
+        execution.runtimePrivilege.level === "standard" ? toolIcons.terminal : toolIcons.warning,
+      );
+    }
   }
 
   private appendWorktreeRows(container: HTMLElement, card: WorkspacePanelCard): void {

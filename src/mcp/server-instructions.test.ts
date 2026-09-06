@@ -8,6 +8,7 @@ import {
   buildExecutionShellContext,
   buildServerInstructions,
   buildToolDescriptions,
+  toolNames,
 } from "./server-instructions.js";
 
 const configDir = mkdtempSync(join(tmpdir(), "forgerelay-server-instructions-test-"));
@@ -103,6 +104,23 @@ test("Workspace execution shell context is explicit, member-safe, and independen
   assert.match(context.agentInstruction, /%ERRORLEVEL%/);
   assert.match(context.agentInstruction, /overrides the Gateway ForgeRelay shell identity/);
   assert.match(context.agentInstruction, /elevated operating-system privileges/);
+});
+
+test("compatibility bash tool name stays stable while non-Bash descriptions remain runtime-neutral", () => {
+  const config = loadConfig(baseEnv);
+  config.commandShellRuntime = {
+    family: "cmd",
+    executable: "C:\\Windows\\System32\\cmd.exe",
+    source: "explicit",
+    capabilities: ["cmd-command-language"],
+  };
+
+  const descriptions = buildToolDescriptions(config);
+  assert.equal(toolNames.shell, "bash");
+  assert.match(descriptions.shell, /shell process/);
+  assert.match(descriptions.shellCommand, /Shell command/);
+  assert.doesNotMatch(descriptions.shell, /Bash syntax|Bash process|Bash command/);
+  assert.doesNotMatch(descriptions.shellCommand, /Bash/);
 });
 
 test("PowerShell 7 command shell identity includes the probed runtime version", () => {

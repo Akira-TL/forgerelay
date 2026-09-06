@@ -23,6 +23,8 @@ export function compactWorkspacePresentation(
     const value = card[field];
     if (value !== undefined) presentation[field] = value;
   }
+  const executionContext = projectExecutionContext(card.executionContext);
+  if (executionContext) presentation.executionContext = executionContext;
   assignProjectedArray(presentation, "agentsFiles", card.agentsFiles, (entry) => pickFields(entry, ["path"]));
   assignProjectedArray(
     presentation,
@@ -61,6 +63,35 @@ export function compactWorkspacePresentation(
   );
   presentation.presentationRevision = presentationRevision(card, presentation);
   return presentation;
+}
+
+function projectExecutionContext(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const context = value as Record<string, unknown>;
+  const projected = pickFields(context, ["platform"]);
+
+  const commandShellRuntime = context.commandShellRuntime;
+  if (commandShellRuntime && typeof commandShellRuntime === "object" && !Array.isArray(commandShellRuntime)) {
+    projected.commandShellRuntime = pickFields(
+      commandShellRuntime as Record<string, unknown>,
+      ["family", "executable", "source", "version"],
+    );
+  }
+
+  const runtimePrivilege = context.runtimePrivilege;
+  if (runtimePrivilege && typeof runtimePrivilege === "object" && !Array.isArray(runtimePrivilege)) {
+    projected.runtimePrivilege = pickFields(runtimePrivilege as Record<string, unknown>, ["level"]);
+  }
+
+  const shellInstructions = context.shellInstructions;
+  if (shellInstructions && typeof shellInstructions === "object" && !Array.isArray(shellInstructions)) {
+    projected.shellInstructions = pickFields(
+      shellInstructions as Record<string, unknown>,
+      ["enabled", "path", "status"],
+    );
+  }
+
+  return Object.keys(projected).length > 0 ? projected : undefined;
 }
 
 function assignProjectedArray(

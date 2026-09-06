@@ -25,7 +25,7 @@ on your machine.
 
 ## Quick start
 
-ForgeRelay requires Node `>=22.19 <27`, npm, Git, and a Bash-compatible shell.
+ForgeRelay requires Node `>=22.19 <27`, npm, Git, and a supported Command Shell Runtime. Bash is the primary POSIX compatibility target; zsh and POSIX sh can be selected explicitly. On Windows, PowerShell 7, Windows PowerShell 5.1, and cmd.exe are first-class native runtimes.
 
 Install it globally:
 
@@ -139,7 +139,7 @@ bash({ workspaceId: "cws_...", member: "compute", command: "python train.py" })
 ```
 
 ForgeRelay does not merge member filesystems, Git state, Hooks, Skills, processes,
-or audit facts, and it never infers a member from the tool type or purpose text.
+shell/platform identity, privilege state, or audit facts, and it never infers a member from the tool type or purpose text. `memberContext.executionContext` reports the selected member's actual execution platform and Command Shell Runtime; it overrides the Gateway shell identity for commands routed to that member.
 The Composite Activity Panel presents member operations in one Host Turn while the
 actual facts remain owned by the member Workspace. `close_workspace` on a Composite
 Workspace now preserves the Composite identity and member topology as `closed`; a
@@ -293,12 +293,12 @@ See [Security Model](docs/security.md) for the full boundary and threat model.
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| Linux | Supported | Requires Node, npm, Git, and Bash. |
-| macOS | Supported | Requires Node, npm, Git, and Bash. |
-| Windows with PowerShell 7 (`pwsh`) | Supported | Agent commands, Hooks, and PTY execution use one native `pwsh` runtime without loading the user profile. |
-| Windows with Windows PowerShell 5.1 (`powershell.exe`) | Supported | Agent commands, Hooks, and PTY execution use the selected 5.1 runtime with 5.1-specific syntax guidance. |
-| Windows with `cmd.exe` | Supported for Agent commands and Hooks | ForgeRelay preserves cmd syntax and reports the selected runtime explicitly; PTY/packaged-launcher lifecycle coverage is completed separately. |
-| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Supported | Bash remains available as a compatibility path. |
+| Linux | Supported | Bash is the primary POSIX compatibility target; zsh and POSIX sh are explicit native choices with shell-specific compatibility guidance. |
+| macOS | Supported | Bash is the primary POSIX compatibility target; zsh and POSIX sh are explicit native choices with shell-specific compatibility guidance. |
+| Windows with PowerShell 7 (`pwsh`) | Supported | Agent commands, Hooks, pipe/PTY execution, packaged launcher, and editable shell Instructions use one native `pwsh` runtime without loading the user profile. |
+| Windows with Windows PowerShell 5.1 (`powershell.exe`) | Supported | Agent commands, Hooks, pipe/PTY execution, packaged launcher, and editable shell Instructions use the selected 5.1 runtime with 5.1-specific syntax guidance. |
+| Windows with `cmd.exe` | Supported | Agent commands, Hooks, pipe/ConPTY execution, packaged `.cmd` launcher, and editable shell Instructions preserve cmd syntax and runtime identity. |
+| Windows with Git Bash, WSL, MSYS2, or Cygwin Bash | Compatibility path | Bash remains available when the selected executable provides the expected Bash command language. |
 
 You can check the local runtime with:
 

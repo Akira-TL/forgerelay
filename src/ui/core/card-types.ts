@@ -84,6 +84,28 @@ export interface ToolResultCard {
     path?: string;
     status?: "loaded" | "available" | "disabled" | "unavailable";
   }>;
+  executionContext?: {
+    platform?: string;
+    commandShellRuntime?: {
+      family?: string;
+      executable?: string;
+      source?: string;
+      version?: string;
+      capabilities?: string[];
+    };
+    runtimePrivilege?: {
+      level?: "standard" | "elevated" | "unknown";
+      platform?: string;
+      source?: string;
+      detail?: string;
+    };
+    shellInstructions?: {
+      enabled?: boolean;
+      path?: string;
+      status?: "loaded" | "disabled" | "unavailable";
+    };
+    agentInstruction?: string;
+  };
   skills?: Array<{
     name?: string;
     description?: string;
@@ -200,6 +222,7 @@ export function isExpandableCard(card: ToolResultCard): boolean {
       Boolean(card.agentsFiles?.length) ||
       Boolean(card.availableAgentsFiles?.length) ||
       Boolean(card.workspaceInstructions?.length) ||
+      Boolean(card.executionContext) ||
       Boolean(card.skills?.length) ||
       Boolean(card.agentProviders?.length) ||
       Boolean(card.agents?.length) ||

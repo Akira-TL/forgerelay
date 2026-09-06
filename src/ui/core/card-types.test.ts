@@ -119,6 +119,24 @@ test("a workspace card expands when it contains shell instruction state", () => 
   );
 });
 
+test("a workspace card expands when execution shell identity is available", () => {
+  assert.equal(
+    isExpandableCard({
+      tool: "open_workspace",
+      executionContext: {
+        platform: "win32",
+        commandShellRuntime: {
+          family: "cmd",
+          executable: "C:\\Windows\\System32\\cmd.exe",
+          source: "explicit",
+        },
+        runtimePrivilege: { level: "standard", platform: "win32", source: "windows-token" },
+      },
+    }),
+    true,
+  );
+});
+
 test("an empty workspace card stays collapsed", () => {
   assert.equal(isExpandableCard({ tool: "open_workspace" }), false);
 });

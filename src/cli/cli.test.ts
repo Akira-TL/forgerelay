@@ -91,6 +91,12 @@ try {
       subagents: true,
       artifactsEnabled: true,
       allowAgentLanguageServerInstall: true,
+      commandShell: {
+        mode: "pinned",
+        family: "sh",
+        executable: "/bin/sh",
+      },
+      shellInstructions: false,
     }),
   );
 
@@ -115,7 +121,12 @@ try {
   assert.match(output, /Client-facing base URL: https:\/\/forge\.example\.com\/base\/path/);
   assert.match(output, /Client-facing MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Runtime privilege: (standard|elevated|unknown)/);
-  assert.match(output, /Command shell: (bash|cmd|zsh|sh|fish|pwsh|powershell)/);
+  assert.match(output, /Command shell: sh \(/);
+  assert.match(output, /Command shell executable: \/bin\/sh/);
+  assert.match(output, /Command shell source: explicit/);
+  assert.match(output, /Command shell compatibility: POSIX sh is supported as an explicit command runtime/);
+  assert.match(output, /Shell Instructions: disabled \(not applicable\)/);
+  assert.doesNotMatch(output, /Bash shell:/);
   assert.match(output, /Tool mode: minimal/);
   assert.match(output, /Widgets: changes/);
   assert.match(output, /Trust proxy: loopback/);

@@ -130,6 +130,11 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
     root?: string;
     mode?: string;
     presentationRevision?: string;
+    executionContext?: {
+      platform?: string;
+      commandShellRuntime?: { family?: string; executable?: string; source?: string };
+      runtimePrivilege?: { level?: string };
+    };
     agentsFiles?: Array<{ path?: string; content?: string }>;
     skills?: Array<{ name?: string; description?: string; path?: string }>;
   } | undefined;
@@ -137,6 +142,10 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
   assert.equal(firstWorkspace?.root, context.project);
   assert.equal(firstWorkspace?.mode, "checkout");
   assert.equal(typeof firstWorkspace?.presentationRevision, "string");
+  assert.equal(firstWorkspace?.executionContext?.platform, process.platform);
+  assert.equal(typeof firstWorkspace?.executionContext?.commandShellRuntime?.family, "string");
+  assert.equal(typeof firstWorkspace?.executionContext?.commandShellRuntime?.executable, "string");
+  assert.equal(typeof firstWorkspace?.executionContext?.commandShellRuntime?.source, "string");
   assert.ok((firstWorkspace?.agentsFiles?.length ?? 0) > 0);
   assert.ok(firstWorkspace?.agentsFiles?.every((file) => typeof file.path === "string" && file.content === undefined));
   assert.ok(firstWorkspace?.skills?.every((skill) => skill.path === undefined));

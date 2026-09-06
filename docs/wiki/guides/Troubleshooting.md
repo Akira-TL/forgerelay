@@ -27,7 +27,8 @@ forgerelay doctor
 先检查实际解析到的：
 
 - config directory；
-- Node / Git / Bash；
+- Node / Git / platform / runtime privilege；
+- 实际 Command Shell Runtime、executable/source、compatibility boundary 与 Shell Instructions 状态；
 - public URL；
 - allowed hosts；
 - SQLite/native dependency；
@@ -277,19 +278,11 @@ bash(action="process", processId=...)
 
 ## Windows Shell 命令失败
 
-ForgeRelay 在 Windows 上支持原生 PowerShell 7 (`pwsh`) Command Shell Runtime，也继续支持 Bash-compatible 路径。
+ForgeRelay 在 Windows 上原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe`。三者的 Agent 命令、Hooks、pipe/PTY 生命周期与 packaged launcher 都按所选 runtime 执行；Git Bash、WSL、MSYS2、Cygwin Bash 仍是 Bash-compatible 路径。
 
-支持的常见 Windows 方案：
+公共 Core tool 名为了 Host contract 兼容仍叫 `bash`，**它不代表命令一定使用 Bash 语法**。先看 `open_workspace.executionContext.commandShellRuntime` 或 `forgerelay doctor`，再按实际 runtime 写命令。
 
-- PowerShell 7 (`pwsh`)；
-- Windows PowerShell 5.1 (`powershell.exe`)；
-- `cmd.exe`（Agent 命令与 Hooks）；
-- Git Bash；
-- WSL；
-- MSYS2；
-- Cygwin Bash。
-
-`cmd.exe` 被选择时，Agent 命令与 Hooks 使用同一个 cmd runtime，并按 `%NAME%`、`%ERRORLEVEL%`、`^` escaping、cmd quoting/chaining/redirection 语义执行；ForgeRelay 不会静默改用 PowerShell 或 Bash。`cmd.exe` 的 PTY/ConPTY 与 packaged `.cmd` launcher lifecycle 由后续验收阶段覆盖。
+`cmd.exe` 被选择时，按 `%NAME%`、`%ERRORLEVEL%`、`^` escaping、cmd quoting/chaining/redirection 与 delayed-expansion 语义执行；PowerShell runtime 使用各自 PowerShell 语义。ForgeRelay 不会为了兼容静默改用另一种 shell。Relay / Composite 场景下，以对应 Execution ForgeRelay / member 的 `executionContext` 为准，不要复用 Gateway 或另一个 member 的 shell 方言。
 
 检查：
 

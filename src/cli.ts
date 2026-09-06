@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import { stdin as input, stdout as output } from "node:process";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,6 +37,7 @@ import {
   type RuntimePrivilegeState,
 } from "./runtime/security/runtime-privilege.js";
 import { formatCommandShellRuntime } from "./runtime/shell/command-shell-runtime.js";
+import { commandShellCompatibilityWarning } from "./cli/shell/setup.js";
 import {
   authenticateRemote,
   defaultRemoteAlias,
@@ -53,7 +54,6 @@ import {
 } from "./workspaces/relay/transport/remote-transport.js";
 import {
   assertSupportedNode,
-  checkBashShell,
   checkGitAvailable,
   checkSqliteNative,
   nodeVersionStatus,
@@ -408,7 +408,6 @@ async function runDoctor(): Promise<void> {
   console.log(`Platform: ${process.platform} ${process.arch}`);
   console.log(`Runtime privilege: ${formatRuntimePrivilege(detectRuntimePrivilege())}`);
   console.log(`Git: ${checkGitAvailable()}`);
-  console.log(`Bash shell: ${checkBashShell()}`);
   console.log(`SQLite native dependency: ${checkSqliteNative()}`);
 
   try {
@@ -420,6 +419,16 @@ async function runDoctor(): Promise<void> {
     console.log(`Client-facing base URL: ${config.publicBaseUrl}`);
     console.log(`Client-facing MCP URL: ${publicEndpointUrl(config.publicBaseUrl, "mcp").toString()}`);
     console.log(`Command shell: ${formatCommandShellRuntime(config.commandShellRuntime)}`);
+    console.log(`Command shell executable: ${config.commandShellRuntime.executable}`);
+    console.log(`Command shell source: ${config.commandShellRuntime.source}`);
+    const shellCompatibilityWarning = commandShellCompatibilityWarning(config.commandShellRuntime.family);
+    console.log(`Command shell compatibility: ${shellCompatibilityWarning ?? "native supported runtime"}`);
+    console.log(
+      `Shell Instructions: ${config.shellInstructionsEnabled ? "enabled" : "disabled"}` +
+      (config.shellInstructionPath
+        ? ` (${config.shellInstructionPath}; ${existsSync(config.shellInstructionPath) ? "available" : "unavailable"})`
+        : " (not applicable)"),
+    );
     console.log(`Tool mode: ${config.toolMode}`);
     console.log(`Widgets: ${config.widgets}`);
     console.log(`Trust proxy: ${config.proxyTrust === false ? "off" : config.proxyTrust.join(", ")}`);

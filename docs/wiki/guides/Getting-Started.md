@@ -12,7 +12,7 @@ ForgeRelay 需要：
 - 一个受支持的命令 Shell
 - 当 Host 无法直接访问 localhost 时，一个由你自行管理的公网 HTTPS 入口
 
-Linux 和 macOS 可以直接使用系统常见 Bash 环境。Windows 原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`)；`cmd.exe` 也可作为 Agent 命令与 Hook 的一等 Command Shell Runtime。Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。`cmd.exe` 的 PTY/ConPTY 与 packaged `.cmd` launcher lifecycle 由后续验收阶段覆盖。
+Linux 和 macOS 以 Bash 作为主要 POSIX 兼容目标，也可以显式选择 zsh 或 POSIX sh；选择非 Bash runtime 时，Agent 命令与 Hooks 必须遵守对应 shell 的语法边界。Windows 原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`) 和 `cmd.exe`，三者都覆盖 Agent 命令、Hooks、pipe/PTY 生命周期与 packaged launcher 验收。Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。公共 Core tool 名仍是 `bash`，但它只是稳定的 Host contract 名称，实际命令语言以 `open_workspace.executionContext` / `forgerelay doctor` 报告的 Command Shell Runtime 为准。
 
 ## 2. 安装
 
@@ -124,7 +124,8 @@ forgerelay doctor
 `doctor` 会报告实际解析到的：
 
 - 配置目录；
-- Node、Git、Bash 和平台环境；
+- Node、Git、平台环境与 runtime privilege；
+- 实际 Command Shell Runtime、executable/source、compatibility boundary 与 Shell Instructions 状态；
 - public URL 与 allowed hosts；
 - SQLite 原生依赖；
 - MCP tool mode；

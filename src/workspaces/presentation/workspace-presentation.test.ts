@@ -8,6 +8,26 @@ test("compact Workspace presentation restores display metadata without carrying 
     root: "/tmp/project",
     mode: "checkout",
     contextFingerprint: "ctx-panel",
+    executionContext: {
+      platform: "win32",
+      commandShellRuntime: {
+        family: "cmd",
+        executable: "C:\\Windows\\System32\\cmd.exe",
+        source: "explicit",
+        capabilities: ["CMD-CAPABILITY-SENTINEL"],
+      },
+      runtimePrivilege: {
+        level: "elevated",
+        source: "windows-token",
+        detail: "PRIVILEGE-DETAIL-SENTINEL",
+      },
+      shellInstructions: {
+        enabled: true,
+        path: "C:\\ForgeRelay\\instructions\\cmd.md",
+        status: "loaded",
+      },
+      agentInstruction: "EXECUTION-INSTRUCTION-SENTINEL",
+    },
     agentsFiles: [
       { path: "/tmp/project/AGENTS.md", content: "INSTRUCTION-BODY-SENTINEL" },
     ],
@@ -39,6 +59,20 @@ test("compact Workspace presentation restores display metadata without carrying 
     instruction: "INSTRUCTION-PROMPT-SENTINEL",
   });
 
+  assert.deepEqual(presentation.executionContext, {
+    platform: "win32",
+    commandShellRuntime: {
+      family: "cmd",
+      executable: "C:\\Windows\\System32\\cmd.exe",
+      source: "explicit",
+    },
+    runtimePrivilege: { level: "elevated" },
+    shellInstructions: {
+      enabled: true,
+      path: "C:\\ForgeRelay\\instructions\\cmd.md",
+      status: "loaded",
+    },
+  });
   assert.deepEqual(presentation.agentsFiles, [{ path: "/tmp/project/AGENTS.md" }]);
   assert.deepEqual(presentation.availableAgentsFiles, [{ path: "/tmp/project/packages/app/AGENTS.md" }]);
   assert.deepEqual(presentation.workspaceInstructions, [{
@@ -66,6 +100,9 @@ test("compact Workspace presentation restores display metadata without carrying 
     "DIAGNOSTIC-SENTINEL",
     "INSTRUCTION-PROMPT-SENTINEL",
     "/secret/skill/path",
+    "CMD-CAPABILITY-SENTINEL",
+    "PRIVILEGE-DETAIL-SENTINEL",
+    "EXECUTION-INSTRUCTION-SENTINEL",
   ]) {
     assert.doesNotMatch(serialized, new RegExp(sentinel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }

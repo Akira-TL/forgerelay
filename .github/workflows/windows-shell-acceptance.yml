@@ -41,3 +41,6 @@ jobs:
 
       - name: cmd.exe acceptance
         run: npm run cmd:accept
+
+      - name: Packaged Windows product acceptance
+        run: npm run windows:product-accept

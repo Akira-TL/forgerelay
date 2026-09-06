@@ -48,6 +48,8 @@ PTY 依赖 optional `node-pty`。缺少该依赖时 ForgeRelay 会明确报错�
 
 ## Platform notes
 
-ForgeRelay 在 Windows 上原生支持 PowerShell 7 (`pwsh`) 与 Windows PowerShell 5.1 (`powershell.exe`) 的 Agent、Hook 和 PTY 执行，也支持 `cmd.exe` 作为 Agent 命令与 Hook 的一等 Command Shell Runtime。Agent 命令与 Hooks 始终复用已选择的 runtime，不会为了兼容性静默切换到 Bash 或 PowerShell；PowerShell runtime 不加载用户 profile。公共工具名仍保留为 `bash` 以兼容 Host contract，实际命令语言以 ForgeRelay 报告的 Command Shell Runtime 为准。`cmd.exe` 的 PTY/ConPTY 与 packaged `.cmd` launcher lifecycle 属于下一阶段验收，不应由本阶段的非 TTY 支持推断。Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。用 `forgerelay doctor` 检查当前 shell identity、version 与 executable。
+ForgeRelay 在 Windows 上原生支持 PowerShell 7 (`pwsh`)、Windows PowerShell 5.1 (`powershell.exe`) 与 `cmd.exe` 的 Agent、Hook、pipe/PTY 生命周期和 packaged launcher。Agent 命令与 Hooks 始终复用已选择的 runtime，不会为了兼容性静默切换到 Bash、PowerShell 或 cmd；PowerShell runtime 不加载用户 profile。公共工具名仍保留为 `bash` 以兼容 Host contract，实际命令语言以 ForgeRelay 报告的 Command Shell Runtime 为准。Git Bash、WSL、MSYS2 或 Cygwin Bash 仍可作为 Bash 兼容路径。
+
+Linux/macOS 以 Bash 作为主要 POSIX 兼容目标；zsh 与 POSIX sh 可以显式选择，并要求 Agent/Hook 使用对应语法。fish 可以被识别和配置用于显式兼容性测试，但本版本不启用 native fish execution，ForgeRelay 也不会静默改用 Bash。Relay / Composite 场景下，以 `open_workspace.executionContext` / `memberContext.executionContext` 中 Execution ForgeRelay 的 platform、shell 和 privilege 为准。用 `forgerelay doctor` 检查本机 shell identity、version、executable、compatibility boundary 与 Shell Instructions 状态。
 
 Shell 可以作为用户开发任务的一部分修改普通项目文件，但始终受 ForgeRelay core mutation/safety contract 约束。涉及 privileged OS files、credentials、configuration 或外部硬件持久写入时，不要用本指南替代 core authorization/safety 规则。

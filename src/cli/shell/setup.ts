@@ -133,8 +133,11 @@ export function commandShellCompatibilityWarning(
   if (family === "zsh") {
     return "zsh is supported as an explicit command runtime, but Bash remains ForgeRelay's primary POSIX compatibility target. Agent commands and Hooks must use zsh syntax.";
   }
+  if (family === "sh") {
+    return "POSIX sh is supported as an explicit command runtime, but Bash remains ForgeRelay's primary POSIX compatibility target. Agent commands and Hooks must use portable sh syntax and must not assume Bash-only features.";
+  }
   if (family === "fish") {
-    return "fish may be selected explicitly, but ForgeRelay compatibility is less mature than Bash and native fish execution is not enabled until its runtime adapter is available. Agent commands and Hooks must use fish syntax when enabled.";
+    return "fish may be selected explicitly for configuration/testing, but native fish command execution is not enabled in this release. ForgeRelay will not silently substitute Bash or another shell.";
   }
   return undefined;
 }
