@@ -4,6 +4,17 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-09-06
+
+### Added
+
+- Added first-class `cmd.exe` execution for Agent commands and Hooks with explicit cmd shell identity, editable cmd Instructions, Windows-native quoting/escaping guidance, and package-level `.cmd` launcher acceptance.
+- Added Windows cmd PTY/ConPTY lifecycle coverage for stdin, resize, background completion, timeout, interrupt, durable output, Unicode, exit codes, and child-process-tree cleanup without introducing a separate Windows Process Manager.
+
+### Fixed
+
+- Preserved raw `cmd.exe /S /C` command-line quoting through node-pty by using the Windows pre-escaped CommandLine path for interactive cmd sessions, preventing ConPTY from rewriting quoted commands and exit semantics.
+
 ## [0.10.2] - 2026-09-06
 
 ### Added
