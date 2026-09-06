@@ -421,9 +421,10 @@ export function createMcpServer(
     const availableAgentsFiles = opened.availableAgentsFiles.map((file) => ({
       path: formatAgentsPath(file.path, workspace.root),
     }));
-    const skills = workspace.skills
-      .filter((skill) => !skill.disableModelInvocation)
-      .map((skill) => ({ name: skill.name, description: skill.description }));
+    const skills = workspace.skills.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+    }));
     const capabilityGuides = workspace.capabilityGuides.map((guide) => ({
       name: guide.name,
       description: guide.description,
@@ -510,9 +511,10 @@ export function createMcpServer(
         providerUnavailableReason: availability?.reason,
       };
     });
-    const skills = workspace.skills
-      .filter((skill) => !skill.disableModelInvocation)
-      .map((skill) => ({ name: skill.name, description: skill.description }));
+    const skills = workspace.skills.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+    }));
 
     return compactWorkspacePresentation({
       workspaceId: workspace.id,

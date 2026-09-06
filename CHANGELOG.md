@@ -4,6 +4,10 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- All discovered Skills remain visible to the Agent for model-side matching; legacy `disable-model-invocation` frontmatter is ignored instead of hiding a Skill from `open_workspace` discovery.
+
 ## [0.10.4] - 2026-09-06
 
 ### Added

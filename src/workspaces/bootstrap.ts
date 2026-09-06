@@ -63,7 +63,6 @@ export function bootstrapContextFingerprints(
         name: skill.name,
         description: skill.description,
         filePath: resolve(skill.filePath),
-        disableModelInvocation: skill.disableModelInvocation ?? false,
       }))
       .sort((left, right) =>
         left.name.localeCompare(right.name) || left.filePath.localeCompare(right.filePath)

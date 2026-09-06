@@ -87,12 +87,10 @@ export async function presentLocalWorkspaceOpen(
           root: workspace.root,
         });
       }
-      const cardSkills = workspace.skills
-        .filter((skill) => !skill.disableModelInvocation)
-        .map((skill) => ({
-          name: skill.name,
-          description: skill.description,
-        }));
+      const cardSkills = workspace.skills.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+      }));
       const capabilityGuides = workspace.capabilityGuides.map((guide) => ({
         name: guide.name,
         description: guide.description,

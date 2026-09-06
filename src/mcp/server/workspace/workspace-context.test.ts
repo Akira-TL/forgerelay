@@ -197,6 +197,7 @@ test("open_workspace hides skill filesystem paths and read loads skills through 
     "---",
     "name: hidden-path-skill",
     "description: Loads without exposing its filesystem path.",
+    "disable-model-invocation: true",
     "---",
     "skill entry body",
   ].join("\n"));

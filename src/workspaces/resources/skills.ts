@@ -19,7 +19,6 @@ export interface Skill {
   description: string;
   filePath: string;
   baseDir: string;
-  disableModelInvocation: boolean;
 }
 
 export interface SkillCollision {
@@ -52,13 +51,11 @@ export interface SkillReadResolution {
 export interface SkillSummary {
   name: string;
   description: string;
-  disableModelInvocation: boolean;
 }
 
 interface ParsedSkillFrontmatter {
   name?: string;
   description?: string;
-  "disable-model-invocation"?: boolean;
 }
 
 interface SkillCandidate {
@@ -247,7 +244,6 @@ function skillSummaryFromFrontmatter(frontmatter: ParsedSkillFrontmatter, filePa
   return {
     name: normalizedSkillName(frontmatter.name, filePath),
     description: typeof frontmatter.description === "string" ? frontmatter.description.trim() : "",
-    disableModelInvocation: frontmatter["disable-model-invocation"] === true,
   };
 }
 

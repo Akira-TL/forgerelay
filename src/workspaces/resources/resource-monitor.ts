@@ -414,15 +414,14 @@ function formatSkillMetadataDelta(change: ResourceChange): string | undefined {
       : skillSummaryFromContent(change.newContent, change.watchKey);
     if (JSON.stringify(oldSummary) === JSON.stringify(newSummary)) return undefined;
     if (!oldSummary) {
-      return `Skill metadata added: ${change.displayPath}\n+ name: ${newSummary?.name ?? change.skillName ?? "unknown"}\n+ description: ${newSummary?.description ?? ""}\n+ disable-model-invocation: ${newSummary?.disableModelInvocation === true}`;
+      return `Skill metadata added: ${change.displayPath}\n+ name: ${newSummary?.name ?? change.skillName ?? "unknown"}\n+ description: ${newSummary?.description ?? ""}`;
     }
     if (!newSummary) return `Skill removed: ${change.displayPath}`;
     const lines = [`Skill metadata delta: ${change.displayPath}`];
-    for (const field of ["name", "description", "disableModelInvocation"] as const) {
+    for (const field of ["name", "description"] as const) {
       if (oldSummary[field] === newSummary[field]) continue;
-      const label = field === "disableModelInvocation" ? "disable-model-invocation" : field;
-      lines.push(`- ${label}: ${String(oldSummary[field])}`);
-      lines.push(`+ ${label}: ${String(newSummary[field])}`);
+      lines.push(`- ${field}: ${String(oldSummary[field])}`);
+      lines.push(`+ ${field}: ${String(newSummary[field])}`);
     }
     return lines.join("\n");
   } catch {
