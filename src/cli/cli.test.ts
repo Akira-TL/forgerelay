@@ -75,6 +75,17 @@ assert.equal(invalidServeOption.status, 1);
 assert.match(invalidServeOption.stderr, /Unknown serve option: --definitely-not-a-serve-option/);
 
 const doctorRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-doctor-test-"));
+const doctorShell = process.platform === "win32"
+  ? {
+      family: "cmd" as const,
+      executable: process.env.ComSpec ?? process.env.COMSPEC ?? "C:\\Windows\\System32\\cmd.exe",
+      compatibility: "native supported runtime",
+    }
+  : {
+      family: "sh" as const,
+      executable: "/bin/sh",
+      compatibility: "POSIX sh is supported as an explicit command runtime",
+    };
 try {
   const configDir = join(doctorRoot, ".forgerelay");
   mkdirSync(configDir, { recursive: true });
@@ -93,8 +104,8 @@ try {
       allowAgentLanguageServerInstall: true,
       commandShell: {
         mode: "pinned",
-        family: "sh",
-        executable: "/bin/sh",
+        family: doctorShell.family,
+        executable: doctorShell.executable,
       },
       shellInstructions: false,
     }),
@@ -121,10 +132,10 @@ try {
   assert.match(output, /Client-facing base URL: https:\/\/forge\.example\.com\/base\/path/);
   assert.match(output, /Client-facing MCP URL: https:\/\/forge\.example\.com\/base\/path\/mcp/);
   assert.match(output, /Runtime privilege: (standard|elevated|unknown)/);
-  assert.match(output, /Command shell: sh \(/);
-  assert.match(output, /Command shell executable: \/bin\/sh/);
+  assert.match(output, new RegExp(`Command shell: ${doctorShell.family} \\(`));
+  assert.ok(output.includes(`Command shell executable: ${doctorShell.executable}`));
   assert.match(output, /Command shell source: explicit/);
-  assert.match(output, /Command shell compatibility: POSIX sh is supported as an explicit command runtime/);
+  assert.ok(output.includes(`Command shell compatibility: ${doctorShell.compatibility}`));
   assert.match(output, /Shell Instructions: disabled \(not applicable\)/);
   assert.doesNotMatch(output, /Bash shell:/);
   assert.match(output, /Tool mode: minimal/);
