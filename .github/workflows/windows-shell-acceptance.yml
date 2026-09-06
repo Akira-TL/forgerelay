@@ -38,3 +38,6 @@ jobs:
 
       - name: Windows PowerShell 5.1 acceptance
         run: npm run powershell51:accept
+
+      - name: cmd.exe acceptance
+        run: npm run cmd:accept
