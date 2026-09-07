@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-07
+
+### Changed
+
+- Declared ForgeRelay 1.0 as the stable baseline for the current MCP, CLI, persistent Workspace, managed-worktree, Relay/Composite, Code Intelligence, Hook, Task, Activity/Audit, recovery/checkpoint, and native cross-platform Command Shell Runtime contracts.
+- Reworked the README and GitHub Wiki around first-run usage, added the ForgeRelay brand assets and Activity Panel preview, and kept upstream DevSpace provenance explicit through the existing MIT attribution and NOTICE.
+
 ## [0.10.5] - 2026-09-06
 
 ### Changed
