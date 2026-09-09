@@ -535,7 +535,6 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       }
       const session = workspaces.getWorkspaceSession(workspaceId);
       if (action === "delete" && session.mode === "checkout") {
-        const workspace = workspaces.getWorkspace(session.id);
         const startedAt = performance.now();
         if (commitMessage !== undefined) {
           throw new Error("close_workspace commitMessage is not valid with action=delete for a checkout Workspace.");
@@ -565,9 +564,9 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
             logToolCall(config, {
               tool: toolNames.closeWorkspace,
-              ...workspaceLogContext(workspace, extra.sessionId),
+              ...workspaceLogContext(session, extra.sessionId),
               action: "delete",
-              path: workspace.root,
+              path: session.root,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
             });

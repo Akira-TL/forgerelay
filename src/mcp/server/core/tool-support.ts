@@ -31,7 +31,7 @@ export interface ToolLogFields {
 }
 
 export function workspaceLogContext(
-  workspace: Workspace,
+  workspace: Pick<Workspace, "id" | "root">,
   _transportSessionId?: string,
 ): Pick<ToolLogFields, "workspaceId" | "workspace"> {
   return {
