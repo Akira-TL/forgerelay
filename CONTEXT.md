@@ -90,6 +90,10 @@ Stored Git-backed state representing a coherent review baseline for workspace
 changes.
 _Avoid_: Memory, conversation checkpoint
 
+**Media content**:
+A transient MCP content payload that ForgeRelay delivers to the Host as part of one tool result, such as an image returned by `read` or relayed from another MCP source. Media content has no independent durable ForgeRelay identity or lifecycle unless it is explicitly materialized into another owned object.
+_Avoid_: Artifact, Activity state, Workspace context, persisted binary payload
+
 **Core tool surface**:
 The small, stable set of MCP tools ForgeRelay keeps visible for ordinary workspace coding regardless of optional capabilities.
 _Avoid_: Minimal tools, default tools
