@@ -186,6 +186,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         }
         const startedAt = performance.now();
         const context = compositeCapabilityContext(workspaceId, compositeTaskGuides);
+        const compositeLogContext = compositeWorkspaceLogContext(compositeWorkspaces.get(workspaceId));
         try {
           if (action === "run") {
             const execution = await capabilityRegistry.run(
@@ -205,6 +206,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             };
             logToolCall(config, {
               tool: toolNames.capability,
+              ...compositeLogContext,
               capability: name,
               action,
               success: true,
@@ -227,6 +229,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           };
           logToolCall(config, {
             tool: toolNames.capability,
+            ...compositeLogContext,
             capability: name,
             action,
             success: true,
@@ -241,7 +244,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
                 "execution_failed",
                 error instanceof Error ? error.message : String(error),
               );
-          return {
+          const result = {
             content: [textBlock(`${capabilityError.code}: ${capabilityError.message}`)],
             structuredContent: {
               name,
@@ -250,6 +253,13 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             },
             isError: true as const,
           };
+          logFailedToolResponse(config, {
+            tool: toolNames.capability,
+            ...compositeLogContext,
+            capability: name,
+            action,
+          }, result.content, startedAt);
+          return result;
         }
       }
 

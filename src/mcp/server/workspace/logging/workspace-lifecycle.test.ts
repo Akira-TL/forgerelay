@@ -122,6 +122,57 @@ test("Workspace lifecycle operations emit attributable tool-call logs", async (t
   }]);
 });
 
+test("Composite workspace.tasks logs success and failure with Composite attribution", async (t) => {
+  const context = await fixture(t, {
+    env: { FORGERELAY_LOG_FORMAT: "json", FORGERELAY_LOG_TOOL_CALLS: "1" },
+  });
+  const composite = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "task-log-composite", context: "none" },
+  });
+  const compositeId = String(structuredContent(composite).workspaceId);
+
+  const succeeded = await captureToolCallEvents(() => context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: { operation: "list.create", name: "Logged tasks" },
+    },
+  }));
+  assert.equal(succeeded.events.length, 1);
+  assert.equal(succeeded.events[0]?.tool, "capability");
+  assert.equal(succeeded.events[0]?.workspaceId, compositeId);
+  assert.match(String(succeeded.events[0]?.workspace), new RegExp(`${compositeId}$`));
+  assert.equal(succeeded.events[0]?.capability, "workspace.tasks");
+  assert.equal(succeeded.events[0]?.action, "run");
+  assert.equal(succeeded.events[0]?.success, true);
+
+  const failed = await captureToolCallEvents(() => context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: compositeId,
+      name: "workspace.tasks",
+      action: "run",
+      arguments: {
+        operation: "task.create",
+        listId: "missing-list",
+        subject: "Never created",
+        content: "secret task body must not enter logs",
+      },
+    },
+  }));
+  assert.equal(failed.events.length, 1);
+  assert.equal(failed.events[0]?.tool, "capability");
+  assert.equal(failed.events[0]?.workspaceId, compositeId);
+  assert.equal(failed.events[0]?.capability, "workspace.tasks");
+  assert.equal(failed.events[0]?.action, "run");
+  assert.equal(failed.events[0]?.success, false);
+  assert.match(String(failed.events[0]?.error), /missing-list/);
+  assert.doesNotMatch(JSON.stringify(failed.events), /secret task body must not enter logs/);
+});
+
 async function captureToolCallEvents<T>(operation: () => Promise<T>): Promise<{
   result: T;
   events: Array<Record<string, unknown>>;
