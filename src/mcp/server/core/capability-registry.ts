@@ -11,10 +11,10 @@ import {
   workspaceCheckpointInputSchema,
   type WorkspaceCheckpointCapabilityInput,
 } from "./capabilities/workspace-checkpoint.js";
-import type {
-  ExternalMcpCapabilityInput,
-  ExternalMcpCapabilityResult,
-} from "../../external/external-mcp.js";
+import {
+  externalMcpCapabilityDefinitions,
+  type ExternalMcpCapabilityDependency,
+} from "./capabilities/external-mcp.js";
 
 export type CapabilityErrorCode =
   | "unknown_capability"
@@ -99,7 +99,7 @@ export interface CapabilityRunOptions {
   activityId?: string;
 }
 
-interface CapabilityDefinition {
+export interface CapabilityDefinition {
   name: string;
   description: string;
   guideName: string;
@@ -278,15 +278,7 @@ export interface CapabilityRegistryDependencies {
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
   };
-  externalMcp?: {
-    available: boolean;
-    unavailableReason?: string;
-    run: (
-      input: ExternalMcpCapabilityInput,
-      context: CapabilityContext,
-      options: CapabilityRunOptions,
-    ) => Promise<CapabilityExecution & { value: ExternalMcpCapabilityResult }>;
-  };
+  externalMcp?: ExternalMcpCapabilityDependency;
 }
 
 export class CapabilityRegistry {
@@ -544,19 +536,6 @@ export function createCapabilityRegistry(
     }).strict(),
     z.object({ operation: z.literal("list") }).strict(),
   ]);
-  const externalMcpInput = z.discriminatedUnion("operation", [
-    z.object({ operation: z.literal("servers") }).strict(),
-    z.object({
-      operation: z.literal("tools"),
-      server: z.string().min(1),
-    }).strict(),
-    z.object({
-      operation: z.literal("call"),
-      server: z.string().min(1),
-      tool: z.string().min(1),
-      arguments: z.record(z.string(), z.unknown()).optional(),
-    }).strict(),
-  ]);
   const codeIntelligenceInput = z.discriminatedUnion("operation", [
     z.object({ operation: z.literal("definition"), ...positionInput }).strict(),
     z.object({ operation: z.literal("hover"), ...positionInput }).strict(),
@@ -703,26 +682,7 @@ export function createCapabilityRegistry(
             ),
         } satisfies CapabilityDefinition]
       : []),
-    ...(dependencies.externalMcp
-      ? [{
-          name: "mcp.external",
-          description: "Discover and call tools from user-configured external MCP servers through the ForgeRelay Capability gateway.",
-          guideName: "external-mcp",
-          readGuideBeforeFirstUse: true,
-          batchPolicy: "unsupported",
-          inputSchema: externalMcpInput,
-          availability: () => ({
-            available: dependencies.externalMcp?.available ?? false,
-            reason: dependencies.externalMcp?.unavailableReason,
-          }),
-          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
-            dependencies.externalMcp!.run(
-              input as ExternalMcpCapabilityInput,
-              context,
-              options,
-            ),
-        } satisfies CapabilityDefinition]
-      : []),
+    ...externalMcpCapabilityDefinitions(dependencies.externalMcp),
     ...(dependencies.subagentSession
       ? [{
           name: "subagent.session",

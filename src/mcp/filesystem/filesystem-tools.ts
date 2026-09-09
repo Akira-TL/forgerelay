@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPatch } from "diff";
-import { claimMediaBytes, type MediaBudget } from "../media/media-content.js";
+import { claimMediaBytes, type MediaBudget } from "../operations/media-content.js";
 import { resolveCanonicalAllowedPath } from "./roots.js";
 
 const DEFAULT_MAX_LINES = 2_000;

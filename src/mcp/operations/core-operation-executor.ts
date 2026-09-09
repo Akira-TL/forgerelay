@@ -1,4 +1,4 @@
-import type { MediaBudget } from "../media/media-content.js";
+import type { MediaBudget } from "./media-content.js";
 
 export interface CoreOperationContext {
   requestMeta?: unknown;

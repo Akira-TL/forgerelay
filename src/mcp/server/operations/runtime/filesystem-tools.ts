@@ -6,7 +6,7 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { applyPatch } from "../../../filesystem/apply-patch.js";
 import { readFileTool } from "../../../filesystem/filesystem-tools.js";
-import { createMediaBudget, type MediaContentMetadata } from "../../../media/media-content.js";
+import { createMediaBudget, type MediaContentMetadata } from "../../../operations/media-content.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import type { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";

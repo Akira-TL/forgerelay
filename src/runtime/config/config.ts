@@ -18,7 +18,7 @@ import {
   parseExternalMcpServers,
   type ExternalMcpServersConfig,
 } from "./external-mcp-config.js";
-import { DEFAULT_MEDIA_MAX_BYTES } from "../../mcp/media/media-content.js";
+import { DEFAULT_MEDIA_MAX_BYTES } from "../../mcp/operations/media-content.js";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import {
   resolveConfiguredCommandShellRuntime,

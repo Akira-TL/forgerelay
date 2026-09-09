@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { MediaContentMetadata } from "../../media/media-content.js";
+import type { MediaContentMetadata } from "../../operations/media-content.js";
 import type { ServerConfig } from "../../../runtime/config/config.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../../runtime/logging/logger.js";
 import { formatAgentsPath, type Workspace, type WorkspaceRegistry } from "../../../workspaces.js";

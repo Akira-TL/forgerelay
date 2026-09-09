@@ -16,7 +16,7 @@ import {
 } from "./test-support.js";
 
 const externalMcpFixture = fileURLToPath(
-  new URL("../../../mcp/external/test-fixtures/external-mcp-server.mjs", import.meta.url),
+  new URL("../../../mcp/operations/external-mcp/test-fixtures/external-mcp-server.mjs", import.meta.url),
 );
 const EXTERNAL_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";
 const EXTERNAL_IMAGE_BYTES = Buffer.byteLength(EXTERNAL_IMAGE_BASE64, "base64");

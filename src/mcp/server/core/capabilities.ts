@@ -81,6 +81,7 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
   },
   {
     name: "external-mcp",
+    directory: "host-integration/external-mcp",
     description: "User-configured external MCP tool discovery and explicit forwarding through capability.",
     whenToRead: "Read before discovering or calling a configured external MCP server.",
     enabled: (config) => Object.keys(config.mcpServers).length > 0,

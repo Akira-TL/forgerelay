@@ -25,7 +25,7 @@ import { HookRunner } from "./mcp/hooks/hooks.js";
 import { checkHookConfiguration } from "./mcp/hooks/hook-cli.js";
 import { buildExecutionShellContext, buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
 import { IncomingArtifactAdapterRegistry, type IncomingArtifactAdapter } from "./mcp/artifacts/incoming-artifacts.js";
-import { createExternalMcpCapabilityRuntime } from "./mcp/external/external-mcp-runtime.js";
+import { createExternalMcpCapabilityRuntime } from "./mcp/operations/external-mcp/external-mcp-runtime.js";
 import { BatchExecutor } from "./mcp/operations/batch/executor.js";
 import { type CoreOperationContext } from "./mcp/operations/core-operation-executor.js";
 import { ProcessManager } from "./mcp/process/process-sessions.js";

@@ -15,7 +15,7 @@ import {
   callOpen,
   fixture,
   structuredContent,
-} from "../../runtime/testing/server-fixture.js";
+} from "../../../runtime/testing/server-fixture.js";
 
 const fixtureServer = fileURLToPath(new URL("./test-fixtures/external-mcp-server.mjs", import.meta.url));
 const CONFIG_SECRET = "EXTERNAL_MCP_CONFIG_SECRET_SENTINEL";

@@ -1,10 +1,10 @@
-import type { ServerConfig } from "../../runtime/config/config.js";
-import { CapabilityError, type CapabilityRegistryDependencies } from "../server/core/capability-registry.js";
-import { requireCapabilityWorkspaceRoot } from "../server/core/capability-support.js";
+import type { ServerConfig } from "../../../runtime/config/config.js";
+import { CapabilityError, type CapabilityRegistryDependencies } from "../../server/core/capability-registry.js";
+import { requireCapabilityWorkspaceRoot } from "../../server/core/capability-support.js";
 import {
   ExternalMcpTransformError,
   ExternalMcpTransformRunner,
-} from "../hooks/external-mcp-transform.js";
+} from "../../hooks/external-mcp-transform.js";
 import { ExternalMcpError, ExternalMcpGateway } from "./external-mcp.js";
 
 export function createExternalMcpCapabilityRuntime(

@@ -11,7 +11,7 @@ import {
   fixture,
   structuredContent,
   type ServerFixture,
-} from "../../runtime/testing/server-fixture.js";
+} from "../../../runtime/testing/server-fixture.js";
 
 const fixtureServer = fileURLToPath(new URL("./test-fixtures/external-mcp-server.mjs", import.meta.url));
 const IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";

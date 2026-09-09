@@ -8,19 +8,19 @@ import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol
 import type {
   ExternalMcpServerConfig,
   ExternalMcpServersConfig,
-} from "../../runtime/config/external-mcp-config.js";
+} from "../../../runtime/config/external-mcp-config.js";
 import {
   claimMediaBytes,
   createMediaBudget,
   isSupportedImageMimeType,
   strictBase64ByteLength,
   type MediaContentMetadata,
-} from "../media/media-content.js";
+} from "../media-content.js";
 import {
   ExternalMcpTransformError,
   type ExternalMcpTransformResult,
   type ExternalMcpTransformSummary,
-} from "../hooks/external-mcp-transform.js";
+} from "../../hooks/external-mcp-transform.js";
 
 const MAX_DISCOVERED_TOOLS = 100;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
