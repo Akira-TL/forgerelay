@@ -40,6 +40,15 @@ export function workspaceLogContext(
   };
 }
 
+export function compositeWorkspaceLogContext(
+  workspace: { id: string; name: string },
+): Pick<ToolLogFields, "workspaceId" | "workspace"> {
+  return {
+    workspaceId: workspace.id,
+    workspace: workspaceLogLabel(workspace.name, workspace.id),
+  };
+}
+
 export function formatDiscoveredWorkspaceInstructions(
   files: Array<{ path: string; content: string }>,
   workspaceRoot: string,

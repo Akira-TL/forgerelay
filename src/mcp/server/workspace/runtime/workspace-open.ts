@@ -13,7 +13,7 @@ import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks
 import { WorkspaceRegistry } from "../../../../workspaces.js";
 import { compositeCapabilityContext } from "../../core/capability-support.js";
 import { workspaceInspectionOutputSchema } from "../../core/schemas.js";
-import { logToolCall, textBlock } from "../../core/tool-support.js";
+import { compositeWorkspaceLogContext, logToolCall, textBlock } from "../../core/tool-support.js";
 import { openWorkspaceToolDefinition, type OpenWorkspaceToolInput } from "./workspace-open-schema.js";
 import {
   presentLocalWorkspaceOpen,
@@ -321,6 +321,16 @@ async function handleOpenWorkspace(
             : "This Composite Workspace currently has no members.",
           "Use the Composite workspaceId as the top-level handle. Work operations on it require an explicit member name; ForgeRelay never infers a member from tool type or purpose.",
         ].join("\n");
+        logToolCall(config, {
+          tool: "open_workspace",
+          ...compositeWorkspaceLogContext(composite),
+          action: `member.${memberAction}`,
+          path: memberAction === "update" && member.newName !== undefined
+            ? `${member.name} -> ${member.newName}`
+            : member.name,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
         const response = {
           content: [textBlock(instruction)],
           _meta: {

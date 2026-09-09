@@ -183,7 +183,7 @@ function toolTarget(entry: LogFields, tool: string): string | undefined {
       .filter((value): value is string => value !== undefined)
       .join(" ") || undefined;
   }
-  if (tool === "open_workspace") {
+  if (tool === "open_workspace" || tool === "close_workspace") {
     return [
       stringField(entry.action),
       stringField(entry.path) ?? stringField(entry.workingDirectory),

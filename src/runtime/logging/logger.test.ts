@@ -102,6 +102,18 @@ test("pretty workspace-open logs preserve lifecycle actions", () => {
 
   assert.match(listed, /\| open_workspace list \/home\/Akira\/Projects -> ok$/);
   assert.match(failedInspect, /\| open_workspace inspect -> error: Workspace missing$/);
+
+  const closed = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "forgerelay/ws_a20bade4",
+    tool: "close_workspace",
+    action: "delete",
+    path: "/home/Akira/Projects/forgerelay",
+    success: true,
+  }, { colorize: false });
+  assert.match(closed, /\| close_workspace delete \/home\/Akira\/Projects\/forgerelay -> ok$/);
 });
 
 test("pretty hook logs remain compact and preserve process exit status", () => {

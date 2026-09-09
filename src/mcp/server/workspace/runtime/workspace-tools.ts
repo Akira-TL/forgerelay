@@ -32,6 +32,7 @@ import {
 } from "../../core/capability-support.js";
 import { capabilityErrorOutputSchema, resultOutputSchema } from "../../core/schemas.js";
 import {
+  compositeWorkspaceLogContext,
   logFailedToolResponse,
   logToolCall,
   textBlock,
@@ -452,6 +453,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
     },
     async ({ workspaceId, action = "close", commitMessage }, extra) => {
       if (compositeWorkspaces.has(workspaceId)) {
+        const startedAt = performance.now();
         if (commitMessage !== undefined) {
           throw new Error("close_workspace commitMessage is not valid for a Composite Workspace.");
         }
@@ -474,6 +476,14 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             : "The Composite Workspace had no members.",
           "Member Workspace handles, managed worktrees, processes, files, and Workspace Relay routes were not closed, finalized, deleted, or otherwise mutated.",
         ].join("\n");
+        logToolCall(config, {
+          tool: toolNames.closeWorkspace,
+          ...compositeWorkspaceLogContext(composite),
+          action,
+          path: composite.name,
+          success: true,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
         return {
           content: [textBlock(result)],
           _meta: {
@@ -515,6 +525,8 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       }
       const session = workspaces.getWorkspaceSession(workspaceId);
       if (action === "delete" && session.mode === "checkout") {
+        const workspace = workspaces.getWorkspace(session.id);
+        const startedAt = performance.now();
         if (commitMessage !== undefined) {
           throw new Error("close_workspace commitMessage is not valid with action=delete for a checkout Workspace.");
         }
@@ -541,6 +553,14 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             activityQueries.deleteWorkspaceHistory(config.stateDir, session.id);
             await reviewCheckpoints.releaseWorkspace(session.id);
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
+            logToolCall(config, {
+              tool: toolNames.closeWorkspace,
+              ...workspaceLogContext(workspace, extra.sessionId),
+              action: "delete",
+              path: workspace.root,
+              success: true,
+              durationMs: Math.round(performance.now() - startedAt),
+            });
             return {
               content: [textBlock(result)],
               _meta: {
@@ -672,6 +692,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             logToolCall(config, {
               tool: toolNames.closeWorkspace,
               ...workspaceLogContext(workspace, extra.sessionId),
+              action,
               path: closed.sourceRoot,
               success: true,
               durationMs: Math.round(performance.now() - startedAt),
@@ -719,9 +740,18 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
               `Workspace ${checkoutWorkspaceId} still owns a running process. Poll, interrupt, or wait for it before closing this workspace.`,
             );
           }
+          const startedAt = performance.now();
           workspaces.closeWorkspace(checkoutWorkspaceId);
           await reviewCheckpoints.releaseWorkspace(checkoutWorkspaceId);
           const result = `Closed checkout-backed Workspace ${checkoutWorkspaceId}; its ForgeRelay identity was preserved for later reopen. Physical project files were not removed.`;
+          logToolCall(config, {
+            tool: toolNames.closeWorkspace,
+            ...workspaceLogContext(workspace, extra.sessionId),
+            action: "close",
+            path: workspace.root,
+            success: true,
+            durationMs: Math.round(performance.now() - startedAt),
+          });
           return {
             content: [textBlock(result)],
             _meta: {

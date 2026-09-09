@@ -1,5 +1,6 @@
 import "./contract.test.js";
 import "./workspace/workspace-open.test.js";
+import "./workspace/logging/workspace-lifecycle.test.js";
 import "./workspace/workspace-inventory.test.js";
 import "./workspace/workspace-context.test.js";
 import "./workspace/tasks-inspect.test.js";
