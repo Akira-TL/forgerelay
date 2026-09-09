@@ -14,6 +14,10 @@ import {
 } from "./user-config.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
+import {
+  parseExternalMcpServers,
+  type ExternalMcpServersConfig,
+} from "./external-mcp-config.js";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import {
   resolveConfiguredCommandShellRuntime,
@@ -59,6 +63,7 @@ export interface ServerConfig {
   subagents: boolean;
   languageServers: LanguageServerConfigInput;
   allowAgentLanguageServerInstall: boolean;
+  mcpServers: ExternalMcpServersConfig;
   agentDir: string;
   systemInstructionsPath: string;
   hooks: HookConfig;
@@ -466,6 +471,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         : parseBoolean(productEnv(env, "SUBAGENTS")),
     languageServers: files.config.languageServers ?? {},
     allowAgentLanguageServerInstall: files.config.allowAgentLanguageServerInstall === true,
+    mcpServers: parseExternalMcpServers(files.config.mcpServers),
     agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
     systemInstructionsPath: parseSystemInstructionsPath(
       productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,

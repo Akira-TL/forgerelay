@@ -14,6 +14,7 @@ import { withFileLock } from "../state/lock/file-lock.js";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { CommandShellPreference } from "../shell/command-shell-runtime.js";
+import type { ExternalMcpServersConfig } from "./external-mcp-config.js";
 import {
   mergeHookConfigs,
   parseHookFile,
@@ -49,6 +50,7 @@ export interface ForgeRelayUserConfig {
   subagents?: boolean;
   languageServers?: LanguageServerConfigInput;
   allowAgentLanguageServerInstall?: boolean;
+  mcpServers?: ExternalMcpServersConfig;
   hooks?: HookConfigInput;
 }
 

@@ -1,6 +1,21 @@
 import type { CapabilityRunOperationInput } from "../../../mcp/operations/core-operation-executor.js";
 
 export function capabilityActivityAuditRequest(input: CapabilityRunOperationInput): unknown {
+  if (input.name === "mcp.external") {
+    const argumentsValue = isAuditRecord(input.arguments) ? input.arguments : {};
+    const callArguments = isAuditRecord(argumentsValue.arguments) ? argumentsValue.arguments : undefined;
+    return {
+      workspaceId: input.workspaceId,
+      name: input.name,
+      action: "run",
+      arguments: {
+        operation: argumentsValue.operation,
+        ...(typeof argumentsValue.server === "string" ? { server: argumentsValue.server } : {}),
+        ...(typeof argumentsValue.tool === "string" ? { tool: argumentsValue.tool } : {}),
+        ...(callArguments ? { argumentKeys: Object.keys(callArguments).sort() } : {}),
+      },
+    };
+  }
   if (input.name !== "subagent.session") {
     return {
       workspaceId: input.workspaceId,
@@ -27,6 +42,23 @@ export function capabilityActivityAuditRequest(input: CapabilityRunOperationInpu
 }
 
 export function capabilityActivityAuditResult(name: string, result: unknown): unknown {
+  if (name === "mcp.external" && isAuditRecord(result)) {
+    const structuredContent = isAuditRecord(result.structuredContent) ? result.structuredContent : undefined;
+    const capabilityResult = structuredContent && isAuditRecord(structuredContent.result)
+      ? structuredContent.result
+      : undefined;
+    const error = structuredContent && isAuditRecord(structuredContent.error)
+      ? structuredContent.error
+      : undefined;
+    return {
+      name,
+      action: "run",
+      ...(capabilityResult ? { result: summarizeExternalMcpCapabilityResult(capabilityResult) } : {}),
+      ...(error
+        ? { error: { code: error.code } }
+        : {}),
+    };
+  }
   if (name !== "subagent.session" || !isAuditRecord(result)) return result;
   const structuredContent = isAuditRecord(result.structuredContent) ? result.structuredContent : undefined;
   const capabilityResult = structuredContent && isAuditRecord(structuredContent.result)
@@ -52,6 +84,31 @@ export function capabilityActivityAuditResult(name: string, result: unknown): un
 
 function isAuditRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function summarizeExternalMcpCapabilityResult(result: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    operation: result.operation,
+    ...(typeof result.server === "string" ? { server: result.server } : {}),
+    ...(typeof result.tool === "string" ? { tool: result.tool } : {}),
+  };
+  if (Array.isArray(result.servers)) {
+    summary.servers = result.servers.flatMap((entry) => {
+      if (!isAuditRecord(entry) || typeof entry.name !== "string") return [];
+      return [{ name: entry.name, transport: entry.transport }];
+    });
+  }
+  if (Array.isArray(result.tools)) {
+    summary.tools = result.tools.flatMap((entry) =>
+      isAuditRecord(entry) && typeof entry.name === "string" ? [entry.name] : []
+    );
+  }
+  if (Array.isArray(result.content)) {
+    summary.contentTypes = result.content.flatMap((entry) =>
+      isAuditRecord(entry) && typeof entry.type === "string" ? [entry.type] : []
+    );
+  }
+  return summary;
 }
 
 function summarizeSubagentCapabilityResult(result: Record<string, unknown>): Record<string, unknown> {

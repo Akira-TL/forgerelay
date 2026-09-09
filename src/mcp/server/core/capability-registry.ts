@@ -11,6 +11,10 @@ import {
   workspaceCheckpointInputSchema,
   type WorkspaceCheckpointCapabilityInput,
 } from "./capabilities/workspace-checkpoint.js";
+import type {
+  ExternalMcpCapabilityInput,
+  ExternalMcpCapabilityResult,
+} from "../../external/external-mcp.js";
 
 export type CapabilityErrorCode =
   | "unknown_capability"
@@ -20,6 +24,7 @@ export type CapabilityErrorCode =
   | "execution_failed"
   | `artifact.${string}`
   | `code.${string}`
+  | `mcp.${string}`
   | `subagent.${string}`;
 
 export class CapabilityError extends Error {
@@ -272,6 +277,15 @@ export interface CapabilityRegistryDependencies {
       context: CapabilityContext,
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
+  };
+  externalMcp?: {
+    available: boolean;
+    unavailableReason?: string;
+    run: (
+      input: ExternalMcpCapabilityInput,
+      context: CapabilityContext,
+      options: CapabilityRunOptions,
+    ) => Promise<CapabilityExecution & { value: ExternalMcpCapabilityResult }>;
   };
 }
 
@@ -530,6 +544,19 @@ export function createCapabilityRegistry(
     }).strict(),
     z.object({ operation: z.literal("list") }).strict(),
   ]);
+  const externalMcpInput = z.discriminatedUnion("operation", [
+    z.object({ operation: z.literal("servers") }).strict(),
+    z.object({
+      operation: z.literal("tools"),
+      server: z.string().min(1),
+    }).strict(),
+    z.object({
+      operation: z.literal("call"),
+      server: z.string().min(1),
+      tool: z.string().min(1),
+      arguments: z.record(z.string(), z.unknown()).optional(),
+    }).strict(),
+  ]);
   const codeIntelligenceInput = z.discriminatedUnion("operation", [
     z.object({ operation: z.literal("definition"), ...positionInput }).strict(),
     z.object({ operation: z.literal("hover"), ...positionInput }).strict(),
@@ -671,6 +698,26 @@ export function createCapabilityRegistry(
           run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
             dependencies.workspaceTasks!.run(
               input as WorkspaceTasksCapabilityInput,
+              context,
+              options,
+            ),
+        } satisfies CapabilityDefinition]
+      : []),
+    ...(dependencies.externalMcp
+      ? [{
+          name: "mcp.external",
+          description: "Discover and call tools from user-configured external MCP servers through the ForgeRelay Capability gateway.",
+          guideName: "external-mcp",
+          readGuideBeforeFirstUse: true,
+          batchPolicy: "unsupported",
+          inputSchema: externalMcpInput,
+          availability: () => ({
+            available: dependencies.externalMcp?.available ?? false,
+            reason: dependencies.externalMcp?.unavailableReason,
+          }),
+          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
+            dependencies.externalMcp!.run(
+              input as ExternalMcpCapabilityInput,
               context,
               options,
             ),

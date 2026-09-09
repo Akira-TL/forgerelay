@@ -13,6 +13,7 @@ import { HostTurnStore } from "../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../config/config.js";
+import type { ForgeRelayUserConfig } from "../config/user-config.js";
 import { parseHookConfig, type HookConfigInput } from "../../mcp/hooks/hooks.js";
 import type { IncomingArtifactAdapter } from "../../mcp/artifacts/incoming-artifacts.js";
 import { CodeIntelligenceManager } from "../../lsp/runtime/manager.js";
@@ -47,6 +48,7 @@ export interface ServerFixtureOptions {
   hooks?: HookConfigInput;
   processSessions?: ProcessManager;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
+  userConfig?: ForgeRelayUserConfig;
 }
 
 /**
@@ -62,8 +64,13 @@ export async function fixture(
   const project = join(root, "project");
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
+  const configDir = join(root, ".config");
 
   await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
+  await mkdir(configDir, { recursive: true });
+  if (options.userConfig) {
+    await writeFile(join(configDir, "config.json"), JSON.stringify(options.userConfig, null, 2) + "\n");
+  }
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
@@ -86,7 +93,7 @@ export async function fixture(
   }
 
   const loadedConfig = loadConfig({
-    FORGERELAY_CONFIG_DIR: join(root, ".config"),
+    FORGERELAY_CONFIG_DIR: configDir,
     FORGERELAY_STATE_DIR: stateDir,
     FORGERELAY_ALLOWED_ROOTS: root,
     FORGERELAY_WORKTREE_ROOT: join(root, ".worktrees"),

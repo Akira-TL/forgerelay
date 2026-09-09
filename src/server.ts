@@ -25,6 +25,7 @@ import { HookRunner } from "./mcp/hooks/hooks.js";
 import { checkHookConfiguration } from "./mcp/hooks/hook-cli.js";
 import { buildExecutionShellContext, buildServerInstructions, buildToolDescriptions, toolNames } from "./mcp/server-instructions.js";
 import { IncomingArtifactAdapterRegistry, type IncomingArtifactAdapter } from "./mcp/artifacts/incoming-artifacts.js";
+import { ExternalMcpError, ExternalMcpGateway } from "./mcp/external/external-mcp.js";
 import { BatchExecutor } from "./mcp/operations/batch/executor.js";
 import { type CoreOperationContext } from "./mcp/operations/core-operation-executor.js";
 import { ProcessManager } from "./mcp/process/process-sessions.js";
@@ -203,11 +204,28 @@ export function createMcpServer(
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
   const reviewChangesAvailable = config.widgets === "changes";
+  const externalMcp = new ExternalMcpGateway(config.mcpServers);
   let batchExecutor: BatchExecutor | undefined;
   const batchExecuteAvailable = config.toolMode !== "codex";
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
     ...subagentMcp.registryDependencies,
+    externalMcp: {
+      available: externalMcp.available,
+      unavailableReason: externalMcp.available ? undefined : "No external MCP servers are configured.",
+      run: async (input, context, runOptions) => {
+        try {
+          return {
+            value: await externalMcp.run(input, runOptions.signal),
+          };
+        } catch (error) {
+          if (error instanceof ExternalMcpError) {
+            throw new CapabilityError(`mcp.${error.code}`, error.message);
+          }
+          throw error;
+        }
+      },
+    },
     workspaceRecovery: {
       available: true,
       run: async (input, context) => ({
