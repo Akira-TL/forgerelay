@@ -107,6 +107,16 @@ function summarizeExternalMcpCapabilityResult(result: Record<string, unknown>): 
     summary.contentTypes = result.content.flatMap((entry) =>
       isAuditRecord(entry) && typeof entry.type === "string" ? [entry.type] : []
     );
+    const media = result.content.flatMap((entry, index) => {
+      if (
+        !isAuditRecord(entry)
+        || entry.type !== "image"
+        || typeof entry.mimeType !== "string"
+        || typeof entry.bytes !== "number"
+      ) return [];
+      return [{ index, mimeType: entry.mimeType, bytes: entry.bytes }];
+    });
+    if (media.length > 0) summary.media = media;
   }
   return summary;
 }

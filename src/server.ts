@@ -204,7 +204,7 @@ export function createMcpServer(
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
   const reviewChangesAvailable = config.widgets === "changes";
-  const externalMcp = new ExternalMcpGateway(config.mcpServers);
+  const externalMcp = new ExternalMcpGateway(config.mcpServers, config.mediaMaxBytes);
   let batchExecutor: BatchExecutor | undefined;
   const batchExecuteAvailable = config.toolMode !== "codex";
   const capabilityRegistry = createCapabilityRegistry({
@@ -215,8 +215,10 @@ export function createMcpServer(
       unavailableReason: externalMcp.available ? undefined : "No external MCP servers are configured.",
       run: async (input, context, runOptions) => {
         try {
+          const result = await externalMcp.run(input, runOptions.signal);
           return {
-            value: await externalMcp.run(input, runOptions.signal),
+            value: result.value,
+            ...(result.content ? { content: result.content } : {}),
           };
         } catch (error) {
           if (error instanceof ExternalMcpError) {

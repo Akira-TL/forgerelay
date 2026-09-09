@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { BashOutputStore } from "../../../../activity/history/bash-output-store.js";
 import { CapabilityError, createCapabilityRegistry } from "../../core/capability-registry.js";
@@ -686,8 +687,12 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                 },
               );
               changedPaths = execution.changedPaths ?? [];
+              const transientContent = (
+                execution as typeof execution & { content?: CallToolResult["content"] }
+              ).content;
               const result = {
-                content: [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
+                content: transientContent
+                  ?? [textBlock(`Capability ${name} completed.\n${JSON.stringify(execution.value, null, 2)}`)],
                 ...(execution.card
                   ? {
                       _meta: {

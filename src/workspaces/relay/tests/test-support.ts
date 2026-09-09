@@ -14,6 +14,7 @@ import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
 import { ActivityLifecycle } from "../../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../../../runtime/config/config.js";
+import type { ForgeRelayUserConfig } from "../../../runtime/config/user-config.js";
 import { shellInstructionPath } from "../../../runtime/instructions/shell-instructions.js";
 import type { CommandShellRuntime } from "../../../runtime/shell/command-shell-runtime.js";
 import type { RuntimePrivilegeState } from "../../../runtime/security/runtime-privilege.js";
@@ -89,6 +90,8 @@ export async function startForge(
     hooks?: unknown;
     toolMode?: "minimal" | "full" | "codex";
     taskReminderInterval?: number;
+    mediaMaxBytes?: number;
+    mcpServers?: ForgeRelayUserConfig["mcpServers"];
     executionRuntime?: TestExecutionRuntime;
   },
 ): Promise<RunningForge> {
@@ -110,6 +113,8 @@ export async function startForge(
     stateDir,
     worktreeRoot: join(options.root, "worktrees"),
     ...(options.taskReminderInterval !== undefined ? { taskReminderInterval: options.taskReminderInterval } : {}),
+    ...(options.mediaMaxBytes !== undefined ? { mediaMaxBytes: options.mediaMaxBytes } : {}),
+    ...(options.mcpServers ? { mcpServers: options.mcpServers } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   }, null, 2));
 

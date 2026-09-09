@@ -9,6 +9,13 @@ import type {
   ExternalMcpServerConfig,
   ExternalMcpServersConfig,
 } from "../../runtime/config/external-mcp-config.js";
+import {
+  claimMediaBytes,
+  createMediaBudget,
+  isSupportedImageMimeType,
+  strictBase64ByteLength,
+  type MediaContentMetadata,
+} from "../media/media-content.js";
 
 const MAX_DISCOVERED_TOOLS = 100;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
@@ -19,6 +26,11 @@ export type ExternalMcpCapabilityInput =
   | { operation: "servers" }
   | { operation: "tools"; server: string }
   | { operation: "call"; server: string; tool: string; arguments?: Record<string, unknown> };
+
+type ExternalMcpProjectedContent = Array<
+  | Exclude<CallToolResult["content"][number], { type: "image" }>
+  | MediaContentMetadata
+>;
 
 export interface ExternalMcpCapabilityResult {
   operation: ExternalMcpCapabilityInput["operation"];
@@ -32,8 +44,13 @@ export interface ExternalMcpCapabilityResult {
     schemaTruncated?: boolean;
   }>;
   truncated?: boolean;
-  content?: CallToolResult["content"];
+  content?: ExternalMcpProjectedContent;
   structuredContent?: Record<string, unknown>;
+}
+
+export interface ExternalMcpRunResult {
+  value: ExternalMcpCapabilityResult;
+  content?: CallToolResult["content"];
 }
 
 export class ExternalMcpError extends Error {
@@ -44,30 +61,37 @@ export class ExternalMcpError extends Error {
 }
 
 export class ExternalMcpGateway {
-  constructor(private readonly servers: ExternalMcpServersConfig) {}
+  constructor(
+    private readonly servers: ExternalMcpServersConfig,
+    private readonly mediaMaxBytes: number,
+  ) {}
 
   get available(): boolean {
     return Object.keys(this.servers).length > 0;
   }
 
-  async run(input: ExternalMcpCapabilityInput, signal?: AbortSignal): Promise<ExternalMcpCapabilityResult> {
+  async run(input: ExternalMcpCapabilityInput, signal?: AbortSignal): Promise<ExternalMcpRunResult> {
     signal?.throwIfAborted();
     switch (input.operation) {
       case "servers":
         return {
-          operation: "servers",
-          servers: Object.entries(this.servers)
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([name, server]) => ({ name, transport: server.transport })),
+          value: {
+            operation: "servers",
+            servers: Object.entries(this.servers)
+              .sort(([left], [right]) => left.localeCompare(right))
+              .map(([name, server]) => ({ name, transport: server.transport })),
+          },
         };
       case "tools":
         return this.withClient(input.server, signal, async (client) => {
           const discovery = await discoverTools(client, signal);
           return {
-            operation: "tools",
-            server: input.server,
-            tools: discovery.tools.map(summarizeTool),
-            ...(discovery.truncated ? { truncated: true } : {}),
+            value: {
+              operation: "tools",
+              server: input.server,
+              tools: discovery.tools.map(summarizeTool),
+              ...(discovery.truncated ? { truncated: true } : {}),
+            },
           };
         });
       case "call":
@@ -85,15 +109,23 @@ export class ExternalMcpGateway {
               `External MCP ${input.server} tool ${input.tool} returned an upstream tool error.`,
             );
           }
-          assertNonMediaResult(input.server, input.tool, result);
+          const projection = projectExternalMcpContent(
+            input.server,
+            input.tool,
+            result,
+            this.mediaMaxBytes,
+          );
           return {
-            operation: "call",
-            server: input.server,
-            tool: input.tool,
             content: result.content,
-            ...(isRecord(result.structuredContent)
-              ? { structuredContent: result.structuredContent }
-              : {}),
+            value: {
+              operation: "call",
+              server: input.server,
+              tool: input.tool,
+              content: projection.content,
+              ...(!projection.hasMedia && isRecord(result.structuredContent)
+                ? { structuredContent: result.structuredContent }
+                : {}),
+            },
           };
         });
     }
@@ -201,21 +233,57 @@ function summarizeTool(tool: {
   };
 }
 
-function assertNonMediaResult(server: string, tool: string, result: CallToolResult): void {
+function projectExternalMcpContent(
+  server: string,
+  tool: string,
+  result: CallToolResult,
+  mediaMaxBytes: number,
+): { content: ExternalMcpProjectedContent; hasMedia: boolean } {
+  const budget = createMediaBudget(mediaMaxBytes);
+  const content: ExternalMcpProjectedContent = [];
+  let hasMedia = false;
   for (const entry of result.content ?? []) {
-    if (entry.type === "image" || entry.type === "audio") {
+    if (entry.type === "image") {
+      hasMedia = true;
+      if (!isSupportedImageMimeType(entry.mimeType)) {
+        throw new ExternalMcpError(
+          "media_unsupported",
+          `External MCP ${server} tool ${tool} returned unsupported image MIME type ${entry.mimeType}.`,
+        );
+      }
+      const bytes = strictBase64ByteLength(entry.data);
+      if (bytes === undefined) {
+        throw new ExternalMcpError(
+          "media_malformed",
+          `External MCP ${server} tool ${tool} returned malformed base64 image content.`,
+        );
+      }
+      try {
+        claimMediaBytes(budget, bytes);
+      } catch {
+        throw new ExternalMcpError(
+          "media_too_large",
+          `External MCP ${server} tool ${tool} returned media exceeding the configured ${mediaMaxBytes}-byte aggregate limit.`,
+        );
+      }
+      content.push({ type: "image", mimeType: entry.mimeType, bytes });
+      continue;
+    }
+    if (entry.type === "audio") {
       throw new ExternalMcpError(
-        "media_not_enabled",
-        `External MCP ${server} tool ${tool} returned media content before external media forwarding is enabled.`,
+        "media_unsupported",
+        `External MCP ${server} tool ${tool} returned unsupported audio media content.`,
       );
     }
     if (entry.type === "resource" && "blob" in entry.resource && typeof entry.resource.blob === "string") {
       throw new ExternalMcpError(
-        "media_not_enabled",
-        `External MCP ${server} tool ${tool} returned binary resource content before external media forwarding is enabled.`,
+        "media_unsupported",
+        `External MCP ${server} tool ${tool} returned unsupported binary resource content.`,
       );
     }
+    content.push(entry);
   }
+  return { content, hasMedia };
 }
 
 function assertCallToolResult(server: string, tool: string, value: unknown): asserts value is CallToolResult {

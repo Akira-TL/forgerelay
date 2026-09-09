@@ -355,7 +355,10 @@ export class RemoteWorkspaceRelay {
     },
     conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "capability", input, conversationScopeId);
+    return enforceRelayedMediaBudget(
+      await this.callWorkspaceTool(gatewayWorkspaceId, "capability", input, conversationScopeId),
+      this.mediaMaxBytes,
+    );
   }
 
   async activityPanel(

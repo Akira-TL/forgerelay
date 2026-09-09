@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -19,6 +21,9 @@ const fixtureServer = fileURLToPath(new URL("./test-fixtures/external-mcp-server
 const CONFIG_SECRET = "EXTERNAL_MCP_CONFIG_SECRET_SENTINEL";
 const CALL_SECRET = "EXTERNAL_MCP_CALL_SECRET_SENTINEL";
 const HTTP_SECRET = "EXTERNAL_MCP_HTTP_SECRET_SENTINEL";
+const IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";
+const IMAGE_BYTES = Buffer.byteLength(IMAGE_BASE64, "base64");
+const MALFORMED_IMAGE_DATA = "RVhURVJOQUxfTUNQX01BTEZPUk1FRF9TRU5USU5FTCE";
 
 test("configured external MCP tools are discovered and called through capability without implicit path dereference", async (t) => {
   const context = await fixture(t, {
@@ -57,7 +62,17 @@ test("configured external MCP tools are discovered and called through capability
   assert.equal(tools.isError, undefined, allResponseText(tools));
   const toolNames = ((structuredContent(tools).result as Record<string, unknown>).tools as Array<Record<string, unknown>>)
     .map((entry) => entry.name);
-  assert.deepEqual(toolNames.sort(), ["echo_text", "fail", "path_only"]);
+  assert.deepEqual(toolNames.sort(), [
+    "direct_image",
+    "double_image",
+    "echo_text",
+    "fail",
+    "malformed_image",
+    "path_only",
+    "resource_only",
+    "unsupported_image",
+    "url_only",
+  ]);
 
   const echoed = await call({
     operation: "call",
@@ -74,6 +89,7 @@ test("configured external MCP tools are discovered and called through capability
   assert.deepEqual((structuredContent(pathOnly).result as Record<string, unknown>).content, [
     { type: "text", text: "renders/output.png" },
   ]);
+  assert.equal(allResponseText(pathOnly), "renders/output.png");
   assert.doesNotMatch(JSON.stringify(pathOnly), /image\/|base64|mimeType|artifact/i);
 
   const warningLines: string[] = [];
@@ -172,6 +188,135 @@ test("configured external MCP tools are discovered and called through capability
   assert.match(auditJson, /mcp\.external/);
   assert.match(auditJson, /blender/);
   assert.match(auditJson, /echo_text/);
+
+  const urlOnly = await call({ operation: "call", server: "blender", tool: "url_only" });
+  assert.equal(urlOnly.isError, undefined, allResponseText(urlOnly));
+  assert.equal(allResponseText(urlOnly), "https://renderer.invalid/renders/output.png");
+  assert.deepEqual((structuredContent(urlOnly).result as Record<string, unknown>).content, [
+    { type: "text", text: "https://renderer.invalid/renders/output.png" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(urlOnly), /artifact|base64/i);
+
+  const resourceOnly = await call({ operation: "call", server: "blender", tool: "resource_only" });
+  assert.equal(resourceOnly.isError, undefined, allResponseText(resourceOnly));
+  const resourceContent = Array.isArray(resourceOnly.content) ? resourceOnly.content : [];
+  assert.deepEqual(resourceContent, [{
+    type: "resource_link",
+    name: "render-output",
+    uri: "file:///renders/output.png",
+    mimeType: "image/png",
+  }]);
+  assert.deepEqual((structuredContent(resourceOnly).result as Record<string, unknown>).content, resourceContent);
+  assert.doesNotMatch(JSON.stringify(resourceOnly), /artifact|base64/i);
+
+  const mediaLogLines: string[] = [];
+  const originalLog = console.log;
+  const originalMediaWarn = console.warn;
+  console.log = (...values: unknown[]) => mediaLogLines.push(values.map(String).join(" "));
+  console.warn = (...values: unknown[]) => mediaLogLines.push(values.map(String).join(" "));
+  let directImage;
+  try {
+    directImage = await call({ operation: "call", server: "blender", tool: "direct_image" });
+  } finally {
+    console.log = originalLog;
+    console.warn = originalMediaWarn;
+  }
+  assert.equal(directImage.isError, undefined, allResponseText(directImage));
+  const directContent = Array.isArray(directImage.content)
+    ? directImage.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>
+    : [];
+  assert.deepEqual(
+    directContent.map((entry) => entry.type),
+    ["text", "image", "text"],
+  );
+  const liveImage = directContent.find((entry) => entry.type === "image");
+  assert.ok(liveImage && liveImage.type === "image");
+  assert.equal(liveImage.mimeType, "image/png");
+  assert.equal(liveImage.data, IMAGE_BASE64);
+  assert.equal(allResponseText(directImage), "before-image\nafter-image");
+  const directStructured = structuredContent(directImage).result as Record<string, unknown>;
+  assert.deepEqual(directStructured.content, [
+    { type: "text", text: "before-image" },
+    { type: "image", mimeType: "image/png", bytes: IMAGE_BYTES },
+    { type: "text", text: "after-image" },
+  ]);
+  assert.equal(directStructured.structuredContent, undefined);
+  assert.doesNotMatch(JSON.stringify(directImage.structuredContent), new RegExp(IMAGE_BASE64));
+  assert.doesNotMatch(JSON.stringify(directImage._meta ?? {}), new RegExp(IMAGE_BASE64));
+  assert.doesNotMatch(mediaLogLines.join("\n"), new RegExp(IMAGE_BASE64));
+
+  const malformedImage = await call({ operation: "call", server: "blender", tool: "malformed_image" });
+  assert.equal(malformedImage.isError, true);
+  assert.match(allResponseText(malformedImage), /mcp\.media_malformed.*blender.*malformed_image/i);
+  assert.doesNotMatch(JSON.stringify(malformedImage), new RegExp(MALFORMED_IMAGE_DATA));
+
+  const unsupportedImage = await call({ operation: "call", server: "blender", tool: "unsupported_image" });
+  assert.equal(unsupportedImage.isError, true);
+  assert.match(allResponseText(unsupportedImage), /mcp\.media_unsupported.*blender.*unsupported_image/i);
+  assert.doesNotMatch(JSON.stringify(unsupportedImage), new RegExp(IMAGE_BASE64));
+
+  const mediaActivities = Array.from({ length: 16 }, (_, index) => context.auditStore.getActivity(`act_test_${index + 1}`))
+    .filter((activity) => activity !== undefined);
+  const directImageActivity = mediaActivities.find((activity) =>
+    JSON.stringify(activity?.request).includes("direct_image")
+  );
+  assert.ok(directImageActivity);
+  assert.deepEqual(directImageActivity.result, {
+    name: "mcp.external",
+    action: "run",
+    result: {
+      operation: "call",
+      server: "blender",
+      tool: "direct_image",
+      contentTypes: ["text", "image", "text"],
+      media: [{ index: 1, mimeType: "image/png", bytes: IMAGE_BYTES }],
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(mediaActivities), new RegExp(IMAGE_BASE64));
+  assert.doesNotMatch(JSON.stringify(mediaActivities), new RegExp(MALFORMED_IMAGE_DATA));
+  await context.close();
+  await assertDirectoryDoesNotContain(context.stateDir, IMAGE_BASE64);
+});
+
+test("external MCP direct images respect the configured aggregate media budget", async (t) => {
+  const context = await fixture(t, {
+    userConfig: {
+      mediaMaxBytes: (IMAGE_BYTES * 2) - 1,
+      mcpServers: {
+        blender: {
+          transport: "stdio",
+          command: process.execPath,
+          args: [fixtureServer],
+        },
+      },
+    },
+  });
+  const conversation = "chat-external-mcp-media-budget";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const result = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "mcp.external",
+      action: "run",
+      arguments: { operation: "call", server: "blender", tool: "double_image" },
+    },
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  assert.equal(result.isError, true);
+  assert.match(allResponseText(result), /mcp\.media_too_large.*blender.*double_image/i);
+  assert.equal(
+    Array.isArray(result.content) && result.content.some((entry) => entry.type === "image"),
+    false,
+  );
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(IMAGE_BASE64));
+  assert.deepEqual(context.auditStore.getActivity("act_test_1")?.result, {
+    name: "mcp.external",
+    action: "run",
+    error: { code: "mcp.media_too_large" },
+  });
 });
 
 test("configured Streamable HTTP MCP tools are discovered and called through capability", async (t) => {
@@ -316,6 +461,25 @@ function isJsonRpcInitialize(value: unknown): value is { method: "initialize" } 
     && value !== null
     && "method" in value
     && (value as { method?: unknown }).method === "initialize";
+}
+
+async function assertDirectoryDoesNotContain(root: string, needle: string): Promise<void> {
+  const target = Buffer.from(needle, "utf8");
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile()) {
+        assert.equal(
+          (await readFile(path)).includes(target),
+          false,
+          `ForgeRelay persisted external image base64 in ${path}`,
+        );
+      }
+    }
+  }
 }
 
 function failHttpFixtureRequest(response: { headersSent: boolean; writeHead: (status: number) => unknown; end: () => unknown }): void {

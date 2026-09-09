@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { authenticateRemote, withRemoteMcpClient } from "../auth/remote-auth.js";
 import { safeManagedWorktreeRecovery } from "../result-support.js";
@@ -13,6 +14,12 @@ import {
   startGatewayClient,
   structuredContent,
 } from "./test-support.js";
+
+const externalMcpFixture = fileURLToPath(
+  new URL("../../../mcp/external/test-fixtures/external-mcp-server.mjs", import.meta.url),
+);
+const EXTERNAL_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";
+const EXTERNAL_IMAGE_BYTES = Buffer.byteLength(EXTERNAL_IMAGE_BASE64, "base64");
 
 void test("recovery relay sanitization strips unrecognized remote fields", () => {
   assert.deepEqual(safeManagedWorktreeRecovery({
@@ -164,6 +171,79 @@ void test("gateway rejects relayed ImageContent that exceeds its Host-facing med
   assert.match(resultText(read), /relayed media content exceeds the gateway media limit/i);
   assert.equal(
     Array.isArray(read.content) && read.content.some((entry) => entry.type === "image"),
+    false,
+  );
+
+  t.after(() => rm(root, { recursive: true, force: true }));
+});
+
+void test("gateway revalidates external MCP ImageContent returned through Workspace Relay", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-external-media-"));
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-external-media-owner-token-long-enough",
+    instanceId: "forge-relay-external-media-remote",
+    toolMode: "full",
+    mediaMaxBytes: EXTERNAL_IMAGE_BYTES * 2,
+    mcpServers: {
+      blender: {
+        transport: "stdio",
+        command: process.execPath,
+        args: [externalMcpFixture],
+      },
+    },
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-external-media-owner-token-long-enough",
+    instanceId: "forge-relay-external-media-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    toolMode: "full",
+    mediaMaxBytes: EXTERNAL_IMAGE_BYTES,
+  });
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const callExternal = (tool: string) => client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "mcp.external",
+      action: "run",
+      arguments: { operation: "call", server: "blender", tool },
+    },
+  });
+
+  const direct = await callExternal("direct_image");
+  assert.equal(direct.isError, undefined, resultText(direct));
+  const image = Array.isArray(direct.content)
+    ? direct.content.find((entry) => entry.type === "image")
+    : undefined;
+  assert.ok(image && image.type === "image");
+  assert.equal(image.mimeType, "image/png");
+  assert.equal(image.data, EXTERNAL_IMAGE_BASE64);
+
+  const aggregate = await callExternal("double_image");
+  assert.equal(aggregate.isError, true);
+  assert.match(resultText(aggregate), /relayed media content exceeds the gateway media limit/i);
+  assert.equal(
+    Array.isArray(aggregate.content) && aggregate.content.some((entry) => entry.type === "image"),
     false,
   );
 
