@@ -62,6 +62,48 @@ test("pretty file logs use ok or error rather than fake process exit codes", () 
   assert.doesNotMatch(`${success}\n${failure}`, /exit=[01]/);
 });
 
+test("pretty capability logs preserve capability name and action", () => {
+  const line = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "forgerelay/ws_a20bade4",
+    tool: "capability",
+    capability: "code.intelligence",
+    action: "run",
+    success: true,
+  }, { colorize: false });
+
+  assert.match(line, /\| capability code\.intelligence run -> ok$/);
+  assert.doesNotMatch(line, /arguments|prompt|payload/);
+});
+
+test("pretty workspace-open logs preserve lifecycle actions", () => {
+  const listed = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "info",
+    event: "tool_call",
+    workspace: "forgerelay/ws_a20bade4",
+    tool: "open_workspace",
+    action: "list",
+    path: "/home/Akira/Projects",
+    success: true,
+  }, { colorize: false });
+  const failedInspect = formatPrettyLogEntry({
+    ts: timestamp,
+    level: "warn",
+    event: "tool_call",
+    workspace: "forgerelay/ws_a20bade4",
+    tool: "open_workspace",
+    action: "inspect",
+    success: false,
+    error: "Workspace missing",
+  }, { colorize: false });
+
+  assert.match(listed, /\| open_workspace list \/home\/Akira\/Projects -> ok$/);
+  assert.match(failedInspect, /\| open_workspace inspect -> error: Workspace missing$/);
+});
+
 test("pretty hook logs remain compact and preserve process exit status", () => {
   const success = formatPrettyLogEntry({
     ts: timestamp,

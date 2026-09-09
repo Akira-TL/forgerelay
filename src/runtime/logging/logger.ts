@@ -178,6 +178,17 @@ function toolTarget(entry: LogFields, tool: string): string | undefined {
   if (isShellTool(tool)) {
     return stringField(entry.commandPreview) ?? stringField(entry.workingDirectory);
   }
+  if (tool === "capability") {
+    return [stringField(entry.capability), stringField(entry.action)]
+      .filter((value): value is string => value !== undefined)
+      .join(" ") || undefined;
+  }
+  if (tool === "open_workspace") {
+    return [
+      stringField(entry.action),
+      stringField(entry.path) ?? stringField(entry.workingDirectory),
+    ].filter((value): value is string => value !== undefined).join(" ") || undefined;
+  }
   return stringField(entry.path) ?? stringField(entry.workingDirectory);
 }
 
