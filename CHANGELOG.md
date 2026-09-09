@@ -4,6 +4,23 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-09
+
+### Added
+
+- Added first-class image transport to the existing `read` tool for PNG, JPEG, WebP, and GIF, with magic-byte detection, unchanged image bytes, mixed bulk Read support, and explicit rejection of text ranges on image targets.
+- Added registered external MCP servers through the existing workspace-scoped `capability` surface, including direct upstream `ImageContent` forwarding without expanding the always-visible core tool list.
+- Added opt-in `ExternalMcpBeforeForward` and `ExternalMcpAfterForward` transform Hooks for server/tool-specific request or result adaptation while keeping path/URL/resource references pass-through by default.
+
+### Changed
+
+- Workspace Relay now preserves MCP image content opaquely through Execution → Gateway routing and re-applies the Gateway media budget before Host delivery.
+- Media payloads are transient MCP content rather than Artifacts: the default decoded-media budget is 20 MiB per tool result, aggregate media is bounded, and structured output, Activity/Audit, UI state, and logs retain metadata instead of image base64.
+
+### Security
+
+- External MCP errors, Hook transforms, Relay ingress, and image Reads now enforce bounded media validation without persisting raw image payloads or credentials, and external path/URL/resource results are never implicitly dereferenced by ForgeRelay.
+
 ## [1.0.1] - 2026-09-09
 
 ### Fixed
