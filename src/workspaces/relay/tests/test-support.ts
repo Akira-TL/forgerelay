@@ -152,6 +152,7 @@ export async function startGatewayClient(
     stateDir?: string;
     hooks?: unknown;
     toolMode?: "minimal" | "full" | "codex";
+    mediaMaxBytes?: number;
     executionRuntime?: TestExecutionRuntime;
   },
 ): Promise<Client> {
@@ -160,6 +161,7 @@ export async function startGatewayClient(
   await writeFile(join(options.configDir, "config.json"), JSON.stringify({
     allowedRoots: [options.allowedRoot],
     stateDir,
+    ...(options.mediaMaxBytes !== undefined ? { mediaMaxBytes: options.mediaMaxBytes } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   }, null, 2));
   const config = loadConfig({

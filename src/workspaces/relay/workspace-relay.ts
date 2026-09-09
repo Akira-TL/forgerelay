@@ -27,6 +27,7 @@ import {
   copyBooleanField,
   copyNumberField,
   copyStringField,
+  enforceRelayedMediaBudget,
   errorMessage,
   remapToolResultWorkspaceId,
   replaceExactWorkspaceId,
@@ -53,7 +54,11 @@ export class RemoteWorkspaceRelay {
   private readonly routeStatePath: string;
   private readonly mcpConnections = new RemoteMcpConnectionPool();
 
-  constructor(configDir: string, stateDir: string) {
+  constructor(
+    configDir: string,
+    stateDir: string,
+    private readonly mediaMaxBytes: number,
+  ) {
     this.authEnv = { FORGERELAY_CONFIG_DIR: configDir };
     this.routeStateDir = stateDir;
     this.routeStatePath = join(stateDir, "remote-workspace-routes.json");
@@ -253,7 +258,10 @@ export class RemoteWorkspaceRelay {
     },
     conversationScopeId?: string,
   ): Promise<ToolCallResult> {
-    return this.callWorkspaceTool(gatewayWorkspaceId, "read", input, conversationScopeId);
+    return enforceRelayedMediaBudget(
+      await this.callWorkspaceTool(gatewayWorkspaceId, "read", input, conversationScopeId),
+      this.mediaMaxBytes,
+    );
   }
 
   async write(

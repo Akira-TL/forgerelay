@@ -119,6 +119,46 @@ export function assertSafeRelayInspection(result, { executionWorkspaceId, execut
   assert.doesNotMatch(json, /"ws_[0-9a-f]{10}"/);
 }
 
+const RELAY_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+export function installRelayImageFixture(executionCheckout) {
+  writeFileSync(join(executionCheckout, "relay-image.png"), Buffer.from(RELAY_IMAGE_BASE64, "base64"));
+  return RELAY_IMAGE_BASE64;
+}
+
+export function assertRelayedImageResult(result, expectedBase64, gatewayStateDir) {
+  assertToolOk(result, "read image through Workspace Relay");
+  const image = result.content.find((entry) => entry.type === "image");
+  assert.ok(image, "Workspace Relay did not preserve MCP ImageContent");
+  assert.equal(image.mimeType, "image/png");
+  assert.equal(image.data, expectedBase64);
+  assert.deepEqual(result.structuredContent.media, {
+    type: "image",
+    mimeType: "image/png",
+    bytes: Buffer.byteLength(expectedBase64, "base64"),
+  });
+  assert.equal(JSON.stringify(result.structuredContent).includes(expectedBase64), false);
+  assert.equal(JSON.stringify(result._meta ?? {}).includes(expectedBase64), false);
+  assertDirectoryDoesNotContain(gatewayStateDir, expectedBase64);
+  pass("Relay ImageContent passthrough", "Execution 7678 image bytes and MIME reached Gateway 7677 unchanged without Gateway persistence");
+}
+
+function assertDirectoryDoesNotContain(root, needle) {
+  if (!existsSync(root)) return;
+  const target = Buffer.from(needle, "utf8");
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile()) {
+        assert.equal(readFileSync(path).includes(target), false, `Gateway persisted relayed image base64 in ${path}`);
+      }
+    }
+  }
+}
+
 export function assertToolOk(result, label) {
   assert.equal(result.isError, undefined, `${label}: ${toolText(result)}`);
 }

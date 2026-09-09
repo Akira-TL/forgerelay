@@ -3,18 +3,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { connect } from "node:net";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { debugRoot, repoRoot } from "./runtime.mjs";
-import { relayAcceptanceTopology, assertPortsFree, setupGitProject, runGit, taskStateFiles, findTaskStateFile, assertTaskBodyAbsentFromGateway, assertSafeRelayInspection, assertToolOk, toolText, pass } from "./relay-accept/support.mjs";
+import { relayAcceptanceTopology, assertPortsFree, setupGitProject, runGit, taskStateFiles, findTaskStateFile, assertTaskBodyAbsentFromGateway, assertSafeRelayInspection, installRelayImageFixture, assertRelayedImageResult, assertToolOk, toolText, pass } from "./relay-accept/support.mjs";
 
 const {
   gatewayPort, executionPort, gatewayBaseUrl, gatewayMcpUrl, executionBaseUrl,
@@ -30,6 +23,7 @@ await assertPortsFree([gatewayPort, executionPort]);
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(gatewayLocalProject, { recursive: true });
 mkdirSync(executionCheckout, { recursive: true });
+const relayImageBase64 = installRelayImageFixture(executionCheckout);
 mkdirSync(gatewayConfigDir, { recursive: true });
 mkdirSync(executionConfigDir, { recursive: true });
 writeFileSync(join(gatewayLocalProject, "sentinel.txt"), "gateway-local-content\n");
@@ -111,6 +105,10 @@ try {
   assertToolOk(openedB, "open relayed checkout B");
   assert.equal(openedB.structuredContent.workspaceId, checkoutRelayId);
   pass("relay persistent identity", `two Gateway conversations reused ${checkoutRelayId}`);
+
+  assertRelayedImageResult(callTool(gatewayMcpUrl, oauth.accessToken, sessionB, nextId(), "read", {
+    workspaceId: checkoutRelayId, path: "relay-image.png",
+  }, conversationB), relayImageBase64, gatewayStateDir);
 
   const checkoutList = callTool(gatewayMcpUrl, oauth.accessToken, sessionA, nextId(), "capability", {
     workspaceId: checkoutRelayId,
@@ -508,6 +506,7 @@ try {
     ports: [gatewayPort, executionPort],
     verified: [
       "persistent relay checkout identity across Gateway conversations",
+      "MCP ImageContent passthrough from Execution 7678 through Gateway 7677",
       "Execution-owned Task state and body-free reminders",
       "safe relayed inspection projection",
       "close/reopen/delete parity",

@@ -97,7 +97,7 @@ export function createHttpServer(
   });
   const workspaceStore = createWorkspaceStore(config.stateDir);
   const workspaces = new WorkspaceRegistry(config, workspaceStore);
-  const sharedRemoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir);
+  const sharedRemoteWorkspaces = new RemoteWorkspaceRelay(config.configDir, config.stateDir, config.mediaMaxBytes);
   const sharedCompositeWorkspaces = new CompositeWorkspaceRegistry(config.stateDir);
   const sharedWorkspaceTasks = new WorkspaceTaskStore(config.stateDir);
   const sharedTaskReminders = new WorkspaceTaskReminderTracker(

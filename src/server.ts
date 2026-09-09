@@ -83,7 +83,7 @@ export function createMcpServer(
   const activityPanelApp = createActivityPanelApp(config, FORGERELAY_VERSION);
   const ownsRemoteWorkspaces = options.remoteWorkspaces === undefined;
   const remoteWorkspaces = options.remoteWorkspaces
-    ?? new RemoteWorkspaceRelay(config.configDir, config.stateDir);
+    ?? new RemoteWorkspaceRelay(config.configDir, config.stateDir, config.mediaMaxBytes);
   const compositeWorkspaces = options.compositeWorkspaces
     ?? new CompositeWorkspaceRegistry(config.stateDir);
   const workspaceTasks = new WorkspaceTaskStore(config.stateDir);

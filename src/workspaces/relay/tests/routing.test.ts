@@ -38,6 +38,138 @@ void test("recovery relay sanitization strips unrecognized remote fields", () =>
   });
 });
 
+void test("gateway preserves relayed ImageContent bytes and metadata without shadow persistence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-media-"));
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await writeFile(join(remoteRoot, "relay-image.bin"), png);
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-media-owner-token-long-enough",
+    instanceId: "forge-relay-media-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayRootDir = join(root, "gateway");
+  const gatewayConfigDir = join(gatewayRootDir, "config");
+  const gatewayStateDir = join(gatewayRootDir, "state");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-media-owner-token-long-enough",
+    instanceId: "forge-relay-media-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: gatewayRootDir,
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+    mediaMaxBytes: png.byteLength,
+  });
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const logLines: string[] = [];
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  let read: Awaited<ReturnType<typeof client.callTool>>;
+  console.log = (...args: unknown[]) => logLines.push(args.map(String).join(" "));
+  console.warn = (...args: unknown[]) => logLines.push(args.map(String).join(" "));
+  try {
+    read = await client.callTool({
+      name: "read",
+      arguments: { workspaceId, path: "relay-image.bin" },
+    });
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+  assert.equal(read.isError, undefined, resultText(read));
+  const image = Array.isArray(read.content)
+    ? read.content.find((entry) => entry.type === "image")
+    : undefined;
+  assert.ok(image && image.type === "image");
+  assert.equal(image.mimeType, "image/png");
+  assert.equal(image.data, png.toString("base64"));
+  assert.deepEqual(structuredContent(read).media, {
+    type: "image",
+    mimeType: "image/png",
+    bytes: png.byteLength,
+  });
+  assert.equal(JSON.stringify(read.structuredContent).includes(image.data), false);
+  assert.equal(JSON.stringify(read._meta ?? {}).includes(image.data), false);
+  const routeState = await readFile(join(gatewayStateDir, "remote-workspace-routes.json"), "utf8");
+  assert.equal(routeState.includes(image.data), false);
+  assert.equal(logLines.join("\n").includes(image.data), false);
+
+  t.after(() => rm(root, { recursive: true, force: true }));
+});
+
+void test("gateway rejects relayed ImageContent that exceeds its Host-facing media budget", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-media-budget-"));
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteRoot = join(root, "remote-root");
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await mkdir(gatewayRoot, { recursive: true });
+  await mkdir(remoteRoot, { recursive: true });
+  await writeFile(join(remoteRoot, "relay-budget-a.png"), png);
+  await writeFile(join(remoteRoot, "relay-budget-b.png"), png);
+
+  const remote = await startForge(t, {
+    root: join(root, "remote"),
+    allowedRoot: remoteRoot,
+    ownerToken: "remote-media-budget-owner-token-long-enough",
+    instanceId: "forge-relay-media-budget-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(root, "gateway", "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-media-budget-owner-token-long-enough",
+    instanceId: "forge-relay-media-budget-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: join(root, "gateway"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    mediaMaxBytes: png.byteLength,
+  });
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRoot, relay: "workstation", context: "none" },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const read = await client.callTool({
+    name: "read",
+    arguments: { workspaceId, paths: ["relay-budget-a.png", "relay-budget-b.png"] },
+  });
+  assert.equal(read.isError, true);
+  assert.match(resultText(read), /relayed media content exceeds the gateway media limit/i);
+  assert.equal(
+    Array.isArray(read.content) && read.content.some((entry) => entry.type === "image"),
+    false,
+  );
+
+  t.after(() => rm(root, { recursive: true, force: true }));
+});
+
 void test("gateway mutates files only on the remote workspace", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-mutations-"));
 

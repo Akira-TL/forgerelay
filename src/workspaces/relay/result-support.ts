@@ -132,6 +132,28 @@ export function toolResultText(result: ToolCallResult): string {
     .join("\n") || "remote tool returned an error";
 }
 
+export function enforceRelayedMediaBudget(
+  result: ToolCallResult,
+  maxBytes: number,
+): ToolCallResult {
+  let remainingBytes = maxBytes;
+  for (const entry of result.content ?? []) {
+    if (entry.type !== "image") continue;
+    const bytes = Buffer.byteLength(entry.data, "base64");
+    if (bytes > remainingBytes) {
+      return {
+        content: [{
+          type: "text",
+          text: `Relayed media content exceeds the Gateway media limit of ${maxBytes} bytes.`,
+        }],
+        isError: true,
+      };
+    }
+    remainingBytes -= bytes;
+  }
+  return result;
+}
+
 export function remapToolResultWorkspaceId(
   result: ToolCallResult,
   remoteWorkspaceId: string,
