@@ -4,6 +4,14 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-09
+
+### Fixed
+
+- Preserved Capability names/actions and Workspace lifecycle actions in default pretty tool-call logs instead of collapsing multiplexed operations to generic `ok` lines.
+- Completed attributable tool-call logging for Composite member mutations, checkout/Composite close and delete paths, and Composite-owned `workspace.tasks` success/failure results without logging arbitrary capability arguments.
+- Preserved deletion of closed checkout Workspaces through historical aliases while adding lifecycle logging, avoiding a regression in the existing close/reopen/delete contract.
+
 ## [1.0.0] - 2026-09-07
 
 ### Changed
