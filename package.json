@@ -39,6 +39,7 @@
     "dev": "node scripts/debug/serve.mjs",
     "debug:serve": "node scripts/debug/serve.mjs",
     "debug:accept": "node scripts/debug/accept.mjs",
+    "debug:accept:media": "node scripts/debug/accept/media.mjs",
     "debug:accept:relay": "node scripts/debug/relay-accept.mjs",
     "traffic:audit": "node --import tsx scripts/debug/traffic/traffic-audit.mjs",
     "lsp:interop": "node scripts/lsp/interop.mjs",

@@ -56,7 +56,7 @@ export async function createAcceptanceHarness() {
     encoding: "utf8",
   });
   assert.equal(doctor.status, 0, doctor.stderr);
-  assert.match(doctor.stdout, /Public base URL: http:\/\/127\.0\.0\.1:7677/);
+  assert.match(doctor.stdout, /Client-facing base URL: http:\/\/127\.0\.0\.1:7677/);
   assert.match(doctor.stdout, /Tool mode: full/);
   assert.match(doctor.stdout, /Widgets: changes/);
   assert.match(doctor.stdout, /Trust proxy: off/);

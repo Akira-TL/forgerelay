@@ -263,7 +263,16 @@ try {
   assert.ok(Array.isArray(codeIntelligenceSchema.oneOf));
   assert.deepEqual(
     codeIntelligenceSchema.oneOf.map((variant) => variant.properties.operation.const),
-    ["definition", "hover", "references", "documentSymbols", "workspaceSymbols", "diagnostics"],
+    [
+      "definition",
+      "hover",
+      "references",
+      "documentSymbols",
+      "workspaceSymbols",
+      "diagnostics",
+      "managed.status",
+      "managed.install",
+    ],
   );
   for (const operation of ["references", "documentSymbols", "workspaceSymbols", "diagnostics"]) {
     const boundedSchema = codeIntelligenceSchema.oneOf.find(
@@ -312,6 +321,7 @@ try {
     "shell-processes",
     "code-intelligence",
     "workspace-tasks",
+    "workspace-checkpoints",
     "batch-execution",
   ]);
   const hooksGuide = callTool(oauth.accessToken, sessionId, 78, "read", {

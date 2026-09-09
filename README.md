@@ -108,6 +108,7 @@ ForgeRelay 不会默认为每个任务创建 worktree。只有你明确要求隔
 - 项目里的 `AGENTS.md`、`CLAUDE.md` 和 Agent Skills 按需加载，不会每次都把整套说明重新塞进上下文。
 - 需要并行开发时可以创建真实 Git worktree；集成回主分支时只接受安全的 fast-forward，不自动制造 merge conflict。
 - Workspace Relay 可以把执行放到另一台 ForgeRelay；Composite Workspace 可以同时协调几个独立环境。
+- `read` 可以直接把 PNG、JPEG、WebP 和 GIF 作为临时 MCP Media content 返回；配置好的外部 MCP 也通过 `mcp.external` Capability 转发图片，而不会自动打开它返回的路径或 URL。
 
 Lifecycle Hooks、Workspace Tasks、本地 Subagent、Activity/Audit、Checkpoint 和 Recovery 也已经包含在项目里，但第一次安装时不需要先学这些。需要哪个，再去 [Wiki](https://github.com/Akira-TL/forgerelay/wiki) 查哪个。
 
@@ -220,6 +221,7 @@ Long commands do not require tight polling either. Once the current wait window 
 - `AGENTS.md`, `CLAUDE.md`, and Agent Skills are loaded as needed instead of being resent in full on every open.
 - Managed worktrees provide real Git isolation when you ask for parallel work, with fast-forward-only finalization.
 - Workspace Relay runs work on another ForgeRelay instance; Composite Workspaces coordinate several independent environments from one Host.
+- `read` can return PNG, JPEG, WebP, and GIF directly as transient MCP Media content; configured external MCP servers can forward images through the `mcp.external` Capability without ForgeRelay automatically opening returned paths or URLs.
 
 Lifecycle Hooks, Workspace Tasks, local Subagents, Activity/Audit, checkpoints, and recovery are included too. They are optional parts of the workflow; the [Wiki](https://github.com/Akira-TL/forgerelay/wiki) documents them when you need them.
 

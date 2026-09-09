@@ -146,6 +146,45 @@ A single persisted string remains fully supported, so existing configs require n
 migration. For environment configuration, use a comma-separated list in
 `FORGERELAY_PUBLIC_BASE_URL`.
 
+## Media content and external MCP
+
+The existing `read` tool recognizes PNG, JPEG, WebP, and GIF by file signature and returns the original bytes as standard MCP `ImageContent`. Image reads do not use filename extensions for recognition, and text-only `offset` / `limit` arguments are rejected for image targets.
+
+Inline media uses a separate decoded-byte budget:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FORGERELAY_MEDIA_MAX_BYTES` | `20971520` | Maximum aggregate decoded image bytes in one Host-facing tool result (20 MiB). |
+
+The same value may be persisted as `mediaMaxBytes` in `config.json`. The budget applies at each ForgeRelay media ingress boundary, including local Read, Workspace Relay Gateway delivery, and configured external MCP results. ForgeRelay fails an oversize result instead of truncating, resizing, recompressing, transcoding, or silently creating an Artifact.
+
+Media content is transient. Image base64 is present only in the live MCP result delivered to the Host; Activity/Audit, structured output, UI state, Workspace state, and logs keep bounded metadata such as MIME type and decoded byte size. Reading or forwarding an image does **not** create an Artifact. Artifact download/materialization remains a separate explicit workflow.
+
+User-configured MCP servers are registered in `config.json` under `mcpServers` and are exposed through the workspace-scoped `mcp.external` Capability rather than becoming new top-level MCP tools. For example:
+
+```json
+{
+  "mcpServers": {
+    "renderer": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["/opt/renderer/server.mjs"]
+    },
+    "remote-renderer": {
+      "transport": "streamable-http",
+      "url": "https://renderer.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <token>"
+      }
+    }
+  }
+}
+```
+
+The Agent explicitly selects the configured server, advertised tool, and arguments through `capability(name="mcp.external", action="run", ...)`. Direct upstream PNG/JPEG/WebP/GIF `ImageContent` is validated and forwarded without decode/re-encode. Text, paths, URLs, `resource_link` values, and other references remain exactly that by default: ForgeRelay does not automatically fetch them, call `read`, infer that they refer to an image, or create an Artifact.
+
+A known server/tool may opt into explicit request/result adaptation with `ExternalMcpBeforeForward` or `ExternalMcpAfterForward` project/global Hooks. These transforms use the structured versioned stdin/stdout protocol described under [Lifecycle hooks](#lifecycle-hooks); ordinary Hook stdout never rewrites MCP data. For example, a project can match one renderer tool whose normal result is a path and deliberately convert that result into `ImageContent`. The Hook command performs any file/network access with its normal local-user authority, and the transformed result still passes through the same MCP shape, MIME/base64, and `mediaMaxBytes` validation before Host delivery.
+
 ## Native artifact download
 
 Native-file download is disabled by default. Enable it with:
@@ -553,7 +592,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 
 | 字段 | 含义 |
 | --- | --- |
-| `event` | 必填，九个 Hook event 之一。 |
+| `event` | 必填，当前 Hook event 之一。 |
 | `matcher` | 可选，只在匹配当前生命周期上下文时执行。 |
 | `command` | 必填，本地 shell 命令。 |
 | `timeoutSeconds` | 默认 `30`，范围 `1` 到 `300`。 |
@@ -587,6 +626,11 @@ forgerelay hooks check --project /path/to/project
 | `pathRegex` | 对 payload 中的 `path` 或 `paths` 做正则匹配。 |
 | `provider` | 精确匹配 subagent provider。 |
 | `workspaceMode` | `checkout` 或 `worktree`。 |
+| `capability` | 精确匹配 Capability 名；external MCP transform 使用 `mcp.external`。 |
+| `externalServer` | 精确匹配已经配置的 external MCP server 名。 |
+| `externalTool` | 精确匹配该 server 当前调用的 upstream tool 名。 |
+
+`capability` / `externalServer` / `externalTool` 只匹配当前已选择的 Capability target，不允许 Hook 输出改写 server/tool 或提供新的连接地址、命令、凭据。
 
 Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令内部后续启动的子进程。例如 `bash` 参数本身是 `git push origin v0.2.0` 时可以命中；若参数只是 `./release.sh`，而脚本内部再执行 `git push`，ForgeRelay 不会把内部子进程重新解释成新的 Hook 事件。
 
@@ -600,13 +644,17 @@ Matcher 匹配 ForgeRelay 收到的那次 tool request，不会窥探该命令�
 | `BeforeTool` | workspace-scoped MCP tool 执行前触发；失败或超时会阻断原操作。`open_workspace` 因执行前还没有 workspace，不走该事件。 |
 | `AfterTool` | tool 成功后触发。 |
 | `AfterToolFailure` | tool 失败或被 `BeforeTool` 拒绝后触发。 |
+| `ExternalMcpBeforeForward` | 已选择 `mcp.external` server/tool 后、upstream 调用前触发；使用 structured transform 协议，可替换当前 request arguments，但不能改写 server/tool。失败会阻止 upstream 调用。 |
+| `ExternalMcpAfterForward` | upstream external MCP 调用成功后触发；使用 structured transform 协议，可替换当前 MCP result。替换结果重新经过标准 MCP/Media 校验。失败会令 Capability 失败，但不会声称回滚 upstream 已发生的副作用。 |
 | `AfterFileChange` | `write`、`edit`、`rename`、`delete`、`apply_patch`、native artifact 等明确文件变更成功后触发；不会推断 shell 的文件副作用。 |
 | `BeforeWorktreeClose` | worktree commit、fast-forward、cleanup 前触发；失败会保留 worktree 并阻断 close。 |
 | `AfterWorktreeClose` | managed worktree 成功关闭后触发；此时从 source checkout 运行。 |
 | `SubagentStart` | 本地 subagent worker 进入执行时触发。 |
 | `SubagentStop` | subagent 完成或进入 error 状态时触发。 |
 
-`BeforeTool` 与 `BeforeWorktreeClose` 是 blocking 事件。其他事件是 observational：失败会被记录并报告，但不会回滚已经完成的文件、Git、进程或网络副作用。Blocking 同样不是事务；Hook 命令自己已经产生的副作用不会因 exit code 非零而撤销。Host 在 blocking Hook 仍运行时取消 MCP request，会终止该 Hook 并阻止原始 tool operation 开始，因此不会出现 Host 已放弃请求后 Hook 又放行后续原始副作用的情况。
+`BeforeTool` 与 `BeforeWorktreeClose` 是普通 lifecycle blocking 事件。`ExternalMcpBeforeForward` 也是 external-MCP forwarding 的前置阻断点；`ExternalMcpAfterForward` 则发生在 upstream 已成功返回之后，因此它只能阻止变换后结果继续交付，不能回滚或伪装撤销 upstream 副作用。其他 after-events 是 observational：失败会被记录并报告，但不会回滚已经完成的文件、Git、进程或网络副作用。Blocking 同样不是事务；Hook 命令自己已经产生的副作用不会因 exit code 非零而撤销。Host 在前置 blocking Hook 仍运行时取消 MCP request，会终止该 Hook 并阻止对应原始 operation 开始。
+
+External MCP transform 的可变数据不通过普通 Hook stdout 约定。ForgeRelay 把一个 `version: 1` JSON envelope 写到 transform Hook 的 stdin，并只接受 stdout 中一个合法 JSON envelope：before-forward 返回 `arguments`，after-forward 返回 `result`。这一协议只对两个 External MCP transform event 生效；现有 lifecycle Hook stdout 仍只是命令输出。
 
 ### Agent 可见报告
 
