@@ -12,6 +12,8 @@ interface ExecuteHookCommandInput {
   timeoutMs: number;
   detached: boolean;
   signal?: AbortSignal;
+  stdin?: string;
+  maxCaptureBytes?: number;
 }
 
 interface ExecuteHookCommandResult {
@@ -31,7 +33,7 @@ export function executeHookCommand(input: ExecuteHookCommandInput): Promise<Exec
       detached: input.detached,
       windowsHide: true,
       windowsVerbatimArguments: input.windowsVerbatimArguments,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -49,12 +51,17 @@ export function executeHookCommand(input: ExecuteHookCommandInput): Promise<Exec
     };
     input.signal?.addEventListener("abort", abort, { once: true });
 
+    const maxCaptureBytes = input.maxCaptureBytes ?? MAX_CAPTURE_BYTES;
     child.stdout?.on("data", (chunk: Buffer | string) => {
-      stdout = appendCaptured(stdout, chunk);
+      stdout = appendCaptured(stdout, chunk, maxCaptureBytes);
     });
     child.stderr?.on("data", (chunk: Buffer | string) => {
-      stderr = appendCaptured(stderr, chunk);
+      stderr = appendCaptured(stderr, chunk, maxCaptureBytes);
     });
+    if (input.stdin !== undefined) {
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(input.stdin);
+    }
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -87,11 +94,11 @@ export function executeHookCommand(input: ExecuteHookCommandInput): Promise<Exec
   });
 }
 
-function appendCaptured(current: string, chunk: Buffer | string): string {
-  if (Buffer.byteLength(current) >= MAX_CAPTURE_BYTES) return current;
+function appendCaptured(current: string, chunk: Buffer | string, maxBytes: number): string {
+  if (Buffer.byteLength(current) >= maxBytes) return current;
   const next = current + chunk.toString();
-  if (Buffer.byteLength(next) <= MAX_CAPTURE_BYTES) return next;
-  return Buffer.from(next).subarray(0, MAX_CAPTURE_BYTES).toString("utf8");
+  if (Buffer.byteLength(next) <= maxBytes) return next;
+  return Buffer.from(next).subarray(0, maxBytes).toString("utf8");
 }
 
 export function hookFailureOutput(stdout: string, stderr: string): string {

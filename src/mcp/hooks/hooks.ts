@@ -18,6 +18,8 @@ export const HOOK_EVENTS = [
   "BeforeTool",
   "AfterTool",
   "AfterToolFailure",
+  "ExternalMcpBeforeForward",
+  "ExternalMcpAfterForward",
   "AfterFileChange",
   "BeforeWorktreeClose",
   "AfterWorktreeClose",
@@ -47,6 +49,9 @@ export interface HookMatcherInput {
   pathRegex?: string;
   provider?: string;
   workspaceMode?: WorkspaceMode;
+  capability?: string;
+  externalServer?: string;
+  externalTool?: string;
 }
 
 export interface HookMatcher {
@@ -55,6 +60,9 @@ export interface HookMatcher {
   pathRegex?: string;
   provider?: string;
   workspaceMode?: WorkspaceMode;
+  capability?: string;
+  externalServer?: string;
+  externalTool?: string;
 }
 
 export interface HookRuleInput {
@@ -98,7 +106,12 @@ const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 const MAX_HOOK_TIMEOUT_SECONDS = 300;
 const PROJECT_HOOKS_PATH = join(".forgerelay", "hooks.json");
 const PROJECT_HOOKS_DIR = join(".forgerelay", "hooks");
-const BLOCKING_EVENTS = new Set<HookEvent>(["BeforeTool", "BeforeWorktreeClose"]);
+const BLOCKING_EVENTS = new Set<HookEvent>([
+  "BeforeTool",
+  "ExternalMcpBeforeForward",
+  "ExternalMcpAfterForward",
+  "BeforeWorktreeClose",
+]);
 const EVENT_SET = new Set<string>(HOOK_EVENTS);
 
 export class HookExecutionError extends Error {
@@ -530,8 +543,35 @@ function parseHookMatcher(
     }
     matcher.workspaceMode = value.workspaceMode;
   }
+  if (value.capability !== undefined) {
+    if (typeof value.capability !== "string" || value.capability.trim().length === 0) {
+      throw new Error(`Hook ${event} matcher capability must be a non-empty string`);
+    }
+    matcher.capability = value.capability.trim();
+  }
+  if (value.externalServer !== undefined) {
+    if (typeof value.externalServer !== "string" || value.externalServer.trim().length === 0) {
+      throw new Error(`Hook ${event} matcher externalServer must be a non-empty string`);
+    }
+    matcher.externalServer = value.externalServer.trim();
+  }
+  if (value.externalTool !== undefined) {
+    if (typeof value.externalTool !== "string" || value.externalTool.trim().length === 0) {
+      throw new Error(`Hook ${event} matcher externalTool must be a non-empty string`);
+    }
+    matcher.externalTool = value.externalTool.trim();
+  }
 
-  const knownKeys = new Set(["tool", "commandRegex", "pathRegex", "provider", "workspaceMode"]);
+  const knownKeys = new Set([
+    "tool",
+    "commandRegex",
+    "pathRegex",
+    "provider",
+    "workspaceMode",
+    "capability",
+    "externalServer",
+    "externalTool",
+  ]);
   const unknownKey = Object.keys(value).find((key) => !knownKeys.has(key));
   if (unknownKey) {
     throw new Error(`Unknown Hook ${event} matcher field: ${unknownKey}`);
@@ -632,7 +672,7 @@ export async function loadProjectHookConfig(workspaceRoot: string): Promise<Proj
   };
 }
 
-function matchHookRule(
+export function matchHookRule(
   matcher: HookMatcher | undefined,
   invocation: HookInvocation,
 ): HookInvocation | undefined {
@@ -683,6 +723,16 @@ function matchHookRule(
     ) {
       return undefined;
     }
+  }
+
+  if (matcher.capability) {
+    if (invocation.payload?.capability !== matcher.capability) return undefined;
+  }
+  if (matcher.externalServer) {
+    if (invocation.payload?.externalServer !== matcher.externalServer) return undefined;
+  }
+  if (matcher.externalTool) {
+    if (invocation.payload?.externalTool !== matcher.externalTool) return undefined;
   }
 
   return matchedInvocation;

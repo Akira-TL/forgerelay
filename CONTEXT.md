@@ -64,6 +64,10 @@ _Avoid_: Plugin, extension
 一次 Hook handler 执行后返回给 Host/Agent 的结果，用于让 Agent 感知触发、通过或阻断状态。
 _Avoid_: Approval, user confirmation
 
+**Transform Hook**：
+一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
+_Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
+
 **Subagent**:
 A bounded provider-backed local coding worker delegated a task and coordinated by
 the host through ForgeRelay-owned lifecycle state.

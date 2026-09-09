@@ -16,6 +16,11 @@ import {
   strictBase64ByteLength,
   type MediaContentMetadata,
 } from "../media/media-content.js";
+import {
+  ExternalMcpTransformError,
+  type ExternalMcpTransformResult,
+  type ExternalMcpTransformSummary,
+} from "../hooks/external-mcp-transform.js";
 
 const MAX_DISCOVERED_TOOLS = 100;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
@@ -46,6 +51,20 @@ export interface ExternalMcpCapabilityResult {
   truncated?: boolean;
   content?: ExternalMcpProjectedContent;
   structuredContent?: Record<string, unknown>;
+  transforms?: ExternalMcpTransformSummary[];
+}
+
+export interface ExternalMcpCallTransforms {
+  request?: (
+    server: string,
+    tool: string,
+    arguments_: Record<string, unknown>,
+  ) => Promise<ExternalMcpTransformResult<Record<string, unknown>>>;
+  result?: (
+    server: string,
+    tool: string,
+    result: CallToolResult,
+  ) => Promise<ExternalMcpTransformResult<CallToolResult>>;
 }
 
 export interface ExternalMcpRunResult {
@@ -70,7 +89,11 @@ export class ExternalMcpGateway {
     return Object.keys(this.servers).length > 0;
   }
 
-  async run(input: ExternalMcpCapabilityInput, signal?: AbortSignal): Promise<ExternalMcpRunResult> {
+  async run(
+    input: ExternalMcpCapabilityInput,
+    signal?: AbortSignal,
+    transforms?: ExternalMcpCallTransforms,
+  ): Promise<ExternalMcpRunResult> {
     signal?.throwIfAborted();
     switch (input.operation) {
       case "servers":
@@ -97,8 +120,15 @@ export class ExternalMcpGateway {
       case "call":
         return this.withClient(input.server, signal, async (client) => {
           await assertRegisteredTool(client, input.server, input.tool, signal);
-          const result = await client.callTool(
-            { name: input.tool, arguments: input.arguments ?? {} },
+          const appliedTransforms: ExternalMcpTransformSummary[] = [];
+          let callArguments = input.arguments ?? {};
+          if (transforms?.request) {
+            const transformed = await transforms.request(input.server, input.tool, callArguments);
+            callArguments = transformed.value;
+            appliedTransforms.push(...transformed.transforms);
+          }
+          let result = await client.callTool(
+            { name: input.tool, arguments: callArguments },
             undefined,
             { signal },
           );
@@ -108,6 +138,18 @@ export class ExternalMcpGateway {
               "tool_failed",
               `External MCP ${input.server} tool ${input.tool} returned an upstream tool error.`,
             );
+          }
+          if (transforms?.result) {
+            const transformed = await transforms.result(input.server, input.tool, result);
+            result = transformed.value;
+            appliedTransforms.push(...transformed.transforms);
+            assertCallToolResult(input.server, input.tool, result);
+            if (result.isError) {
+              throw new ExternalMcpError(
+                "tool_failed",
+                `External MCP ${input.server} tool ${input.tool} returned an error after result transformation.`,
+              );
+            }
           }
           const projection = projectExternalMcpContent(
             input.server,
@@ -125,6 +167,7 @@ export class ExternalMcpGateway {
               ...(!projection.hasMedia && isRecord(result.structuredContent)
                 ? { structuredContent: result.structuredContent }
                 : {}),
+              ...(appliedTransforms.length > 0 ? { transforms: appliedTransforms } : {}),
             },
           };
         });
@@ -146,7 +189,7 @@ export class ExternalMcpGateway {
       signal?.throwIfAborted();
       return await operation(client);
     } catch (error) {
-      if (error instanceof ExternalMcpError) throw error;
+      if (error instanceof ExternalMcpError || error instanceof ExternalMcpTransformError) throw error;
       if (signal?.aborted) signal.throwIfAborted();
       throw new ExternalMcpError(
         "transport_failed",

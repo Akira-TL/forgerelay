@@ -118,6 +118,24 @@ function summarizeExternalMcpCapabilityResult(result: Record<string, unknown>): 
     });
     if (media.length > 0) summary.media = media;
   }
+  if (Array.isArray(result.transforms)) {
+    const transforms = result.transforms.flatMap((entry) => {
+      if (
+        !isAuditRecord(entry)
+        || (entry.phase !== "request" && entry.phase !== "result")
+        || typeof entry.name !== "string"
+        || (entry.scope !== "global" && entry.scope !== "project")
+        || entry.status !== "passed"
+      ) return [];
+      return [{
+        phase: entry.phase,
+        name: entry.name.slice(0, 200),
+        scope: entry.scope,
+        status: "passed",
+      }];
+    });
+    if (transforms.length > 0) summary.transforms = transforms;
+  }
   return summary;
 }
 

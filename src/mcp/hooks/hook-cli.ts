@@ -139,6 +139,9 @@ function formatMatcher(matcher: HookMatcher | undefined): string {
     matcher.pathRegex ? `pathRegex=${matcher.pathRegex}` : undefined,
     matcher.provider ? `provider=${matcher.provider}` : undefined,
     matcher.workspaceMode ? `workspaceMode=${matcher.workspaceMode}` : undefined,
+    matcher.capability ? `capability=${matcher.capability}` : undefined,
+    matcher.externalServer ? `externalServer=${matcher.externalServer}` : undefined,
+    matcher.externalTool ? `externalTool=${matcher.externalTool}` : undefined,
   ].filter((value): value is string => value !== undefined);
   return parts.length > 0 ? parts.join(" ") : "matcher=*";
 }

@@ -6,8 +6,10 @@ Hook 有两个作用域。全局 Hook 首选放在当前 ForgeRelay 配置目录
 
 每个独立 Hook 文件只包含一个 event、可选 matcher 和一个 command，以及 timeout/report 选项。这个约束刻意避免在一个大配置文件里堆积互不相关的规则，也避免文件名与内部 `name` 重复维护。需要多个步骤时拆成多个文件，使每一步可以独立重命名、排序、审查或删除。旧的 inline `hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式继续作为兼容入口。
 
-`BeforeTool` 与 `BeforeWorktreeClose` 属于阻断事件：命中的 Hook 失败或超时后，原操作不继续。其余事件用于观察已发生的生命周期结果，失败会被记录，但不会伪装成可以回滚已经完成的文件、Git 或进程副作用。
+`BeforeTool` 与 `BeforeWorktreeClose` 属于阻断事件：命中的 Hook 失败或超时后，原操作不继续。其余普通 lifecycle after-event 用于观察已发生的生命周期结果，失败会被记录，但不会伪装成可以回滚已经完成的文件、Git 或进程副作用。
+
+First-class Media / external MCP 工作新增两个显式 transform 事件：`ExternalMcpBeforeForward` 与 `ExternalMcpAfterForward`。它们只服务于已配置 `mcp.external` Capability 的当前 server/tool 调用，并使用 versioned JSON stdin/stdout contract，而不是改变普通 Hook stdout 语义。Before-forward transform 可以替换当前 request arguments，但不能改写已选择的 server/tool；after-forward transform 可以替换当前 MCP result，随后仍需通过标准 MCP result 与 Media 校验。两个 transform 事件的失败都会令当前 Capability Activity 失败；其中 after-forward 发生在 upstream 调用之后，因此只阻止变换后结果继续交付，绝不声称能够撤销 upstream 已产生的副作用。
 
 Hook 的执行结果对 Agent 可见。`report` 默认为 `true`；设为 `false` 可以隐藏成功的高频 Hook 报告，但阻断失败始终可见。ForgeRelay 的模型指令要求 Agent 在结果中出现 Hook report 时，向用户说明有意义的 Hook 是否通过或阻断了操作。
 
-项目 Hook 是 allowed root 内项目执行约定的一部分，不需要额外批准。Hook 文件只能声明生命周期规则，不能借此扩大 allowed roots、修改认证边界或覆盖机器级全局规则。项目 Hook 命令仍以运行 ForgeRelay 的本地用户权限执行，因此 allowed roots 仍是重要的执行边界。
+项目 Hook 是 allowed root 内项目执行约定的一部分，不需要额外批准。Hook 文件只能声明生命周期规则，不能借此扩大 allowed roots、修改认证边界或覆盖机器级全局规则。项目 Hook 命令仍以运行 ForgeRelay 的本地用户权限执行，因此 allowed roots 仍是重要的执行边界。Transform Hook 如主动读取路径或访问网络，使用的是该 Hook command 自身的 OS 权限；ForgeRelay 不把这种行为表示成自动 `read`、自动 fetch 或新增连接权限。

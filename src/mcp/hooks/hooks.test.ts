@@ -463,3 +463,35 @@ test("observational hook failure does not stop later handlers", async (t) => {
 
   assert.equal(await readFile(join(root, "continued.txt"), "utf8"), "yes");
 });
+
+test("external MCP transform hook events normalize bounded matcher fields", () => {
+  assert.deepEqual(
+    parseHookConfig({
+      ExternalMcpBeforeForward: [{
+        matcher: {
+          tool: "capability",
+          capability: "mcp.external",
+          externalServer: "blender",
+          externalTool: "render",
+        },
+        handlers: [{ command: "node transform.mjs", report: false }],
+      }],
+    }),
+    {
+      ExternalMcpBeforeForward: [{
+        matcher: {
+          tool: "capability",
+          capability: "mcp.external",
+          externalServer: "blender",
+          externalTool: "render",
+        },
+        handlers: [{
+          name: undefined,
+          command: "node transform.mjs",
+          timeoutSeconds: 30,
+          report: false,
+        }],
+      }],
+    },
+  );
+});

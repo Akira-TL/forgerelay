@@ -1,4 +1,5 @@
 import "../external/external-mcp-capability.test.js";
+import "../external/external-mcp-transform.test.js";
 import "./contract.test.js";
 import "./workspace/workspace-open.test.js";
 import "./workspace/logging/workspace-lifecycle.test.js";

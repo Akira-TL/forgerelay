@@ -17,4 +17,13 @@ Use `mcp.external` only for MCP servers the user has already configured in Forge
 - Audio and arbitrary binary-resource forwarding are outside this Media contract. A path, URL, `resource_link`, or other non-media reference is not upgraded into an image automatically.
 - ForgeRelay does not autonomously chain external MCP tools or retry through another configured server.
 - External MCP processes/services keep the operating-system and network authority with which the user configured them. Routing through ForgeRelay does not make them a ForgeRelay filesystem sandbox.
-- Hook policy may inspect or block Capability calls. Server/tool-specific request/result transformation is available only when the installed ForgeRelay version explicitly advertises that Hook contract; do not assume ordinary Hook stdout rewrites MCP data.
+- Hook policy may inspect or block Capability calls. Server/tool-specific transforms use the explicit `ExternalMcpBeforeForward` / `ExternalMcpAfterForward` contract; ordinary Hook stdout never rewrites MCP data.
+
+## Optional transform Hooks
+
+Transform Hooks are opt-in user policy for one configured external MCP server/tool. Match them with `tool: "capability"`, `capability: "mcp.external"`, `externalServer`, and `externalTool`. ForgeRelay passes the current transform value over stdin as versioned JSON and accepts one structured stdout envelope only.
+
+- Before forward: stdout must be `{"version":1,"request":{"arguments":{...}}}`. Only arguments can change; the configured server/tool target cannot.
+- After forward: stdout must be `{"version":1,"result":{...}}`. The transformed result is revalidated as an MCP result and any ImageContent is rechecked against the normal MIME/base64/media-budget rules.
+- A transform command may deliberately read a renderer-owned path or perform other work using the command's own OS authority. That is explicit Hook behavior, not an implicit ForgeRelay `read`, fetch, or Artifact operation.
+- Activity/log state records only bounded transform identity/status metadata. Transform stdin/stdout, arbitrary upstream payloads, credentials, and image base64 are not persisted by ForgeRelay.
