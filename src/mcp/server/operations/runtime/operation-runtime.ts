@@ -5,6 +5,7 @@ import type { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js
 import type { ServerConfig } from "../../../../runtime/config/config.js";
 import { deletePath, renamePath } from "../../../filesystem/file-mutations.js";
 import { editFileTool, readFileTool, writeFileTool } from "../../../filesystem/filesystem-tools.js";
+import { createMediaBudget } from "../../../media/media-content.js";
 import { HookRunner, runToolWithHooks } from "../../../hooks/hooks.js";
 import { toolNames } from "../../../server-instructions.js";
 import { BatchExecutor } from "../../../operations/batch/executor.js";
@@ -42,12 +43,15 @@ import {
 } from "../../core/capability-support.js";
 import {
   assertWorkspaceInstructionsLoadedBeforeSideEffect,
+  auditToolResultWithoutImageData,
   contentLineCount,
   contentText,
   countDiffStats,
   formatDiscoveredWorkspaceInstructions,
+  imageContentMetadata,
   logFailedToolResponse,
   logToolCall,
+  metadataSafeContent,
   newFilePatch,
   textBlock,
   textSummary,
@@ -104,6 +108,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                 cwd: workspace.root,
                 root: workspace.root,
                 readRoots: readPath.readRoots,
+                mediaBudget: context.mediaBudget ?? createMediaBudget(config.mediaMaxBytes),
               },
             );
 
@@ -123,10 +128,12 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
             const content = discoveredInstructionContent
               ? [discoveredInstructionContent, ...response.content]
               : response.content;
+            const media = imageContentMetadata(response.content);
             const summary = {
               ...textSummary(response.content),
               offset: readInput.offset ?? 1,
               limited: readInput.limit !== undefined,
+              ...(media ? { media } : {}),
             };
             logToolCall(config, {
               tool: toolNames.read,
@@ -145,11 +152,12 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                   workspaceId,
                   path: readInput.path,
                   summary,
-                  payload: { content: response.content },
+                  payload: { content: metadataSafeContent(response.content) },
                 },
               },
               structuredContent: {
                 result: contentText(content),
+                ...(media ? { media } : {}),
                 ...(discoveredInstructions.length > 0
                   ? {
                       agentsFiles: discoveredInstructions.map((file) => ({
@@ -163,6 +171,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
           },
         },
         activityRelationFor(context),
+        auditToolResultWithoutImageData,
       );
     },
     write: async (input: WriteOperationInput, context: CoreOperationContext) => {

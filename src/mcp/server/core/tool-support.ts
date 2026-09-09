@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { MediaContentMetadata } from "../../media/media-content.js";
 import type { ServerConfig } from "../../../runtime/config/config.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../../runtime/logging/logger.js";
 import { formatAgentsPath, type Workspace, type WorkspaceRegistry } from "../../../workspaces.js";
@@ -100,6 +101,39 @@ export function contentText(content: ToolContent[]): string {
     )
     .map((item) => item.text)
     .join("\n");
+}
+
+export function imageContentMetadata(content: ToolContent[]): MediaContentMetadata | undefined {
+  const image = content.find(
+    (item): item is Extract<ToolContent, { type: "image" }> => item.type === "image",
+  );
+  return image
+    ? {
+        type: "image",
+        mimeType: image.mimeType,
+        bytes: Buffer.byteLength(image.data, "base64"),
+      }
+    : undefined;
+}
+
+export function metadataSafeContent(content: ToolContent[]): ToolContent[] {
+  return content.filter(
+    (item): item is Extract<ToolContent, { type: "text" }> => item.type === "text",
+  );
+}
+
+export function auditToolResultWithoutImageData<T>(result: T): T | Record<string, unknown> {
+  if (typeof result !== "object" || result === null) return result;
+  const record = result as Record<string, unknown>;
+  const content = Array.isArray(record.content) ? record.content as ToolContent[] : undefined;
+  if (!content) return result;
+  const media = imageContentMetadata(content);
+  if (!media) return result;
+  return {
+    ...record,
+    content: metadataSafeContent(content),
+    media,
+  };
 }
 
 export function toolErrorPreview(content: ToolContent[]): string | undefined {

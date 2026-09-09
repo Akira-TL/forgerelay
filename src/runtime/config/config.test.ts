@@ -67,6 +67,7 @@ writeFileSync(
   join(forgeRelayConfigDir, "config.json"),
   JSON.stringify({
     activityPanelExpanded: true,
+    mediaMaxBytes: 456,
     hooks: {
       BeforeTool: [{ name: "Legacy inline hook", command: "echo inline" }],
     },
@@ -81,6 +82,7 @@ const forgeRelayConfig = loadConfig({
 });
 assert.equal(forgeRelayConfig.widgets, "changes");
 assert.equal(forgeRelayConfig.activityPanelExpanded, true);
+assert.equal(forgeRelayConfig.mediaMaxBytes, 456);
 assert.equal(loadConfig({
   ...baseEnv,
   FORGERELAY_CONFIG_DIR: forgeRelayConfigDir,
@@ -116,6 +118,7 @@ assert.equal(loadConfig(baseEnv).configAgentsDir, join(emptyConfigDir, "agents")
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
+assert.equal(loadConfig(baseEnv).mediaMaxBytes, 20 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
 const defaultShellConfig = loadConfig(baseEnv);
 assert.equal(defaultShellConfig.shellInstructionsEnabled, true);
@@ -182,6 +185,7 @@ assert.equal(
   loadConfig({ ...baseEnv, FORGERELAY_ARTIFACT_MAX_FILE_BYTES: "123" }).artifactMaxFileBytes,
   123,
 );
+assert.equal(loadConfig({ ...baseEnv, FORGERELAY_MEDIA_MAX_BYTES: "321" }).mediaMaxBytes, 321);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_SKILLS: "0" }).skillsEnabled, false);
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_SKILLS: "1" }).skillsEnabled, true);
 assert.equal(
@@ -204,6 +208,14 @@ assert.throws(
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "1.5" }),
   /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: 1.5/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, FORGERELAY_MEDIA_MAX_BYTES: "0" }),
+  /Invalid FORGERELAY_MEDIA_MAX_BYTES: 0/,
+);
+assert.throws(
+  () => loadConfig({ ...baseEnv, FORGERELAY_MEDIA_MAX_BYTES: "1.5" }),
+  /Invalid FORGERELAY_MEDIA_MAX_BYTES: 1.5/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "minimal" }),

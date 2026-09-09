@@ -6,6 +6,7 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { applyPatch } from "../../../filesystem/apply-patch.js";
 import { readFileTool } from "../../../filesystem/filesystem-tools.js";
+import { createMediaBudget, type MediaContentMetadata } from "../../../media/media-content.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import type { CodeIntelligenceManager } from "../../../../lsp/runtime/manager.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
@@ -30,6 +31,7 @@ import { workspaceHookInvocation } from "../../core/capability-support.js";
 import { resultOutputSchema, workspaceAgentsFileOutputSchema } from "../../core/schemas.js";
 import {
   contentText,
+  imageContentMetadata,
   logToolCall,
   textBlock,
   toolResultAgentsFiles,
@@ -53,6 +55,11 @@ const EDIT_TOOL_ANNOTATIONS = {
   idempotentHint: false,
   openWorldHint: false,
 };
+const MEDIA_METADATA_OUTPUT_SCHEMA = z.object({
+  type: z.literal("image"),
+  mimeType: z.string(),
+  bytes: z.number().int().nonnegative(),
+});
 
 export interface RegisterFilesystemToolsOptions {
   server: McpServer;
@@ -128,10 +135,12 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       },
       outputSchema: resultOutputSchema({
         agentsFiles: z.array(workspaceAgentsFileOutputSchema).optional(),
+        media: MEDIA_METADATA_OUTPUT_SCHEMA.optional(),
         results: z.array(z.object({
           path: z.string(),
           status: z.enum(["done", "error"]),
           result: z.string(),
+          media: MEDIA_METADATA_OUTPUT_SCHEMA.optional(),
         })).optional(),
         files: z.number().int().nonnegative().optional(),
         failed: z.number().int().nonnegative().optional(),
@@ -152,27 +161,35 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           }
         }
         const startedAt = performance.now();
-        const children = await Promise.all(requestedPaths.map(async (requestedPath) => {
-          const response = await readFileTool(
+        const mediaBudget = createMediaBudget(config.mediaMaxBytes);
+        const execution = await executeBulkRead({
+          paths: requestedPaths,
+          signal: extra.signal,
+          run: (requestedPath) => readFileTool(
             { path: requestedPath, offset, limit },
             {
               cwd: process.cwd(),
               root: config.allowedRoots[0] ?? process.cwd(),
               readRoots: config.allowedRoots,
+              mediaBudget,
             },
-          );
-          return {
-            path: requestedPath,
-            status: response.isError ? "error" as const : "done" as const,
-            response,
-            result: contentText(response.content as ToolContent[]),
-          };
-        }));
-        const failed = children.filter((child) => child.status === "error").length;
-        const content = children.flatMap((child): ToolContent[] => requestedPaths.length === 1
-          ? child.response.content as ToolContent[]
-          : [textBlock(`--- ${child.path} · ${child.status} ---`), ...(child.response.content as ToolContent[])]
-        );
+          ),
+          isError: (response) => response.isError === true,
+          resultText: (response) => contentText(response.content as ToolContent[]),
+        });
+        const children = execution.children;
+        const failed = execution.failed;
+        const content = children.flatMap((child): ToolContent[] => {
+          const childContent = child.response
+            ? child.response.content as ToolContent[]
+            : [textBlock(child.result)];
+          return requestedPaths.length === 1
+            ? childContent
+            : [textBlock(`--- ${child.path} · ${child.status} ---`), ...childContent];
+        });
+        const singleMedia = requestedPaths.length === 1 && children[0]?.response
+          ? imageContentMetadata(children[0].response.content as ToolContent[])
+          : undefined;
         logToolCall(config, {
           tool: toolNames.read,
           path: requestedPaths.length === 1 ? requestedPaths[0] : `${requestedPaths.length} unscoped files`,
@@ -184,9 +201,20 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           ...(failed > 0 ? { isError: true as const } : {}),
           structuredContent: {
             result: contentText(content),
+            ...(singleMedia ? { media: singleMedia } : {}),
             ...(requestedPaths.length > 1
               ? {
-                  results: children.map(({ path: childPath, status, result }) => ({ path: childPath, status, result })),
+                  results: children.map(({ path: childPath, status, result, response }) => {
+                    const media = response
+                      ? imageContentMetadata(response.content as ToolContent[])
+                      : undefined;
+                    return {
+                      path: childPath,
+                      status,
+                      result,
+                      ...(media ? { media } : {}),
+                    };
+                  }),
                   files: children.length,
                   failed,
                 }
@@ -241,7 +269,12 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
         content: ToolContent[];
         structuredContent: {
           result: string;
-          results: Array<{ path: string; status: "done" | "error"; result: string }>;
+          results: Array<{
+            path: string;
+            status: "done" | "error";
+            result: string;
+            media?: MediaContentMetadata;
+          }>;
           files: number;
           failed: number;
           agentsFiles?: Array<{ path: string; content: string }>;
@@ -254,6 +287,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
         toolNames.read,
         activityRequestFor({ workspaceId: executionWorkspaceId, paths, offset, limit }, executionContext),
         async (parentContext) => {
+          const mediaBudget = createMediaBudget(config.mediaMaxBytes);
           const execution = await executeBulkRead({
             paths: paths!,
             signal: extra.signal,
@@ -263,6 +297,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
                 ...executionContext,
                 parentActivityId: parentContext.activityId,
                 turnId: parentContext.turnId,
+                mediaBudget,
               },
             ),
             isError: toolResultIsError,
@@ -286,11 +321,17 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
             content,
             structuredContent: {
               result: contentText(content),
-              results: execution.children.map(({ path: childPath, status, result }) => ({
-                path: childPath,
-                status,
-                result,
-              })),
+              results: execution.children.map(({ path: childPath, status, result, response }) => {
+                const media = response
+                  ? imageContentMetadata(toolResultContent(response))
+                  : undefined;
+                return {
+                  path: childPath,
+                  status,
+                  result,
+                  ...(media ? { media } : {}),
+                };
+              }),
               files: execution.children.length,
               failed: execution.failed,
               ...(agentsFiles.length > 0 ? { agentsFiles } : {}),

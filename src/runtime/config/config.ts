@@ -18,6 +18,7 @@ import {
   parseExternalMcpServers,
   type ExternalMcpServersConfig,
 } from "./external-mcp-config.js";
+import { DEFAULT_MEDIA_MAX_BYTES } from "../../mcp/media/media-content.js";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import {
   resolveConfiguredCommandShellRuntime,
@@ -55,6 +56,7 @@ export interface ServerConfig {
   worktreeRoot: string;
   artifactsEnabled: boolean;
   artifactMaxFileBytes: number;
+  mediaMaxBytes: number;
   taskReminderInterval: number;
   skillsEnabled: boolean;
   skillPaths: string[];
@@ -455,6 +457,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       productEnv(env, "ARTIFACT_MAX_FILE_BYTES") ?? numberConfigValue(files.config.artifactMaxFileBytes),
       DEFAULT_ARTIFACT_MAX_FILE_BYTES,
       "FORGERELAY_ARTIFACT_MAX_FILE_BYTES",
+    ),
+    mediaMaxBytes: parsePositiveInteger(
+      productEnv(env, "MEDIA_MAX_BYTES") ?? numberConfigValue(files.config.mediaMaxBytes),
+      DEFAULT_MEDIA_MAX_BYTES,
+      "FORGERELAY_MEDIA_MAX_BYTES",
     ),
     taskReminderInterval: parseNonNegativeInteger(
       productEnv(env, "TASK_REMINDER_INTERVAL") ?? numberConfigValue(files.config.taskReminderInterval),

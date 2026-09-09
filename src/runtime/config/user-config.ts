@@ -38,6 +38,7 @@ export interface ForgeRelayUserConfig {
   worktreeRoot?: string;
   artifactsEnabled?: boolean;
   artifactMaxFileBytes?: number;
+  mediaMaxBytes?: number;
   taskReminderInterval?: number;
   retention?: ForgeRelayRetentionConfig;
   activityPanelExpanded?: boolean;

@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPatch } from "diff";
+import { claimMediaBytes, type MediaBudget } from "../media/media-content.js";
 import { resolveCanonicalAllowedPath } from "./roots.js";
 
 const DEFAULT_MAX_LINES = 2_000;
@@ -29,6 +30,7 @@ interface ToolContext {
   root: string;
   fileRoots?: string[];
   readRoots?: string[];
+  mediaBudget?: MediaBudget;
 }
 
 export interface ReadToolInput {
@@ -91,9 +93,13 @@ export async function readFileTool(
     const buffer = await readFile(path);
     const mimeType = supportedImageMimeType(buffer);
     if (mimeType) {
+      if (input.offset !== undefined || input.limit !== undefined) {
+        throw new Error("Image reads do not accept offset or limit.");
+      }
+      if (context.mediaBudget) claimMediaBytes(context.mediaBudget, buffer.byteLength);
       return {
         content: [
-          { type: "text", text: `Read image file [${mimeType}]` },
+          { type: "text", text: `Read image file [${mimeType}; ${buffer.byteLength} bytes]` },
           { type: "image", data: buffer.toString("base64"), mimeType },
         ],
       };
@@ -321,7 +327,6 @@ function supportedImageMimeType(buffer: Buffer): string | undefined {
     buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
     buffer.subarray(8, 12).toString("ascii") === "WEBP"
   ) return "image/webp";
-  if (buffer.length >= 2 && buffer.subarray(0, 2).toString("ascii") === "BM") return "image/bmp";
   return undefined;
 }
 

@@ -94,6 +94,7 @@ export function runActivityToolWithHooks<T>(
   request: unknown,
   hookOptions: ToolHookOptions<T>,
   relation: ActivityRelationContext = {},
+  auditResult?: (result: T) => unknown,
 ): Promise<T> {
   return runActivityTool(
     lifecycle,
@@ -104,6 +105,7 @@ export function runActivityToolWithHooks<T>(
     () => runToolWithHooks(hooks, hookOptions),
     standardActivityOutcome,
     relation,
+    auditResult,
   );
 }
 

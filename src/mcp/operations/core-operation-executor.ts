@@ -1,3 +1,5 @@
+import type { MediaBudget } from "../media/media-content.js";
+
 export interface CoreOperationContext {
   requestMeta?: unknown;
   signal?: AbortSignal;
@@ -6,6 +8,7 @@ export interface CoreOperationContext {
   turnId?: string;
   batch?: boolean;
   activityMember?: string;
+  mediaBudget?: MediaBudget;
 }
 
 export interface ReadOperationInput {

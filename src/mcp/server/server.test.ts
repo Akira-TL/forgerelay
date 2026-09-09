@@ -8,4 +8,5 @@ import "./workspace/tasks-lifecycle.test.js";
 import "./workspace/worktree-restart.test.js";
 import "./operations/activity-batch.test.js";
 import "./operations/filesystem.test.js";
+import "./operations/filesystem-media.test.js";
 import "./operations/hooks.test.js";

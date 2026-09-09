@@ -18,24 +18,25 @@ export async function executeBulkRead<T>(options: {
   isError: (response: T) => boolean;
   resultText: (response: T) => string;
 }): Promise<BulkReadExecution<T>> {
-  const children = await Promise.all(options.paths.map(async (path): Promise<BulkReadChild<T>> => {
+  const children: BulkReadChild<T>[] = [];
+  for (const path of options.paths) {
     try {
       const response = await options.run(path);
-      return {
+      children.push({
         path,
         status: options.isError(response) ? "error" : "done",
         result: options.resultText(response),
         response,
-      };
+      });
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      return {
+      children.push({
         path,
         status: "error",
         result: error instanceof Error ? error.message : String(error),
-      };
+      });
     }
-  }));
+  }
 
   const failed = children.filter((child) => child.status === "error").length;
   return {
