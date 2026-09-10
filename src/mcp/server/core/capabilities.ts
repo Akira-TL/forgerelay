@@ -30,7 +30,7 @@ export interface CapabilityFingerprintContext {
   artifactDownloadSupported?: boolean;
 }
 
-type CapabilityGuideConfig = Pick<ServerConfig, "subagents" | "artifactsEnabled" | "widgets" | "toolMode" | "mcpServers">;
+type CapabilityGuideConfig = Pick<ServerConfig, "subagents" | "artifactsEnabled" | "widgets" | "toolMode">;
 
 type CapabilityGuideDefinition = {
   name: string;
@@ -84,7 +84,6 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     directory: "host-integration/external-mcp",
     description: "User-configured external MCP tool discovery and explicit forwarding through capability.",
     whenToRead: "Read before discovering or calling a configured external MCP server.",
-    enabled: (config) => Object.keys(config.mcpServers).length > 0,
   },
   {
     name: "workspace-tasks",
@@ -174,9 +173,7 @@ export function buildCapabilityFingerprint(
   if (config.subagents) {
     capabilities.push("subagent.session");
   }
-  if (Object.keys(config.mcpServers).length > 0) {
-    capabilities.push("mcp.external");
-  }
+  capabilities.push("mcp.external");
   if (config.artifactsEnabled && context.artifactDownloadSupported) {
     capabilities.push("artifact.native-download");
   }

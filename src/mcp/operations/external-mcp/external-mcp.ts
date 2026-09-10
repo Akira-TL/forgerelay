@@ -94,16 +94,10 @@ export class ExternalMcpError extends Error {
 export class ExternalMcpGateway {
   private readonly negotiationCache = new Map<string, ExternalMcpNegotiationCacheEntry>();
 
-  constructor(
-    private readonly servers: ExternalMcpServersConfig,
-    private readonly mediaMaxBytes: number,
-  ) {}
-
-  get available(): boolean {
-    return Object.keys(this.servers).length > 0;
-  }
+  constructor(private readonly mediaMaxBytes: number) {}
 
   async run(
+    servers: ExternalMcpServersConfig,
     input: ExternalMcpCapabilityInput,
     signal?: AbortSignal,
     transforms?: ExternalMcpCallTransforms,
@@ -114,13 +108,13 @@ export class ExternalMcpGateway {
         return {
           value: {
             operation: "servers",
-            servers: Object.entries(this.servers)
+            servers: Object.entries(servers)
               .sort(([left], [right]) => left.localeCompare(right))
               .map(([name, server]) => ({ name, transport: server.transport })),
           },
         };
       case "tools":
-        return this.withClient(input.server, signal, async (client) => {
+        return this.withClient(servers, input.server, signal, async (client) => {
           const discovery = await discoverTools(client, signal);
           return {
             value: {
@@ -132,7 +126,7 @@ export class ExternalMcpGateway {
           };
         });
       case "call":
-        return this.withClient(input.server, signal, async (client) => {
+        return this.withClient(servers, input.server, signal, async (client) => {
           await assertRegisteredTool(client, input.server, input.tool, signal);
           const appliedTransforms: ExternalMcpTransformSummary[] = [];
           let callArguments = input.arguments ?? {};
@@ -188,11 +182,12 @@ export class ExternalMcpGateway {
   }
 
   private async withClient<T>(
+    servers: ExternalMcpServersConfig,
     name: string,
     signal: AbortSignal | undefined,
     operation: (client: Client) => Promise<T>,
   ): Promise<T> {
-    const config = this.servers[name];
+    const config = servers[name];
     if (!config) throw new ExternalMcpError("unknown_server", `Unknown configured external MCP server: ${name}.`);
     const fingerprint = externalMcpServerFingerprint(config);
     const client = new Client(

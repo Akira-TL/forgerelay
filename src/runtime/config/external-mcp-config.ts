@@ -15,34 +15,70 @@ export interface ExternalMcpHttpServerConfig {
   headers?: Record<string, string>;
 }
 
+export interface ExternalMcpDisabledServerConfig {
+  disabled: true;
+}
+
 export type ExternalMcpServerConfig = ExternalMcpStdioServerConfig | ExternalMcpHttpServerConfig;
 export type ExternalMcpServersConfig = Record<string, ExternalMcpServerConfig>;
+export type ExternalMcpStandaloneServerConfig = ExternalMcpServerConfig | ExternalMcpDisabledServerConfig;
+export type ExternalMcpStandaloneServersConfig = Record<string, ExternalMcpStandaloneServerConfig>;
 
 export function parseExternalMcpServers(value: unknown): ExternalMcpServersConfig {
-  if (value === undefined) return {};
-  if (!isRecord(value)) throw new Error("mcpServers must be an object keyed by server name.");
+  return parseServerRegistry(value, "mcpServers", false) as ExternalMcpServersConfig;
+}
+
+export function parseExternalMcpStandaloneConfig(value: unknown): ExternalMcpStandaloneServersConfig {
+  if (!isRecord(value)) throw new Error("External MCP configuration must be a JSON object.");
+  rejectUnknownKeys(value, new Set(["servers"]), "External MCP configuration");
+  if (!("servers" in value)) throw new Error("External MCP configuration must contain a servers object.");
+  return parseServerRegistry(value.servers, "servers", true);
+}
+
+function parseServerRegistry(
+  value: unknown,
+  label: string,
+  allowDisabled: boolean,
+): ExternalMcpStandaloneServersConfig {
+  if (value === undefined && !allowDisabled) return {};
+  if (!isRecord(value)) throw new Error(`${label} must be an object keyed by server name.`);
   const entries = Object.entries(value);
   if (entries.length > MAX_MCP_SERVERS) {
-    throw new Error(`mcpServers may contain at most ${MAX_MCP_SERVERS} configured servers.`);
+    throw new Error(`${label} may contain at most ${MAX_MCP_SERVERS} configured servers.`);
   }
 
   return Object.fromEntries(entries.map(([name, raw]) => {
     if (!MCP_SERVER_NAME_PATTERN.test(name)) {
-      throw new Error(`Invalid mcpServers name '${name}'. Use a lowercase stable name.`);
+      throw new Error(`Invalid ${label} name '${name}'. Use a lowercase stable name.`);
     }
-    if (!isRecord(raw)) throw new Error(`mcpServers.${name} must be an object.`);
-    if (raw.transport === "stdio") return [name, parseStdio(name, raw)];
-    if (raw.transport === "streamable-http") return [name, parseHttp(name, raw)];
-    throw new Error(`mcpServers.${name}.transport must be 'stdio' or 'streamable-http'.`);
+    if (!isRecord(raw)) throw new Error(`${label}.${name} must be an object.`);
+    const disabled = allowDisabled && "disabled" in raw ? parseDisabled(raw.disabled, `${label}.${name}.disabled`) : false;
+    const serverValue = allowDisabled && "disabled" in raw
+      ? Object.fromEntries(Object.entries(raw).filter(([key]) => key !== "disabled"))
+      : raw;
+    if (disabled && Object.keys(serverValue).length === 0) {
+      return [name, { disabled: true } satisfies ExternalMcpDisabledServerConfig];
+    }
+    const server = serverValue.transport === "stdio"
+      ? parseStdio(name, serverValue, label)
+      : serverValue.transport === "streamable-http"
+        ? parseHttp(name, serverValue, label)
+        : undefined;
+    if (!server) throw new Error(`${label}.${name}.transport must be 'stdio' or 'streamable-http'.`);
+    return [name, disabled ? { disabled: true } satisfies ExternalMcpDisabledServerConfig : server];
   }));
 }
 
-function parseStdio(name: string, value: Record<string, unknown>): ExternalMcpStdioServerConfig {
-  const command = requiredString(value.command, `mcpServers.${name}.command`);
-  const args = optionalStringArray(value.args, `mcpServers.${name}.args`);
-  const env = optionalStringRecord(value.env, `mcpServers.${name}.env`);
-  const cwd = optionalString(value.cwd, `mcpServers.${name}.cwd`);
-  rejectUnknownKeys(value, new Set(["transport", "command", "args", "env", "cwd"]), `mcpServers.${name}`);
+function parseStdio(
+  name: string,
+  value: Record<string, unknown>,
+  label: string,
+): ExternalMcpStdioServerConfig {
+  const command = requiredString(value.command, `${label}.${name}.command`);
+  const args = optionalStringArray(value.args, `${label}.${name}.args`);
+  const env = optionalStringRecord(value.env, `${label}.${name}.env`);
+  const cwd = optionalString(value.cwd, `${label}.${name}.cwd`);
+  rejectUnknownKeys(value, new Set(["transport", "command", "args", "env", "cwd"]), `${label}.${name}`);
   return {
     transport: "stdio",
     command,
@@ -52,24 +88,33 @@ function parseStdio(name: string, value: Record<string, unknown>): ExternalMcpSt
   };
 }
 
-function parseHttp(name: string, value: Record<string, unknown>): ExternalMcpHttpServerConfig {
-  const url = requiredString(value.url, `mcpServers.${name}.url`);
+function parseHttp(
+  name: string,
+  value: Record<string, unknown>,
+  label: string,
+): ExternalMcpHttpServerConfig {
+  const url = requiredString(value.url, `${label}.${name}.url`);
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`mcpServers.${name}.url must be a valid HTTP(S) URL.`);
+    throw new Error(`${label}.${name}.url must be a valid HTTP(S) URL.`);
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`mcpServers.${name}.url must use http or https.`);
+    throw new Error(`${label}.${name}.url must use http or https.`);
   }
-  const headers = optionalStringRecord(value.headers, `mcpServers.${name}.headers`);
-  rejectUnknownKeys(value, new Set(["transport", "url", "headers"]), `mcpServers.${name}`);
+  const headers = optionalStringRecord(value.headers, `${label}.${name}.headers`);
+  rejectUnknownKeys(value, new Set(["transport", "url", "headers"]), `${label}.${name}`);
   return {
     transport: "streamable-http",
     url: parsed.toString(),
     ...(headers ? { headers } : {}),
   };
+}
+
+function parseDisabled(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${label} must be a boolean.`);
+  return value;
 }
 
 function requiredString(value: unknown, label: string): string {

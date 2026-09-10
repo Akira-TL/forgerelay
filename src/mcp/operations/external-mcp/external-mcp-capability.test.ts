@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -32,37 +32,39 @@ test("external MCP reuses a cached legacy negotiation verdict across short-lived
   const root = await mkdtemp(join(tmpdir(), "forgerelay-external-mcp-negotiation-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const countFile = join(root, "starts.log");
-  const gateway = new ExternalMcpGateway({
+  const servers = {
     legacy: {
-      transport: "stdio",
+      transport: "stdio" as const,
       command: process.execPath,
       args: [fixtureServer],
       env: { FORGERELAY_FIXTURE_START_COUNT_FILE: countFile },
     },
-  }, 1024 * 1024);
+  };
+  const gateway = new ExternalMcpGateway(1024 * 1024);
 
-  const first = await gateway.run({ operation: "tools", server: "legacy" });
+  const first = await gateway.run(servers, { operation: "tools", server: "legacy" });
   assert.ok(first.value.tools?.some((tool) => tool.name === "echo_text"));
   assert.equal(await fixtureStartCount(countFile), 2, "first auto negotiation should probe then launch the legacy session");
 
-  const second = await gateway.run({ operation: "tools", server: "legacy" });
+  const second = await gateway.run(servers, { operation: "tools", server: "legacy" });
   assert.ok(second.value.tools?.some((tool) => tool.name === "echo_text"));
   assert.equal(await fixtureStartCount(countFile), 3, "cached legacy verdict should skip the second probe process");
 });
 
 test("external MCP auto negotiation connects to a modern-only 2026 stdio server", async () => {
-  const gateway = new ExternalMcpGateway({
+  const servers = {
     modern: {
-      transport: "stdio",
+      transport: "stdio" as const,
       command: process.execPath,
       args: [modernFixtureServer],
     },
-  }, 1024 * 1024);
+  };
+  const gateway = new ExternalMcpGateway(1024 * 1024);
 
-  const tools = await gateway.run({ operation: "tools", server: "modern" });
+  const tools = await gateway.run(servers, { operation: "tools", server: "modern" });
   assert.deepEqual(tools.value.tools?.map((tool) => tool.name), ["modern_echo"]);
 
-  const called = await gateway.run({
+  const called = await gateway.run(servers, {
     operation: "call",
     server: "modern",
     tool: "modern_echo",
@@ -415,6 +417,93 @@ test("configured Streamable HTTP MCP tools are discovered and called through cap
   ]);
   assert.equal(external.lastSecret(), HTTP_SECRET);
   assert.doesNotMatch(JSON.stringify(echoed), new RegExp(HTTP_SECRET));
+});
+
+test("standalone External MCP config hot reloads through the stable capability without a server restart", async (t) => {
+  const context = await fixture(t);
+  const conversation = "chat-external-mcp-hot-reload";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const catalog = structuredContent(opened).capabilityCatalog as Array<Record<string, unknown>>;
+  assert.ok(catalog.some((entry) => entry.name === "mcp.external"));
+  const call = (arguments_: Record<string, unknown>) => context.client.callTool({
+    name: "capability",
+    arguments: { workspaceId, name: "mcp.external", action: "run", arguments: arguments_ },
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+  const replaceConfig = async (path: string, value: unknown) => {
+    const temporary = `${path}.replacement`;
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await rename(temporary, path);
+  };
+  const stdioServer = {
+    transport: "stdio",
+    command: process.execPath,
+    args: [fixtureServer],
+  } as const;
+
+  const empty = await call({ operation: "servers" });
+  assert.equal(empty.isError, undefined, allResponseText(empty));
+  assert.deepEqual((structuredContent(empty).result as Record<string, unknown>).servers, []);
+
+  const globalPath = join(context.config.configDir, "mcp.json");
+  await replaceConfig(globalPath, { servers: { global: stdioServer } });
+  const globalServers = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(globalServers).result as Record<string, unknown>).servers, [
+    { name: "global", transport: "stdio" },
+  ]);
+  const globalTools = await call({ operation: "tools", server: "global" });
+  assert.equal(globalTools.isError, undefined, allResponseText(globalTools));
+  assert.ok(
+    ((structuredContent(globalTools).result as Record<string, unknown>).tools as Array<Record<string, unknown>>)
+      .some((tool) => tool.name === "echo_text"),
+  );
+
+  await writeFile(globalPath, '{"servers":{"broken":', "utf8");
+  const lastKnownGood = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(lastKnownGood).result as Record<string, unknown>).servers, [
+    { name: "global", transport: "stdio" },
+  ]);
+
+  await replaceConfig(globalPath, { servers: { updated: stdioServer } });
+  const updated = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(updated).result as Record<string, unknown>).servers, [
+    { name: "updated", transport: "stdio" },
+  ]);
+
+  const projectDir = join(context.project, ".forgerelay");
+  await mkdir(projectDir, { recursive: true });
+  const projectPath = join(projectDir, "mcp.json");
+  await replaceConfig(projectPath, {
+    servers: {
+      updated: { disabled: true },
+      project: stdioServer,
+    },
+  });
+  const projectOverride = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(projectOverride).result as Record<string, unknown>).servers, [
+    { name: "project", transport: "stdio" },
+  ]);
+  const projectCall = await call({
+    operation: "call",
+    server: "project",
+    tool: "echo_text",
+    arguments: { message: "hot-reload" },
+  });
+  assert.equal(projectCall.isError, undefined, allResponseText(projectCall));
+  assert.deepEqual((structuredContent(projectCall).result as Record<string, unknown>).content, [
+    { type: "text", text: "echo:hot-reload" },
+  ]);
+
+  await unlink(projectPath);
+  const projectDeleted = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(projectDeleted).result as Record<string, unknown>).servers, [
+    { name: "updated", transport: "stdio" },
+  ]);
+
+  await unlink(globalPath);
+  const globalDeleted = await call({ operation: "servers" });
+  assert.deepEqual((structuredContent(globalDeleted).result as Record<string, unknown>).servers, []);
 });
 
 async function startStreamableHttpFixture(t: TestContext): Promise<{

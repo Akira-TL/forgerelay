@@ -320,6 +320,7 @@ try {
     "host-integration",
     "shell-processes",
     "code-intelligence",
+    "external-mcp",
     "workspace-tasks",
     "workspace-checkpoints",
     "batch-execution",

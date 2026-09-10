@@ -1,4 +1,6 @@
 import type { ServerConfig } from "../../../runtime/config/config.js";
+import { ExternalMcpConfigRegistry } from "../../../runtime/config/external-mcp-registry.js";
+import { logEvent } from "../../../runtime/logging/logger.js";
 import { CapabilityError, type CapabilityRegistryDependencies } from "../../server/core/capability-registry.js";
 import { requireCapabilityWorkspaceRoot } from "../../server/core/capability-support.js";
 import {
@@ -10,7 +12,16 @@ import { ExternalMcpError, ExternalMcpGateway } from "./external-mcp.js";
 export function createExternalMcpCapabilityRuntime(
   config: ServerConfig,
 ): NonNullable<CapabilityRegistryDependencies["externalMcp"]> {
-  const externalMcp = new ExternalMcpGateway(config.mcpServers, config.mediaMaxBytes);
+  const externalMcp = new ExternalMcpGateway(config.mediaMaxBytes);
+  const registry = new ExternalMcpConfigRegistry({
+    configDir: config.configDir,
+    legacyServers: config.mcpServers,
+    onDiagnostic: (diagnostic) => logEvent(config.logging, "warn", "external_mcp_config_invalid", {
+      source: diagnostic.source,
+      path: diagnostic.path,
+      reason: diagnostic.message,
+    }),
+  });
   const transforms = new ExternalMcpTransformRunner(
     config.hooks,
     config.logging,
@@ -20,18 +31,20 @@ export function createExternalMcpCapabilityRuntime(
   );
 
   return {
-    available: externalMcp.available,
-    unavailableReason: externalMcp.available ? undefined : "No external MCP servers are configured.",
+    available: true,
     run: async (input, context, runOptions) => {
       try {
+        const workspaceRoot = requireCapabilityWorkspaceRoot(context);
+        const snapshot = registry.resolve(workspaceRoot);
         const transformContext = (server: string, tool: string) => ({
           workspaceId: context.workspaceId,
-          workspaceRoot: requireCapabilityWorkspaceRoot(context),
+          workspaceRoot,
           workspaceMode: context.workspaceMode,
           server,
           tool,
         });
         const result = await externalMcp.run(
+          snapshot.servers,
           input,
           runOptions.signal,
           input.operation === "call"
