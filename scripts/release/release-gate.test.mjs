@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, realpath, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -89,8 +89,13 @@ test("release parity sandbox gives architecture an isolated non-empty Git index"
       cwd: sandbox,
       encoding: "utf8",
     }).trim();
-    assert.equal(resolve(gitRoot), resolve(sandbox));
-    assert.notEqual(resolve(gitRoot), repoRoot);
+    const [canonicalGitRoot, canonicalSandbox, canonicalRepoRoot] = await Promise.all([
+      realpath(gitRoot),
+      realpath(sandbox),
+      realpath(repoRoot),
+    ]);
+    assert.equal(canonicalGitRoot, canonicalSandbox);
+    assert.notEqual(canonicalGitRoot, canonicalRepoRoot);
 
     const tracked = execFileSync("git", ["ls-files", "-z"], {
       cwd: sandbox,
