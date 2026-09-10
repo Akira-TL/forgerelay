@@ -90,21 +90,24 @@ export function createInteractiveDebugEnvironment({
 
 export function createDebugEnvironment({
   ownerToken,
+  configDir = debugConfigDir,
   stateDir = resolve(debugRoot, "state"),
   worktreeRoot = resolve(debugRoot, "worktrees"),
   hookLog = debugHookLog,
   widgets = process.env.FORGERELAY_DEBUG_WIDGETS ?? "off",
 } = {}) {
   const token = ownerToken ?? process.env.FORGERELAY_DEBUG_OWNER_TOKEN ?? createDebugOwnerToken();
+  const resolvedConfigDir = resolve(configDir);
   mkdirSync(debugRoot, { recursive: true });
 
   return {
     ownerToken: token,
+    configDir: resolvedConfigDir,
     env: {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: "7677",
-      FORGERELAY_CONFIG_DIR: debugConfigDir,
+      FORGERELAY_CONFIG_DIR: resolvedConfigDir,
       FORGERELAY_PUBLIC_BASE_URL: debugBaseUrl,
       FORGERELAY_ALLOWED_ROOTS: repoRoot,
       FORGERELAY_STATE_DIR: stateDir,

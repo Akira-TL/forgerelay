@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   createDebugEnvironment,
+  debugConfigDir,
   debugRoot,
   repoRoot,
 } from "../runtime.mjs";
@@ -19,6 +20,7 @@ import { assertCurlAvailable, assertDebugPortFree, pass, setupGitProject } from 
 export async function createAcceptanceHarness() {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const acceptanceRoot = resolve(debugRoot, "acceptance");
+  const configDir = resolve(acceptanceRoot, "config");
   const stateDir = resolve(acceptanceRoot, "state");
   const worktreeRoot = resolve(acceptanceRoot, "worktrees");
   const hookLog = resolve(acceptanceRoot, "hooks.jsonl");
@@ -35,7 +37,11 @@ export async function createAcceptanceHarness() {
   assertCurlAvailable();
   await assertDebugPortFree();
   rmSync(acceptanceRoot, { recursive: true, force: true });
-  mkdirSync(acceptanceRoot, { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "config.json"),
+    readFileSync(join(debugConfigDir, "config.json"), "utf8"),
+  );
   setupGitProject(checkoutWorkspace);
   setupGitProject(lifecycleDeleteWorkspace);
   writeFileSync(join(lifecycleDeleteWorkspace, "keep.txt"), "keep checkout files\n");
@@ -44,6 +50,7 @@ export async function createAcceptanceHarness() {
 
   const { env } = createDebugEnvironment({
     ownerToken,
+    configDir,
     stateDir,
     worktreeRoot,
     hookLog,
@@ -69,7 +76,7 @@ export async function createAcceptanceHarness() {
   });
 
   return {
-    packageJson, acceptanceRoot, stateDir, worktreeRoot, hookLog, checkoutWorkspace,
+    packageJson, acceptanceRoot, configDir, stateDir, worktreeRoot, hookLog, checkoutWorkspace,
     lifecycleDeleteWorkspace, codeIntelligenceLog, fakeLanguageServer, gitProject, releaseProject,
     releaseRemote, ownerToken, tempAcceptanceRoot, env, server,
   };

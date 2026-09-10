@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  createDebugEnvironment,
   createInteractiveDebugEnvironment,
   interactiveDebugConfigDir,
   interactiveDebugUrls,
@@ -62,6 +63,14 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.env.FORGERELAY_OAUTH_OWNER_TOKEN, undefined);
   assert.equal(result.env.FORGERELAY_WIDGETS, undefined);
   assert.equal(result.env.FORGERELAY_LOG_LEVEL, "debug");
+});
+
+test("acceptance debug environment may isolate its writable config directory", () => {
+  const isolatedConfigDir = join(tmpdir(), "forgerelay-acceptance-config");
+  const result = createDebugEnvironment({ configDir: isolatedConfigDir });
+
+  assert.equal(result.configDir, isolatedConfigDir);
+  assert.equal(result.env.FORGERELAY_CONFIG_DIR, isolatedConfigDir);
 });
 
 test("interactive debug config directory may be explicitly relocated without falling back to product config", async (t) => {
