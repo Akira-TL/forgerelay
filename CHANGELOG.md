@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-10
+
 ### Added
 
 - Added standalone global and Project External MCP registries in `mcp.json` with hot reload, Project-over-global precedence, explicit `disabled` masking, whole-source last-known-good behavior, and permanent discovery of the existing `mcp.external` Capability even when the registry starts empty.
