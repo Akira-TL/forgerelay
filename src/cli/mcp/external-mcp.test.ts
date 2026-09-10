@@ -248,6 +248,11 @@ void test("headless mcp auth masks the pasted callback URL in a real pseudo-term
   const context = createCliContext(t, fixture.mcpUrl);
   const result = await runHeadlessCliWithPseudoTerminal(context.env);
   assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /Authenticating External MCP secure/);
+  assert.match(result.output, /Source: global/);
+  assert.match(result.output, /Credential scope: global/);
+  assert.match(result.output, /Authorization server: http:\/\/127\.0\.0\.1:\d+/);
+  assert.match(result.output, /Granted scopes: mcp offline_access/);
   assert.match(result.output, /Authenticated External MCP secure \(global\)\./);
   assert.match(result.output, /\*/);
   assert.doesNotMatch(result.output, /code-1/);
@@ -321,9 +326,24 @@ void test("mcp logout removes local credentials even when remote revocation fail
   assert.ok(store.read(identity));
   fixture.rejectRevocation(true);
 
-  await runExternalMcpCommand(["logout", "secure"], dependencies);
+  const output: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => {
+    output.push(values.map(String).join(" "));
+  };
+  try {
+    await runExternalMcpCommand(["logout", "secure"], dependencies);
+  } finally {
+    console.log = originalLog;
+  }
   assert.equal(store.read(identity), undefined);
   assert.equal(fixture.revocations(), 1);
+  const text = output.join("\n");
+  assert.match(text, /Logging out External MCP secure/);
+  assert.match(text, /Source: global/);
+  assert.match(text, /Credential scope: global/);
+  assert.match(text, /Removed local OAuth credential/);
+  assert.match(text, /Remote revocation: failed; the local credential was still removed\./);
 });
 
 interface OAuthMcpFixture {

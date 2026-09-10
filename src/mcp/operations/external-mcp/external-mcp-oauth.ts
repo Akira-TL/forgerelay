@@ -65,6 +65,13 @@ export function createExternalMcpRuntimeAuth(
 ): ExternalMcpRuntimeAuth {
   const record = store.read(identity);
   if (!record) return { identity, serverUrl, bindingMismatch: false };
+  if (
+    !record.tokens?.access_token
+    && record.reauthorization?.reason === "authorization_required"
+    && sameServerUrl(record.serverUrl, serverUrl)
+  ) {
+    return { identity, serverUrl, bindingMismatch: false };
+  }
   if (!sameServerUrl(record.serverUrl, serverUrl)) {
     return { identity, serverUrl, bindingMismatch: true };
   }
@@ -139,6 +146,23 @@ export function createExternalMcpRuntimeAuth(
   };
 
   return { authProvider, bindingMismatch: false, identity, serverUrl };
+}
+
+export async function markExternalMcpAuthorizationRequired(
+  store: ExternalMcpCredentialStore,
+  runtimeAuth: ExternalMcpRuntimeAuth | undefined,
+): Promise<void> {
+  if (!runtimeAuth) return;
+  await store.withIdentityLock(runtimeAuth.identity, async () => {
+    const latest = store.read(runtimeAuth.identity);
+    if (latest) return;
+    await store.replace(runtimeAuth.identity, runtimeAuth.serverUrl, {
+      reauthorization: {
+        reason: "authorization_required",
+        observedAt: new Date().toISOString(),
+      },
+    });
+  });
 }
 
 export async function markExternalMcpReauthorization(

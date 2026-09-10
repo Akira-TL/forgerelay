@@ -3,7 +3,9 @@ import {
   AuthorizationServerMismatchError,
   Client,
   InsufficientScopeError,
+  SdkHttpError,
   StreamableHTTPClientTransport,
+  UnauthorizedError,
   type AuthProvider,
   type CallToolResult,
   type PriorDiscovery,
@@ -38,6 +40,7 @@ import {
   ExternalMcpOAuthError,
   createExternalMcpRuntimeAuth,
   externalMcpAuthError,
+  markExternalMcpAuthorizationRequired,
   markExternalMcpReauthorization,
   type ExternalMcpRuntimeAuth,
 } from "./external-mcp-oauth.js";
@@ -104,8 +107,19 @@ export interface ExternalMcpAuthContext {
   origins: Record<string, ExternalMcpConfigSource>;
 }
 
+export interface ExternalMcpProbeResult {
+  protocolEra: "legacy" | "modern" | "unknown";
+  protocolVersion?: string;
+  toolCount: number;
+  truncated: boolean;
+}
+
 export class ExternalMcpError extends Error {
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly detail?: string,
+  ) {
     super(message);
     this.name = "ExternalMcpError";
   }
@@ -205,6 +219,35 @@ export class ExternalMcpGateway {
     }
   }
 
+  async probe(
+    servers: ExternalMcpServersConfig,
+    name: string,
+    signal?: AbortSignal,
+    authContext?: ExternalMcpAuthContext,
+  ): Promise<ExternalMcpProbeResult> {
+    return this.withClient(servers, name, signal, authContext, async (client) => {
+      let discovery: Awaited<ReturnType<typeof discoverTools>>;
+      try {
+        discovery = await discoverTools(client, signal);
+      } catch (error) {
+        if (isExternalMcpAuthTransportError(error)) throw error;
+        throw new ExternalMcpError(
+          "tool_discovery_failed",
+          `External MCP ${name} tool discovery failed.`,
+          externalMcpFailureDetail(error),
+        );
+      }
+      return {
+        protocolEra: client.getProtocolEra() ?? "unknown",
+        ...(client.getNegotiatedProtocolVersion()
+          ? { protocolVersion: client.getNegotiatedProtocolVersion() }
+          : {}),
+        toolCount: discovery.tools.length,
+        truncated: discovery.truncated,
+      };
+    });
+  }
+
   private async withClient<T>(
     servers: ExternalMcpServersConfig,
     name: string,
@@ -238,7 +281,9 @@ export class ExternalMcpGateway {
       const authError = externalMcpAuthError(name, error, runtimeAuth);
       if (authError) {
         if (this.credentialStore) {
-          if (error instanceof InsufficientScopeError) {
+          if (authError.code === "auth_required") {
+            await markExternalMcpAuthorizationRequired(this.credentialStore, runtimeAuth).catch(() => undefined);
+          } else if (error instanceof InsufficientScopeError) {
             await markExternalMcpReauthorization(
               this.credentialStore,
               runtimeAuth,
@@ -254,6 +299,7 @@ export class ExternalMcpGateway {
       throw new ExternalMcpError(
         "transport_failed",
         `External MCP ${name} request failed.`,
+        externalMcpFailureDetail(error),
       );
     } finally {
       await client.close().catch(() => undefined);
@@ -358,6 +404,35 @@ function createTransport(config: ExternalMcpServerConfig, authProvider?: AuthPro
 
 function hasStaticAuthorizationHeader(headers: Record<string, string> | undefined): boolean {
   return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === "authorization");
+}
+
+function isExternalMcpAuthTransportError(error: unknown): boolean {
+  return error instanceof ExternalMcpOAuthError
+    || error instanceof InsufficientScopeError
+    || error instanceof AuthorizationServerMismatchError
+    || error instanceof UnauthorizedError
+    || (error instanceof SdkHttpError && error.status === 401);
+}
+
+function externalMcpFailureDetail(error: unknown): string | undefined {
+  if (error instanceof SdkHttpError) return `HTTP ${error.status}`;
+  const code = nestedErrorCode(error);
+  if (code && code !== "ERA_NEGOTIATION_FAILED") return code;
+  if (error instanceof Error && /tim(?:e|ed)\s*out|timeout/i.test(error.message)) return "timeout";
+  return undefined;
+}
+
+function nestedErrorCode(error: unknown, depth = 0): string | undefined {
+  if (depth > 4 || typeof error !== "object" || error === null) return undefined;
+  if ("cause" in error) {
+    const nested = nestedErrorCode((error as { cause?: unknown }).cause, depth + 1);
+    if (nested) return nested;
+  }
+  if ("code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]{1,39}$/.test(code)) return code;
+  }
+  return undefined;
 }
 
 async function discoverTools(

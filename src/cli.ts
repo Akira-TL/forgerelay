@@ -13,6 +13,11 @@ import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
+import {
+  formatExternalMcpDoctor,
+  inspectExternalMcpStatus,
+  resolveExternalMcpScope,
+} from "./cli/mcp/status.js";
 import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
 import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
@@ -442,6 +447,10 @@ async function runDoctor(): Promise<void> {
     console.log(`Agent-managed Language Server install: ${config.allowAgentLanguageServerInstall ? "enabled" : "disabled"}`);
     console.log(`Allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`Allowed hosts: ${config.allowedHosts.join(", ")}`);
+    console.log(formatExternalMcpDoctor(inspectExternalMcpStatus(resolveExternalMcpScope({}, {
+      env: process.env,
+      cwd: process.cwd(),
+    }))));
   } catch (error) {
     console.log(`Config status: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -498,8 +507,10 @@ function printHelp(): void {
       "  forgerelay auth test <alias>",
       "  forgerelay auth rename <old-alias> <new-alias>",
       "  forgerelay auth remove <alias>",
-      "  forgerelay mcp auth <server> [--project <path>]",
-      "  forgerelay mcp logout <server> [--project <path>]",
+      "  forgerelay mcp list [--project <path>|--global]",
+      "  forgerelay mcp test <server> [--project <path>|--global]",
+      "  forgerelay mcp auth <server> [--project <path>|--global]",
+      "  forgerelay mcp logout <server> [--project <path>|--global]",
       "  forgerelay maintenance inspect [--json]",
       "  forgerelay -v, --version   Print the installed version",
       "",

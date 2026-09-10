@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import * as prompts from "@clack/prompts";
 import {
@@ -10,30 +9,38 @@ import {
   type AuthorizationServerMetadata,
   type StoredOAuthClientInformation,
 } from "@modelcontextprotocol/client";
-import { loadConfig, type ServerConfig } from "../../runtime/config/config.js";
 import {
   ExternalMcpCredentialStore,
   externalMcpCredentialIdentity,
   type ExternalMcpOAuthCredentialRecord,
 } from "../../runtime/config/external-mcp-auth-store.js";
-import {
-  ExternalMcpConfigRegistry,
-  type ExternalMcpConfigSource,
-} from "../../runtime/config/external-mcp-registry.js";
+import type { ExternalMcpConfigSource } from "../../runtime/config/external-mcp-registry.js";
 import type { ExternalMcpHttpServerConfig } from "../../runtime/config/external-mcp-config.js";
 import {
   ExternalMcpInteractiveOAuthProvider,
   beginExternalMcpInteractiveOAuth,
   finishExternalMcpInteractiveOAuth,
 } from "../../mcp/operations/external-mcp/external-mcp-oauth.js";
+import {
+  ExternalMcpError,
+  ExternalMcpGateway,
+} from "../../mcp/operations/external-mcp/external-mcp.js";
+import {
+  findExternalMcpServerStatus,
+  formatAuth,
+  formatExternalMcpList,
+  inspectExternalMcpStatus,
+  resolveExternalMcpScope,
+  type ExternalMcpResolvedScope,
+  type ExternalMcpScopeRequest,
+  type ExternalMcpServerStatus,
+} from "./status.js";
 
-interface McpCommandOptions {
-  projectRoot: string;
+interface McpCommandOptions extends ExternalMcpScopeRequest {
   server: string;
 }
 
 interface ExternalMcpCliTarget {
-  config: ServerConfig;
   store: ExternalMcpCredentialStore;
   projectRoot: string;
   server: string;
@@ -66,6 +73,13 @@ export async function runExternalMcpCommand(
 ): Promise<void> {
   const [subcommand, ...rest] = args;
   switch (subcommand) {
+    case "list":
+    case "ls":
+      await runExternalMcpList(parseMcpScopeArgs("list", rest), dependencies);
+      return;
+    case "test":
+      await runExternalMcpTest(parseMcpTargetArgs("test", rest), dependencies);
+      return;
     case "auth":
       await runExternalMcpAuth(parseMcpTargetArgs("auth", rest), dependencies);
       return;
@@ -83,9 +97,13 @@ export async function runExternalMcpCommand(
   }
 }
 
-function parseMcpTargetArgs(command: "auth" | "logout", args: string[]): McpCommandOptions {
-  let server: string | undefined;
+function parseMcpScopeArgs(
+  command: "list" | "test" | "auth" | "logout",
+  args: string[],
+): ExternalMcpScopeRequest & { rest: string[] } {
   let projectRoot: string | undefined;
+  let global = false;
+  const rest: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--project") {
@@ -93,12 +111,127 @@ function parseMcpTargetArgs(command: "auth" | "logout", args: string[]): McpComm
       if (!projectRoot) throw new Error("Missing value for --project.");
       continue;
     }
+    if (arg === "--global") {
+      global = true;
+      continue;
+    }
     if (arg.startsWith("-")) throw new Error(`Unknown mcp ${command} option: ${arg}`);
-    if (server) throw new Error(`Unexpected mcp ${command} argument: ${arg}`);
-    server = arg;
+    rest.push(arg);
   }
-  if (!server) throw new Error(`Usage: forgerelay mcp ${command} <server> [--project <path>]`);
-  return { server, projectRoot: projectRoot ?? "" };
+  if (global && projectRoot) throw new Error("--global and --project cannot be used together.");
+  return {
+    ...(projectRoot ? { projectRoot } : {}),
+    ...(global ? { global: true } : {}),
+    rest,
+  };
+}
+
+function parseMcpTargetArgs(
+  command: "test" | "auth" | "logout",
+  args: string[],
+): McpCommandOptions {
+  const parsed = parseMcpScopeArgs(command, args);
+  if (parsed.rest.length !== 1) {
+    throw new Error(`Usage: forgerelay mcp ${command} <server> [--project <path>|--global]`);
+  }
+  return {
+    server: parsed.rest[0],
+    ...(parsed.projectRoot ? { projectRoot: parsed.projectRoot } : {}),
+    ...(parsed.global ? { global: true } : {}),
+  };
+}
+
+async function runExternalMcpList(
+  options: ExternalMcpScopeRequest & { rest: string[] },
+  dependencies: ExternalMcpCliDependencies,
+): Promise<void> {
+  if (options.rest.length > 0) {
+    throw new Error("Usage: forgerelay mcp list [--project <path>|--global]");
+  }
+  const scope = resolveExternalMcpScope(options, dependencies);
+  const status = inspectExternalMcpStatus(scope);
+  console.log(formatExternalMcpList(status));
+  if (status.configIssues > 0) {
+    throw new Error("External MCP configuration or credential status contains issues.");
+  }
+}
+
+async function runExternalMcpTest(
+  options: McpCommandOptions,
+  dependencies: ExternalMcpCliDependencies,
+): Promise<void> {
+  const scope = resolveExternalMcpScope(options, dependencies);
+  const initialStatus = inspectExternalMcpStatus(scope);
+  const serverStatus = findExternalMcpServerStatus(initialStatus, options.server);
+  if (!serverStatus) throw new Error(`Unknown configured External MCP server: ${options.server}.`);
+  if (!serverStatus.enabled) {
+    throw new Error(`External MCP ${options.server} is disabled by ${serverStatus.source} configuration.`);
+  }
+  const config = scope.snapshot.servers[options.server];
+  if (!config) throw new Error(`Unknown configured External MCP server: ${options.server}.`);
+
+  printTestTarget(scope, serverStatus);
+  const gateway = new ExternalMcpGateway(scope.config.mediaMaxBytes, scope.store);
+  try {
+    const probe = await gateway.probe(
+      scope.snapshot.servers,
+      options.server,
+      undefined,
+      { workspaceRoot: scope.projectRoot, origins: scope.snapshot.origins },
+    );
+    console.log("Connection: ok");
+    console.log(
+      `Protocol: ${probe.protocolEra}` +
+      (probe.protocolVersion ? ` · ${probe.protocolVersion}` : ""),
+    );
+    console.log(`Tools: ${probe.toolCount}${probe.truncated ? "+ · truncated" : ""}`);
+    console.log(`${options.server} is ready.`);
+  } catch (error) {
+    if (!(error instanceof ExternalMcpError)) throw error;
+    const latestStatus = inspectExternalMcpStatus(scope);
+    const latestServer = findExternalMcpServerStatus(latestStatus, options.server) ?? serverStatus;
+    if (error.code === "auth_required" || error.code === "reauthorization_required") {
+      console.log(`Auth: ${formatAuth(latestServer)}`);
+      console.log("Connection: blocked by authentication");
+      console.log(`Reason: ${error.message}`);
+      console.log(`Next: ${externalMcpAuthCommand(scope, options.server)}`);
+    } else if (error.code === "tool_discovery_failed") {
+      console.log("Connection: ok");
+      console.log("Tools: failed");
+      console.log(`Reason: ${error.detail ?? "MCP tools/list failed."}`);
+      console.log("Next: check the MCP server logs and retry this test.");
+    } else {
+      console.log("Connection: failed");
+      console.log(`Reason: ${error.detail ?? "MCP connection or protocol handshake failed."}`);
+      console.log("Next: check the server configuration, process/network reachability, and retry this test.");
+    }
+    throw new Error(`External MCP ${options.server} test failed.`);
+  }
+}
+
+function printTestTarget(
+  scope: ExternalMcpResolvedScope,
+  server: ExternalMcpServerStatus,
+): void {
+  console.log(`Testing External MCP ${server.name}`);
+  if (scope.mode === "project") console.log(`Project: ${scope.projectRoot}`);
+  console.log(`Source: ${server.source}`);
+  console.log(`Transport: ${server.transport}`);
+  console.log(`Auth: ${formatAuth(server)}`);
+}
+
+function externalMcpAuthCommand(scope: ExternalMcpResolvedScope, server: string): string {
+  return scope.mode === "global"
+    ? `forgerelay mcp auth ${cliArgument(server)} --global`
+    : `forgerelay mcp auth ${cliArgument(server)} --project ${cliArgument(scope.projectRoot)}`;
+}
+
+function cliArgument(value: string): string {
+  return /^[A-Za-z0-9_./:\\-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+function formatCredentialScope(source: ExternalMcpConfigSource, projectRoot: string): string {
+  return source === "project" ? `project · ${projectRoot}` : "global";
 }
 
 async function runExternalMcpAuth(
@@ -113,12 +246,18 @@ async function runExternalMcpAuth(
     );
   }
 
+  console.log(`Authenticating External MCP ${target.server}`);
+  console.log(`Source: ${target.source}`);
+  console.log(`Transport: ${target.serverConfig.transport}`);
+  console.log(`Credential scope: ${formatCredentialScope(target.source, target.projectRoot)}`);
+
   const identity = externalMcpCredentialIdentity(target.source, target.server, target.projectRoot);
   const existing = target.store.read(identity);
   const receiver = await (dependencies.createLoopbackReceiver ?? createLoopbackReceiver)(
     target.serverConfig.oauth?.callbackPort,
   );
   let authorizationUrl: URL | undefined;
+  let authorizationServerPrinted = false;
   let needsPaste = dependencies.headless ?? isHeadlessEnvironment(dependencies.env ?? process.env);
   try {
     const provider = new ExternalMcpInteractiveOAuthProvider({
@@ -131,6 +270,11 @@ async function runExternalMcpAuth(
       onAuthorizationUrl: async (url) => {
         authorizationUrl = new URL(url);
         await dependencies.observeAuthorizationUrl?.(url);
+        const authorizationServer = provider.authorizationServerUrl();
+        if (authorizationServer && !authorizationServerPrinted) {
+          authorizationServerPrinted = true;
+          console.log(`Authorization server: ${authorizationServer}`);
+        }
         console.log(`Authorization URL: ${url.toString()}`);
         if (needsPaste) return;
         const opened = await (dependencies.openBrowser ?? openBrowser)(url);
@@ -167,6 +311,7 @@ async function runExternalMcpAuth(
     const staged = await finishExternalMcpInteractiveOAuth(provider, target.serverConfig.url, callbackUrl);
     await target.store.withIdentityLock(identity, () =>
       target.store.replace(identity, target.serverConfig.url, staged));
+    console.log(`Granted scopes: ${staged.tokens?.scope?.trim() || "not reported"}`);
     console.log(`Authenticated External MCP ${target.server} (${target.source}).`);
     console.log(`Credential store: ${target.store.filePath}`);
   } finally {
@@ -179,6 +324,9 @@ async function runExternalMcpLogout(
   dependencies: ExternalMcpCliDependencies,
 ): Promise<void> {
   const target = resolveExternalMcpCliTarget(options, dependencies);
+  console.log(`Logging out External MCP ${target.server}`);
+  console.log(`Source: ${target.source}`);
+  console.log(`Credential scope: ${formatCredentialScope(target.source, target.projectRoot)}`);
   const identity = externalMcpCredentialIdentity(target.source, target.server, target.projectRoot);
   let existing: ExternalMcpOAuthCredentialRecord | undefined;
   await target.store.withIdentityLock(identity, async () => {
@@ -207,23 +355,11 @@ function resolveExternalMcpCliTarget(
   options: McpCommandOptions,
   dependencies: ExternalMcpCliDependencies,
 ): ExternalMcpCliTarget {
-  const env = dependencies.env ?? process.env;
-  const config = loadConfig(env);
-  const projectRoot = resolve(
-    options.projectRoot
-      || env.FORGERELAY_WORKSPACE_ROOT
-      || dependencies.cwd
-      || process.cwd(),
-  );
-  const registry = new ExternalMcpConfigRegistry({
-    configDir: config.configDir,
-    legacyServers: config.mcpServers,
-  });
-  const snapshot = registry.resolve(projectRoot);
-  const serverConfig = snapshot.servers[options.server];
-  const source = snapshot.origins[options.server];
+  const scope = resolveExternalMcpScope(options, dependencies);
+  const serverConfig = scope.snapshot.servers[options.server];
+  const source = scope.snapshot.origins[options.server];
   if (!serverConfig || !source) {
-    const maskedBy = snapshot.masked[options.server];
+    const maskedBy = scope.snapshot.masked[options.server];
     if (maskedBy) {
       throw new Error(`External MCP ${options.server} is disabled by ${maskedBy} configuration.`);
     }
@@ -233,9 +369,8 @@ function resolveExternalMcpCliTarget(
     throw new Error(`External MCP ${options.server} uses stdio; interactive OAuth is only available for streamable-http servers.`);
   }
   return {
-    config,
-    store: new ExternalMcpCredentialStore({ configDir: config.configDir }),
-    projectRoot,
+    store: scope.store,
+    projectRoot: scope.projectRoot,
     server: options.server,
     source,
     serverConfig,
@@ -443,7 +578,9 @@ function printMcpHelp(): void {
     "ForgeRelay mcp",
     "",
     "Usage:",
-    "  forgerelay mcp auth <server> [--project <path>]",
-    "  forgerelay mcp logout <server> [--project <path>]",
+    "  forgerelay mcp list [--project <path>|--global]",
+    "  forgerelay mcp test <server> [--project <path>|--global]",
+    "  forgerelay mcp auth <server> [--project <path>|--global]",
+    "  forgerelay mcp logout <server> [--project <path>|--global]",
   ].join("\n"));
 }

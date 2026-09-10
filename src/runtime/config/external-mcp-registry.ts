@@ -63,22 +63,37 @@ export class ExternalMcpConfigRegistry {
 
   resolve(workspaceRoot: string): ExternalMcpRegistrySnapshot {
     const projectRoot = resolve(workspaceRoot);
-    const globalPath = join(this.configDir, "mcp.json");
+    const global = this.loadGlobalSource();
     const projectPath = join(projectRoot, ".forgerelay", "mcp.json");
-    this.global = this.loadDynamicSource("global", globalPath, this.global);
     const project = this.loadDynamicSource("project", projectPath, this.projects.get(projectRoot));
     this.projects.set(projectRoot, project);
+    return this.composeSnapshot(global, project);
+  }
 
+  resolveGlobal(): ExternalMcpRegistrySnapshot {
+    return this.composeSnapshot(this.loadGlobalSource());
+  }
+
+  private loadGlobalSource(): DynamicSourceSnapshot {
+    const globalPath = join(this.configDir, "mcp.json");
+    this.global = this.loadDynamicSource("global", globalPath, this.global);
+    return this.global;
+  }
+
+  private composeSnapshot(
+    global: DynamicSourceSnapshot,
+    project?: DynamicSourceSnapshot,
+  ): ExternalMcpRegistrySnapshot {
     const servers: ExternalMcpServersConfig = { ...this.legacyServers };
     const origins: Record<string, ExternalMcpConfigSource> = Object.fromEntries(
       Object.keys(this.legacyServers).map((name) => [name, "legacy" as const]),
     );
     const masked: Record<string, Exclude<ExternalMcpConfigSource, "legacy">> = {};
 
-    applySource(servers, origins, masked, this.global.entries, "global");
-    applySource(servers, origins, masked, project.entries, "project");
+    applySource(servers, origins, masked, global.entries, "global");
+    if (project) applySource(servers, origins, masked, project.entries, "project");
 
-    const diagnostics = [this.global.diagnostic, project.diagnostic]
+    const diagnostics = [global.diagnostic, project?.diagnostic]
       .filter((entry): entry is ExternalMcpConfigDiagnostic => entry !== undefined);
     return {
       servers,
@@ -91,8 +106,8 @@ export class ExternalMcpConfigRegistry {
           state: "valid",
           usingLastKnownGood: false,
         },
-        this.global.status,
-        project.status,
+        global.status,
+        ...(project ? [project.status] : []),
       ],
       diagnostics,
     };

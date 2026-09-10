@@ -65,6 +65,12 @@ export class ExternalMcpCredentialStore {
     return cloneRecord(record);
   }
 
+  inspect(): { exists: boolean; credentialCount: number } {
+    const exists = existsSync(this.filePath);
+    const file = this.readFile();
+    return { exists, credentialCount: Object.keys(file.credentials).length };
+  }
+
   async replace(
     identity: ExternalMcpCredentialIdentity,
     serverUrl: string,
