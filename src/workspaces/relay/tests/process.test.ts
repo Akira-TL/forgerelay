@@ -523,13 +523,13 @@ async function startGatewayClient(
   return client;
 }
 
-function structuredContent(result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> {
+function structuredContent(result: unknown): Record<string, unknown> {
   const parsed = parseToolResult(result);
   assert.ok(parsed.structuredContent);
   return parsed.structuredContent as Record<string, unknown>;
 }
 
-function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+function resultText(result: unknown): string {
   const parsed = parseToolResult(result);
   return (parsed.content ?? [])
     .filter((entry): entry is Extract<typeof entry, { type: "text" }> => entry.type === "text")
@@ -537,6 +537,6 @@ function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
     .join("\n");
 }
 
-function parseToolResult(result: Awaited<ReturnType<Client["callTool"]>>): CallToolResult {
+function parseToolResult(result: unknown): CallToolResult {
   return CallToolResultSchema.parse(result);
 }

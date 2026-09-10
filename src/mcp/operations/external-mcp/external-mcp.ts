@@ -1,10 +1,15 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { createHash } from "node:crypto";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  type CallToolResult,
+  type PriorDiscovery,
+} from "@modelcontextprotocol/client";
 import {
   StdioClientTransport,
   getDefaultEnvironment,
-} from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+} from "@modelcontextprotocol/client/stdio";
+import { CallToolResultSchema } from "@modelcontextprotocol/core";
 import type {
   ExternalMcpServerConfig,
   ExternalMcpServersConfig,
@@ -26,6 +31,13 @@ const MAX_DISCOVERED_TOOLS = 100;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_TOOL_SCHEMA_BYTES = 64 * 1024;
 const MAX_TOOL_DISCOVERY_PAGES = 16;
+const LEGACY_NEGOTIATION_TTL_MS = 5 * 60 * 1_000;
+
+interface ExternalMcpNegotiationCacheEntry {
+  fingerprint: string;
+  prior: PriorDiscovery;
+  cachedAt: number;
+}
 
 export type ExternalMcpCapabilityInput =
   | { operation: "servers" }
@@ -80,6 +92,8 @@ export class ExternalMcpError extends Error {
 }
 
 export class ExternalMcpGateway {
+  private readonly negotiationCache = new Map<string, ExternalMcpNegotiationCacheEntry>();
+
   constructor(
     private readonly servers: ExternalMcpServersConfig,
     private readonly mediaMaxBytes: number,
@@ -129,7 +143,6 @@ export class ExternalMcpGateway {
           }
           let result = await client.callTool(
             { name: input.tool, arguments: callArguments },
-            undefined,
             { signal },
           );
           assertCallToolResult(input.server, input.tool, result);
@@ -181,15 +194,22 @@ export class ExternalMcpGateway {
   ): Promise<T> {
     const config = this.servers[name];
     if (!config) throw new ExternalMcpError("unknown_server", `Unknown configured external MCP server: ${name}.`);
-    const client = new Client({ name: "forgerelay-external-mcp", version: "1.0.0" });
+    const fingerprint = externalMcpServerFingerprint(config);
+    const client = new Client(
+      { name: "forgerelay-external-mcp", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
     const transport = createTransport(config);
+    const prior = this.cachedPrior(name, fingerprint);
     try {
       signal?.throwIfAborted();
-      await client.connect(transport);
+      await client.connect(transport, prior ? { prior } : undefined);
+      this.rememberNegotiation(name, fingerprint, client);
       signal?.throwIfAborted();
       return await operation(client);
     } catch (error) {
       if (error instanceof ExternalMcpError || error instanceof ExternalMcpTransformError) throw error;
+      this.invalidateNegotiation(name, fingerprint);
       if (signal?.aborted) signal.throwIfAborted();
       throw new ExternalMcpError(
         "transport_failed",
@@ -199,6 +219,68 @@ export class ExternalMcpGateway {
       await client.close().catch(() => undefined);
     }
   }
+
+  private cachedPrior(name: string, fingerprint: string): PriorDiscovery | undefined {
+    const cached = this.negotiationCache.get(name);
+    if (!cached || cached.fingerprint !== fingerprint) {
+      if (cached) this.negotiationCache.delete(name);
+      return undefined;
+    }
+    if (
+      cached.prior.kind === "legacy" &&
+      Date.now() - cached.cachedAt >= LEGACY_NEGOTIATION_TTL_MS
+    ) {
+      this.negotiationCache.delete(name);
+      return undefined;
+    }
+    return cached.prior;
+  }
+
+  private rememberNegotiation(name: string, fingerprint: string, client: Client): void {
+    const era = client.getProtocolEra();
+    if (era === "legacy") {
+      this.negotiationCache.set(name, {
+        fingerprint,
+        prior: { kind: "legacy" },
+        cachedAt: Date.now(),
+      });
+      return;
+    }
+    if (era !== "modern") return;
+    const discover = client.getDiscoverResult();
+    if (!discover) return;
+    this.negotiationCache.set(name, {
+      fingerprint,
+      prior: { kind: "modern", discover },
+      cachedAt: Date.now(),
+    });
+  }
+
+  private invalidateNegotiation(name: string, fingerprint: string): void {
+    const cached = this.negotiationCache.get(name);
+    if (cached?.fingerprint === fingerprint) this.negotiationCache.delete(name);
+  }
+}
+
+function externalMcpServerFingerprint(config: ExternalMcpServerConfig): string {
+  const normalized = config.transport === "stdio"
+    ? {
+      transport: config.transport,
+      command: config.command,
+      args: config.args ?? [],
+      cwd: config.cwd ?? null,
+      env: sortedStringRecord(config.env),
+    }
+    : {
+      transport: config.transport,
+      url: config.url,
+      headers: sortedStringRecord(config.headers),
+    };
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+}
+
+function sortedStringRecord(value: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function createTransport(config: ExternalMcpServerConfig) {

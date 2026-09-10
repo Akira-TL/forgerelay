@@ -1,6 +1,11 @@
+import { appendFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+
+if (process.env.FORGERELAY_FIXTURE_START_COUNT_FILE) {
+  appendFileSync(process.env.FORGERELAY_FIXTURE_START_COUNT_FILE, `${process.pid}\n`);
+}
 
 const server = new McpServer({ name: "forgerelay-external-mcp-fixture", version: "1.0.0" });
 const IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";

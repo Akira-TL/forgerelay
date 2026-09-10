@@ -207,12 +207,13 @@ export async function callOpen(
   return client.callTool(params);
 }
 
-export function structuredContent(result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> {
-  assert.ok(result.structuredContent);
-  return result.structuredContent as Record<string, unknown>;
+export function structuredContent(result: unknown): Record<string, unknown> {
+  const structured = (result as { structuredContent?: unknown }).structuredContent;
+  assert.ok(structured);
+  return structured as Record<string, unknown>;
 }
 
-export function responseText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+export function responseText(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
   const first = content[0] as { type?: unknown; text?: unknown } | undefined;
@@ -221,7 +222,7 @@ export function responseText(result: Awaited<ReturnType<Client["callTool"]>>): s
   return first?.text as string;
 }
 
-export function allResponseText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+export function allResponseText(result: unknown): string {
   const content = (result as { content?: unknown }).content;
   assert.ok(Array.isArray(content));
   return content

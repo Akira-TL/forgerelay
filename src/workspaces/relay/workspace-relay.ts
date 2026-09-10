@@ -8,8 +8,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Client } from "@modelcontextprotocol/client";
+// Relay transport is v2; the current Host-facing tool result contract remains v1 in this migration slice.
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   isRemoteMcpUnauthorized,
   refreshRemoteAuthentication,

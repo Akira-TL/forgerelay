@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
+  Client,
+  SdkHttpError,
   StreamableHTTPClientTransport,
-  StreamableHTTPError,
-} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+  UnauthorizedError,
+  type OAuthTokens,
+} from "@modelcontextprotocol/client";
 import { publicEndpointUrl } from "../../../mcp/oauth/public-url.js";
 import type { ForgeRelayRemoteRecord } from "../../../runtime/config/user-config.js";
 
@@ -72,7 +72,7 @@ export async function refreshRemoteAuthentication(
 
 export function isRemoteMcpUnauthorized(error: unknown): boolean {
   return error instanceof UnauthorizedError ||
-    (error instanceof StreamableHTTPError && error.code === 401);
+    (error instanceof SdkHttpError && error.status === 401);
 }
 
 export async function connectRemoteMcpClient(
@@ -80,7 +80,10 @@ export async function connectRemoteMcpClient(
   endpointInput: string,
 ): Promise<Client> {
   const endpoint = normalizeRemoteServiceTarget(endpointInput);
-  const client = new Client({ name: "forgerelay-cli", version: packageVersion });
+  const client = new Client(
+    { name: "forgerelay-cli", version: packageVersion },
+    { versionNegotiation: { mode: "legacy" } },
+  );
   const transport = new StreamableHTTPClientTransport(publicEndpointUrl(endpoint, "mcp"), {
     requestInit: {
       headers: { Authorization: `Bearer ${remote.accessToken}` },

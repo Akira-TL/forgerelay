@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test, { type TestContext } from "node:test";
@@ -16,14 +17,59 @@ import {
   fixture,
   structuredContent,
 } from "../../../runtime/testing/server-fixture.js";
+import { ExternalMcpGateway } from "./external-mcp.js";
 
 const fixtureServer = fileURLToPath(new URL("./test-fixtures/external-mcp-server.mjs", import.meta.url));
+const modernFixtureServer = fileURLToPath(new URL("./test-fixtures/external-mcp-server-v2.mjs", import.meta.url));
 const CONFIG_SECRET = "EXTERNAL_MCP_CONFIG_SECRET_SENTINEL";
 const CALL_SECRET = "EXTERNAL_MCP_CALL_SECRET_SENTINEL";
 const HTTP_SECRET = "EXTERNAL_MCP_HTTP_SECRET_SENTINEL";
 const IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZcXcAAAAASUVORK5CYII=";
 const IMAGE_BYTES = Buffer.byteLength(IMAGE_BASE64, "base64");
 const MALFORMED_IMAGE_DATA = "RVhURVJOQUxfTUNQX01BTEZPUk1FRF9TRU5USU5FTCE";
+
+test("external MCP reuses a cached legacy negotiation verdict across short-lived stdio calls", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-external-mcp-negotiation-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const countFile = join(root, "starts.log");
+  const gateway = new ExternalMcpGateway({
+    legacy: {
+      transport: "stdio",
+      command: process.execPath,
+      args: [fixtureServer],
+      env: { FORGERELAY_FIXTURE_START_COUNT_FILE: countFile },
+    },
+  }, 1024 * 1024);
+
+  const first = await gateway.run({ operation: "tools", server: "legacy" });
+  assert.ok(first.value.tools?.some((tool) => tool.name === "echo_text"));
+  assert.equal(await fixtureStartCount(countFile), 2, "first auto negotiation should probe then launch the legacy session");
+
+  const second = await gateway.run({ operation: "tools", server: "legacy" });
+  assert.ok(second.value.tools?.some((tool) => tool.name === "echo_text"));
+  assert.equal(await fixtureStartCount(countFile), 3, "cached legacy verdict should skip the second probe process");
+});
+
+test("external MCP auto negotiation connects to a modern-only 2026 stdio server", async () => {
+  const gateway = new ExternalMcpGateway({
+    modern: {
+      transport: "stdio",
+      command: process.execPath,
+      args: [modernFixtureServer],
+    },
+  }, 1024 * 1024);
+
+  const tools = await gateway.run({ operation: "tools", server: "modern" });
+  assert.deepEqual(tools.value.tools?.map((tool) => tool.name), ["modern_echo"]);
+
+  const called = await gateway.run({
+    operation: "call",
+    server: "modern",
+    tool: "modern_echo",
+    arguments: { message: "hello-v2" },
+  });
+  assert.deepEqual(called.value.content, [{ type: "text", text: "modern:hello-v2" }]);
+});
 
 test("configured external MCP tools are discovered and called through capability without implicit path dereference", async (t) => {
   const context = await fixture(t, {
@@ -461,6 +507,16 @@ function isJsonRpcInitialize(value: unknown): value is { method: "initialize" } 
     && value !== null
     && "method" in value
     && (value as { method?: unknown }).method === "initialize";
+}
+
+async function fixtureStartCount(path: string): Promise<number> {
+  try {
+    const content = await readFile(path, "utf8");
+    return content.split("\n").filter(Boolean).length;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
 }
 
 async function assertDirectoryDoesNotContain(root: string, needle: string): Promise<void> {

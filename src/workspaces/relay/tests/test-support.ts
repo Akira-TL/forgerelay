@@ -289,13 +289,13 @@ process.on("SIGINT", stop);
 `;
 }
 
-export function structuredContent(result: Awaited<ReturnType<Client["callTool"]>>): Record<string, unknown> {
+export function structuredContent(result: unknown): Record<string, unknown> {
   const parsed = parseToolResult(result);
   assert.ok(parsed.structuredContent);
   return parsed.structuredContent as Record<string, unknown>;
 }
 
-export function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+export function resultText(result: unknown): string {
   const parsed = parseToolResult(result);
   return (parsed.content ?? [])
     .filter((entry): entry is Extract<typeof entry, { type: "text" }> => entry.type === "text")
@@ -303,6 +303,6 @@ export function resultText(result: Awaited<ReturnType<Client["callTool"]>>): str
     .join("\n");
 }
 
-function parseToolResult(result: Awaited<ReturnType<Client["callTool"]>>): CallToolResult {
+function parseToolResult(result: unknown): CallToolResult {
   return CallToolResultSchema.parse(result);
 }
