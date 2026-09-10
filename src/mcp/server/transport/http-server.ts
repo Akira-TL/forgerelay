@@ -1,11 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { McpServer, Transport as ModernMcpTransport } from "@modelcontextprotocol/server";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
-import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
-import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { checkResourceAllowed, resourceUrlFromServerUrl } from "@modelcontextprotocol/sdk/shared/auth-utils.js";
+import {
+  checkResourceAllowed,
+  createMcpHandler,
+  isInitializeRequest,
+  isLegacyRequest,
+  resourceUrlFromServerUrl,
+  type McpServer,
+} from "@modelcontextprotocol/server";
+import {
+  createMcpExpressApp,
+  getOAuthProtectedResourceMetadataUrl,
+  requireBearerAuth,
+} from "@modelcontextprotocol/express";
+import {
+  NodeStreamableHTTPServerTransport,
+  toNodeHandler,
+  toWebRequest,
+} from "@modelcontextprotocol/node";
 import express from "express";
 import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
 import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
@@ -32,7 +43,7 @@ import { getSubagentProviderAvailabilitySnapshot, type SubagentProviderAvailabil
 import { activityPanelAssetDirectory, setActivityPanelAssetHeaders } from "../../panel/app.js";
 import { mcpRequestDebugFields, requestLogFields, sendJsonRpcError } from "./http-support.js";
 
-type Transport = StreamableHTTPServerTransport;
+type Transport = NodeStreamableHTTPServerTransport;
 const MCP_TRANSPORT_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const MAX_MCP_TRANSPORT_SESSIONS = 64;
 const MCP_TRANSPORT_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
@@ -121,6 +132,38 @@ export function createHttpServer(
   const subagentProviders = config.subagents
     ? getSubagentProviderAvailabilitySnapshot()
     : [];
+  const buildMcpServer = () => createMcpServer(
+    config,
+    workspaces,
+    reviewCheckpoints,
+    processSessions,
+    subagentProviders,
+    incomingArtifactAdapters,
+    codeIntelligence,
+    activityLifecycle,
+    bashOutputStore,
+    activityQueries,
+    {
+      taskReminders: sharedTaskReminders,
+      remoteWorkspaces: sharedRemoteWorkspaces,
+      compositeWorkspaces: sharedCompositeWorkspaces,
+    },
+  );
+  const modernMcp = createMcpHandler(() => buildMcpServer(), {
+    legacy: "reject",
+    onerror: (error) => {
+      logEvent(config.logging, "error", "mcp_modern_handler_error", {
+        error: error.message,
+      });
+    },
+  });
+  const modernNodeHandler = toNodeHandler(modernMcp, {
+    onerror: (error) => {
+      logEvent(config.logging, "error", "mcp_modern_adapter_error", {
+        error: error.message,
+      });
+    },
+  });
 
   const logTransportCloseResults = (
     reason: "idle_timeout" | "capacity_limit" | "server_shutdown",
@@ -283,16 +326,24 @@ export function createHttpServer(
       return;
     }
 
-    logEvent(config.logging, "debug", "mcp_request", {
-      requestId,
-      httpMethod: req.method,
-      transportSessionIdPresent: Boolean(transportSessionId),
-      transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
-      isInitialize: initializeRequest,
-      ...mcpRequestDebugFields(req.body),
-    });
-
     try {
+      const webRequest = await toWebRequest(req, req.body);
+      const legacyRequest = await isLegacyRequest(webRequest, req.body);
+      logEvent(config.logging, "debug", "mcp_request", {
+        requestId,
+        httpMethod: req.method,
+        protocolEra: legacyRequest ? "legacy" : "modern",
+        transportSessionIdPresent: Boolean(transportSessionId),
+        transportSessionIdPrefix: transportSessionIdPrefix(transportSessionId),
+        isInitialize: initializeRequest,
+        ...mcpRequestDebugFields(req.body),
+      });
+
+      if (!legacyRequest) {
+        await modernNodeHandler(req, res, req.body);
+        return;
+      }
+
       let transport: Transport | undefined;
 
       if (transportSessionId) {
@@ -302,7 +353,7 @@ export function createHttpServer(
           return;
         }
       } else if (initializeRequest) {
-        transport = new StreamableHTTPServerTransport({
+        transport = new NodeStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (newTransportSessionId) => {
             if (transport) {
@@ -328,27 +379,8 @@ export function createHttpServer(
           }
         };
 
-        const server = createMcpServer(
-          config,
-          workspaces,
-          reviewCheckpoints,
-          processSessions,
-          subagentProviders,
-          incomingArtifactAdapters,
-          codeIntelligence,
-          activityLifecycle,
-          bashOutputStore,
-          activityQueries,
-          {
-            taskReminders: sharedTaskReminders,
-            remoteWorkspaces: sharedRemoteWorkspaces,
-            compositeWorkspaces: sharedCompositeWorkspaces,
-          },
-        );
-        // #142 keeps the published legacy/sessionful HTTP transport while the
-        // server core moves to SDK v2. #143 replaces this compatibility bridge
-        // with the native dual-era v2 HTTP handler.
-        await server.connect(transport as unknown as ModernMcpTransport);
+        const server = buildMcpServer();
+        await server.connect(transport);
       } else {
         sendJsonRpcError(res, 400, -32000, "No valid MCP transport session");
         return;
@@ -376,6 +408,7 @@ export function createHttpServer(
         clearInterval(transportCleanupTimer);
         const results = await transports.closeAll();
         logTransportCloseResults("server_shutdown", results);
+        await modernMcp.close();
         await sharedRemoteWorkspaces.shutdown();
         processSessions.shutdown();
         await codeIntelligence.shutdown();

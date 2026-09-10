@@ -1,15 +1,15 @@
 import express, { type RequestHandler } from "express";
+import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/express";
 import {
+  authorizationHandler,
+  clientRegistrationHandler,
   createOAuthMetadata,
-  getOAuthProtectedResourceMetadataUrl,
-} from "@modelcontextprotocol/sdk/server/auth/router.js";
-import { authorizationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/authorize.js";
-import { tokenHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/token.js";
-import { clientRegistrationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/register.js";
-import { revocationHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/revoke.js";
-import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js";
-import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import type { OAuthProtectedResourceMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+  metadataHandler,
+  revocationHandler,
+  tokenHandler,
+  type OAuthServerProvider,
+} from "@modelcontextprotocol/server-legacy/auth";
+import type { OAuthProtectedResourceMetadata, OAuthTokens } from "@modelcontextprotocol/server";
 import {
   oauthAuthorizationServerMetadataPath,
   publicEndpointPaths,

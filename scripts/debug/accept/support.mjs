@@ -198,20 +198,20 @@ export function curlRequest({ method = "GET", url, headers = {}, body }) {
   return { status, headers: responseHeaders, body: responseBody };
 }
 
-export async function waitForHealth(child) {
+export async function waitForHealth(child, baseUrl = debugBaseUrl) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`debug server exited before health check: ${child.exitCode}`);
     }
     try {
-      const response = jsonRequest(`${debugBaseUrl}/healthz`);
+      const response = jsonRequest(`${baseUrl}/healthz`);
       if (response.status === 200) return response.json;
     } catch {
       // Server is still starting.
     }
     await delay(100);
   }
-  throw new Error("debug server did not become healthy on 127.0.0.1:7677");
+  throw new Error(`debug server did not become healthy at ${baseUrl}`);
 }
 
 export async function stopServer(child) {
@@ -397,13 +397,13 @@ export function readHookEntries(path) {
     .map((line) => JSON.parse(line));
 }
 
-export async function assertDebugPortFree() {
+export async function assertPortFree(port) {
   await new Promise((resolvePromise, rejectPromise) => {
-    const socket = connect({ host: "127.0.0.1", port: 7677 });
+    const socket = connect({ host: "127.0.0.1", port });
     socket.setTimeout(500);
     socket.once("connect", () => {
       socket.destroy();
-      rejectPromise(new Error("debug port 7677 is already in use; stop the existing debug server first"));
+      rejectPromise(new Error(`debug port ${port} is already in use; stop the existing debug server first`));
     });
     socket.once("error", (error) => {
       socket.destroy();
@@ -418,6 +418,10 @@ export async function assertDebugPortFree() {
       resolvePromise();
     });
   });
+}
+
+export async function assertDebugPortFree() {
+  await assertPortFree(7677);
 }
 
 export function assertCurlAvailable() {

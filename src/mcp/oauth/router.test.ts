@@ -3,7 +3,7 @@ import { once } from "node:events";
 import test from "node:test";
 import express from "express";
 import type { AddressInfo } from "node:net";
-import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import type { OAuthServerProvider } from "@modelcontextprotocol/server-legacy/auth";
 import { createForgeRelayAuthRouter } from "./router.js";
 import {
   oauthAuthorizationServerMetadataPath,
