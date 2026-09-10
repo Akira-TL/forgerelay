@@ -1,21 +1,20 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createParitySandbox } from "./release/parity-sandbox.mjs";
 
 const NPM_VERSION = "11.19.1";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const NODE_VERSION = readFileSync(join(repoRoot, ".nvmrc"), "utf8").trim();
-const debugRoot = join(repoRoot, ".forgerelay-debug");
-const sandbox = mkdtempSync(join(ensureDirectory(debugRoot), "release-parity-node22-"));
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
 assertCleanReleaseHead();
+const sandbox = createParitySandbox(repoRoot);
 
 try {
-  copyTrackedTree(sandbox);
   const env = {
     ...process.env,
     FORGERELAY_ALLOWED_ROOTS: sandbox,
@@ -58,24 +57,6 @@ function assertCleanReleaseHead() {
     throw new Error(
       "release parity requires a clean committed release HEAD; commit or remove every release input first",
     );
-  }
-}
-
-function ensureDirectory(path) {
-  mkdirSync(path, { recursive: true });
-  return `${path}/`;
-}
-
-function copyTrackedTree(destinationRoot) {
-  const files = execFileSync("git", ["ls-files", "-z"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).split("\0").filter(Boolean);
-  for (const relativePath of files) {
-    const source = join(repoRoot, relativePath);
-    const destination = join(destinationRoot, relativePath);
-    mkdirSync(dirname(destination), { recursive: true });
-    cpSync(source, destination, { recursive: true, force: true });
   }
 }
 

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
+import { readFile, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { createParitySandbox } from "./parity-sandbox.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -67,6 +69,39 @@ test("architecture gate treats the append-only release-note archive as an explic
   assert.match(architecture, /"docs\/releases"/);
 });
 
+test("release parity sandbox gives architecture an isolated non-empty Git index", async () => {
+  const sandbox = createParitySandbox(repoRoot);
+  try {
+    const architecture = spawnSync(process.execPath, ["scripts/ci/architecture.mjs"], {
+      cwd: sandbox,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+    });
+    assert.equal(
+      architecture.status,
+      0,
+      architecture.stderr || architecture.stdout || "architecture check did not exit cleanly",
+    );
+    assert.doesNotMatch(architecture.stdout, /Architecture check passed: 0 tracked files;/);
+
+    const gitRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: sandbox,
+      encoding: "utf8",
+    }).trim();
+    assert.equal(resolve(gitRoot), resolve(sandbox));
+    assert.notEqual(resolve(gitRoot), repoRoot);
+
+    const tracked = execFileSync("git", ["ls-files", "-z"], {
+      cwd: sandbox,
+      encoding: "utf8",
+    }).split("\0").filter(Boolean);
+    assert.ok(tracked.length > 0, "parity sandbox must expose copied tracked files through its own Git index");
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("release runtime and local parity share the checked-in Node contract", async () => {
   const nodeVersion = (await readFile(resolve(repoRoot, ".nvmrc"), "utf8")).trim();
   assert.equal(nodeVersion, "22.19.0");
@@ -77,6 +112,7 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   const source = await readFile(resolve(repoRoot, "scripts/release-parity.mjs"), "utf8");
   assert.match(source, /readFileSync\(join\(repoRoot, "\.nvmrc"\), "utf8"\)/);
   assert.match(source, /const NPM_VERSION = "11\.19\.1"/);
+  assert.match(source, /const sandbox = createParitySandbox\(repoRoot\)/);
   const ciWorkflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
   assert.match(ciWorkflow, /npm install --global npm@11\.19\.1/);
   assert.ok(source.includes('["npm", "ci", "--no-audit", "--no-fund"]'));
