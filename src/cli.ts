@@ -12,7 +12,7 @@ import { loadConfig } from "./runtime/config/config.js";
 import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
-import { runExternalMcpCommand } from "./cli/external-mcp.js";
+import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
 import { runHooksCommand } from "./mcp/hooks/hook-cli.js";
 import { executeSubagentSession } from "./subagents/sessions/execution.js";
 import { SubagentDeliveryMailbox } from "./subagents/sessions/delivery-mailbox.js";
