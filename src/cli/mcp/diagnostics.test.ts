@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import test, { type TestContext } from "node:test";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -176,15 +178,18 @@ async function runCli(
   env: NodeJS.ProcessEnv,
   cwd: string,
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
-  const repositoryRoot = process.cwd();
+  const require = createRequire(import.meta.url);
+  const tsxCli = require.resolve("tsx/cli");
+  const cliPath = fileURLToPath(new URL("../../cli.ts", import.meta.url));
   const child = spawn(
-    join(repositoryRoot, "node_modules", ".bin", "tsx"),
-    [join(repositoryRoot, "src", "cli.ts"), ...args],
+    process.execPath,
+    [tsxCli, cliPath, ...args],
     {
       cwd,
       env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
