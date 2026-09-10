@@ -26,7 +26,9 @@ void test("External MCP credential store isolates global and Project identities 
   assert.equal(store.read(globalIdentity)?.tokens?.access_token, "global-secret");
   assert.equal(store.read(projectA)?.tokens?.access_token, "project-a-secret");
   assert.equal(store.read(projectB)?.tokens?.access_token, "project-b-secret");
-  assert.equal(statSync(store.filePath).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal(statSync(store.filePath).mode & 0o777, 0o600);
+  }
   const persisted = JSON.parse(readFileSync(store.filePath, "utf8")) as { version?: unknown; credentials?: unknown };
   assert.equal(persisted.version, 1);
   assert.equal(typeof persisted.credentials, "object");
