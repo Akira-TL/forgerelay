@@ -9,10 +9,16 @@ export interface ExternalMcpStdioServerConfig {
   cwd?: string;
 }
 
+export interface ExternalMcpOAuthClientConfig {
+  clientMetadataUrl: string;
+  callbackPort: number;
+}
+
 export interface ExternalMcpHttpServerConfig {
   transport: "streamable-http";
   url: string;
   headers?: Record<string, string>;
+  oauth?: ExternalMcpOAuthClientConfig;
 }
 
 export interface ExternalMcpDisabledServerConfig {
@@ -104,11 +110,37 @@ function parseHttp(
     throw new Error(`${label}.${name}.url must use http or https.`);
   }
   const headers = optionalStringRecord(value.headers, `${label}.${name}.headers`);
-  rejectUnknownKeys(value, new Set(["transport", "url", "headers"]), `${label}.${name}`);
+  const oauth = parseOAuthClientConfig(value.oauth, `${label}.${name}.oauth`);
+  rejectUnknownKeys(value, new Set(["transport", "url", "headers", "oauth"]), `${label}.${name}`);
   return {
     transport: "streamable-http",
     url: parsed.toString(),
     ...(headers ? { headers } : {}),
+    ...(oauth ? { oauth } : {}),
+  };
+}
+
+function parseOAuthClientConfig(value: unknown, label: string): ExternalMcpOAuthClientConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(`${label} must be an object.`);
+  rejectUnknownKeys(value, new Set(["clientMetadataUrl", "callbackPort"]), label);
+  const clientMetadataUrl = requiredString(value.clientMetadataUrl, `${label}.clientMetadataUrl`);
+  let parsed: URL;
+  try {
+    parsed = new URL(clientMetadataUrl);
+  } catch {
+    throw new Error(`${label}.clientMetadataUrl must be a valid HTTPS URL.`);
+  }
+  if (parsed.protocol !== "https:" || parsed.pathname === "/") {
+    throw new Error(`${label}.clientMetadataUrl must use https and contain a non-root path.`);
+  }
+  const callbackPort = value.callbackPort;
+  if (!Number.isInteger(callbackPort) || Number(callbackPort) < 1024 || Number(callbackPort) > 65535) {
+    throw new Error(`${label}.callbackPort must be an integer from 1024 to 65535.`);
+  }
+  return {
+    clientMetadataUrl: parsed.toString(),
+    callbackPort: Number(callbackPort),
   };
 }
 

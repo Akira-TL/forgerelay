@@ -367,6 +367,36 @@ test("external MCP direct images respect the configured aggregate media budget",
   });
 });
 
+test("OAuth-protected External MCP without stored credentials returns an actionable auth_required error", async (t) => {
+  const external = await startUnauthorizedHttpFixture(t);
+  const context = await fixture(t, {
+    userConfig: {
+      mcpServers: {
+        secure: {
+          transport: "streamable-http",
+          url: external.url,
+        },
+      },
+    },
+  });
+  const conversation = "chat-external-mcp-auth-required";
+  const opened = await callOpen(context.client, context.project, conversation);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const result = await context.client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId,
+      name: "mcp.external",
+      action: "run",
+      arguments: { operation: "tools", server: "secure" },
+    },
+    _meta: { "openai/session": conversation },
+  } as Parameters<Client["callTool"]>[0]);
+
+  assert.equal(result.isError, true);
+  assert.match(allResponseText(result), /mcp\.auth_required.*forgerelay mcp auth secure/i);
+});
+
 test("configured Streamable HTTP MCP tools are discovered and called through capability", async (t) => {
   const external = await startStreamableHttpFixture(t);
   const context = await fixture(t, {
@@ -505,6 +535,28 @@ test("standalone External MCP config hot reloads through the stable capability w
   const globalDeleted = await call({ operation: "servers" });
   assert.deepEqual((structuredContent(globalDeleted).result as Record<string, unknown>).servers, []);
 });
+
+async function startUnauthorizedHttpFixture(t: TestContext): Promise<{ url: string }> {
+  const httpServer = createHttpServer((_request, response) => {
+    response.writeHead(401, {
+      "www-authenticate": "Bearer resource_metadata=\"https://auth.example.test/.well-known/oauth-protected-resource\"",
+      "cache-control": "no-store",
+    });
+    response.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = httpServer.address();
+  assert.ok(address && typeof address !== "string");
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((error) => error ? reject(error) : resolve());
+    });
+  });
+  return { url: `http://127.0.0.1:${(address as AddressInfo).port}/mcp` };
+}
 
 async function startStreamableHttpFixture(t: TestContext): Promise<{
   url: string;

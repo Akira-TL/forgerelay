@@ -55,6 +55,39 @@ test("standalone External MCP config requires servers and supports strict disabl
     () => parseExternalMcpStandaloneConfig({ servers: { invalid: { disabled: "yes" } } }),
     /must be a boolean/i,
   );
+  assert.deepEqual(parseExternalMcpStandaloneConfig({
+    servers: {
+      cimd: {
+        transport: "streamable-http",
+        url: "https://mcp.example/mcp",
+        oauth: {
+          clientMetadataUrl: "https://client.example/forgerelay.json",
+          callbackPort: 49152,
+        },
+      },
+    },
+  }), {
+    cimd: {
+      transport: "streamable-http",
+      url: "https://mcp.example/mcp",
+      oauth: {
+        clientMetadataUrl: "https://client.example/forgerelay.json",
+        callbackPort: 49152,
+      },
+    },
+  });
+  assert.throws(
+    () => parseExternalMcpStandaloneConfig({
+      servers: {
+        invalid: {
+          transport: "streamable-http",
+          url: "https://mcp.example/mcp",
+          oauth: { clientMetadataUrl: "http://client.example/forgerelay.json", callbackPort: 49152 },
+        },
+      },
+    }),
+    /clientMetadataUrl must use https/i,
+  );
   assert.throws(
     () => parseExternalMcpStandaloneConfig({ servers: {}, extra: true }),
     /unsupported fields/i,

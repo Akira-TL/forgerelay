@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import {
+  AuthorizationServerMismatchError,
   Client,
+  InsufficientScopeError,
   StreamableHTTPClientTransport,
+  type AuthProvider,
   type CallToolResult,
   type PriorDiscovery,
 } from "@modelcontextprotocol/client";
@@ -15,6 +18,11 @@ import type {
   ExternalMcpServersConfig,
 } from "../../../runtime/config/external-mcp-config.js";
 import {
+  ExternalMcpCredentialStore,
+  externalMcpCredentialIdentity,
+} from "../../../runtime/config/external-mcp-auth-store.js";
+import type { ExternalMcpConfigSource } from "../../../runtime/config/external-mcp-registry.js";
+import {
   claimMediaBytes,
   createMediaBudget,
   isSupportedImageMimeType,
@@ -26,6 +34,13 @@ import {
   type ExternalMcpTransformResult,
   type ExternalMcpTransformSummary,
 } from "../../hooks/external-mcp-transform.js";
+import {
+  ExternalMcpOAuthError,
+  createExternalMcpRuntimeAuth,
+  externalMcpAuthError,
+  markExternalMcpReauthorization,
+  type ExternalMcpRuntimeAuth,
+} from "./external-mcp-oauth.js";
 
 const MAX_DISCOVERED_TOOLS = 100;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
@@ -84,6 +99,11 @@ export interface ExternalMcpRunResult {
   content?: CallToolResult["content"];
 }
 
+export interface ExternalMcpAuthContext {
+  workspaceRoot: string;
+  origins: Record<string, ExternalMcpConfigSource>;
+}
+
 export class ExternalMcpError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
@@ -94,13 +114,17 @@ export class ExternalMcpError extends Error {
 export class ExternalMcpGateway {
   private readonly negotiationCache = new Map<string, ExternalMcpNegotiationCacheEntry>();
 
-  constructor(private readonly mediaMaxBytes: number) {}
+  constructor(
+    private readonly mediaMaxBytes: number,
+    private readonly credentialStore?: ExternalMcpCredentialStore,
+  ) {}
 
   async run(
     servers: ExternalMcpServersConfig,
     input: ExternalMcpCapabilityInput,
     signal?: AbortSignal,
     transforms?: ExternalMcpCallTransforms,
+    authContext?: ExternalMcpAuthContext,
   ): Promise<ExternalMcpRunResult> {
     signal?.throwIfAborted();
     switch (input.operation) {
@@ -114,7 +138,7 @@ export class ExternalMcpGateway {
           },
         };
       case "tools":
-        return this.withClient(servers, input.server, signal, async (client) => {
+        return this.withClient(servers, input.server, signal, authContext, async (client) => {
           const discovery = await discoverTools(client, signal);
           return {
             value: {
@@ -126,7 +150,7 @@ export class ExternalMcpGateway {
           };
         });
       case "call":
-        return this.withClient(servers, input.server, signal, async (client) => {
+        return this.withClient(servers, input.server, signal, authContext, async (client) => {
           await assertRegisteredTool(client, input.server, input.tool, signal);
           const appliedTransforms: ExternalMcpTransformSummary[] = [];
           let callArguments = input.arguments ?? {};
@@ -185,16 +209,18 @@ export class ExternalMcpGateway {
     servers: ExternalMcpServersConfig,
     name: string,
     signal: AbortSignal | undefined,
+    authContext: ExternalMcpAuthContext | undefined,
     operation: (client: Client) => Promise<T>,
   ): Promise<T> {
     const config = servers[name];
     if (!config) throw new ExternalMcpError("unknown_server", `Unknown configured external MCP server: ${name}.`);
     const fingerprint = externalMcpServerFingerprint(config);
+    const runtimeAuth = this.resolveRuntimeAuth(name, config, authContext);
     const client = new Client(
       { name: "forgerelay-external-mcp", version: "1.0.0" },
       { versionNegotiation: { mode: "auto" } },
     );
-    const transport = createTransport(config);
+    const transport = createTransport(config, runtimeAuth?.authProvider);
     const prior = this.cachedPrior(name, fingerprint);
     try {
       signal?.throwIfAborted();
@@ -206,6 +232,25 @@ export class ExternalMcpGateway {
       if (error instanceof ExternalMcpError || error instanceof ExternalMcpTransformError) throw error;
       this.invalidateNegotiation(name, fingerprint);
       if (signal?.aborted) signal.throwIfAborted();
+      if (error instanceof ExternalMcpOAuthError) {
+        throw new ExternalMcpError(error.code, error.message);
+      }
+      const authError = externalMcpAuthError(name, error, runtimeAuth);
+      if (authError) {
+        if (this.credentialStore) {
+          if (error instanceof InsufficientScopeError) {
+            await markExternalMcpReauthorization(
+              this.credentialStore,
+              runtimeAuth,
+              "insufficient_scope",
+              { ...(error.requiredScope ? { scope: error.requiredScope } : {}) },
+            ).catch(() => undefined);
+          } else if (runtimeAuth?.bindingMismatch || error instanceof AuthorizationServerMismatchError) {
+            await markExternalMcpReauthorization(this.credentialStore, runtimeAuth, "binding_changed").catch(() => undefined);
+          }
+        }
+        throw new ExternalMcpError(authError.code, authError.message);
+      }
       throw new ExternalMcpError(
         "transport_failed",
         `External MCP ${name} request failed.`,
@@ -213,6 +258,19 @@ export class ExternalMcpGateway {
     } finally {
       await client.close().catch(() => undefined);
     }
+  }
+
+  private resolveRuntimeAuth(
+    name: string,
+    config: ExternalMcpServerConfig,
+    context: ExternalMcpAuthContext | undefined,
+  ): ExternalMcpRuntimeAuth | undefined {
+    if (!this.credentialStore || !context || config.transport !== "streamable-http") return undefined;
+    if (hasStaticAuthorizationHeader(config.headers)) return undefined;
+    const source = context.origins[name];
+    if (!source) return undefined;
+    const identity = externalMcpCredentialIdentity(source, name, context.workspaceRoot);
+    return createExternalMcpRuntimeAuth(this.credentialStore, identity, config.url);
   }
 
   private cachedPrior(name: string, fingerprint: string): PriorDiscovery | undefined {
@@ -270,6 +328,7 @@ function externalMcpServerFingerprint(config: ExternalMcpServerConfig): string {
       transport: config.transport,
       url: config.url,
       headers: sortedStringRecord(config.headers),
+      oauth: config.oauth ?? null,
     };
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
@@ -278,7 +337,7 @@ function sortedStringRecord(value: Record<string, string> | undefined): Record<s
   return Object.fromEntries(Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-function createTransport(config: ExternalMcpServerConfig) {
+function createTransport(config: ExternalMcpServerConfig, authProvider?: AuthProvider) {
   if (config.transport === "stdio") {
     return new StdioClientTransport({
       command: config.command,
@@ -292,7 +351,13 @@ function createTransport(config: ExternalMcpServerConfig) {
   }
   return new StreamableHTTPClientTransport(new URL(config.url), {
     ...(config.headers ? { requestInit: { headers: config.headers } } : {}),
+    ...(authProvider ? { authProvider } : {}),
+    onInsufficientScope: "throw",
   });
+}
+
+function hasStaticAuthorizationHeader(headers: Record<string, string> | undefined): boolean {
+  return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === "authorization");
 }
 
 async function discoverTools(

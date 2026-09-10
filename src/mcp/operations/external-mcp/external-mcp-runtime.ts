@@ -1,5 +1,6 @@
 import type { ServerConfig } from "../../../runtime/config/config.js";
 import { ExternalMcpConfigRegistry } from "../../../runtime/config/external-mcp-registry.js";
+import { ExternalMcpCredentialStore } from "../../../runtime/config/external-mcp-auth-store.js";
 import { logEvent } from "../../../runtime/logging/logger.js";
 import { CapabilityError, type CapabilityRegistryDependencies } from "../../server/core/capability-registry.js";
 import { requireCapabilityWorkspaceRoot } from "../../server/core/capability-support.js";
@@ -12,7 +13,8 @@ import { ExternalMcpError, ExternalMcpGateway } from "./external-mcp.js";
 export function createExternalMcpCapabilityRuntime(
   config: ServerConfig,
 ): NonNullable<CapabilityRegistryDependencies["externalMcp"]> {
-  const externalMcp = new ExternalMcpGateway(config.mediaMaxBytes);
+  const credentialStore = new ExternalMcpCredentialStore({ configDir: config.configDir });
+  const externalMcp = new ExternalMcpGateway(config.mediaMaxBytes, credentialStore);
   const registry = new ExternalMcpConfigRegistry({
     configDir: config.configDir,
     legacyServers: config.mcpServers,
@@ -61,6 +63,10 @@ export function createExternalMcpCapabilityRuntime(
                 ),
               }
             : undefined,
+          {
+            workspaceRoot,
+            origins: snapshot.origins,
+          },
         );
         return {
           value: result.value,
