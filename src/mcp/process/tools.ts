@@ -2,6 +2,7 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
+import { mcpHandlerRequestContext } from "../request-context.js";
 import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import type { BashOutputStore } from "../../activity/history/bash-output-store.js";
 import type { ServerConfig } from "../../runtime/config/config.js";
@@ -162,9 +163,10 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
       timeoutMs,
       maxOutputTokens,
     }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
+      const executionContext = await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
 
       if (routing.isRemote(executionWorkspaceId)) {
         const response = await routing.bashRemote(executionWorkspaceId, {
@@ -181,9 +183,9 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-        }, routing.hostScopeIdFor(extra._meta, extra.sessionId));
+        }, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
         return action === "run"
-          ? routing.presentSemantic(response, target, routing.hostScopeIdFor(extra._meta, extra.sessionId))
+          ? routing.presentSemantic(response, target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId))
           : routing.present(response, target);
       }
 
@@ -204,7 +206,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           yieldTimeMs,
           timeoutMs,
           maxOutputTokens,
-        }, executionContext), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
+        }, executionContext), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
       }
 
       if (action === "output") {
@@ -217,7 +219,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           throw new Error("bash action=output accepts only workspaceId and outputId.");
         }
         return runToolWithHooks(hooks, {
-          signal: extra.signal,
+          signal: requestContext.signal,
           tool: toolNames.shell,
           invocation: workspaceHookInvocation(workspace),
           payload: { action, outputId },
@@ -239,7 +241,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
       }
 
       return runToolWithHooks(hooks, {
-        signal: extra.signal,
+        signal: requestContext.signal,
         tool: toolNames.shell,
         invocation: workspaceHookInvocation(workspace),
         payload: {
@@ -261,7 +263,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
             rows,
             yieldTimeMs,
             maxOutputTokens,
-            signal: extra.signal,
+            signal: requestContext.signal,
           });
           logProcessToolCall(config, workspace, {
             tool: toolNames.shell,
@@ -327,8 +329,9 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
-      const context = await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
+      const context = await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
       if (routing.isRemote(target.executionWorkspaceId)) {
         return routing.presentSemantic(await routing.execCommandRemote(
           target.executionWorkspaceId,
@@ -342,8 +345,8 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           },
-          routing.hostScopeIdFor(extra._meta, extra.sessionId),
-        ), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
+          routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+        ), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
       }
       return routing.presentSemantic(await shellRun({
         workspaceId: target.executionWorkspaceId,
@@ -356,7 +359,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
         yieldTimeMs,
         timeoutMs,
         maxOutputTokens,
-      }, context), target, routing.hostScopeIdFor(extra._meta, extra.sessionId));
+      }, context), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
     },
   );
 
@@ -384,8 +387,9 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
       annotations: SHELL_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, member, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
-      await routing.prepare(target, extra._meta, extra.signal, extra.sessionId);
+      await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
       if (routing.isRemote(target.executionWorkspaceId)) {
         return routing.present(await routing.writeStdinRemote(
           target.executionWorkspaceId,
@@ -399,7 +403,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           },
-          routing.hostScopeIdFor(extra._meta, extra.sessionId),
+          routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
         ), target);
       }
 
@@ -413,7 +417,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
           throw new Error("write_stdin outputId lookup cannot be combined with process control fields.");
         }
         return runToolWithHooks(hooks, {
-          signal: extra.signal,
+          signal: requestContext.signal,
           tool: "write_stdin",
           invocation: workspaceHookInvocation(workspace),
           payload: { outputId },
@@ -427,7 +431,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
 
       const resolvedProcessId = resolveProcessId(processId, sessionId);
       return runToolWithHooks(hooks, {
-        signal: extra.signal,
+        signal: requestContext.signal,
         tool: "write_stdin",
         invocation: workspaceHookInvocation(workspace),
         payload: {
@@ -446,7 +450,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             rows,
             yieldTimeMs,
             maxOutputTokens,
-            signal: extra.signal,
+            signal: requestContext.signal,
           });
           logProcessToolCall(config, workspace, {
             tool: "write_stdin",

@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
+import { mcpHandlerRequestContext } from "../../mcp/request-context.js";
 import { logEvent, transportSessionIdPrefix, type LoggingConfig } from "../../runtime/logging/logger.js";
 import { hostConversationScopeId } from "../../mcp/request-meta.js";
 import { ActivityQueryService } from "../history/query-service.js";
@@ -115,6 +116,7 @@ export function registerActivityQueryTools(
       },
     },
     async ({ workspaceId }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const workspace = workspacePanelState?.(workspaceId);
       if (!workspace) {
         throw new Error(
@@ -122,8 +124,8 @@ export function registerActivityQueryTools(
         );
       }
       const conversationScopeId = hostConversationScopeId(
-        extra._meta,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.transportSessionId,
         connectionScopeId,
       );
       const relayed = await relay?.panel(workspaceId, conversationScopeId);
@@ -144,7 +146,7 @@ export function registerActivityQueryTools(
           revision: snapshot.revision,
           state: snapshot.state,
           workspaceId,
-          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
       return {
@@ -181,9 +183,10 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, workspaceId, knownRevision }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const conversationScopeId = hostConversationScopeId(
-        extra._meta,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.transportSessionId,
         connectionScopeId,
       );
       const relayed = await relay?.snapshot(
@@ -221,7 +224,7 @@ export function registerActivityQueryTools(
           revision: snapshot.revision,
           changed: snapshot.changed,
           state: snapshot.state,
-          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
       const workspace = workspaceId ? workspacePanelState?.(workspaceId) : undefined;
@@ -254,9 +257,10 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, knownRevision }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const conversationScopeId = hostConversationScopeId(
-        extra._meta,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.transportSessionId,
         connectionScopeId,
       );
       const relayed = await relay?.index(turnId, knownRevision, conversationScopeId);
@@ -270,7 +274,7 @@ export function registerActivityQueryTools(
           changed: index.changed,
           state: index.state,
           activities: index.activities.length,
-          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
       return {
@@ -300,9 +304,10 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, activityId }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const conversationScopeId = hostConversationScopeId(
-        extra._meta,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.transportSessionId,
         connectionScopeId,
       );
       const relayed = await relay?.detail(turnId, activityId, conversationScopeId);
@@ -315,7 +320,7 @@ export function registerActivityQueryTools(
           tool: detail.activity.tool,
           kind: detail.activity.kind,
           state: detail.activity.state,
-          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
       return {
@@ -354,9 +359,10 @@ export function registerActivityQueryTools(
       annotations: READ_ONLY_ANNOTATIONS,
     },
     async ({ turnId, outputId, cursor }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       const conversationScopeId = hostConversationScopeId(
-        extra._meta,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.transportSessionId,
         connectionScopeId,
       );
       const relayed = await relay?.output(turnId, outputId, conversationScopeId, cursor);
@@ -372,7 +378,7 @@ export function registerActivityQueryTools(
           processId: output.processId,
           status: output.status,
           outputBytes: Buffer.byteLength(output.output),
-          transportSessionIdPrefix: transportSessionIdPrefix(extra.sessionId),
+          transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
       return {

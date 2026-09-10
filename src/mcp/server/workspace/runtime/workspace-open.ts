@@ -8,6 +8,7 @@ import { ProcessManager } from "../../../process/process-sessions.js";
 import { CompositeWorkspaceRegistry } from "../../../../workspaces/composite/composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-relay.js";
 import { openAiConversationScopeId } from "../../../request-meta.js";
+import { mcpHandlerRequestContext, type McpHandlerRequestContext } from "../../../request-context.js";
 import { formatPathForPrompt } from "../../../../workspaces/resources/skills.js";
 import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks.js";
 import { WorkspaceRegistry } from "../../../../workspaces.js";
@@ -49,14 +50,14 @@ export function registerOpenWorkspaceTool(options: RegisterOpenWorkspaceToolOpti
     server,
     "open_workspace",
     openWorkspaceToolDefinition,
-    (args, extra) => handleOpenWorkspace(options, args, extra),
+    (args, extra) => handleOpenWorkspace(options, args, mcpHandlerRequestContext(extra)),
   );
 }
 
 async function handleOpenWorkspace(
   options: RegisterOpenWorkspaceToolOptions,
   input: OpenWorkspaceToolInput,
-  extra: { _meta?: unknown; sessionId?: string },
+  requestContext: McpHandlerRequestContext,
 ) {
   const {
     config, workspaces, remoteWorkspaces, compositeWorkspaces, workspaceTasks, processSessions, capabilityRegistry,
@@ -66,9 +67,8 @@ async function handleOpenWorkspace(
     action = "open", memberAction, member, kind, name, memberName, path, relay, workspaceId, mode, baseRef,
     newWorktree, newWorkspace, context, root, status, state, staleOnly, offset, limit,
   } = input;
-  const { _meta, sessionId } = extra;
       const startedAt = performance.now();
-      const conversationScopeId = openAiConversationScopeId(_meta);
+      const conversationScopeId = openAiConversationScopeId(requestContext.requestMeta);
       const protectedWorkspaceIds = processSessions.activeWorkspaceIds();
 
       const inspectTaskSummary = (targetWorkspaceId: string) => {
@@ -568,7 +568,7 @@ async function handleOpenWorkspace(
         const resumed = await remoteWorkspaces.resumeWorkspace(
           workspaceId,
           context ?? "auto",
-          hostScopeIdFor(_meta, sessionId),
+          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
         );
         rememberWorkspacePanelState(workspaceId, resumed);
         return resumed;
@@ -582,7 +582,7 @@ async function handleOpenWorkspace(
           newWorktree,
           newWorkspace,
           context,
-        }, hostScopeIdFor(_meta, sessionId));
+        }, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
         const relayedSkills = Array.isArray(opened.skills)
           ? opened.skills as Array<{ name?: unknown }>
           : [];
@@ -671,6 +671,11 @@ async function handleOpenWorkspace(
   return presentLocalWorkspaceOpen(
     presentation,
     input,
-    { conversationScopeId, protectedWorkspaceIds, startedAt, sessionId },
+    {
+      conversationScopeId,
+      protectedWorkspaceIds,
+      startedAt,
+      sessionId: requestContext.transportSessionId,
+    },
   );
 }

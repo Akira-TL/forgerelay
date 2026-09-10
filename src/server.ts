@@ -36,6 +36,7 @@ import { CompositeActivityCoordinator } from "./workspaces/composite/composite-a
 import { CompositeWorkspaceRegistry } from "./workspaces/composite/composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./workspaces/relay/workspace-relay.js";
 import { hostConversationScopeId } from "./mcp/request-meta.js";
+import { mcpHandlerRequestContext } from "./mcp/request-context.js";
 import { createActivityPanelApp } from "./mcp/panel/app.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { formatPathForPrompt } from "./workspaces/resources/skills.js";
@@ -576,7 +577,10 @@ export function createMcpServer(
     "ForgeRelay Activity Panel",
     activityPanelApp.uri,
     activityPanelApp.resourceMetadata,
-    async (uri, extra) => activityPanelApp.readResource(uri.toString(), extra.sessionId),
+    async (uri, extra) => activityPanelApp.readResource(
+      uri.toString(),
+      mcpHandlerRequestContext(extra).transportSessionId,
+    ),
   );
 
   registerOpenWorkspaceTool({

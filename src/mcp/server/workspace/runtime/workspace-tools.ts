@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
+import { mcpHandlerRequestContext } from "../../../request-context.js";
 import { ActivityQueryService } from "../../../../activity/history/query-service.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
@@ -106,11 +107,12 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       },
     },
     async ({ workspaceId, path }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       if (remoteWorkspaces.has(workspaceId)) {
         return remoteWorkspaces.workspaceInstruction(
           workspaceId,
           path,
-          hostScopeIdFor(extra._meta, extra.sessionId),
+          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
         );
       }
       if (compositeWorkspaces.has(workspaceId)) {
@@ -175,6 +177,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       },
     },
     async ({ workspaceId, member, name, action, arguments: capabilityArguments, file }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       if (name === "workspace.tasks" && compositeWorkspaces.has(workspaceId)) {
         if (member !== undefined) {
           throw new Error(
@@ -195,9 +198,9 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
               context,
               {
                 nativeFile: file,
-                signal: extra.signal,
-                requestMeta: extra._meta,
-                sessionId: extra.sessionId,
+                signal: requestContext.signal,
+                requestMeta: requestContext.requestMeta,
+                sessionId: requestContext.transportSessionId,
               },
             );
             const result = {
@@ -237,7 +240,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           });
           return result;
         } catch (error) {
-          if (extra.signal.aborted) throw error;
+          if (requestContext.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
             ? error
             : new CapabilityError(
@@ -267,9 +270,9 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(
         target,
-        extra._meta,
-        extra.signal,
-        extra.sessionId,
+        requestContext.requestMeta,
+        requestContext.signal,
+        requestContext.transportSessionId,
       );
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         const response = await remoteWorkspaces.capability(executionWorkspaceId, {
@@ -277,9 +280,9 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
-        }, hostScopeIdFor(extra._meta, extra.sessionId));
+        }, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
         return action === "run" && name !== "workspace.tasks"
-          ? presentSemanticWorkResult(response, target, hostScopeIdFor(extra._meta, extra.sessionId))
+          ? presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId))
           : presentExecutionResult(response, target);
       }
       if (action === "run" && name === "batch.execute") {
@@ -292,9 +295,9 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             capabilityContextFor(workspace),
             {
               nativeFile: file,
-              signal: extra.signal,
-              requestMeta: extra._meta,
-              sessionId: extra.sessionId,
+              signal: requestContext.signal,
+              requestMeta: requestContext.requestMeta,
+              sessionId: requestContext.transportSessionId,
             },
           );
           const result = {
@@ -303,15 +306,15 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           };
           logToolCall(config, {
             tool: toolNames.capability,
-            ...workspaceLogContext(workspace, extra.sessionId),
+            ...workspaceLogContext(workspace, requestContext.transportSessionId),
             capability: name,
             action,
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
-          return presentSemanticWorkResult(result, target, hostScopeIdFor(extra._meta, extra.sessionId));
+          return presentSemanticWorkResult(result, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
         } catch (error) {
-          if (extra.signal.aborted) throw error;
+          if (requestContext.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
             ? error
             : new CapabilityError(
@@ -329,7 +332,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           };
           logFailedToolResponse(config, {
             tool: toolNames.capability,
-            ...workspaceLogContext(workspace, extra.sessionId),
+            ...workspaceLogContext(workspace, requestContext.transportSessionId),
             capability: name,
             action,
           }, result.content, startedAt);
@@ -344,7 +347,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         );
         return name === "workspace.tasks"
           ? presentExecutionResult(response, target)
-          : presentSemanticWorkResult(response, target, hostScopeIdFor(extra._meta, extra.sessionId));
+          : presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -352,13 +355,13 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(extra._meta, extra.sessionId),
+        hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
         activityRequestFor(
           { workspaceId: executionWorkspaceId, name, action, arguments: capabilityArguments, file },
           executionContext,
         ),
         {
-          signal: extra.signal,
+          signal: requestContext.signal,
           tool: toolNames.capability,
           invocation: workspaceHookInvocation(workspace),
           payload: { name, action },
@@ -462,6 +465,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       annotations: WRITE_TOOL_ANNOTATIONS,
     },
     async ({ workspaceId, action = "close", commitMessage }, extra) => {
+      const requestContext = mcpHandlerRequestContext(extra);
       if (compositeWorkspaces.has(workspaceId)) {
         const startedAt = performance.now();
         if (commitMessage !== undefined) {
@@ -525,7 +529,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         const response = await remoteWorkspaces.closeWorkspace(
           workspaceId,
           { action, ...(commitMessage !== undefined ? { commitMessage } : {}) },
-          hostScopeIdFor(extra._meta, extra.sessionId),
+          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
         );
         if (action === "delete") {
           activityQueries.deleteWorkspaceHistory(config.stateDir, workspaceId);
@@ -545,7 +549,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           );
         }
         const response = await runToolWithHooks(hooks, {
-          signal: extra.signal,
+          signal: requestContext.signal,
           tool: toolNames.closeWorkspace,
           invocation: {
             workspaceId: session.id,
@@ -564,7 +568,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             const result = `Deleted ForgeRelay Workspace ${session.id}. Physical project files were not removed.`;
             logToolCall(config, {
               tool: toolNames.closeWorkspace,
-              ...workspaceLogContext(session, extra.sessionId),
+              ...workspaceLogContext(session, requestContext.transportSessionId),
               action: "delete",
               path: session.root,
               success: true,
@@ -599,7 +603,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         }
         const hookRoot = session.sourceRoot ?? session.root;
         const response = await runToolWithHooks(hooks, {
-          signal: extra.signal,
+          signal: requestContext.signal,
           tool: toolNames.closeWorkspace,
           invocation: {
             workspaceId: session.id,
@@ -645,7 +649,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       }
       const workspace = workspaces.getWorkspace(session.id);
       const response = await runToolWithHooks(hooks, {
-        signal: extra.signal,
+        signal: requestContext.signal,
         tool: toolNames.closeWorkspace,
         invocation: workspaceHookInvocation(workspace),
         payload: { workspaceId: workspace.id, action, commitMessage, mode: workspace.mode },
@@ -700,7 +704,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             ].join("\n");
             logToolCall(config, {
               tool: toolNames.closeWorkspace,
-              ...workspaceLogContext(workspace, extra.sessionId),
+              ...workspaceLogContext(workspace, requestContext.transportSessionId),
               action,
               path: closed.sourceRoot,
               success: true,
@@ -755,7 +759,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
           const result = `Closed checkout-backed Workspace ${checkoutWorkspaceId}; its ForgeRelay identity was preserved for later reopen. Physical project files were not removed.`;
           logToolCall(config, {
             tool: toolNames.closeWorkspace,
-            ...workspaceLogContext(workspace, extra.sessionId),
+            ...workspaceLogContext(workspace, requestContext.transportSessionId),
             action: "close",
             path: workspace.root,
             success: true,
