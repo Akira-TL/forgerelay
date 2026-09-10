@@ -1,8 +1,11 @@
+export type McpProtocolEra = "legacy" | "modern";
+
 export interface McpHandlerRequestContext {
   requestMeta: unknown;
   signal: AbortSignal;
   transportSessionId: string | undefined;
   requestId: string | number;
+  protocolEra: McpProtocolEra;
 }
 
 export interface LegacyMcpHandlerExtra {
@@ -16,6 +19,7 @@ export interface McpV2HandlerContext {
   sessionId?: string;
   mcpReq: {
     _meta?: unknown;
+    envelope?: unknown;
     signal: AbortSignal;
     id: string | number;
   };
@@ -30,6 +34,7 @@ export function mcpHandlerRequestContext(
       signal: extra.mcpReq.signal,
       transportSessionId: extra.sessionId,
       requestId: extra.mcpReq.id,
+      protocolEra: extra.mcpReq.envelope === undefined ? "legacy" : "modern",
     };
   }
   return {
@@ -37,5 +42,6 @@ export function mcpHandlerRequestContext(
     signal: extra.signal,
     transportSessionId: extra.sessionId,
     requestId: extra.requestId,
+    protocolEra: "legacy",
   };
 }

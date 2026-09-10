@@ -17,6 +17,7 @@ test("MCP handler context preserves the ForgeRelay-owned request fields", () => 
   assert.equal(context.signal, controller.signal);
   assert.equal(context.transportSessionId, "transport-session-1");
   assert.equal(context.requestId, 42);
+  assert.equal(context.protocolEra, "legacy");
 });
 
 test("MCP handler context adapts the SDK v2 nested request context", () => {
@@ -27,6 +28,7 @@ test("MCP handler context adapts the SDK v2 nested request context", () => {
     sessionId: "transport-session-v2",
     mcpReq: {
       _meta: requestMeta,
+      envelope: { "io.modelcontextprotocol/protocol-version": "2026-07-28" },
       signal: controller.signal,
       id: "request-v2",
     },
@@ -36,6 +38,7 @@ test("MCP handler context adapts the SDK v2 nested request context", () => {
   assert.equal(context.signal, controller.signal);
   assert.equal(context.transportSessionId, "transport-session-v2");
   assert.equal(context.requestId, "request-v2");
+  assert.equal(context.protocolEra, "modern");
 });
 
 test("MCP handler context keeps optional legacy fields absent", () => {
@@ -49,4 +52,5 @@ test("MCP handler context keeps optional legacy fields absent", () => {
   assert.equal(context.requestMeta, undefined);
   assert.equal(context.transportSessionId, undefined);
   assert.equal(context.requestId, "request-1");
+  assert.equal(context.protocolEra, "legacy");
 });

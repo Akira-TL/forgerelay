@@ -171,7 +171,7 @@ export class NativeBulkMutationExecutor {
     return this.dependencies.lifecycle.run({
       tool,
       workspace: workspaceSnapshot(workspace),
-      conversationScopeId: openAiConversationScopeId(context.requestMeta),
+      conversationScopeId: context.conversationScopeId ?? openAiConversationScopeId(context.requestMeta),
       request,
       operation,
       outcome,

@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
-import { mcpHandlerRequestContext } from "../../../request-context.js";
+import { mcpHandlerRequestContext, type McpHandlerRequestContext } from "../../../request-context.js";
+import type { HostConversationRequestContext } from "../../../request-meta.js";
 import { ActivityQueryService } from "../../../../activity/history/query-service.js";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
@@ -69,8 +70,8 @@ export interface RegisterWorkspaceAuxiliaryToolsOptions {
   reviewCheckpoints: ReturnType<typeof createReviewCheckpointManager>;
   codeIntelligence: CodeIntelligenceManager;
   resolveExecutionTarget: (workspaceId: string, member?: string) => ProcessExecutionTarget;
-  prepareExecutionContext: (target: ProcessExecutionTarget, requestMeta: unknown, signal: AbortSignal | undefined, sessionId: string | undefined) => Promise<CoreOperationContext>;
-  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
+  prepareExecutionContext: (target: ProcessExecutionTarget, requestContext: McpHandlerRequestContext) => Promise<CoreOperationContext>;
+  hostScopeIdFor: (requestContext: HostConversationRequestContext) => string;
   presentExecutionResult: <T>(result: T, target: ProcessExecutionTarget) => T;
   presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
 }
@@ -112,7 +113,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         return remoteWorkspaces.workspaceInstruction(
           workspaceId,
           path,
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+          hostScopeIdFor(requestContext),
         );
       }
       if (compositeWorkspaces.has(workspaceId)) {
@@ -268,21 +269,16 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
 
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(
-        target,
-        requestContext.requestMeta,
-        requestContext.signal,
-        requestContext.transportSessionId,
-      );
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         const response = await remoteWorkspaces.capability(executionWorkspaceId, {
           name,
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
-        }, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        }, hostScopeIdFor(requestContext));
         return action === "run" && name !== "workspace.tasks"
-          ? presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId))
+          ? presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext))
           : presentExecutionResult(response, target);
       }
       if (action === "run" && name === "batch.execute") {
@@ -312,7 +308,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
             success: true,
             durationMs: Math.round(performance.now() - startedAt),
           });
-          return presentSemanticWorkResult(result, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          return presentSemanticWorkResult(result, target, hostScopeIdFor(requestContext));
         } catch (error) {
           if (requestContext.signal.aborted) throw error;
           const capabilityError = error instanceof CapabilityError
@@ -347,7 +343,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         );
         return name === "workspace.tasks"
           ? presentExecutionResult(response, target)
-          : presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          : presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext));
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -355,7 +351,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+        hostScopeIdFor(requestContext),
         activityRequestFor(
           { workspaceId: executionWorkspaceId, name, action, arguments: capabilityArguments, file },
           executionContext,
@@ -529,7 +525,7 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
         const response = await remoteWorkspaces.closeWorkspace(
           workspaceId,
           { action, ...(commitMessage !== undefined ? { commitMessage } : {}) },
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+          hostScopeIdFor(requestContext),
         );
         if (action === "delete") {
           activityQueries.deleteWorkspaceHistory(config.stateDir, workspaceId);

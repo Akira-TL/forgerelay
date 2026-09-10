@@ -61,6 +61,7 @@ import {
   toolResultText,
   workspaceLogContext,
 } from "../../core/tool-support.js";
+import type { HostConversationRequestContext } from "../../../request-meta.js";
 import { appendAutomaticMutationDiagnostics } from "./mutation-diagnostics.js";
 
 export interface CreateOperationRuntimeOptions {
@@ -72,7 +73,7 @@ export interface CreateOperationRuntimeOptions {
   bashOutputStore: BashOutputStore;
   capabilityRegistry: ReturnType<typeof createCapabilityRegistry>;
   codeIntelligence: CodeIntelligenceManager;
-  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
+  hostScopeIdFor: (requestContext: HostConversationRequestContext) => string;
 }
 
 export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
@@ -88,7 +89,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         activityRequestFor(input, context),
         {
           signal: context.signal,
@@ -182,7 +183,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         activityRequestFor(input, context),
         {
           signal: context.signal,
@@ -258,7 +259,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         activityRequestFor(input, context),
         {
           signal: context.signal,
@@ -337,7 +338,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         activityRequestFor(input, context),
         {
           signal: context.signal,
@@ -407,7 +408,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         activityLifecycle,
         hooks,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         activityRequestFor(input, context),
         {
           signal: context.signal,
@@ -512,7 +513,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
       const activityResult = await runActivityTool(
         activityLifecycle,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         surface,
         activityRequestFor(activityRequest, context),
         async (activityContext) => {
@@ -659,7 +660,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
       return runActivityTool(
         activityLifecycle,
         workspace,
-        hostScopeIdFor(context.requestMeta, context.sessionId),
+        hostScopeIdFor(context),
         toolNames.capability,
         activityRequestFor(capabilityActivityAuditRequest(input), context),
         (activityContext) => runToolWithHooks(hooks, {

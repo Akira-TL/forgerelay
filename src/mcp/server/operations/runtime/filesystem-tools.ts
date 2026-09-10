@@ -4,7 +4,8 @@ import { isAbsolute } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
-import { mcpHandlerRequestContext } from "../../../request-context.js";
+import { mcpHandlerRequestContext, type McpHandlerRequestContext } from "../../../request-context.js";
+import type { HostConversationRequestContext } from "../../../request-meta.js";
 import { applyPatch } from "../../../filesystem/apply-patch.js";
 import { readFileTool } from "../../../filesystem/filesystem-tools.js";
 import { createMediaBudget, type MediaContentMetadata } from "../../../operations/media-content.js";
@@ -78,12 +79,10 @@ export interface RegisterFilesystemToolsOptions {
   resolveExecutionTarget: (workspaceId: string, member?: string) => ProcessExecutionTarget;
   prepareExecutionContext: (
     target: ProcessExecutionTarget,
-    requestMeta: unknown,
-    signal: AbortSignal | undefined,
-    sessionId: string | undefined,
+    requestContext: McpHandlerRequestContext,
   ) => Promise<CoreOperationContext>;
   presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
-  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
+  hostScopeIdFor: (requestContext: HostConversationRequestContext) => string;
 }
 
 export function registerFilesystemTools(options: RegisterFilesystemToolsOptions): void {
@@ -251,19 +250,19 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentSemanticWorkResult(await remoteWorkspaces.read(
           executionWorkspaceId,
           { path, paths, offset, limit },
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          hostScopeIdFor(requestContext),
+        ), target, hostScopeIdFor(requestContext));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.read(
           { workspaceId: executionWorkspaceId, path, offset, limit },
           executionContext,
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        ), target, hostScopeIdFor(requestContext));
       }
 
       const workspace = workspaces.getWorkspace(executionWorkspaceId);
@@ -285,7 +284,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       await runActivityTool(
         activityLifecycle,
         workspace,
-        hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+        hostScopeIdFor(requestContext),
         toolNames.read,
         activityRequestFor({ workspaceId: executionWorkspaceId, paths, offset, limit }, executionContext),
         async (parentContext) => {
@@ -351,7 +350,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
         activityRelationFor(executionContext),
       );
       if (!response) throw new Error("Bulk Read completed without a response.");
-      return presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      return presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext));
     },
   );
 
@@ -380,18 +379,18 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       const requestContext = mcpHandlerRequestContext(extra);
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentSemanticWorkResult(await remoteWorkspaces.write(
           executionWorkspaceId,
           input,
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          hostScopeIdFor(requestContext),
+        ), target, hostScopeIdFor(requestContext));
       }
       return presentSemanticWorkResult(await coreOperations.write(
         { workspaceId: executionWorkspaceId, ...input },
         executionContext,
-      ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      ), target, hostScopeIdFor(requestContext));
     },
   );
 
@@ -451,25 +450,25 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentSemanticWorkResult(await remoteWorkspaces.edit(
           executionWorkspaceId,
           { path, paths, edits },
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          hostScopeIdFor(requestContext),
+        ), target, hostScopeIdFor(requestContext));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.edit(
           { workspaceId: executionWorkspaceId, path, edits },
           executionContext,
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        ), target, hostScopeIdFor(requestContext));
       }
 
       return presentSemanticWorkResult(await nativeBulkMutations.edit(
         { workspaceId: executionWorkspaceId, paths: paths!, edits },
         executionContext,
-      ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      ), target, hostScopeIdFor(requestContext));
     },
   );
   }
@@ -498,18 +497,18 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       const requestContext = mcpHandlerRequestContext(extra);
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentSemanticWorkResult(await remoteWorkspaces.rename(
           executionWorkspaceId,
           { path, newPath },
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          hostScopeIdFor(requestContext),
+        ), target, hostScopeIdFor(requestContext));
       }
       return presentSemanticWorkResult(await coreOperations.rename(
         { workspaceId: executionWorkspaceId, path, newPath },
         executionContext,
-      ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      ), target, hostScopeIdFor(requestContext));
     },
   );
 
@@ -555,25 +554,25 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
       }
       const target = resolveExecutionTarget(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
         return presentSemanticWorkResult(await remoteWorkspaces.delete(
           executionWorkspaceId,
           { path, paths, recursive },
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          hostScopeIdFor(requestContext),
+        ), target, hostScopeIdFor(requestContext));
       }
       if (path !== undefined) {
         return presentSemanticWorkResult(await coreOperations.delete(
           { workspaceId: executionWorkspaceId, path, recursive },
           executionContext,
-        ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        ), target, hostScopeIdFor(requestContext));
       }
 
       return presentSemanticWorkResult(await nativeBulkMutations.delete(
         { workspaceId: executionWorkspaceId, paths: paths!, recursive },
         executionContext,
-      ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      ), target, hostScopeIdFor(requestContext));
     },
   );
 
@@ -611,20 +610,20 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
         const requestContext = mcpHandlerRequestContext(extra);
         const target = resolveExecutionTarget(workspaceId, member);
         const executionWorkspaceId = target.executionWorkspaceId;
-        const executionContext = await prepareExecutionContext(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+        const executionContext = await prepareExecutionContext(target, requestContext);
         if (remoteWorkspaces.has(executionWorkspaceId)) {
           return presentSemanticWorkResult(await remoteWorkspaces.applyPatch(
             executionWorkspaceId,
             { patch },
-            hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-          ), target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+            hostScopeIdFor(requestContext),
+          ), target, hostScopeIdFor(requestContext));
         }
         const workspace = workspaces.getWorkspace(executionWorkspaceId);
         return runActivityToolWithHooks(
           activityLifecycle,
           hooks,
           workspace,
-          hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+          hostScopeIdFor(requestContext),
           activityRequestFor({ workspaceId: executionWorkspaceId, patch }, executionContext),
           {
             signal: requestContext.signal,
@@ -682,7 +681,7 @@ export function registerFilesystemTools(options: RegisterFilesystemToolsOptions)
           },
         },
         activityRelationFor(executionContext),
-        ).then((result) => presentSemanticWorkResult(result, target, hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId)));
+        ).then((result) => presentSemanticWorkResult(result, target, hostScopeIdFor(requestContext)));
       },
     );
   }

@@ -115,8 +115,43 @@ try {
     arguments: { path: workspaceRoot, context: "none" },
   });
   assert.notEqual(opened.isError, true);
-  assert.match(String(opened.structuredContent?.workspaceId ?? ""), /^ws_/);
+  const workspaceId = String(opened.structuredContent?.workspaceId ?? "");
+  assert.match(workspaceId, /^ws_/);
   pass("modern tools call", "tools/list and open_workspace completed over stateless HTTP");
+
+  const conversationMeta = { "dev.forgerelay/conversation": "modern-http-acceptance-conversation" };
+  const panel = await client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+    _meta: conversationMeta,
+  });
+  assert.notEqual(panel.isError, true);
+  const turnId = String(panel.structuredContent?.turnId ?? "");
+  assert.match(turnId, /^turn_/);
+  const restored = await client.callTool({
+    name: "activity_snapshot",
+    arguments: { workspaceId },
+    _meta: conversationMeta,
+  });
+  assert.notEqual(restored.isError, true);
+  assert.equal(restored.structuredContent?.turnId, turnId);
+  pass("modern vendor conversation continuity", "stable ForgeRelay metadata restored the Host Turn across stateless requests");
+
+  const requestScopedPanel = await client.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.notEqual(requestScopedPanel.isError, true);
+  const requestScopedSnapshot = await client.callTool({
+    name: "activity_snapshot",
+    arguments: { workspaceId },
+  });
+  assert.equal(requestScopedSnapshot.isError, true);
+  assert.match(
+    requestScopedSnapshot.content?.map((entry) => entry.type === "text" ? entry.text : "").join("\n") ?? "",
+    /could not resolve the current Host Turn/i,
+  );
+  pass("modern request scope isolation", "requests without stable metadata do not share Host Turn state");
 
   assert.equal(serverLogs.includes("\"protocolEra\":\"modern\""), true);
   pass("modern routing observability", "ForgeRelay classified the accepted request as modern");

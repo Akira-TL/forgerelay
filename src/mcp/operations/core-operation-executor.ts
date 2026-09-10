@@ -1,9 +1,13 @@
+import type { McpProtocolEra } from "../request-context.js";
 import type { MediaBudget } from "./media-content.js";
 
 export interface CoreOperationContext {
   requestMeta?: unknown;
   signal?: AbortSignal;
   sessionId?: string;
+  requestId?: string | number;
+  protocolEra?: McpProtocolEra;
+  conversationScopeId?: string;
   parentActivityId?: string;
   turnId?: string;
   batch?: boolean;

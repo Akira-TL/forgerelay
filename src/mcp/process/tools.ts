@@ -2,7 +2,8 @@ import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
-import { mcpHandlerRequestContext } from "../request-context.js";
+import { mcpHandlerRequestContext, type McpHandlerRequestContext } from "../request-context.js";
+import type { HostConversationRequestContext } from "../request-meta.js";
 import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import type { BashOutputStore } from "../../activity/history/bash-output-store.js";
 import type { ServerConfig } from "../../runtime/config/config.js";
@@ -47,9 +48,7 @@ export interface ProcessToolRouting {
   resolve: (workspaceId: string, member?: string) => ProcessExecutionTarget;
   prepare: (
     target: ProcessExecutionTarget,
-    requestMeta: unknown,
-    signal: AbortSignal | undefined,
-    sessionId: string | undefined,
+    requestContext: McpHandlerRequestContext,
   ) => Promise<CoreOperationContext>;
   present: <T>(result: T, target: ProcessExecutionTarget) => T;
   presentSemantic: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
@@ -69,7 +68,7 @@ export interface ProcessToolRouting {
     input: Record<string, unknown>,
     conversationScopeId: string,
   ) => Promise<CallToolResult>;
-  hostScopeIdFor: (requestMeta: unknown, sessionId?: string) => string;
+  hostScopeIdFor: (requestContext: HostConversationRequestContext) => string;
 }
 
 export type SharedShellRun = (
@@ -166,7 +165,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
       const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
       const executionWorkspaceId = target.executionWorkspaceId;
-      const executionContext = await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const executionContext = await routing.prepare(target, requestContext);
 
       if (routing.isRemote(executionWorkspaceId)) {
         const response = await routing.bashRemote(executionWorkspaceId, {
@@ -183,9 +182,9 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
-        }, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        }, routing.hostScopeIdFor(requestContext));
         return action === "run"
-          ? routing.presentSemantic(response, target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId))
+          ? routing.presentSemantic(response, target, routing.hostScopeIdFor(requestContext))
           : routing.present(response, target);
       }
 
@@ -206,7 +205,7 @@ function registerBashTool(options: RegisterProcessToolsOptions): void {
           yieldTimeMs,
           timeoutMs,
           maxOutputTokens,
-        }, executionContext), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+        }, executionContext), target, routing.hostScopeIdFor(requestContext));
       }
 
       if (action === "output") {
@@ -331,7 +330,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
     async ({ workspaceId, member, cmd, tty, columns, rows, workingDirectory, yieldTimeMs, timeoutMs, maxOutputTokens }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
-      const context = await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      const context = await routing.prepare(target, requestContext);
       if (routing.isRemote(target.executionWorkspaceId)) {
         return routing.presentSemantic(await routing.execCommandRemote(
           target.executionWorkspaceId,
@@ -345,8 +344,8 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           },
-          routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
-        ), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+          routing.hostScopeIdFor(requestContext),
+        ), target, routing.hostScopeIdFor(requestContext));
       }
       return routing.presentSemantic(await shellRun({
         workspaceId: target.executionWorkspaceId,
@@ -359,7 +358,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
         yieldTimeMs,
         timeoutMs,
         maxOutputTokens,
-      }, context), target, routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId));
+      }, context), target, routing.hostScopeIdFor(requestContext));
     },
   );
 
@@ -389,7 +388,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
     async ({ workspaceId, member, processId, sessionId, outputId, chars, columns, rows, yieldTimeMs, maxOutputTokens }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
       const target = routing.resolve(workspaceId, member);
-      await routing.prepare(target, requestContext.requestMeta, requestContext.signal, requestContext.transportSessionId);
+      await routing.prepare(target, requestContext);
       if (routing.isRemote(target.executionWorkspaceId)) {
         return routing.present(await routing.writeStdinRemote(
           target.executionWorkspaceId,
@@ -403,7 +402,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
             ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
             ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
           },
-          routing.hostScopeIdFor(requestContext.requestMeta, requestContext.transportSessionId),
+          routing.hostScopeIdFor(requestContext),
         ), target);
       }
 

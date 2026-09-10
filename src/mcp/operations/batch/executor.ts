@@ -75,7 +75,7 @@ export class BatchExecutor {
     await this.dependencies.lifecycle.run({
       tool: "batch",
       workspace: workspaceSnapshot(workspace),
-      conversationScopeId: openAiConversationScopeId(context.requestMeta),
+      conversationScopeId: context.conversationScopeId ?? openAiConversationScopeId(context.requestMeta),
       request: {
         workspaceId,
         concurrency: input.concurrency ?? Math.min(input.tasks.length, 10),

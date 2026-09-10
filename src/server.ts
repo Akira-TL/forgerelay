@@ -35,8 +35,8 @@ import { attachCompletedProcessNotices, recordBashCompletion } from "./mcp/proce
 import { CompositeActivityCoordinator } from "./workspaces/composite/composite-activity.js";
 import { CompositeWorkspaceRegistry } from "./workspaces/composite/composite-workspaces.js";
 import { RemoteWorkspaceRelay } from "./workspaces/relay/workspace-relay.js";
-import { hostConversationScopeId } from "./mcp/request-meta.js";
-import { mcpHandlerRequestContext } from "./mcp/request-context.js";
+import { hostContextDeliveryScopeId, hostConversationScopeId, type HostConversationRequestContext } from "./mcp/request-meta.js";
+import { mcpHandlerRequestContext, type McpHandlerRequestContext } from "./mcp/request-context.js";
 import { createActivityPanelApp } from "./mcp/panel/app.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { formatPathForPrompt } from "./workspaces/resources/skills.js";
@@ -164,15 +164,15 @@ export function createMcpServer(
       reminderWorkspaceId ? taskReminders.recordWork(reminderWorkspaceId) : undefined,
     );
   };
-  const hostScopeIdFor = (requestMeta: unknown, transportSessionId?: string): string =>
-    hostConversationScopeId(requestMeta, transportSessionId, connectionScopeId);
+  const hostScopeIdFor = (requestContext: HostConversationRequestContext): string =>
+    hostConversationScopeId(requestContext, connectionScopeId);
+  const contextDeliveryScopeIdFor = (requestContext: HostConversationRequestContext): string | undefined =>
+    hostContextDeliveryScopeId(requestContext, connectionScopeId);
   const prepareExecutionContext = async (
     target: ReturnType<typeof resolveExecutionTarget>,
-    requestMeta: unknown,
-    signal: AbortSignal | undefined,
-    sessionId: string | undefined,
+    requestContext: McpHandlerRequestContext,
   ): Promise<CoreOperationContext> => {
-    const conversationScopeId = hostScopeIdFor(requestMeta, sessionId);
+    const conversationScopeId = hostScopeIdFor(requestContext);
     const turnId = target.compositeWorkspaceId && target.memberName
       ? await compositeActivity.prepareMember(
           target.compositeWorkspaceId,
@@ -182,9 +182,12 @@ export function createMcpServer(
         )
       : undefined;
     return {
-      requestMeta,
-      signal,
-      sessionId,
+      requestMeta: requestContext.requestMeta,
+      signal: requestContext.signal,
+      sessionId: requestContext.transportSessionId,
+      requestId: requestContext.requestId,
+      protocolEra: requestContext.protocolEra,
+      conversationScopeId,
       ...(turnId ? { turnId } : {}),
       ...(target.memberName ? { activityMember: target.memberName } : {}),
     };
@@ -586,6 +589,7 @@ export function createMcpServer(
   registerOpenWorkspaceTool({
     server, config, workspaces, remoteWorkspaces, compositeWorkspaces, workspaceTasks, processSessions,
     capabilityRegistry, compositeTaskGuides, loadCompositeMemberContext, rememberWorkspacePanelState, hostScopeIdFor,
+    contextDeliveryScopeIdFor,
     presentation: {
       config, forgerelayVersion: FORGERELAY_VERSION, workspaces, workspaceTasks, reviewCheckpoints,
       capabilityRegistry, subagentProviders, hooks, rememberWorkspacePanelState,
