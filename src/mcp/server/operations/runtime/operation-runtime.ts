@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { ActivityLifecycle } from "../../../../activity/runtime/lifecycle.js";
 import { BashOutputStore } from "../../../../activity/history/bash-output-store.js";
 import { CapabilityError, createCapabilityRegistry } from "../../core/capability-registry.js";

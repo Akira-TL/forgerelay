@@ -12,9 +12,26 @@ export interface LegacyMcpHandlerExtra {
   requestId: string | number;
 }
 
+export interface McpV2HandlerContext {
+  sessionId?: string;
+  mcpReq: {
+    _meta?: unknown;
+    signal: AbortSignal;
+    id: string | number;
+  };
+}
+
 export function mcpHandlerRequestContext(
-  extra: LegacyMcpHandlerExtra,
+  extra: LegacyMcpHandlerExtra | McpV2HandlerContext,
 ): McpHandlerRequestContext {
+  if ("mcpReq" in extra) {
+    return {
+      requestMeta: extra.mcpReq._meta,
+      signal: extra.mcpReq.signal,
+      transportSessionId: extra.sessionId,
+      requestId: extra.mcpReq.id,
+    };
+  }
   return {
     requestMeta: extra._meta,
     signal: extra.signal,

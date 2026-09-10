@@ -1,6 +1,6 @@
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { mcpHandlerRequestContext } from "../request-context.js";
 import type { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
@@ -477,7 +477,7 @@ function registerCodexProcessTools(options: RegisterProcessToolsOptions): void {
   );
 }
 
-function processOutputSchema(): z.ZodRawShape {
+function processOutputSchema(): Record<string, z.ZodType> {
   return {
     result: z.string().describe("Model-readable result text for follow-up reasoning and plain MCP hosts."),
     processId: z.number().int().positive().optional().describe("Canonical process handle for bash(action=\"process\") or the active command adapter."),

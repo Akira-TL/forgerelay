@@ -19,6 +19,25 @@ test("MCP handler context preserves the ForgeRelay-owned request fields", () => 
   assert.equal(context.requestId, 42);
 });
 
+test("MCP handler context adapts the SDK v2 nested request context", () => {
+  const controller = new AbortController();
+  const requestMeta = { "openai/session": "conversation-v2" };
+
+  const context = mcpHandlerRequestContext({
+    sessionId: "transport-session-v2",
+    mcpReq: {
+      _meta: requestMeta,
+      signal: controller.signal,
+      id: "request-v2",
+    },
+  });
+
+  assert.equal(context.requestMeta, requestMeta);
+  assert.equal(context.signal, controller.signal);
+  assert.equal(context.transportSessionId, "transport-session-v2");
+  assert.equal(context.requestId, "request-v2");
+});
+
 test("MCP handler context keeps optional legacy fields absent", () => {
   const controller = new AbortController();
 

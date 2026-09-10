@@ -4,7 +4,7 @@ import {
   applyHostFonts,
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { HostContext } from "./core/card-types.js";
 import { ActivityPanelController } from "./activity/panel.js";
 import { WorkspacePanelController } from "./workspace/panel.js";

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import { BashOutputStore } from "./activity/history/bash-output-store.js";
 import { registerActivityQueryTools } from "./activity/runtime/mcp-query-tools.js";

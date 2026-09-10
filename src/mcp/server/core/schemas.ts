@@ -1,7 +1,9 @@
 import * as z from "zod/v4";
 import type { Workspace } from "../../../workspaces.js";
 
-export function resultOutputSchema(extra: z.ZodRawShape = {}): z.ZodRawShape {
+type AppToolRawShape = Record<string, z.ZodType>;
+
+export function resultOutputSchema(extra: AppToolRawShape = {}): AppToolRawShape {
   return {
     result: z
       .string()

@@ -1,5 +1,5 @@
 import type { App } from "@modelcontextprotocol/ext-apps";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { ACTIVITY_PANEL_WORKSPACE_META_KEY } from "../../activity/ui/contract.js";
 import type { ToolResultCard } from "../core/card-types.js";
 import { getProviderLogo, renderIcon, toolIcons, type ToolIcon } from "../core/icons.js";

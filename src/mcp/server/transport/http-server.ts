@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, Transport as ModernMcpTransport } from "@modelcontextprotocol/server";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
@@ -345,7 +345,10 @@ export function createHttpServer(
             compositeWorkspaces: sharedCompositeWorkspaces,
           },
         );
-        await server.connect(transport);
+        // #142 keeps the published legacy/sessionful HTTP transport while the
+        // server core moves to SDK v2. #143 replaces this compatibility bridge
+        // with the native dual-era v2 HTTP handler.
+        await server.connect(transport as unknown as ModernMcpTransport);
       } else {
         sendJsonRpcError(res, 400, -32000, "No valid MCP transport session");
         return;
