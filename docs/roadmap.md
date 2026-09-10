@@ -348,9 +348,70 @@ recovery, checkpoint, and retention facts; the Gateway only routes and presents 
 results. Development acceptance remains on isolated 7677/7678 instances and never uses
 the normal 7676 installation.
 
-Native Windows Command Shell Runtime support was intentionally kept out of the
-0.9 recovery/history line and was subsequently delivered across the 0.10.x P3
-work for PowerShell 7, Windows PowerShell 5.1, and `cmd.exe`.
+## 0.10 — Command Shell Runtime P3
+
+0.10 把 ForgeRelay 的命令执行从“默认假设 Bash”提升为显式、可观察、跨平台的
+Command Shell Runtime，同时保持公开 Core tool 名称 `bash` 不变，避免因为 Windows
+支持而扩大 Host 的常驻 MCP surface。
+
+- **0.10.0** — 建立 server-lifetime Command Shell Runtime identity 与选择优先级；
+  `forgerelay init` 管理可编辑 shell Instructions；系统级高权限启动默认拒绝，只有
+  显式 `--allow-elevated` 才允许继续；
+- **0.10.1** — 将 PowerShell 7（`pwsh`）作为 Windows 上的一等 Agent/Hook/PTY
+  runtime，并补齐真实 packaged npm acceptance；
+- **0.10.2** — 加入 Windows PowerShell 5.1，完成 ConPTY、Unicode、进程树清理和
+  packaged launcher 路径；
+- **0.10.3** — 将 `cmd.exe` 提升为一等 runtime，覆盖其独立 quoting、escaping、
+  `%ERRORLEVEL%`、pipe/PTY 与 `.cmd` launcher contract；
+- **0.10.4** — 让 shell identity 跟随实际 Execution ForgeRelay，并贯通 Workspace
+  Relay、Composite Workspace、doctor、UI、Instructions 与公开 tool description；
+- **0.10.5** — 移除 ForgeRelay 对 legacy `disable-model-invocation` Skill frontmatter
+  的过滤，保持 Skill discovery 由 Agent 侧匹配决定。
+
+P3 的发布验收以真实 Windows shell matrix 与 packed artifact 为核心，同时继续保留
+Linux/macOS 回归验证。开发与运行时验收只使用隔离的 7677/7678 实例，不触碰 7676。
+
+## 1.0 — Stable product baseline
+
+1.0 将已经完成的 Workspace、Capability Gateway、Hooks、LSP、Activity/Audit、Tasks、
+Recovery/Checkpoint、Relay/Composite 与跨平台 shell contract 提升为稳定的 1.x 产品
+基线，而不是重新设计一套运行时模型。
+
+- **1.0.0** — 固化当前 MCP Core tool surface、CLI、Workspace 生命周期、managed
+  worktree finalize 与 Capability Gateway，现有 0.10.5 配置和持久化状态无需迁移；
+- **1.0.1** — 修复 Capability 与 Workspace lifecycle pretty logging，使日志保留
+  semantic operation identity，并补齐 Composite capability attribution。
+
+1.x 继续遵守现有发布规则：稳定版本只有在本地 release gate 与真实 7677/7678 路径
+验收通过后才创建 tag；tag-triggered Linux/macOS/Windows workflow 成功后才形成正式
+npm/GitHub Release。
+
+## 1.1 — First-class image transport
+
+1.1 把 image-bearing MCP result 纳入 ForgeRelay 的一等、受预算约束的传输路径，
+同时保持“ForgeRelay 不是图片仓库，也不自动解引用外部引用”的边界。
+
+- `read` 依据文件签名把 PNG、JPEG、WebP、GIF 返回为标准 MCP `ImageContent`，bulk
+  Read 保留 text/image 输入顺序；
+- Workspace Relay 在 Execution ForgeRelay → Gateway ForgeRelay 路径中原样保留
+  image content，并在 Gateway 侧再次执行 media budget；
+- 用户显式配置的外部 MCP server 通过 `mcp.external` Capability 调用，原生
+  `ImageContent` 可直接转发，但 path/URL/resource reference 默认仍只是 reference；
+- `ExternalMcpBeforeForward` / `ExternalMcpAfterForward` Transform Hook 为特定
+  server/tool 提供显式结构化适配 seam，但不能改写已选择的 server/tool；
+- Media content 保持瞬时 MCP payload，不自动成为 Artifact；Activity/Audit、日志、
+  structured output 与 Workspace state 只持久化受限 metadata，不保存 image base64；
+- 每个 tool result 默认采用 20 MiB decoded-media budget，超限显式失败，不静默截断、
+  resize 或转码。
+
+1.1.0 已完成真实 7677 HTTP/OAuth/MCP、7677 → 7678 Relay、external MCP、Transform
+Hook、packed artifact 和 ChatGPT Host 图像呈现验收，并作为正式稳定版本发布。
+
+## 1.x forward planning
+
+当前 roadmap 没有承诺 1.1 之后的下一条 minor feature line。新的 1.x 产品工作应从
+明确的用户目标、架构问题或外部 issue 出发，先形成可验证的 spec/tickets，再进入实现；
+不要仅根据历史版本号顺序推断或虚构 1.2 功能范围。
 
 ## Workspace Task Lists
 
