@@ -123,11 +123,7 @@ export function registerActivityQueryTools(
           `No Workspace presentation is available for ${workspaceId}. Call open_workspace for that workspace before activity_panel.`,
         );
       }
-      const conversationScopeId = hostConversationScopeId(
-        requestContext.requestMeta,
-        requestContext.transportSessionId,
-        connectionScopeId,
-      );
+      const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.panel(workspaceId, conversationScopeId);
       if (relayed) {
         return {
@@ -184,11 +180,7 @@ export function registerActivityQueryTools(
     },
     async ({ turnId, workspaceId, knownRevision }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
-      const conversationScopeId = hostConversationScopeId(
-        requestContext.requestMeta,
-        requestContext.transportSessionId,
-        connectionScopeId,
-      );
+      const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.snapshot(
         { turnId, workspaceId, knownRevision },
         conversationScopeId,
@@ -258,11 +250,7 @@ export function registerActivityQueryTools(
     },
     async ({ turnId, knownRevision }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
-      const conversationScopeId = hostConversationScopeId(
-        requestContext.requestMeta,
-        requestContext.transportSessionId,
-        connectionScopeId,
-      );
+      const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.index(turnId, knownRevision, conversationScopeId);
       if (relayed) return relayed;
       const index = queries.index(turnId, knownRevision);
@@ -305,11 +293,7 @@ export function registerActivityQueryTools(
     },
     async ({ turnId, activityId }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
-      const conversationScopeId = hostConversationScopeId(
-        requestContext.requestMeta,
-        requestContext.transportSessionId,
-        connectionScopeId,
-      );
+      const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.detail(turnId, activityId, conversationScopeId);
       if (relayed) return relayed;
       const detail = queries.detail(turnId, activityId);
@@ -360,11 +344,7 @@ export function registerActivityQueryTools(
     },
     async ({ turnId, outputId, cursor }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
-      const conversationScopeId = hostConversationScopeId(
-        requestContext.requestMeta,
-        requestContext.transportSessionId,
-        connectionScopeId,
-      );
+      const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.output(turnId, outputId, conversationScopeId, cursor);
       if (relayed) return relayed;
       const output = queries.bashOutput(turnId, outputId, cursor);
