@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -31,7 +31,7 @@ void test("mcp list resolves Project scope from a nested cwd and --global exclud
   const project = await runCli(["mcp", "list"], context.env, nested);
   assert.equal(project.status, 0, project.stderr);
   assert.match(project.stdout, /Scope: project/);
-  assert.match(project.stdout, new RegExp(`Project: ${escapeRegExp(context.projectRoot)}`));
+  assert.match(project.stdout, new RegExp(`Project: ${escapeRegExp(realpathSync(context.projectRoot))}`));
   assert.match(project.stdout, /project[\s\S]*source: project[\s\S]*transport: stdio/);
   assert.match(project.stdout, /shared[\s\S]*source: project[\s\S]*status: disabled/);
   assert.match(project.stdout, /global[\s\S]*source: global/);
