@@ -1,13 +1,10 @@
 import { timingSafeEqual, randomBytes, randomUUID, createHash } from "node:crypto";
 import type { Response } from "express";
-import {
-  AccessDeniedError,
-  InvalidGrantError,
-  InvalidRequestError,
-  type AuthorizationParams,
-  type OAuthRegisteredClientsStore,
-  type OAuthServerProvider,
-} from "@modelcontextprotocol/server-legacy/auth";
+import type {
+  AuthorizationParams,
+  OAuthRegisteredClientsStore,
+  OAuthServerProvider,
+} from "./auth-protocol.js";
 import {
   OAuthError,
   OAuthErrorCode,
@@ -151,10 +148,10 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     res: Response,
   ): Promise<void> {
     if (!params.resource || !checkResourceAllowed({ requestedResource: params.resource, configuredResource: this.resourceServerUrl })) {
-      throw new InvalidRequestError("Invalid or missing OAuth resource");
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Invalid or missing OAuth resource");
     }
     if (!requestedScopesAllowed(params.scopes ?? [], this.config.scopes)) {
-      throw new InvalidRequestError("Requested scope is not supported");
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Requested scope is not supported");
     }
 
     if (res.req.method !== "POST") {
@@ -216,10 +213,10 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   ): Promise<OAuthTokens> {
     const record = this.validCodeRecord(client, authorizationCode);
     if (redirectUri && redirectUri !== record.params.redirectUri) {
-      throw new InvalidGrantError("redirect_uri does not match the authorization request");
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "redirect_uri does not match the authorization request");
     }
     if (resource && !checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceServerUrl })) {
-      throw new InvalidGrantError("Invalid resource");
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid resource");
     }
 
     this.codes.delete(authorizationCode);
@@ -233,15 +230,15 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     resource?: URL,
   ): Promise<OAuthTokens> {
     const refresh = this.validRefreshToken(refreshToken, client.client_id);
-    if (!refresh) throw new InvalidGrantError("Invalid refresh token");
+    if (!refresh) throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
     const { refreshTokenHash, record } = refresh;
     if (resource && !checkResourceAllowed({ requestedResource: resource, configuredResource: this.resourceServerUrl })) {
-      throw new InvalidGrantError("Invalid resource");
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid resource");
     }
 
     const requestedScopes = scopes ?? record.scopes;
     if (!requestedScopes.every((scope) => record.scopes.includes(scope))) {
-      throw new AccessDeniedError("Refresh token cannot grant requested scopes");
+      throw new OAuthError(OAuthErrorCode.AccessDenied, "Refresh token cannot grant requested scopes");
     }
 
     return this.issueTokens(
@@ -316,7 +313,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     this.pruneExpiredAuthorizationCodes();
     const record = this.codes.get(authorizationCode);
     if (!record || record.clientId !== client.client_id || record.expiresAtMs < Date.now()) {
-      throw new InvalidGrantError("Invalid authorization code");
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid authorization code");
     }
     return record;
   }
@@ -353,7 +350,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       consumedRefreshTokenHash,
     );
     if (!saved) {
-      throw new InvalidGrantError("Invalid refresh token");
+      throw new OAuthError(OAuthErrorCode.InvalidGrant, "Invalid refresh token");
     }
 
     return {

@@ -263,7 +263,6 @@ test("capacity refuses new work instead of killing a service with an active sema
       line: 1,
       column: 15,
     }),
-    undefined,
     { signal: controller.signal },
   );
   await waitForMethod(logPath, "textDocument/references");
@@ -345,7 +344,6 @@ test("managed-worktree finalization releases its Language service before removin
       line: 1,
       column: 15,
     }),
-    undefined,
     { signal: controller.signal },
   );
   await waitForMethod(logPath, "textDocument/references");

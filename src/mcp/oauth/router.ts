@@ -8,7 +8,7 @@ import {
   revocationHandler,
   tokenHandler,
   type OAuthServerProvider,
-} from "@modelcontextprotocol/server-legacy/auth";
+} from "./auth-protocol.js";
 import type { OAuthProtectedResourceMetadata, OAuthTokens } from "@modelcontextprotocol/server";
 import {
   oauthAuthorizationServerMetadataPath,

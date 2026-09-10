@@ -8,8 +8,7 @@ import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { promisify } from "node:util";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
 import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
 import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
@@ -404,7 +403,6 @@ test("Host cancellation stops queued batch tasks and creates no fake child Activ
       },
       _meta: { "openai/session": conversation },
     } as Parameters<Client["callTool"]>[0],
-    undefined,
     { signal: controller.signal, timeout: 5_000 },
   );
   setTimeout(() => controller.abort(), 30);

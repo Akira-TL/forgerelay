@@ -194,12 +194,12 @@ async function branchExists(cwd: string, branch: string): Promise<boolean> {
   }
 }
 
-function structured(result: Awaited<ReturnType<import("@modelcontextprotocol/sdk/client/index.js").Client["callTool"]>>): Record<string, unknown> {
+function structured(result: Awaited<ReturnType<import("@modelcontextprotocol/client").Client["callTool"]>>): Record<string, unknown> {
   assert.ok(result.structuredContent);
   return result.structuredContent as Record<string, unknown>;
 }
 
-function resultText(result: Awaited<ReturnType<import("@modelcontextprotocol/sdk/client/index.js").Client["callTool"]>>): string {
+function resultText(result: Awaited<ReturnType<import("@modelcontextprotocol/client").Client["callTool"]>>): string {
   const content = result.content;
   if (!Array.isArray(content)) return "";
   return content

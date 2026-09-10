@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import {
-  InvalidRequestError,
-  type OAuthRegisteredClientsStore,
-} from "@modelcontextprotocol/server-legacy/auth";
-import type { OAuthClientInformationFull } from "@modelcontextprotocol/server";
+import { OAuthError, OAuthErrorCode, type OAuthClientInformationFull } from "@modelcontextprotocol/server";
+import type { OAuthRegisteredClientsStore } from "./auth-protocol.js";
 import { openDatabase, type DatabaseHandle } from "../../runtime/state/db/client.js";
 
 export interface PersistedAccessTokenRecord {
@@ -71,7 +68,7 @@ export class SqliteOAuthStore {
     allowedRedirectHosts: string[],
   ): OAuthClientInformationFull {
     if (!client.redirect_uris.every((uri) => redirectHostAllowed(String(uri), allowedRedirectHosts))) {
-      throw new InvalidRequestError("Client redirect_uri is not allowed for this ForgeRelay server");
+      throw new OAuthError(OAuthErrorCode.InvalidRequest, "Client redirect_uri is not allowed for this ForgeRelay server");
     }
 
     const now = Math.floor(Date.now() / 1000);

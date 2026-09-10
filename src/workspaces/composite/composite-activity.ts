@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { ActivitySummary, HostTurnSnapshot, HostTurnState } from "../../activity/history/query-service.js";
 import { ActivityQueryService } from "../../activity/history/query-service.js";
 import { CompositeWorkspaceRegistry } from "./composite-workspaces.js";

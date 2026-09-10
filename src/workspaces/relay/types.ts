@@ -1,7 +1,7 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CompatibilityCallToolResult } from "@modelcontextprotocol/server";
 import type { ManagedWorktreeRecoveryProjection } from "../git/worktree-recovery.js";
 
-export type ToolCallResult = CallToolResult;
+export type ToolCallResult = Extract<CompatibilityCallToolResult, { content: unknown[] }>;
 
 export interface RelayedWorkspaceRoute {
   gatewayWorkspaceId: string;

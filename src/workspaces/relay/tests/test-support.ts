@@ -5,9 +5,9 @@ import { createRequire, syncBuiltinESMExports } from "node:module";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import type { TestContext } from "node:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolResultSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { CompatibilityCallToolResultSchema } from "@modelcontextprotocol/core";
+import type { ToolCallResult } from "../types.js";
 import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
 import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
 import { HostTurnStore } from "../../../activity/history/host-turn-store.js";
@@ -303,6 +303,10 @@ export function resultText(result: unknown): string {
     .join("\n");
 }
 
-function parseToolResult(result: unknown): CallToolResult {
-  return CallToolResultSchema.parse(result);
+function parseToolResult(result: unknown): ToolCallResult {
+  const parsed = CompatibilityCallToolResultSchema.parse(result);
+  if (!Array.isArray((parsed as Record<string, unknown>).content)) {
+    throw new Error("Expected a content-based compatibility tool result.");
+  }
+  return parsed as ToolCallResult;
 }

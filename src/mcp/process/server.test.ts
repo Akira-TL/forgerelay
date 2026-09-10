@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Client } from "@modelcontextprotocol/client";
 import { ProcessManager } from "./process-sessions.js";
 import {
   allResponseText,
@@ -121,7 +121,6 @@ test("Host cancellation during a blocking BeforeTool Hook prevents the original 
         yieldTimeMs: 0,
       },
     },
-    undefined,
     { signal: controller.signal, timeout: 5_000 },
   );
   setTimeout(() => controller.abort(), 30);
@@ -158,7 +157,6 @@ test("Host cancellation before processId delivery discards a process created bef
         yieldTimeMs: 0,
       },
     },
-    undefined,
     { signal: controller.signal, timeout: 5_000 },
   );
   setTimeout(() => controller.abort(), 40);

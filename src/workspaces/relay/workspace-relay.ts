@@ -9,8 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/client";
-// Relay transport is v2; the current Host-facing tool result contract remains v1 in this migration slice.
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CompatibilityCallToolResultSchema } from "@modelcontextprotocol/core";
 import {
   isRemoteMcpUnauthorized,
   refreshRemoteAuthentication,
@@ -710,15 +709,21 @@ export class RemoteWorkspaceRelay {
       }
     }
 
-    const invoke = async (active: RemoteMcpConnection) => CallToolResultSchema.parse(
-      await active.client.callTool({
-        name,
-        arguments: args,
-        ...(conversationScopeId
-          ? { _meta: { "openai/session": conversationScopeId } }
-          : {}),
-      } as Parameters<Client["callTool"]>[0]),
-    );
+    const invoke = async (active: RemoteMcpConnection): Promise<ToolCallResult> => {
+      const parsed = CompatibilityCallToolResultSchema.parse(
+        await active.client.callTool({
+          name,
+          arguments: args,
+          ...(conversationScopeId
+            ? { _meta: { "openai/session": conversationScopeId } }
+            : {}),
+        } as Parameters<Client["callTool"]>[0]),
+      );
+      if (!Array.isArray((parsed as Record<string, unknown>).content)) {
+        throw new Error("Remote ForgeRelay returned a modern-only tool result on the legacy Relay protocol path.");
+      }
+      return parsed as ToolCallResult;
+    };
 
     try {
       return await invoke(connection);

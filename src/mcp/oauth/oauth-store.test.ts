@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InvalidGrantError } from "@modelcontextprotocol/server-legacy/auth";
 import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/server";
 import { databasePath, openDatabase } from "../../runtime/state/db/client.js";
 import { SingleUserOAuthProvider } from "./oauth-provider.js";
@@ -323,7 +322,7 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
 
     await assert.rejects(
       secondProvider.exchangeRefreshToken(client, issued.refresh_token, ["forgerelay"], mcpUrl),
-      InvalidGrantError,
+      (error: unknown) => error instanceof OAuthError && error.code === OAuthErrorCode.InvalidGrant,
     );
 
     await secondProvider.revokeToken(client, { token: refreshed.access_token });
@@ -335,7 +334,7 @@ async function testProviderRestartRotationAndRevocation(stateDir: string): Promi
     await secondProvider.revokeToken(client, { token: refreshed.refresh_token });
     await assert.rejects(
       secondProvider.exchangeRefreshToken(client, refreshed.refresh_token, ["forgerelay"], mcpUrl),
-      InvalidGrantError,
+      (error: unknown) => error instanceof OAuthError && error.code === OAuthErrorCode.InvalidGrant,
     );
   } finally {
     secondProvider.close();

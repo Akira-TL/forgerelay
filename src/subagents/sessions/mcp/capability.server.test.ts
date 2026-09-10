@@ -3,8 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, type TestContext } from "node:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { ActivityAuditStore } from "../../../activity/history/audit-store.js";
 import { BashOutputStore } from "../../../activity/history/bash-output-store.js";
 import { HostTurnStore } from "../../../activity/history/host-turn-store.js";

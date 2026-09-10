@@ -105,7 +105,6 @@ test("Host cancellation propagates to an aware LSP server and the shared service
       line: 1,
       column: 15,
     }),
-    undefined,
     { signal: controller.signal },
   );
   await waitForLog(logPath, /"method":"textDocument\/references"/);
@@ -155,7 +154,6 @@ test("a server that ignores cancellation cannot block all semantic request slots
       line: 1,
       column: 15,
     }),
-    undefined,
     { signal: controller.signal },
   );
   await waitForLog(logPath, /"method":"textDocument\/references"/);
