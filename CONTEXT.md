@@ -118,6 +118,18 @@ _Avoid_: Skill, tool description
 The single MCP entry point named `capability` used to inspect and execute registered non-core Capabilities without expanding the always-visible tool surface.
 _Avoid_: Plugin runtime, arbitrary RPC
 
+**External MCP configuration**:
+The user-owned registry of external MCP servers that ForgeRelay may expose through the `mcp.external` Capability. External MCP configuration can have machine-wide and Workspace-project scope; project scope may refine or override the machine-wide registry without creating new top-level MCP tools. Configuration changes are expected to become usable without restarting ForgeRelay.
+_Avoid_: Capability catalog, plugin registry, Host MCP configuration
+
+**External MCP authentication**:
+The credentials and authorization state used by one configured external MCP server. A server may require no authentication, user-managed static credentials, or interactive OAuth authorization. OAuth authorization is an explicit human action rather than an Agent-initiated side effect.
+_Avoid_: ForgeRelay Host OAuth, Remote Authentication, automatic login
+
+**External MCP credential scope**:
+The ownership scope of interactive OAuth credentials for configured external MCP servers. A server declared in the global ForgeRelay MCP configuration owns a global credential identity and is available to Projects through that global configuration. A server declared in a Project MCP configuration owns an independent Project credential identity; copying the same server definition into another Project does not preserve or infer credential identity and requires independent authorization. ForgeRelay does not provide cross-Project OAuth credential sharing.
+_Avoid_: Workspace identity, inferred server identity, implicit shared login, static header configuration
+
 **Code intelligence**:
 Workspace-aware semantic code information provided through ForgeRelay Capabilities and backed by configured/discovered language servers or, when the user explicitly enabled managed installation, ForgeRelay-private TypeScript/Pyright runtimes.
 _Avoid_: Code search, automatic language-server installation
@@ -143,8 +155,8 @@ The latest bounded set of language-server diagnostics ForgeRelay associates with
 _Avoid_: Build log, permanent diagnostic history, Workspace state
 
 **Host Turn**:
-One top-level Host execution cycle for project work in a selected Workspace, beginning when the Host starts handling that user input and ending when it produces its final response or the user interrupts the cycle. ForgeRelay persists the current Host Turn by Host conversation scope plus `workspaceId`. The scope prefers a Host-provided conversation identifier such as `openai/session`, then falls back to the MCP transport session, then to the current MCP connection. This keeps ordinary MCP Hosts and Inspector calls attached to the same Panel without weakening Workspace isolation; returning to an older Workspace cannot bootstrap Activity state from another Workspace in the same conversation or connection.
-_Avoid_: Agent session, provider session, conversation
+One top-level Host execution cycle for project work in a selected Workspace, beginning when the Host starts handling that user input and ending when it produces its final response or the user interrupts the cycle. ForgeRelay associates a Host Turn with a stable Host-provided conversation scope plus `workspaceId` when such a scope exists. A cooperative Host may provide a ForgeRelay-specific conversation scope when the base protocol does not define one. Stateless Hosts that provide no stable conversation identity are intentionally request-scoped; ForgeRelay does not infer a conversation from a connection, transport, or process lifetime. Legacy stateful protocol paths may retain their bounded transport-session compatibility behavior.
+_Avoid_: Agent session, provider session, transport session, connection, conversation
 
 **ForgeRelay Panel**:
 The single Host-rendered ForgeRelay view associated with one Workspace and one current Host Turn. A different Workspace identity means a different Panel. The Panel keeps Workspace Summary visible above a separately collapsible Activity Panel.

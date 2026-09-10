@@ -313,6 +313,46 @@ TypeScript / JavaScript 和 Pyright 只有在用户显式授权 managed install 
 
 详见 [代码智能](Code-Intelligence)。
 
+## External MCP 配置或认证不工作
+
+先看当前作用域真正解析到了什么：
+
+```bash
+forgerelay mcp list
+```
+
+需要主动验证连接时再跑：
+
+```bash
+forgerelay mcp test <server>
+```
+
+`list` 和 `doctor` 不会启动 stdio MCP，也不会主动访问 HTTP MCP；`test` 才会进行连接和 `tools/list`。
+
+如果看到 `auth required` 或 `reauthorization required`，由人执行：
+
+```bash
+forgerelay mcp auth <server>
+```
+
+Runtime 不会自己打开浏览器。SSH/headless 环境会打印授权 URL，并让你粘贴最终 callback URL；输入只显示 `*`。
+
+配置优先级是：
+
+```text
+Project .forgerelay/mcp.json > ~/.forgerelay/mcp.json > legacy config.json.mcpServers
+```
+
+同名 Project entry 可能覆盖 global；`disabled: true` 会显式屏蔽下层配置。删掉 Project entry 后，下层 Server 会重新生效。
+
+如果 `mcp list` 报 `invalid` / `last-known-good`，先修对应 `mcp.json`。已经加载过合法配置的运行中 ForgeRelay 会继续使用整份上一版本；一个新启动的 CLI 进程无法继承另一个进程内存中的 LKG snapshot，所以它只能报告当前文件无效。
+
+对于 Relay Workspace，External MCP 的配置、credential 和 upstream 调用都属于 Execution ForgeRelay。Gateway 上完成 `mcp auth` 不会把 token 自动复制到 Execution；在真正拥有该 Workspace 执行环境的机器/ForgeRelay config 上认证。
+
+如果 Server 是 CIMD-only OAuth，普通 DCR 流程不可用时才配置 `oauth.clientMetadataUrl` 与匹配 metadata 的固定 `callbackPort`。ForgeRelay 不托管公共 CIMD metadata 服务。
+
+详见 [External MCP](External-MCP)。
+
 ## Hook 没运行
 
 先做只读检查：

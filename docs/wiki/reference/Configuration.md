@@ -11,6 +11,14 @@
 ```text
 ~/.forgerelay/config.json
 ~/.forgerelay/auth.json
+~/.forgerelay/mcp.json       # 可选 External MCP 配置
+~/.forgerelay/mcp-auth.json  # External MCP OAuth 状态存在时创建
+```
+
+项目还可以使用：
+
+```text
+<workspace>/.forgerelay/mcp.json
 ```
 
 常用命令：
@@ -21,6 +29,10 @@ forgerelay serve
 forgerelay doctor
 forgerelay config get
 forgerelay config set publicBaseUrl https://forge.example.com
+forgerelay mcp list
+forgerelay mcp test <server>
+forgerelay mcp auth <server>
+forgerelay mcp logout <server>
 ```
 
 不确定最终生效值时，直接跑：
@@ -153,6 +165,30 @@ inherited PATH built-in discovery
 安装完成后，下一次 semantic request 即可使用，不需要重启 Server。
 
 详见 [代码智能](Code-Intelligence)。
+
+## External MCP
+
+External MCP 使用独立配置：
+
+```text
+~/.forgerelay/mcp.json
+<workspace>/.forgerelay/mcp.json
+```
+
+同名 Server 的优先级是 `Project > global > legacy config.json.mcpServers`。Project 可用 `"disabled": true` 屏蔽继承的 Server；合法修改会热加载，不需要重启。已经成功加载过的 source 后来写坏时，运行中的 ForgeRelay 保留整份 last-known-good，而不是半加载新配置。
+
+日常检查和认证：
+
+```bash
+forgerelay mcp list
+forgerelay mcp test <server>
+forgerelay mcp auth <server>
+forgerelay mcp logout <server>
+```
+
+`list` 和 `doctor` 是被动检查；`test` 才会真正连接 MCP。OAuth credential 保存在机器私有的 `mcp-auth.json`，Project credential 不写进项目目录，也不会因为复制相同配置就跨 Project 自动共享。
+
+完整配置、OAuth/headless、CIMD、Relay ownership 和安全边界见 [External MCP](External-MCP)。
 
 ## Lifecycle Hooks
 

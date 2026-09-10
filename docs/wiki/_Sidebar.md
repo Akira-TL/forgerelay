@@ -13,6 +13,7 @@
 ### Agent 与 MCP
 
 - [ChatGPT 与 MCP 工作流](ChatGPT-and-MCP-Workflow)
+- [External MCP](External-MCP)
 - [代码智能](Code-Intelligence)
 - [生命周期 Hooks](Lifecycle-Hooks)
 

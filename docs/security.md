@@ -147,6 +147,24 @@ Workspace from another conversation intentionally shares the same completion sco
 as well. Hook handlers keep their separate bounded timeout
 policy because they are lifecycle gates rather than user-command execution.
 
+## External MCP configuration and credentials
+
+External MCP extends the same local-authority model rather than creating a sandbox. Machine-wide servers live in the ForgeRelay config directory's `mcp.json`; Project servers may live in `<workspace>/.forgerelay/mcp.json`. A Project stdio entry can launch a configured executable with the same operating-system user authority as ForgeRelay, so Project MCP configuration is executable project configuration. ForgeRelay does not add a second per-server approval prompt after the operator has allowed and opened that project root.
+
+Static HTTP headers and stdio environment values are user-managed configuration. Do not commit secrets in Project `mcp.json`; v1.1.1 does not automatically extract project-defined secrets into a secret manager.
+
+Interactive External MCP OAuth credentials are different. They are kept in the machine-private ForgeRelay config directory:
+
+```text
+~/.forgerelay/mcp-auth.json
+```
+
+Project OAuth credentials are keyed to the Project root but still stay in this private machine file; ForgeRelay does not write access tokens, refresh tokens, authorization codes, PKCE verifiers, or client secrets into the project. Callback URLs pasted in headless mode are masked in the terminal. Runtime token refresh is non-interactive; any fresh consent/authorization requires an explicit human `forgerelay mcp auth <server>` invocation.
+
+External MCP configuration and OAuth state belong to the Execution ForgeRelay for relayed Workspaces. The Gateway does not receive or replicate those credentials merely because it forwards the Workspace operation.
+
+External MCP result references are not implicitly dereferenced. Paths, URLs and MCP resource references returned by an upstream server remain references unless the Agent explicitly reads them or an explicitly configured External MCP transform Hook changes the result.
+
 ## Lifecycle hooks
 
 Hook command 是本地代码执行，使用与 ForgeRelay 相同的操作系统用户权限并继承进程环境。

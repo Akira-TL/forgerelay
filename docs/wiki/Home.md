@@ -16,6 +16,7 @@ Host 负责对话和推理，ForgeRelay 负责真实本地执行。普通开发�
 | 为并行开发创建隔离 Git worktree | [Managed Worktree](Managed-Worktrees) |
 | 从另一台机器执行，或组合多个 Workspace | [远端与复合工作区](Remote-and-Composite-Workspaces) |
 | 了解 MCP tools、Skills、长进程和 Activity | [ChatGPT 与 MCP 工作流](ChatGPT-and-MCP-Workflow) |
+| 配置、认证和排查其他 MCP Server | [External MCP](External-MCP) |
 | 给命令、文件修改或发布流程加自动规则 | [生命周期 Hooks](Lifecycle-Hooks) |
 | 用 LSP 查定义、引用和 diagnostics | [代码智能](Code-Intelligence) |
 | 查常用环境变量和功能开关 | [配置指南](Configuration) |

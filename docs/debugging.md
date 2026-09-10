@@ -54,7 +54,7 @@ The selected debug config is authoritative for its own `host` and `port`; the
 launcher reports endpoints derived from that file instead of assuming `7677`.
 This makes parallel isolated instances straightforward: give each instance its
 own config, state, and worktree directories and configure different ports (for
-example `7677` for a Gateway and `6768` for an Execution ForgeRelay), then launch
+example `7677` for a Gateway and `7678` for an Execution ForgeRelay), then launch
 each with its own `FORGERELAY_DEBUG_CONFIG_DIR`.
 
 ## Run a local MCP Apps Host
@@ -107,12 +107,15 @@ behavior.
 
 ```bash
 npm run debug:accept
+npm run debug:accept:modern
+npm run debug:accept:relay
 ```
 
-The acceptance runner starts its own fully isolated ForgeRelay fixture on
-`127.0.0.1:7677`, with its own generated Owner password and checked-in debug
-configuration. It sends real HTTP requests with `curl` and shuts the server down
-when it finishes.
+`debug:accept` starts its own fully isolated legacy/sessionful ForgeRelay fixture on
+`127.0.0.1:7677`. `debug:accept:modern` exercises the MCP 2026-07-28 stateless Host
+path on isolated `7678`, and `debug:accept:relay` exercises an isolated
+7677 Gateway → 7678 Execution topology. Each runner owns its temporary config/state,
+generates its own authentication material, and shuts down what it started.
 It refuses to start when port `7677` is already occupied so it cannot
 accidentally validate an older debug process.
 

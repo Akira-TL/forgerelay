@@ -61,6 +61,11 @@ Lifecycle Hook 是 ForgeRelay 自动执行的本地规则。适合把测试、�
 | `pathRegex` | 对 `path` / `paths` 做正则匹配 |
 | `provider` | 精确匹配 Subagent provider |
 | `workspaceMode` | 匹配 `checkout` 或 `worktree` |
+| `capability` | 精确匹配 Capability 名；External MCP 使用 `mcp.external` |
+| `externalServer` | 精确匹配当前已配置的 External MCP Server |
+| `externalTool` | 精确匹配当前调用的 upstream MCP tool |
+
+`capability` / `externalServer` / `externalTool` 只匹配 ForgeRelay 已经选择的 target。Transform Hook 不能借 stdout 改成另一台 Server、另一个 tool、任意 URL、command 或 credential。
 
 Matcher 只看 ForgeRelay 收到的 tool request。
 
@@ -86,6 +91,8 @@ bash(command="./release.sh")
 | `BeforeTool` | Workspace-scoped tool 执行前 | 是 |
 | `AfterTool` | Tool 成功后 | 否 |
 | `AfterToolFailure` | Tool 失败或被 `BeforeTool` 拒绝后 | 否 |
+| `ExternalMcpBeforeForward` | 已选择 External MCP Server/tool、upstream 调用前 | 是 |
+| `ExternalMcpAfterForward` | upstream 调用成功返回后、Host 交付前 | 是* |
 | `AfterFileChange` | 明确文件变更成功后 | 否 |
 | `BeforeWorktreeClose` | worktree commit / fast-forward / cleanup 前 | 是 |
 | `AfterWorktreeClose` | managed worktree 成功关闭后 | 否 |
@@ -94,13 +101,17 @@ bash(command="./release.sh")
 
 `AfterFileChange` 只覆盖 ForgeRelay 明确知道的文件修改，例如 `write`、`edit`、`rename`、`delete`、`apply_patch` 和 native artifact mutation。它不会猜测任意 Shell 命令改了哪些文件。
 
+`ExternalMcpBeforeForward` / `ExternalMcpAfterForward` 是专门的 Transform Hook。ForgeRelay 把 versioned JSON envelope 写到 Hook stdin，并只接受对应的 structured JSON stdout：before-forward 可以替换当前 request `arguments`；after-forward 可以替换当前 MCP `result`。普通 lifecycle Hook stdout 仍只是命令输出，不会改写 tool data。转换后的 result 还会重新经过 MCP shape、media MIME/base64 和 size budget 校验。
+
 ## Blocking 和 observational
 
-`BeforeTool`、`BeforeWorktreeClose` 可以阻断原操作。Hook exit code 非零、超时或被 Host cancellation 中断时，原操作不会开始。
+`BeforeTool`、`BeforeWorktreeClose` 和 `ExternalMcpBeforeForward` 都能阻止原操作开始。Hook exit code 非零、超时或被 Host cancellation 中断时，待执行的原操作不会继续。
 
-这不是事务。Hook command 自己在失败前已经产生的外部副作用不会自动回滚。
+`ExternalMcpAfterForward` 的失败会阻止变换后的结果继续交付给 Host，但它发生在 upstream MCP 已经成功返回之后；因此它**不能回滚 upstream 已经产生的副作用**。表格里的 `是*` 指这个交付阻断语义，而不是事务回滚。
 
-其他事件发生在事实已经成立之后。After* Hook 即使失败，也不会回滚已经写入的文件、Git 操作、网络请求或进程。因此它们更适合通知、审计和收尾。
+这不是事务。Hook command 自己在失败前已经产生的外部副作用也不会自动回滚。
+
+其他 After* 事件发生在事实已经成立之后，失败不会回滚已经写入的文件、Git 操作、网络请求或进程。因此它们更适合通知、审计和收尾。
 
 ## Agent-visible report
 

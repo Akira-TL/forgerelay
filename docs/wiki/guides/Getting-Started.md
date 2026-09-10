@@ -114,7 +114,7 @@ forgerelay doctor
 
 `doctor` 会显示实际解析后的配置目录、Node / Git / 平台信息、runtime privilege、Command Shell Runtime、public URL、allowed hosts、SQLite 原生依赖、tool mode、widget mode，以及 artifact、subagent、Skills 等可选能力状态。
 
-连接有问题时，先看 `doctor`，再决定要改哪项配置。
+连接有问题时，先看 `doctor`，再决定要改哪项配置。`doctor` 也会被动汇总 External MCP 配置和认证状态，但不会主动连接外部 Server；需要测试时使用 `forgerelay mcp test <server>`。External MCP 配置与人工 OAuth 见 [External MCP](External-MCP)。
 
 ## 8. 第一次打开项目
 

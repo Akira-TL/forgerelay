@@ -105,6 +105,32 @@ ForgeRelay 默认拒绝 elevated / administrator 启动。只有用户显式选�
 
 如果普通用户权限已经够用，不要为了省一次权限问题就长期以管理员身份运行 ForgeRelay。
 
+## External MCP
+
+External MCP 也运行在真实本机权限边界里。机器级 Server 写在 ForgeRelay config directory 的 `mcp.json`；项目可以在：
+
+```text
+<workspace>/.forgerelay/mcp.json
+```
+
+定义或覆盖 Server。stdio entry 可以启动本地 executable，因此 Project MCP 配置和 Project Hook 一样属于**可执行项目配置**；允许并打开这个 Project root 后，不会再为每台 stdio MCP弹第二层信任确认。
+
+静态 HTTP header / stdio env 由用户自己管理。如果把 secret 写进 Project `mcp.json`，就必须自行避免提交到 Git。
+
+交互式 OAuth credential 不写进项目，而是保存在机器私有：
+
+```text
+~/.forgerelay/mcp-auth.json
+```
+
+Project credential identity 包含 Project root，相同 Server 配置复制到另一个 Project 不会自动共享 token。Access/refresh token、PKCE verifier、authorization code 不进入普通 Agent result；SSH/headless 粘贴 callback 时终端只显示 `*`。
+
+Runtime 只做已有 credential 的使用和非交互 refresh。需要新的登录、consent 或 scope 时必须由人运行 `forgerelay mcp auth <server>`。Relay Workspace 的这些 credential 属于 Execution ForgeRelay，Gateway 不会复制它们。
+
+External MCP 返回的 path、URL 或 resource reference 也不会被 ForgeRelay 自动打开或下载。需要转换时使用显式 [生命周期 Hooks](Lifecycle-Hooks) 中的 External MCP Transform Hook。
+
+详见 [External MCP](External-MCP)。
+
 ## 用 Hook 增加项目门禁
 
 需要项目级策略时，可以用 blocking `BeforeTool` Hook 检查 tool request，例如限制 release 命令形式、检查 Git state，或在危险操作前跑项目自己的 policy script。

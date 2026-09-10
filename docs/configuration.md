@@ -10,7 +10,17 @@ New installations use:
 ```text
 ~/.forgerelay/config.json
 ~/.forgerelay/auth.json
+~/.forgerelay/mcp.json       # optional External MCP registry
+~/.forgerelay/mcp-auth.json  # created only when External MCP OAuth state exists
 ```
+
+A Workspace may also define project-scoped External MCP servers in:
+
+```text
+<workspace>/.forgerelay/mcp.json
+```
+
+`mcp-auth.json` is ForgeRelay-private credential state and must not be copied into a project.
 
 Override the directory with:
 
@@ -26,6 +36,10 @@ npx @akira-tl/forgerelay serve
 npx @akira-tl/forgerelay doctor
 npx @akira-tl/forgerelay config get
 npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
+npx @akira-tl/forgerelay mcp list
+npx @akira-tl/forgerelay mcp test <server>
+npx @akira-tl/forgerelay mcp auth <server>
+npx @akira-tl/forgerelay mcp logout <server>
 npx @akira-tl/forgerelay maintenance inspect
 ```
 
@@ -160,11 +174,27 @@ The same value may be persisted as `mediaMaxBytes` in `config.json`. The budget 
 
 Media content is transient. Image base64 is present only in the live MCP result delivered to the Host; Activity/Audit, structured output, UI state, Workspace state, and logs keep bounded metadata such as MIME type and decoded byte size. Reading or forwarding an image does **not** create an Artifact. Artifact download/materialization remains a separate explicit workflow.
 
-User-configured MCP servers are registered in `config.json` under `mcpServers` and are exposed through the workspace-scoped `mcp.external` Capability rather than becoming new top-level MCP tools. For example:
+User-configured MCP servers are exposed through the workspace-scoped `mcp.external` Capability rather than becoming new top-level MCP tools. The capability remains discoverable even when the effective server registry is empty, so servers added later by hot reload become usable without reconnecting the Host.
+
+### External MCP configuration files
+
+New configuration uses a dedicated `mcp.json` file. The machine-wide registry is:
+
+```text
+~/.forgerelay/mcp.json
+```
+
+or the equivalent path below `FORGERELAY_CONFIG_DIR`. A Workspace may add or override servers in:
+
+```text
+<workspace>/.forgerelay/mcp.json
+```
+
+Both files use this shape:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "renderer": {
       "transport": "stdio",
       "command": "node",
@@ -172,14 +202,134 @@ User-configured MCP servers are registered in `config.json` under `mcpServers` a
     },
     "remote-renderer": {
       "transport": "streamable-http",
-      "url": "https://renderer.example.com/mcp",
+      "url": "https://renderer.example.com/mcp"
+    }
+  }
+}
+```
+
+Server names are stable lowercase identifiers matching `^[a-z][a-z0-9._-]{0,63}$`; one source may contain at most 32 servers.
+
+Effective configuration is merged by server name in this order:
+
+```text
+Project mcp.json > global mcp.json > legacy config.json.mcpServers
+```
+
+A Project entry may explicitly hide an inherited server:
+
+```json
+{
+  "servers": {
+    "remote-renderer": {
+      "disabled": true
+    }
+  }
+}
+```
+
+`disabled` defaults to `false` and normally does not need to be written. Removing the Project entry exposes the lower-precedence global/legacy server again. A complete server entry may also contain `"disabled": true`; ForgeRelay validates the entry but does not activate it.
+
+The historical `config.json -> mcpServers` object remains a deprecated read-compatible source. New configuration and documentation use `mcp.json`; the legacy source is retained for at least the next two feature-release compatibility windows and should not be used for new setups.
+
+ForgeRelay reloads global and Project `mcp.json` on demand before External MCP operations. A valid changed file becomes visible to the next `servers`, `tools`, or `call` operation without restarting ForgeRelay. Each operation uses one immutable snapshot, so an in-flight call is not switched underneath itself. If a previously valid source becomes invalid, that running ForgeRelay process keeps the whole previous valid source as last-known-good and reports a bounded diagnostic; no partially parsed subset is activated. A fresh CLI process cannot reconstruct another process's in-memory last-known-good snapshot, so it reports the invalid source while noting that an existing runtime may still be using its prior valid snapshot.
+
+### External MCP transports and authentication
+
+A stdio server supports `command`, optional `args`, `env`, and `cwd`. It is launched directly, not through a shell. Its process still runs with the operating-system authority of the user running ForgeRelay. A Project `.forgerelay/mcp.json` can therefore introduce executable project configuration; opening an allowed project is the trust boundary, and ForgeRelay does not add a second per-server approval prompt.
+
+A Streamable HTTP server supports `url` and optional static `headers`:
+
+```json
+{
+  "servers": {
+    "private-api": {
+      "transport": "streamable-http",
+      "url": "https://mcp.example.com/mcp",
       "headers": {
-        "Authorization": "Bearer <token>"
+        "Authorization": "Bearer <user-managed-secret>"
       }
     }
   }
 }
 ```
+
+ForgeRelay does not require every HTTP MCP server to use OAuth. The effective models are:
+
+- no authentication: connect directly;
+- static credentials: user-managed `headers` for HTTP or `env` for stdio;
+- interactive OAuth: explicitly initiated by a human through the CLI.
+
+Do not commit static secrets in Project `mcp.json`. ForgeRelay does not move project-defined header/env secrets into a separate secret manager in v1.1.1.
+
+Interactive OAuth state is stored only in the machine-private:
+
+```text
+~/.forgerelay/mcp-auth.json
+```
+
+(or the configured ForgeRelay config directory). Project OAuth credentials are still stored there, keyed to the canonical Project root and server; they are not written into the project. Global/legacy servers use a global credential identity. Project credentials are not reused across Projects merely because the server name or URL matches.
+
+Authenticate explicitly:
+
+```bash
+forgerelay mcp auth <server>
+forgerelay mcp auth <server> --project /path/to/project
+forgerelay mcp auth <server> --global
+```
+
+The CLI performs OAuth discovery, PKCE and the browser/callback exchange, then atomically commits the credential. The running ForgeRelay server is not an OAuth callback broker; it simply reads the updated credential store on later External MCP calls. On a desktop the CLI opens the authorization URL and listens on a short-lived loopback callback. On SSH/headless systems it prints the authorization URL and asks for the final callback URL to be pasted; pasted input is displayed only as `*` mask characters.
+
+Normal token refresh is non-interactive and may be performed by the runtime. If refresh fails, the resource/issuer binding changes, or the server requires additional scope, the runtime does not open a browser: it returns `mcp.auth_required` or `mcp.reauthorization_required`, and the human reruns `forgerelay mcp auth <server>`. Multiple ForgeRelay processes coordinate refresh through the shared credential store so refresh-token rotation does not turn a successful refresh in one process into a false reauthorization failure in another.
+
+ForgeRelay uses Dynamic Client Registration when the authorization server supports the compatible flow. For CIMD-only authorization servers, configure a stable public HTTPS client metadata document and the exact loopback callback port it advertises:
+
+```json
+{
+  "servers": {
+    "modern": {
+      "transport": "streamable-http",
+      "url": "https://mcp.example.com/mcp",
+      "oauth": {
+        "clientMetadataUrl": "https://client.example.com/forgerelay.json",
+        "callbackPort": 49152
+      }
+    }
+  }
+}
+```
+
+`clientMetadataUrl` must use HTTPS with a non-root path; `callbackPort` must be `1024..65535`. ForgeRelay does not operate a hosted CIMD service, so this advanced configuration is supplied by the operator when a server requires it.
+
+Remove local OAuth state with:
+
+```bash
+forgerelay mcp logout <server>
+```
+
+ForgeRelay removes the local credential even when remote token revocation is unsupported or fails, and reports that distinction.
+
+### External MCP diagnostics
+
+Use the CLI before editing runtime state by guesswork:
+
+```bash
+forgerelay mcp list
+forgerelay mcp test <server>
+forgerelay doctor
+```
+
+`mcp list` is passive: it reports the resolved Project/global/legacy sources, disabled entries, authentication state, credential-store health, and invalid/last-known-good configuration diagnostics. With no explicit scope it uses the active Workspace root when supplied by ForgeRelay, otherwise walks upward from the current directory for the nearest `.forgerelay/mcp.json`; `--project` selects a Project explicitly and `--global` excludes Project configuration.
+
+`mcp test` is the active probe. It connects to the selected server and performs tool discovery, reporting source, transport, auth state, negotiated MCP era/version, tool count, and actionable failures such as authentication required, unreachable transport, or tool discovery failure.
+
+`doctor` remains passive. Its External MCP section reads configuration and credential metadata only; it does not launch configured stdio servers or make HTTP MCP requests. Use `mcp test` when an active connectivity check is intended.
+
+### External MCP protocol compatibility and Relay
+
+ForgeRelay's External MCP client negotiates modern MCP 2026-07-28 when available and falls back to supported legacy MCP servers. Host-facing HTTP similarly supports the modern stateless protocol while retaining the legacy sessionful path for compatible Hosts.
+
+For a relayed Workspace, External MCP configuration, credentials, process launches, OAuth refreshes, and upstream MCP calls belong to the **Execution ForgeRelay**. The Gateway does not copy or forward External MCP credentials. Run `forgerelay mcp auth` on the machine/configuration that owns execution when a relayed Workspace needs OAuth.
 
 The Agent explicitly selects the configured server, advertised tool, and arguments through `capability(name="mcp.external", action="run", ...)`. Direct upstream PNG/JPEG/WebP/GIF `ImageContent` is validated and forwarded without decode/re-encode. Text, paths, URLs, `resource_link` values, and other references remain exactly that by default: ForgeRelay does not automatically fetch them, call `read`, infer that they refer to an image, or create an Artifact.
 

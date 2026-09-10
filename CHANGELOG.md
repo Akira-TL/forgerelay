@@ -4,6 +4,23 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added standalone global and Project External MCP registries in `mcp.json` with hot reload, Project-over-global precedence, explicit `disabled` masking, whole-source last-known-good behavior, and permanent discovery of the existing `mcp.external` Capability even when the registry starts empty.
+- Added human-operated External MCP OAuth through `forgerelay mcp auth/logout`, including machine-private Project-scoped credentials, desktop loopback and masked headless callback flows, silent refresh with cross-process rotation protection, scope step-up, DCR compatibility, and optional CIMD client metadata for authorization servers that require it.
+- Added `forgerelay mcp list/test` and passive External MCP `doctor` diagnostics for resolved source, authentication state, configuration health, negotiated MCP protocol, tool discovery, and actionable failure reporting.
+
+### Changed
+
+- Migrated ForgeRelay's MCP runtime to the split MCP SDK v2 and Apps SDK v2, supporting MCP 2026-07-28 modern stateless HTTP alongside the existing legacy sessionful Host path while preserving legacy External MCP and Workspace Relay interoperability.
+- Modern stateless Host Turns now use stable Host conversation metadata when supplied and otherwise remain request-scoped instead of inferring conversation identity from transport or process lifetime. Legacy compatibility retains its bounded transport/session fallback behavior.
+- `config.json.mcpServers` remains a deprecated compatibility source; new External MCP configuration uses `mcp.json`, and relayed External MCP configuration, credentials, refresh, process launch, and upstream calls remain owned by the Execution ForgeRelay.
+
+### Security
+
+- External MCP OAuth credentials stay in private `mcp-auth.json` state rather than Project files, are bound to their Project/global identity plus resource/issuer state, and are never exposed through normal diagnostics. Interactive authorization remains human-only; runtime refresh cannot open a browser, and headless callback input is masked.
+- Project-defined stdio MCP servers are explicitly documented as executable project configuration, while static header/env secrets remain user-managed and External MCP paths, URLs, and resource references continue to be pass-through unless the Agent or an explicit Transform Hook acts on them.
+
 ## [1.1.0] - 2026-09-09
 
 ### Added
