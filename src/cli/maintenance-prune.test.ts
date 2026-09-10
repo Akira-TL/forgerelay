@@ -20,10 +20,11 @@ import { acquireRuntimeLease } from "../runtime/state/runtime-lease.js";
 import { inspectMaintenanceState } from "./maintenance.js";
 import { pruneMaintenanceState } from "./maintenance-prune.js";
 
-const OLD_START = "2026-07-01T00:00:00.000Z";
-const OLD_DONE = "2026-07-01T00:01:00.000Z";
-const RECENT = "2026-09-03T00:00:00.000Z";
-const NOW = new Date("2026-09-04T12:00:00.000Z");
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const NOW = new Date();
+const OLD_START = new Date(NOW.getTime() - 30 * DAY_MS).toISOString();
+const OLD_DONE = new Date(NOW.getTime() - 30 * DAY_MS + 60_000).toISOString();
+const RECENT = new Date(NOW.getTime() - DAY_MS).toISOString();
 const POLICY = { historyDays: 7, orphanedAdministrativeState: true } as const;
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !name.startsWith("FORGERELAY_")),
