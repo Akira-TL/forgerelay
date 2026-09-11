@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-11
+
+### Fixed
+
+- Clarified Capability discovery so Agents use only `open_workspace.capabilityCatalog` names with the `capability` gateway; semantic `capabilityFingerprint.capabilities` entries and Capability Guide descriptors are no longer presented as callable capability names.
+- Changed Agent Skill collision precedence so a Project's `.agents/skills` definition wins over the same-named global `~/.agents/skills` definition, keeping Project-local workflow customizations authoritative.
+
 ## [1.1.1] - 2026-09-10
 
 ### Added
