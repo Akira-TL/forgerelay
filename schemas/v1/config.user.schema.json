@@ -1,0 +1,487 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+      "type": "string"
+    },
+    "host": {
+      "description": "Local bind host.",
+      "type": "string",
+      "minLength": 1,
+      "default": "127.0.0.1",
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "HOST"
+      }
+    },
+    "port": {
+      "description": "Local listening port.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 7676,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "PORT"
+      }
+    },
+    "allowedRoots": {
+      "description": "Filesystem roots that Workspaces may open.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_ALLOWED_ROOTS"
+      },
+      "x-forgerelay-computed-default": "The process working directory when no roots are configured."
+    },
+    "publicBaseUrl": {
+      "description": "Canonical public base URL or ordered public base URL list.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_PUBLIC_BASE_URL"
+      },
+      "x-forgerelay-computed-default": "A local HTTP URL derived from the effective bind host and port."
+    },
+    "allowedHosts": {
+      "description": "Explicit Host-header allowlist.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_ALLOWED_HOSTS"
+      },
+      "x-forgerelay-computed-default": "Derived from loopback, bind host, and configured public base URL hostnames."
+    },
+    "trustedProxies": {
+      "description": "Trusted proxy IP addresses, CIDRs, or the internal loopback alias.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_TRUSTED_PROXIES"
+      },
+      "x-forgerelay-computed-default": "No trusted proxy unless the deployment shape safely derives loopback trust."
+    },
+    "stateDir": {
+      "description": "ForgeRelay durable state directory.",
+      "type": "string",
+      "minLength": 1,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_STATE_DIR"
+      },
+      "x-forgerelay-computed-default": "~/.local/share/forgerelay"
+    },
+    "worktreeRoot": {
+      "description": "Managed worktree directory.",
+      "type": "string",
+      "minLength": 1,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_WORKTREE_ROOT"
+      },
+      "x-forgerelay-computed-default": "~/.forgerelay/worktrees"
+    },
+    "artifactsEnabled": {
+      "description": "Enable ForgeRelay Artifact capability support.",
+      "type": "boolean",
+      "default": false,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_ARTIFACTS"
+      }
+    },
+    "artifactMaxFileBytes": {
+      "description": "Maximum bytes accepted for one downloaded Artifact file.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "default": 104857600,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_ARTIFACT_MAX_FILE_BYTES"
+      }
+    },
+    "mediaMaxBytes": {
+      "description": "Maximum aggregate decoded inline image bytes in one Host-facing result.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "default": 20971520,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_MEDIA_MAX_BYTES"
+      }
+    },
+    "taskReminderInterval": {
+      "description": "Semantic-work interval for Workspace Task reminders; zero disables reminders.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "default": 30,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_TASK_REMINDER_INTERVAL"
+      }
+    },
+    "retention": {
+      "description": "Owner-authorized durable history and orphaned administrative-state retention policy.",
+      "type": "object",
+      "properties": {
+        "historyDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "orphanedAdministrativeState": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": [
+          "FORGERELAY_RETENTION_HISTORY_DAYS",
+          "FORGERELAY_RETENTION_ORPHANED_ADMIN"
+        ]
+      },
+      "x-forgerelay-computed-default": "Unlimited durable history and no orphaned administrative cleanup authorization."
+    },
+    "activityPanelExpanded": {
+      "description": "Whether the Activity Panel opens expanded by default.",
+      "type": "boolean",
+      "default": false,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_ACTIVITY_PANEL_EXPANDED"
+      }
+    },
+    "workflowInstructions": {
+      "description": "Replace ForgeRelay built-in Agent workflow instructions while retaining the capability contract.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean",
+          "const": false
+        }
+      ],
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_WORKFLOW_INSTRUCTIONS"
+      },
+      "x-forgerelay-computed-default": "ForgeRelay built-in workflow instructions."
+    },
+    "appendInstructions": {
+      "description": "Append operator workflow instructions after the selected ForgeRelay workflow policy.",
+      "type": "string",
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_APPEND_INSTRUCTIONS"
+      }
+    },
+    "agentDir": {
+      "description": "Agent runtime directory used by supported integrations.",
+      "type": "string",
+      "minLength": 1,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_AGENT_DIR"
+      },
+      "x-forgerelay-computed-default": "~/.codex"
+    },
+    "systemInstructionsPath": {
+      "description": "Global Agent instruction file consumed by ForgeRelay.",
+      "type": "string",
+      "minLength": 1,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_SYSTEM_INSTRUCTIONS_PATH"
+      },
+      "x-forgerelay-computed-default": "~/.agents/AGENTS.md"
+    },
+    "commandShell": {
+      "description": "Recorded command-shell preference for ForgeRelay command and Hook execution.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "follow-launcher",
+            "pinned"
+          ]
+        },
+        "family": {
+          "type": "string",
+          "enum": [
+            "bash",
+            "zsh",
+            "fish",
+            "sh",
+            "pwsh",
+            "powershell",
+            "cmd"
+          ]
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "mode",
+        "family",
+        "executable"
+      ],
+      "additionalProperties": false,
+      "x-forgerelay-scopes": [
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "restart-required",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-computed-default": "Detected launcher shell with the recorded compatibility fallback used when needed."
+    },
+    "shellInstructions": {
+      "description": "Enable ForgeRelay-owned runtime shell instructions.",
+      "type": "boolean",
+      "default": false,
+      "x-forgerelay-scopes": [
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none"
+    },
+    "subagents": {
+      "description": "Enable Subagent Session support.",
+      "type": "boolean",
+      "default": false,
+      "x-forgerelay-scopes": [
+        "runtime",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_SUBAGENTS"
+      }
+    },
+    "allowAgentLanguageServerInstall": {
+      "description": "Allow Agents to install ForgeRelay-managed Language Servers.",
+      "type": "boolean",
+      "default": false,
+      "x-forgerelay-scopes": [
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none"
+    }
+  },
+  "additionalProperties": false,
+  "$id": "https://raw.githubusercontent.com/Akira-TL/forgerelay/main/schemas/v1/config.user.schema.json",
+  "title": "ForgeRelay general configuration (user)",
+  "description": "Canonical ForgeRelay general configuration. Domain-specific MCP, Language Server, Hook, Subagent, and credential settings use separate sources."
+}

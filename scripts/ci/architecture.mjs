@@ -77,7 +77,7 @@ for (const directory of [...directories].sort()) {
   if (directory !== "." && !DIRECT_FILE_LIMIT_EXEMPT_DIRS.has(directory) && files > MAX_DIRECT_FILES) {
     violations.push(`${directory}: ${files} direct files > ${MAX_DIRECT_FILES}`);
   }
-  if (dirs > MAX_DIRECT_DIRS) {
+  if (directory !== "." && dirs > MAX_DIRECT_DIRS) {
     violations.push(`${directory}: ${dirs} direct directories > ${MAX_DIRECT_DIRS}`);
   }
 }

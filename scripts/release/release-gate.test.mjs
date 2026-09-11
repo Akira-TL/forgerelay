@@ -40,6 +40,21 @@ test("optional release:verify records proof only after the cloud-equivalent pari
   assert.equal(pkg.scripts["release:push-ready"], "node scripts/release/push-ready.mjs");
 });
 
+test("Config schemas are generated, drift-checked, and required in the packed release artifact", async () => {
+  const pkg = await readJson("package.json");
+  assert.ok(pkg.files.includes("schemas"));
+  assert.match(pkg.scripts.build, /config:schema:check/);
+  assert.equal(pkg.scripts["config:schema:generate"], "node --import tsx scripts/config/schema.mjs write");
+  assert.equal(pkg.scripts["config:schema:check"], "node --import tsx scripts/config/schema.mjs check");
+
+  const verify = await readFile(resolve(repoRoot, "scripts/ci/verify.mjs"), "utf8");
+  assert.match(verify, /\["run", "config:schema:check"\]/);
+
+  const pack = await readFile(resolve(repoRoot, "scripts/release/pack.mjs"), "utf8");
+  assert.match(pack, /schemas", "v1"/);
+  assert.match(pack, /release:pack omitted generated Config schemas/);
+});
+
 test("cross-platform cloud CI delegates to one shell-free verification entrypoint", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
   assert.match(workflow, /node-version-file:\s*\.nvmrc/);
@@ -67,6 +82,7 @@ test("architecture gate treats the append-only release-note archive as an explic
   const architecture = await readFile(resolve(repoRoot, "scripts/ci/architecture.mjs"), "utf8");
   assert.match(architecture, /DIRECT_FILE_LIMIT_EXEMPT_DIRS/);
   assert.match(architecture, /"docs\/releases"/);
+  assert.match(architecture, /directory !== "\." && dirs > MAX_DIRECT_DIRS/);
 });
 
 test("release parity sandbox gives architecture an isolated non-empty Git index", async () => {

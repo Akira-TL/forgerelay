@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "$id": "https://raw.githubusercontent.com/Akira-TL/forgerelay/main/schemas/v1/config.project.schema.json",
+  "title": "ForgeRelay general configuration (project)",
+  "description": "Canonical ForgeRelay general configuration. Domain-specific MCP, Language Server, Hook, Subagent, and credential settings use separate sources."
+}
