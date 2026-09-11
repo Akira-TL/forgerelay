@@ -141,14 +141,14 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
     {
       title: "Use optional capability",
       description:
-        "Describe or run one optional ForgeRelay capability advertised by open_workspace. Use describe when the capability contract is unfamiliar, then read its advertised guide if needed. Run dispatches only explicitly registered capabilities; it cannot invoke arbitrary shell commands, URLs, or methods.",
+        "Describe or run one registered ForgeRelay capability. Only names present in open_workspace.capabilityCatalog are valid for describe/run. capabilityFingerprint.capabilities is a semantic feature fingerprint, not a callable registry, and capabilityGuides are documentation descriptors rather than callable capabilities. Use describe when the capability contract is unfamiliar, then read its advertised guide if needed. Run cannot invoke arbitrary shell commands, URLs, or methods.",
       inputSchema: {
         workspaceId: z.string().describe("Workspace identifier returned by open_workspace."),
         member: z.string().optional().describe("Required for a Composite Workspace; explicit member name whose capability surface is used."),
         name: z
           .string()
           .regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)
-          .describe("Stable dotted capability name advertised by open_workspace."),
+          .describe("Stable dotted capability name present in open_workspace.capabilityCatalog. Do not use semantic-only names from capabilityFingerprint.capabilities or capabilityGuides."),
         action: z.enum(["describe", "run"]),
         arguments: z
           .record(z.string(), z.unknown())

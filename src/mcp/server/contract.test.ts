@@ -228,7 +228,16 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   );
 
   const tools = await context.client.listTools();
-  assert.ok(tools.tools.some((tool) => tool.name === "capability"));
+  const capabilityTool = tools.tools.find((tool) => tool.name === "capability");
+  assert.ok(capabilityTool);
+  assert.match(capabilityTool.description ?? "", /Only names present in open_workspace\.capabilityCatalog are valid/);
+  assert.match(capabilityTool.description ?? "", /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
+  assert.match(capabilityTool.description ?? "", /capabilityGuides are documentation descriptors rather than callable capabilities/);
+  const capabilityNameSchema = (capabilityTool.inputSchema as {
+    properties?: { name?: { description?: string } };
+  }).properties?.name;
+  assert.match(capabilityNameSchema?.description ?? "", /present in open_workspace\.capabilityCatalog/);
+  assert.match(capabilityNameSchema?.description ?? "", /Do not use semantic-only names from capabilityFingerprint\.capabilities/);
   assert.equal(tools.tools.some((tool) => tool.name === "write_stdin"), false);
   assert.equal(tools.tools.some((tool) => tool.name === "close_worktree"), false);
 

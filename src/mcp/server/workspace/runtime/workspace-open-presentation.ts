@@ -19,6 +19,9 @@ import type { OpenWorkspaceToolInput } from "./workspace-open-schema.js";
 export const workspaceTaskUsageInstruction =
   "Use workspace.tasks proactively for work that spans multiple steps or sessions: create or update Tasks to preserve useful next steps and current state, and read its summary when resuming relevant unfinished work. Do not query it mechanically on every open_workspace call.";
 
+export const capabilityDiscoveryInstruction =
+  "For capability describe/run, use only names present in capabilityCatalog. capabilityFingerprint.capabilities is a semantic feature fingerprint, not a callable registry; capabilityGuides are documentation descriptors, not callable capabilities.";
+
 export interface LocalWorkspaceOpenPresentationOptions {
   config: ServerConfig;
   forgerelayVersion: string;
@@ -147,6 +150,7 @@ export async function presentLocalWorkspaceOpen(
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const workspaceManagementInstruction = [
         "Use open_workspace(action=\"list\") for lightweight Workspace inventory. Use action=\"inspect\" with one known workspaceId for bounded read-only metadata without opening/resuming it. Explicitly open a Workspace before executing or mutating against it, and ask the user before close_workspace cleanup.",
+        capabilityDiscoveryInstruction,
         capabilityCatalog.some((entry) => entry.name === "workspace.tasks")
           ? workspaceTaskUsageInstruction
           : undefined,

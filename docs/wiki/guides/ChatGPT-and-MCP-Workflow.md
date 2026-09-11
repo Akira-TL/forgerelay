@@ -28,11 +28,11 @@ capability
 
 除了 Workspace identity，`open_workspace` 还会返回几类轻量 discovery 信息。
 
-`capabilityFingerprint` 用来描述当前 ForgeRelay package version、tool mode 和 semantic capability names。它适合判断“运行中的 Server 实际支持什么”，但不替代 Host 自己的 `tools/list`。
+`capabilityFingerprint` 用来描述当前 ForgeRelay package version、tool mode 和 semantic capability names。它适合判断“运行中的 Server 实际支持什么”，但它只是 semantic feature fingerprint，不是 `capability` Gateway 的可调用 registry，也不替代 Host 自己的 `tools/list`。
 
-`capabilityCatalog` 列出当前 Workspace 可用的注册 Capability，例如 `code.intelligence` 或 `workspace.tasks`。
+`capabilityCatalog` 才是 `capability(action="describe"|"run")` 的可调用 registry，列出当前 Workspace 可用的注册 Capability，例如 `code.intelligence` 或 `workspace.tasks`。只有这里出现的 name 才能传给 `capability`。
 
-Capability guides 则是按需加载的操作说明。Agent 真正要使用某个领域能力时再读，不应该启动时全部预读。
+Capability guides 则是按需加载的操作说明。Guide name 也是文档 descriptor，不是可调用 Capability。Agent 真正要使用某个领域能力时再读，不应该启动时全部预读。
 
 ## Progressive MCP context
 

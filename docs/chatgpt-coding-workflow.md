@@ -201,12 +201,16 @@ gateway rather than each receiving another top-level tool schema.
 `open_workspace` adds lightweight discovery surfaces:
 
 - `capabilityFingerprint` is returned on every open/resume and includes the
-  ForgeRelay version, active tool mode, and stable semantic capability names;
-- `capabilityCatalog` lists currently available registered actions such as
-  `hooks.check`, with compact guide metadata;
+  ForgeRelay version, active tool mode, and stable semantic capability names. It
+  is a feature fingerprint, not a callable registry;
+- `capabilityCatalog` is the callable registry for the `capability` gateway and
+  lists currently available registered actions such as `hooks.check`, with
+  compact guide metadata. Only names present here are valid for
+  `capability(action="describe"|"run")`;
 - `capabilityGuides` is returned with bootstrap context and contains compact
   descriptors for ForgeRelay-owned, versioned guides that can be loaded with
-  the normal `read` tool.
+  the normal `read` tool. Guide names are documentation descriptors, not
+  callable capability names.
 
 Do not preload every capability guide. Read a guide only when the current task
 needs that domain. Built-in guides cover lifecycle Hooks, advanced managed

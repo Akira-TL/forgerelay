@@ -93,6 +93,13 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
     ],
   });
   assert.deepEqual(structuredContent(repeated).capabilityFingerprint, firstStructured.capabilityFingerprint);
+  const capabilityCatalog = firstStructured.capabilityCatalog as Array<{ name?: string }>;
+  assert.ok(Array.isArray(capabilityCatalog));
+  assert.equal(capabilityCatalog.some((entry) => entry.name === "ui.mcp-app"), false);
+  assert.equal(
+    (firstStructured.capabilityFingerprint as { capabilities?: string[] }).capabilities?.includes("ui.mcp-app"),
+    true,
+  );
   assert.ok(Array.isArray(firstStructured.agentsFiles));
   assert.ok(Array.isArray(firstStructured.availableAgentsFiles));
   assert.ok(Array.isArray(firstStructured.skills));
@@ -114,6 +121,9 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
 
   const firstText = responseText(first);
   assert.match(firstText, /workspace\.tasks/);
+  assert.match(firstText, /For capability describe\/run, use only names present in capabilityCatalog/);
+  assert.match(firstText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
+  assert.match(firstText, /capabilityGuides are documentation descriptors, not callable capabilities/);
   assert.match(firstText, /proactively/i);
   assert.match(firstText, /do not query it mechanically on every open/i);
 
@@ -124,6 +134,8 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(repeatedText, /previously provided for this workspace/);
   assert.match(repeatedText, /capability guides/);
   assert.match(repeatedText, /workspace\.tasks/);
+  assert.match(repeatedText, /For capability describe\/run, use only names present in capabilityCatalog/);
+  assert.match(repeatedText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
   assert.match(repeatedText, /proactively/i);
   assert.match(repeatedText, /do not query it mechanically on every open/i);
   assert.match(repeatedText, /not repeated here/);
