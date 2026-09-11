@@ -265,7 +265,7 @@
         "historyDays": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 9007199254740991
+          "maximum": 36500
         },
         "orphanedAdministrativeState": {
           "type": "boolean"
@@ -436,7 +436,7 @@
     "shellInstructions": {
       "description": "Enable ForgeRelay-owned runtime shell instructions.",
       "type": "boolean",
-      "default": false,
+      "default": true,
       "x-forgerelay-scopes": [
         "user",
         "built-in"
@@ -478,6 +478,57 @@
       "x-forgerelay-sensitivity": "public",
       "x-forgerelay-interpolation": "none",
       "x-forgerelay-execution-effect": "none"
+    },
+    "languageServers": {
+      "description": "Deprecated inline Language Server configuration retained for v1.2 compatibility.",
+      "x-forgerelay-scopes": [
+        "user"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "deprecated": true,
+      "x-forgerelay-deprecation": {
+        "since": "1.2.0",
+        "removeIn": "1.4.0",
+        "replacement": "language-servers.json"
+      }
+    },
+    "mcpServers": {
+      "description": "Deprecated inline External MCP configuration retained for v1.2 compatibility.",
+      "x-forgerelay-scopes": [
+        "user"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "deprecated": true,
+      "x-forgerelay-deprecation": {
+        "since": "1.2.0",
+        "removeIn": "1.4.0",
+        "replacement": "mcp.json"
+      }
+    },
+    "hooks": {
+      "description": "Deprecated inline Hook configuration retained for v1.2 compatibility.",
+      "x-forgerelay-scopes": [
+        "user"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "deprecated": true,
+      "x-forgerelay-deprecation": {
+        "since": "1.2.0",
+        "removeIn": "1.4.0",
+        "replacement": "hooks/"
+      }
     }
   },
   "additionalProperties": false,

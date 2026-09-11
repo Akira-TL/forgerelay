@@ -24,6 +24,8 @@ import {
   resolveConfiguredCommandShellRuntime,
   type CommandShellRuntime,
 } from "../shell/command-shell-runtime.js";
+import { resolveGeneralConfig } from "./resolution/general.js";
+import { assertConfigResolutionValid } from "./resolution/resolver.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -32,6 +34,14 @@ const DEFAULT_OAUTH_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const DEFAULT_ARTIFACT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 const DEFAULT_TASK_REMINDER_INTERVAL = 30;
+
+export interface LoadConfigOptions {
+  runtimeOverrides?: Record<string, unknown>;
+  projectConfig?: unknown;
+  projectConfigPath?: string;
+  projectLocalConfig?: unknown;
+  projectLocalConfigPath?: string;
+}
 
 export interface ServerConfig {
   instanceId: string;
@@ -75,17 +85,6 @@ export interface ServerConfig {
   shellInstructionPath?: string;
   /** Runtime-only privilege state. Never persisted in config.json. */
   runtimePrivilege?: RuntimePrivilegeState;
-}
-
-function parsePort(value: string | number | undefined): number {
-  if (value === undefined || value === "") return 7676;
-
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid PORT: ${value}`);
-  }
-
-  return port;
 }
 
 function parseAllowedRoots(value: string | string[] | undefined): string[] {
@@ -211,21 +210,6 @@ function parsePositiveInteger(
   return parsed;
 }
 
-function parseNonNegativeInteger(
-  value: string | undefined,
-  fallback: number,
-  name: string,
-): number {
-  if (value === undefined || value === "") return fallback;
-
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > Number.MAX_SAFE_INTEGER) {
-    throw new Error(`Invalid ${name}: ${value}`);
-  }
-
-  return parsed;
-}
-
 function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxy: boolean): LoggingConfig {
   const format = parseLogFormat(productEnv(env, "LOG_FORMAT"));
   const requests = productEnv(env, "LOG_REQUESTS");
@@ -244,7 +228,7 @@ function parseLoggingConfig(env: NodeJS.ProcessEnv, trustProxy: boolean): Loggin
 
 function resolveProxyTrust(
   env: NodeJS.ProcessEnv,
-  config: ForgeRelayUserConfig,
+  config: Pick<ForgeRelayUserConfig, "trustedProxies">,
   host: string,
   publicBaseUrl: string,
 ): ProxyTrust {
@@ -259,10 +243,7 @@ function resolveProxyTrust(
     return ["loopback"];
   }
 
-  const envTrustedProxies = productEnv(env, "TRUSTED_PROXIES");
-  const explicitTrustedProxies = parseTrustedProxies(
-    envTrustedProxies === undefined ? config.trustedProxies : envTrustedProxies,
-  );
+  const explicitTrustedProxies = parseTrustedProxies(config.trustedProxies);
   if (explicitTrustedProxies !== undefined) return explicitTrustedProxies;
 
   return isLoopbackHost(host) && !isLoopbackHost(new URL(publicBaseUrl).hostname)
@@ -388,38 +369,50 @@ function parsePublicBaseUrls(
 }
 
 function resolvePublicDeployment(
-  env: NodeJS.ProcessEnv,
-  fileConfig: ForgeRelayUserConfig,
+  configuredValue: ForgeRelayUserConfig["publicBaseUrl"],
   host: string,
   port: number,
 ): PublicDeploymentConfig {
   const localBaseUrls = [parsePublicBaseUrl(localPublicBaseUrl(host, port))];
-  const envBaseUrl = productEnv(env, "PUBLIC_BASE_URL");
-  const baseUrls = envBaseUrl !== undefined
-    ? parsePublicBaseUrls(envBaseUrl, localBaseUrls)
-    : parsePublicBaseUrls(fileConfig.publicBaseUrl, localBaseUrls);
+  const baseUrls = parsePublicBaseUrls(configuredValue, localBaseUrls);
   return {
     baseUrls,
     canonicalBaseUrl: baseUrls[0],
   };
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  options: LoadConfigOptions = {},
+): ServerConfig {
   const files = loadForgeRelayFiles(env);
+  const generalResolution = resolveGeneralConfig({
+    env,
+    ...(options.runtimeOverrides ? { cli: options.runtimeOverrides } : {}),
+    ...(files.configExists ? { user: files.config, userSourcePath: files.configPath } : {}),
+    ...(options.projectConfig !== undefined
+      ? { project: options.projectConfig, projectSourcePath: options.projectConfigPath }
+      : {}),
+    ...(options.projectLocalConfig !== undefined
+      ? { projectLocal: options.projectLocalConfig, projectLocalSourcePath: options.projectLocalConfigPath }
+      : {}),
+  });
+  assertConfigResolutionValid(generalResolution);
+  const config = generalResolution.values as ForgeRelayUserConfig;
   const instanceId = files.auth.instanceId?.trim() || generateInstanceId();
-  const host = env.HOST ?? files.config.host ?? "127.0.0.1";
-  const port = parsePort(env.PORT ?? files.config.port);
-  const publicDeployment = resolvePublicDeployment(env, files.config, host, port);
+  const host = config.host ?? "127.0.0.1";
+  const port = config.port ?? 7676;
+  const publicDeployment = resolvePublicDeployment(config.publicBaseUrl, host, port);
   const publicBaseUrl = publicDeployment.canonicalBaseUrl;
-  const proxyTrust = resolveProxyTrust(env, files.config, host, publicBaseUrl);
-  const commandShellRuntime = resolveConfiguredCommandShellRuntime(files.config.commandShell, process.platform, env);
+  const proxyTrust = resolveProxyTrust(env, config, host, publicBaseUrl);
+  const commandShellRuntime = resolveConfiguredCommandShellRuntime(config.commandShell, process.platform, env);
   const derivedAllowedHosts = [
     "localhost",
     "127.0.0.1",
     "::1",
     host,
     ...publicDeployment.baseUrls.map((baseUrl) => new URL(baseUrl).hostname),
-    ...(files.config.allowedHosts ?? []),
+    ...(config.allowedHosts ?? []),
   ];
 
   return {
@@ -428,75 +421,42 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     host,
     port,
     oauth: parseOAuthConfig(env, files.auth.ownerToken),
-    allowedRoots: parseAllowedRoots(productEnv(env, "ALLOWED_ROOTS") ?? files.config.allowedRoots),
-    allowedHosts: parseAllowedHosts(productEnv(env, "ALLOWED_HOSTS"), derivedAllowedHosts),
+    allowedRoots: parseAllowedRoots(config.allowedRoots),
+    allowedHosts: parseAllowedHosts(config.allowedHosts, derivedAllowedHosts),
     publicBaseUrl,
     publicBaseUrls: publicDeployment.baseUrls,
     proxyTrust,
     toolMode: parseToolMode(env),
-    workflowInstructions: parseWorkflowInstructions(
-      productEnv(env, "WORKFLOW_INSTRUCTIONS"),
-      files.config.workflowInstructions,
-    ),
-    appendInstructions: parseAppendInstructions(
-      productEnv(env, "APPEND_INSTRUCTIONS"),
-      files.config.appendInstructions,
-    ),
+    workflowInstructions: parseWorkflowInstructions(undefined, config.workflowInstructions),
+    appendInstructions: parseAppendInstructions(undefined, config.appendInstructions),
     widgets: parseWidgetMode(productEnv(env, "WIDGETS")),
-    activityPanelExpanded:
-      productEnv(env, "ACTIVITY_PANEL_EXPANDED") === undefined
-        ? files.config.activityPanelExpanded === true
-        : parseBoolean(productEnv(env, "ACTIVITY_PANEL_EXPANDED")),
-    stateDir: resolve(expandHomePath(productEnv(env, "STATE_DIR") ?? files.config.stateDir ?? defaultStateDir())),
-    worktreeRoot: resolve(expandHomePath(productEnv(env, "WORKTREE_ROOT") ?? files.config.worktreeRoot ?? defaultWorktreeRoot())),
-    artifactsEnabled:
-      productEnv(env, "ARTIFACTS") === undefined
-        ? files.config.artifactsEnabled === true
-        : parseBoolean(productEnv(env, "ARTIFACTS")),
-    artifactMaxFileBytes: parsePositiveInteger(
-      productEnv(env, "ARTIFACT_MAX_FILE_BYTES") ?? numberConfigValue(files.config.artifactMaxFileBytes),
-      DEFAULT_ARTIFACT_MAX_FILE_BYTES,
-      "FORGERELAY_ARTIFACT_MAX_FILE_BYTES",
-    ),
-    mediaMaxBytes: parsePositiveInteger(
-      productEnv(env, "MEDIA_MAX_BYTES") ?? numberConfigValue(files.config.mediaMaxBytes),
-      DEFAULT_MEDIA_MAX_BYTES,
-      "FORGERELAY_MEDIA_MAX_BYTES",
-    ),
-    taskReminderInterval: parseNonNegativeInteger(
-      productEnv(env, "TASK_REMINDER_INTERVAL") ?? numberConfigValue(files.config.taskReminderInterval),
-      DEFAULT_TASK_REMINDER_INTERVAL,
-      "FORGERELAY_TASK_REMINDER_INTERVAL",
-    ),
+    activityPanelExpanded: config.activityPanelExpanded === true,
+    stateDir: resolve(expandHomePath(config.stateDir ?? defaultStateDir())),
+    worktreeRoot: resolve(expandHomePath(config.worktreeRoot ?? defaultWorktreeRoot())),
+    artifactsEnabled: config.artifactsEnabled === true,
+    artifactMaxFileBytes: config.artifactMaxFileBytes ?? DEFAULT_ARTIFACT_MAX_FILE_BYTES,
+    mediaMaxBytes: config.mediaMaxBytes ?? DEFAULT_MEDIA_MAX_BYTES,
+    taskReminderInterval: config.taskReminderInterval ?? DEFAULT_TASK_REMINDER_INTERVAL,
     skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
     skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
     configSkillsDir: forgerelaySkillsDir(env),
     configAgentsDir: forgerelayAgentsDir(env),
-    subagents:
-      productEnv(env, "SUBAGENTS") === undefined
-        ? files.config.subagents === true
-        : parseBoolean(productEnv(env, "SUBAGENTS")),
-    languageServers: files.config.languageServers ?? {},
-    allowAgentLanguageServerInstall: files.config.allowAgentLanguageServerInstall === true,
-    mcpServers: parseExternalMcpServers(files.config.mcpServers),
-    agentDir: resolve(expandHomePath(productEnv(env, "AGENT_DIR") ?? files.config.agentDir ?? defaultAgentDir())),
-    systemInstructionsPath: parseSystemInstructionsPath(
-      productEnv(env, "SYSTEM_INSTRUCTIONS_PATH") ?? files.config.systemInstructionsPath,
-    ),
+    subagents: config.subagents === true,
+    languageServers: config.languageServers ?? {},
+    allowAgentLanguageServerInstall: config.allowAgentLanguageServerInstall === true,
+    mcpServers: parseExternalMcpServers(config.mcpServers),
+    agentDir: resolve(expandHomePath(config.agentDir ?? defaultAgentDir())),
+    systemInstructionsPath: parseSystemInstructionsPath(config.systemInstructionsPath),
     hooks: mergeHookConfigs(
-      parseHookConfig(files.config.hooks),
+      parseHookConfig(config.hooks),
       parseHookConfig(files.hooks),
       files.hookFiles,
     ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
     commandShellRuntime,
-    shellInstructionsEnabled: files.config.shellInstructions !== false,
+    shellInstructionsEnabled: config.shellInstructions !== false,
     shellInstructionPath: shellInstructionPath(files.dir, commandShellRuntime.family),
   };
-}
-
-function numberConfigValue(value: number | undefined): string | undefined {
-  return value === undefined ? undefined : String(value);
 }
 
 function parsePublicBaseUrl(value: string): string {

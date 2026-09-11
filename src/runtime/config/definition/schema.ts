@@ -55,7 +55,12 @@ export function generateConfigJsonSchema(
     property["x-forgerelay-interpolation"] = field.interpolation;
     property["x-forgerelay-execution-effect"] =
       typeof field.executionEffect === "function" ? "dynamic" : field.executionEffect;
-    if (field.runtimeOverride) property["x-forgerelay-runtime-override"] = field.runtimeOverride;
+    if (field.runtimeOverride) {
+      property["x-forgerelay-runtime-override"] = {
+        ...(field.runtimeOverride.cli ? { cli: field.runtimeOverride.cli } : {}),
+        ...(field.runtimeOverride.env ? { env: field.runtimeOverride.env } : {}),
+      };
+    }
     if (field.builtIn.kind === "computed") {
       property["x-forgerelay-computed-default"] = field.builtIn.description;
     }

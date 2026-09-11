@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import { loadConfig } from "./config.js";
-import { forgerelayConfigDir, resolveSubagentsFlag } from "./user-config.js";
+import { resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-empty-config-test-"));
 const baseEnv = {
@@ -203,19 +203,19 @@ assert.throws(
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "-1" }),
-  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: -1/,
+  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: expected an integer greater than or equal to 0/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_TASK_REMINDER_INTERVAL: "1.5" }),
-  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: 1.5/,
+  /Invalid FORGERELAY_TASK_REMINDER_INTERVAL: expected an integer greater than or equal to 0/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_MEDIA_MAX_BYTES: "0" }),
-  /Invalid FORGERELAY_MEDIA_MAX_BYTES: 0/,
+  /Invalid FORGERELAY_MEDIA_MAX_BYTES: expected an integer greater than or equal to 1/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_MEDIA_MAX_BYTES: "1.5" }),
-  /Invalid FORGERELAY_MEDIA_MAX_BYTES: 1.5/,
+  /Invalid FORGERELAY_MEDIA_MAX_BYTES: expected an integer greater than or equal to 1/,
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_WIDGETS: "minimal" }),
@@ -313,6 +313,17 @@ assert.throws(
   () => loadConfig({ FORGERELAY_CONFIG_DIR: emptyConfigDir, FORGERELAY_ALLOWED_ROOTS: process.cwd() }),
   /FORGERELAY_OAUTH_OWNER_TOKEN is required/,
 );
+assert.equal(
+  loadConfig({ ...baseEnv, PORT: "8123" }, { runtimeOverrides: { port: 9123 } }).port,
+  9123,
+);
+assert.throws(
+  () => loadConfig(baseEnv, {
+    projectConfig: { port: 9999 },
+    projectConfigPath: "/project/.forgerelay/config.json",
+  }),
+  /\/project\/\.forgerelay\/config\.json: config: Unrecognized key: "port"/,
+);
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_OAUTH_OWNER_TOKEN: "too-short" }),
   /FORGERELAY_OAUTH_OWNER_TOKEN must be at least 16 characters long/,
@@ -323,7 +334,7 @@ assert.throws(
 );
 assert.throws(
   () => loadConfig({ ...baseEnv, FORGERELAY_ARTIFACT_MAX_FILE_BYTES: "0" }),
-  /Invalid FORGERELAY_ARTIFACT_MAX_FILE_BYTES: 0/,
+  /Invalid FORGERELAY_ARTIFACT_MAX_FILE_BYTES: expected an integer greater than or equal to 1/,
 );
 
 assert.equal(loadConfig(baseEnv).publicBaseUrl, "http://127.0.0.1:7676");
@@ -520,4 +531,24 @@ writeFileSync(
 assert.throws(
   () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
   /Hook BeforeTool timeoutSeconds must be an integer between 1 and 300/,
+);
+
+const strictConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-strict-config-test-"));
+writeFileSync(
+  join(strictConfigDir, "config.json"),
+  JSON.stringify({ $schema: "https://example.test/config.schema.json", port: 8899 }),
+);
+writeFileSync(
+  join(strictConfigDir, "auth.json"),
+  JSON.stringify({ ownerToken: "persisted-owner-token-long-enough" }),
+);
+assert.equal(loadConfig({ FORGERELAY_CONFIG_DIR: strictConfigDir }).port, 8899);
+
+writeFileSync(
+  join(strictConfigDir, "config.json"),
+  JSON.stringify({ typoPort: 8899 }),
+);
+assert.throws(
+  () => loadConfig({ FORGERELAY_CONFIG_DIR: strictConfigDir }),
+  /Unrecognized key: "typoPort"/,
 );

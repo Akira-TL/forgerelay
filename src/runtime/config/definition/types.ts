@@ -12,9 +12,10 @@ export type ConfigExecutionEffect = "none" | "process";
 
 export const CONFIG_FILE_SCOPES = ["user", "project-local", "project"] as const satisfies readonly ConfigFileScope[];
 
-export interface ConfigRuntimeOverride {
+export interface ConfigRuntimeOverride<T = unknown> {
   cli?: string;
   env?: string | readonly string[];
+  readEnv?: (env: NodeJS.ProcessEnv) => T | undefined;
 }
 
 export interface ConfigDeprecation {
@@ -43,7 +44,7 @@ export interface ConfigFieldDefinition<TSchema extends z.ZodType = z.ZodType> {
   interpolation: ConfigInterpolation;
   builtIn: ConfigBuiltInDefault<z.input<TSchema>>;
   executionEffect: ConfigExecutionEffect | ConfigExecutionEffectResolver<z.output<TSchema>>;
-  runtimeOverride?: ConfigRuntimeOverride;
+  runtimeOverride?: ConfigRuntimeOverride<z.output<TSchema>>;
   deprecation?: ConfigDeprecation;
 }
 

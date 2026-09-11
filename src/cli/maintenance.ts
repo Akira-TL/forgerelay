@@ -29,6 +29,8 @@ import {
   type ForgeRelayRetentionConfig,
   type ForgeRelayUserConfig,
 } from "../runtime/config/user-config.js";
+import { resolveGeneralConfig } from "../runtime/config/resolution/general.js";
+import { assertConfigResolutionValid } from "../runtime/config/resolution/resolver.js";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const MAX_RETENTION_DAYS = 36_500;
@@ -179,9 +181,17 @@ export function inspectMaintenanceState(
   env: NodeJS.ProcessEnv = process.env,
   now = new Date(),
 ): MaintenanceInspectReport {
-  const config = readMaintenanceConfig(env);
-  const stateDir = resolveMaintenanceStateDir(config, env);
-  const policy = resolveMaintenanceRetentionPolicy(config.retention, env);
+  const configPath = forgerelayConfigPath(env);
+  const persistedConfig = readMaintenanceConfig(env);
+  const resolution = resolveGeneralConfig({
+    env,
+    user: persistedConfig,
+    userSourcePath: configPath,
+  });
+  assertConfigResolutionValid(resolution);
+  const config = resolution.values as ForgeRelayUserConfig;
+  const stateDir = resolveMaintenanceStateDir(config);
+  const policy = resolveMaintenanceRetentionPolicy(config.retention, {});
   const cutoff = policy.historyDays === null
     ? null
     : new Date(now.getTime() - policy.historyDays * DAY_MS).toISOString();
@@ -254,8 +264,8 @@ function readMaintenanceConfig(env: NodeJS.ProcessEnv): ForgeRelayUserConfig {
   }
 }
 
-function resolveMaintenanceStateDir(config: ForgeRelayUserConfig, env: NodeJS.ProcessEnv): string {
-  const configured = env.FORGERELAY_STATE_DIR ?? config.stateDir ?? join(homedir(), ".local", "share", "forgerelay");
+function resolveMaintenanceStateDir(config: ForgeRelayUserConfig): string {
+  const configured = config.stateDir ?? join(homedir(), ".local", "share", "forgerelay");
   return resolve(expandHomePath(String(configured)));
 }
 

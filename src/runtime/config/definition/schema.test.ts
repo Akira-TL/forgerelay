@@ -20,7 +20,8 @@ test("Config Definition keeps built-in defaults as metadata instead of injecting
   assert.deepEqual(port.legalScopes, ["runtime", "user", "built-in"]);
   assert.deepEqual(port.builtIn, { kind: "literal", value: 7676 });
   assert.equal(port.reload, "restart-required");
-  assert.deepEqual(port.runtimeOverride, { env: "PORT" });
+  assert.equal(port.runtimeOverride?.env, "PORT");
+  assert.equal(typeof port.runtimeOverride?.readEnv, "function");
 });
 
 test("file-backed source schemas reserve $schema and reject unknown or illegal-scope fields", () => {
