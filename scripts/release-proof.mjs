@@ -164,6 +164,29 @@ function testEndpoint(name, fallback) {
   return fallback;
 }
 
+function githubAuthHeaders() {
+  const token = process.env.GH_TOKEN?.trim()
+    || process.env.GITHUB_TOKEN?.trim()
+    || localGhToken();
+  return {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "ForgeRelay-release-tag-gate",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function localGhToken() {
+  if (process.env.NODE_ENV === "test") return "";
+  try {
+    return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
 async function artifactExists(label, url, headers = {}) {
   let response;
   try {
@@ -195,10 +218,7 @@ async function assertReleaseTagMutable(tag, version) {
   ).toString();
   const [npmPublished, githubReleased] = await Promise.all([
     artifactExists(`npm package ${pkg.name}@${version}`, npmUrl),
-    artifactExists(`GitHub Release ${tag}`, githubUrl, {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "ForgeRelay-release-tag-gate",
-    }),
+    artifactExists(`GitHub Release ${tag}`, githubUrl, githubAuthHeaders()),
   ]);
   if (npmPublished) {
     throw new Error(`npm package ${pkg.name}@${version} already exists; release tag ${tag} is immutable`);

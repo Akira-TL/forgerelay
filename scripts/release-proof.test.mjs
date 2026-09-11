@@ -22,11 +22,18 @@ async function runProof(cwd, action, env = {}) {
   });
 }
 
-async function artifactApiEnv(t, { npmStatus = 404, githubStatus = 404 } = {}) {
+async function artifactApiEnv(
+  t,
+  { npmStatus = 404, githubStatus = 404, githubRequiredToken } = {},
+) {
   const server = createServer((request, response) => {
     if (request.url?.startsWith("/npm/")) response.statusCode = npmStatus;
-    else if (request.url?.startsWith("/github/")) response.statusCode = githubStatus;
-    else response.statusCode = 500;
+    else if (request.url?.startsWith("/github/")) {
+      response.statusCode = githubRequiredToken
+        && request.headers.authorization !== `Bearer ${githubRequiredToken}`
+        ? 403
+        : githubStatus;
+    } else response.statusCode = 500;
     response.end();
   });
   await new Promise((resolve, reject) => {
@@ -41,6 +48,7 @@ async function artifactApiEnv(t, { npmStatus = 404, githubStatus = 404 } = {}) {
     NODE_ENV: "test",
     FORGERELAY_TEST_NPM_REGISTRY_URL: `${base}/npm/`,
     FORGERELAY_TEST_GITHUB_API_URL: `${base}/github/`,
+    ...(githubRequiredToken ? { GH_TOKEN: githubRequiredToken } : {}),
   };
 }
 
@@ -121,7 +129,7 @@ test("release tag hook gate uses repository facts instead of requiring a local p
   await git(root, ["add", "tracked.txt"]);
   await git(root, ["commit", "--allow-empty", "-m", "new head"]);
   await runProof(root, "write");
-  const mutableEnv = await artifactApiEnv(t);
+  const mutableEnv = await artifactApiEnv(t, { githubRequiredToken: "release-test-token" });
   const deletion = await runProof(root, "check-hook", {
     ...mutableEnv,
     FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push --delete origin v1.2.3" }),
