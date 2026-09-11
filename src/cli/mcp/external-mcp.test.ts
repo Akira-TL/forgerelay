@@ -694,12 +694,24 @@ async function runHeadlessCliWithPseudoTerminal(
     maybeSend();
   });
   const timer = setTimeout(() => child.kill(), 15_000);
-  const status = await new Promise<number | null>((resolveExit) => {
-    child.onExit(({ exitCode }) => resolveExit(exitCode));
-  });
-  clearTimeout(timer);
-  dataDisposable.dispose();
-  return { status, output: stripAnsi(terminalOutput) };
+  let exitDisposable: { dispose(): void } | undefined;
+  try {
+    const status = await new Promise<number | null>((resolveExit) => {
+      exitDisposable = child.onExit(({ exitCode }) => resolveExit(exitCode));
+    });
+    return { status, output: stripAnsi(terminalOutput) };
+  } finally {
+    clearTimeout(timer);
+    dataDisposable.dispose();
+    exitDisposable?.dispose();
+    // On Windows/ConPTY, a child that exits by itself can leave node-pty
+    // resources referenced until the PTY is explicitly killed.
+    try {
+      child.kill();
+    } catch {
+      // The PTY may already be fully torn down on non-Windows platforms.
+    }
+  }
 }
 
 function stripAnsi(value: string): string {
