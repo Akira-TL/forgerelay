@@ -73,15 +73,17 @@ CLAUDE.MD
 
 ## Agent Skills
 
-Skill 可以来自：
+Skill 按优先级从以下来源发现：
 
 ```text
-~/.agents/skills
 <project>/.agents/skills
+~/.agents/skills
 <forgerelay-config>/skills
 FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
+
+同名 Skill 只保留优先级最高的来源，因此 Project Skill 会覆盖同名的全局 Skill。
 
 ForgeRelay 只负责发现，并把 `name + description` 暴露给 Agent。任务匹配由 Agent 自己判断；真正需要时再读取：
 

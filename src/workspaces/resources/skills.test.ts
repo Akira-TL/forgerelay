@@ -25,7 +25,9 @@ try {
   const globalClaudeSkills = join(root, ".claude", "skills");
   const projectClaudeSkills = join(projectRoot, ".claude", "skills");
   await mkdir(join(globalAgentsSkills, "agent-global-skill"), { recursive: true });
+  await mkdir(join(globalAgentsSkills, "shared-skill"), { recursive: true });
   await mkdir(join(projectAgentsSkills, "agent-project-skill"), { recursive: true });
+  await mkdir(join(projectAgentsSkills, "shared-skill"), { recursive: true });
   await mkdir(join(globalClaudeSkills, "claude-global-skill"), { recursive: true });
   await mkdir(join(projectClaudeSkills, "claude-project-skill"), { recursive: true });
   await mkdir(join(projectRoot, ".pi", "skills", "project-skill"), { recursive: true });
@@ -55,6 +57,28 @@ try {
       "---",
       "",
       "# Agent Project Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(globalAgentsSkills, "shared-skill", "SKILL.md"),
+    [
+      "---",
+      "name: shared-skill",
+      "description: Global shared skill.",
+      "---",
+      "",
+      "# Global Shared Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(projectAgentsSkills, "shared-skill", "SKILL.md"),
+    [
+      "---",
+      "name: shared-skill",
+      "description: Project shared skill.",
+      "---",
+      "",
+      "# Project Shared Skill",
     ].join("\n"),
   );
   await writeFile(
@@ -167,6 +191,10 @@ try {
   const loaded = loadWorkspaceSkills(config, projectRoot);
   assert.equal(loaded.skills.some((skill) => skill.name === "agent-global-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "agent-project-skill"), true);
+  assert.equal(
+    loaded.skills.find((skill) => skill.name === "shared-skill")?.description,
+    "Project shared skill.",
+  );
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-global-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-project-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "project-skill"), false);
@@ -176,6 +204,11 @@ try {
   assert.ok(legacyHiddenSkill);
   assert.equal("disableModelInvocation" in legacyHiddenSkill, false);
   assert.equal(loaded.diagnostics.some((diagnostic) => diagnostic.type === "collision"), true);
+  const projectGlobalCollision = loaded.diagnostics.find(
+    (diagnostic) => diagnostic.collision?.name === "shared-skill",
+  )?.collision;
+  assert.equal(projectGlobalCollision?.winnerPath, join(projectAgentsSkills, "shared-skill", "SKILL.md"));
+  assert.equal(projectGlobalCollision?.loserPath, join(globalAgentsSkills, "shared-skill", "SKILL.md"));
   assert.equal(
     loaded.diagnostics.some(
       (diagnostic) => diagnostic.collision?.name === "subagent-delegation",

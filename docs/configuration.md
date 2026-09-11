@@ -860,13 +860,15 @@ select a global instruction file; its `skills` child is an additional Agent Skil
 | `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; its `skills` child is included as an additional Skill source. |
 | `FORGERELAY_SKILL_PATHS` | Optional comma-separated additional skill directories. |
 
-Standard Agent Skills are discovered from:
+Standard Agent Skills are discovered in precedence order from:
 
-- `~/.agents/skills`
 - project `.agents/skills`
+- `~/.agents/skills`
 - the active ForgeRelay config directory's `skills` folder
 - `FORGERELAY_AGENT_DIR/skills`
 - paths from `FORGERELAY_SKILL_PATHS`
+
+When the same Skill name appears in more than one source, the first source wins. Project Skills therefore override same-named global `~/.agents/skills` entries, matching ForgeRelay's project-over-global configuration model.
 
 When subagents are enabled, profiles are discovered from:
 

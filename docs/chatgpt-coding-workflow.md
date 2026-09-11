@@ -232,13 +232,15 @@ force the Host to discard a cached tool schema.
 
 ## Agent Skills
 
-ForgeRelay discovers standard Agent Skills from:
+ForgeRelay discovers standard Agent Skills in precedence order from:
 
-- `~/.agents/skills`
 - project `.agents/skills`
+- `~/.agents/skills`
 - the active ForgeRelay config directory's `skills` folder
 - `FORGERELAY_AGENT_DIR/skills` (defaults to `~/.codex/skills`)
 - paths from `FORGERELAY_SKILL_PATHS`
+
+Same-named collisions use the first source, so project Skills override global Skills.
 
 When a task matches an advertised skill, read its `SKILL.md` before using other
 files in the skill directory.
