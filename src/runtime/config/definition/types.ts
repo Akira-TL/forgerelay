@@ -9,6 +9,9 @@ export type ConfigReloadPolicy = "hot" | "restart-required";
 export type ConfigSensitivity = "public" | "sensitive";
 export type ConfigInterpolation = "none" | "env";
 export type ConfigExecutionEffect = "none" | "process";
+export type ConfigFileShape =
+  | { kind: "object" }
+  | { kind: "keyed-root"; field: string };
 
 export const CONFIG_FILE_SCOPES = ["user", "project-local", "project"] as const satisfies readonly ConfigFileScope[];
 
@@ -62,5 +65,7 @@ export interface ConfigDomainDefinition<TFields extends ConfigFieldMap = ConfigF
   domain: string;
   title: string;
   description: string;
+  /** Defaults to an object whose properties are the declared fields. */
+  fileShape?: ConfigFileShape;
   fields: TFields;
 }

@@ -9,11 +9,12 @@ const MAX_DIRECT_FILES = 8;
 const MAX_DIRECT_DIRS = 8;
 const LINE_LIMIT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".css"]);
 
-// Append-only versioned archives grow by design and must keep their canonical
-// flat paths for release tooling and stable links. They remain subject to all
-// other architecture checks, including code line limits where applicable.
+// Versioned public contract directories grow by design and must keep their
+// canonical flat paths for release tooling, schema URLs, and stable links. They
+// remain subject to all other architecture checks, including code line limits.
 const DIRECT_FILE_LIMIT_EXEMPT_DIRS = new Set([
   "docs/releases",
+  "schemas/v1",
 ]);
 
 // Repository-root protocol files are intentionally discoverable by Git, npm,

@@ -87,7 +87,7 @@ export class CodeIntelligenceManager {
   private readonly crashCooldownMs: number;
 
   constructor(
-    private readonly config: Pick<ServerConfig, "languageServers"> & Partial<Pick<ServerConfig, "configDir">>,
+    private readonly config: Pick<ServerConfig, "languageServers" | "configDir">,
     options: CodeIntelligenceManagerOptions = {},
   ) {
     this.crashCooldownMs = positiveInteger(
@@ -126,6 +126,7 @@ export class CodeIntelligenceManager {
       project = withManagedLanguageServerRuntime(await resolveLanguageProject({
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
+        configDir: this.config.configDir,
         globalConfig: this.config.languageServers,
         env: withManagedLanguageServerPath(process.env, this.config.configDir),
       }), this.config.configDir);

@@ -1,19 +1,17 @@
-import { access, readFile, realpath } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { z } from "zod";
+import { resolveProjectContext } from "../workspaces/state/project-context.js";
+import type { LanguageServerDefinitionInput as CanonicalLanguageServerDefinitionInput } from "../runtime/config/definition/language-servers.js";
+import {
+  effectiveLanguageServerEntries,
+  resolveLanguageServersConfig,
+} from "../runtime/config/resolution/language-servers.js";
 
-export interface LanguageServerDefinitionInput {
+export type LanguageServerDefinitionInput = Omit<CanonicalLanguageServerDefinitionInput, "disabled"> & {
   enabled?: boolean;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  languages?: string[];
-  extensions?: string[];
-  languageIdByExtension?: Record<string, string>;
-  projectMarkers?: string[];
-}
+};
 
 export type LanguageServerConfigInput = Record<string, LanguageServerDefinitionInput>;
 
@@ -26,7 +24,7 @@ export interface ResolvedLanguageServerDefinition {
   extensions: string[];
   languageIdByExtension: Record<string, string>;
   projectMarkers: string[];
-  source: "builtin" | "global" | "project";
+  source: "builtin" | "global" | "project" | "project-local";
   initializationOptions?: Record<string, unknown>;
   fingerprint: string;
 }
@@ -46,105 +44,47 @@ export class LanguageServerConfigurationError extends Error {
   }
 }
 
-const definitionSchema = z.object({
-  enabled: z.boolean().optional(),
-  command: z.string().min(1).optional(),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  languages: z.array(z.string().min(1)).min(1).optional(),
-  extensions: z.array(z.string().regex(/^\./)).min(1).optional(),
-  languageIdByExtension: z.record(z.string().regex(/^\./), z.string().min(1)).optional(),
-  projectMarkers: z.array(z.string().min(1)).optional(),
-}).strict();
-
-const configSchema = z.record(z.string().min(1), definitionSchema);
-
-type BuiltinDefinition = LanguageServerDefinitionInput & {
-  executableCandidates: string[];
+const BUILTIN_EXECUTABLE_CANDIDATES: Record<string, string[]> = {
+  typescript: ["typescript-language-server"],
+  pyright: ["pyright-langserver"],
+  "rust-analyzer": ["rust-analyzer"],
+  gopls: ["gopls"],
+  clangd: ["clangd"],
 };
 
-const BUILTIN_DEFINITIONS: Record<string, BuiltinDefinition> = {
-  typescript: {
-    executableCandidates: ["typescript-language-server"],
-    args: ["--stdio"],
-    languages: ["typescript", "typescriptreact", "javascript", "javascriptreact"],
-    extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
-    languageIdByExtension: {
-      ".ts": "typescript",
-      ".tsx": "typescriptreact",
-      ".js": "javascript",
-      ".jsx": "javascriptreact",
-      ".mjs": "javascript",
-      ".cjs": "javascript",
-    },
-    projectMarkers: ["tsconfig.json", "jsconfig.json", "package.json"],
-  },
-  pyright: {
-    executableCandidates: ["pyright-langserver"],
-    args: ["--stdio"],
-    languages: ["python"],
-    extensions: [".py", ".pyi"],
-    languageIdByExtension: { ".py": "python", ".pyi": "python" },
-    projectMarkers: ["pyrightconfig.json", "pyproject.toml", "setup.cfg", "setup.py"],
-  },
-  "rust-analyzer": {
-    executableCandidates: ["rust-analyzer"],
-    languages: ["rust"],
-    extensions: [".rs"],
-    languageIdByExtension: { ".rs": "rust" },
-    projectMarkers: ["Cargo.toml"],
-  },
-  gopls: {
-    executableCandidates: ["gopls"],
-    languages: ["go"],
-    extensions: [".go"],
-    languageIdByExtension: { ".go": "go" },
-    projectMarkers: ["go.work", "go.mod"],
-  },
-  clangd: {
-    executableCandidates: ["clangd"],
-    languages: ["c", "cpp", "objective-c", "objective-cpp"],
-    extensions: [".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm"],
-    languageIdByExtension: {
-      ".c": "c",
-      ".cc": "cpp",
-      ".cpp": "cpp",
-      ".cxx": "cpp",
-      ".h": "cpp",
-      ".hh": "cpp",
-      ".hpp": "cpp",
-      ".hxx": "cpp",
-      ".m": "objective-c",
-      ".mm": "objective-cpp",
-    },
-    projectMarkers: ["compile_commands.json", "compile_flags.txt", ".clangd"],
-  },
-};
-
-interface CandidateDefinition extends LanguageServerDefinitionInput {
+interface CandidateDefinition extends CanonicalLanguageServerDefinitionInput {
   id: string;
   source: ResolvedLanguageServerDefinition["source"];
-  executableCandidates?: string[];
 }
 
 export async function resolveLanguageProject(input: {
   workspaceRoot: string;
   sourcePath: string;
+  configDir?: string;
   globalConfig?: LanguageServerConfigInput;
   env?: NodeJS.ProcessEnv;
 }): Promise<ResolvedLanguageProject> {
   const workspaceRoot = await canonicalWorkspaceRoot(input.workspaceRoot);
   const sourcePath = await resolveWorkspaceSourcePath(workspaceRoot, input.sourcePath);
-  const projectConfig = await loadProjectLanguageServerConfig(workspaceRoot);
-  const globalConfig = parseLanguageServerConfig(
-    input.globalConfig ?? {},
-    "global ForgeRelay config",
-  );
-  const definitions = await effectiveDefinitions(
-    globalConfig,
-    projectConfig,
-    input.env ?? process.env,
-  );
+  const environment = input.env ?? process.env;
+  const project = input.configDir
+    ? await resolveProjectContext(input.configDir, workspaceRoot)
+    : undefined;
+  const resolution = await resolveLanguageServersConfig({
+    ...(input.configDir ? { configDir: input.configDir } : {}),
+    ...(project ? { project } : {}),
+    projectSharedConfigDir: join(workspaceRoot, ".forgerelay"),
+    ...(input.globalConfig ? { legacyUser: input.globalConfig } : {}),
+    environment,
+  });
+  const errors = resolution.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  if (errors.length > 0) {
+    throw new LanguageServerConfigurationError(
+      "code.configuration_invalid",
+      `Invalid Language-server configuration: ${errors.map((diagnostic) => `${diagnostic.source.location ?? diagnostic.source.id}: ${diagnostic.message}`).join("; ")}`,
+    );
+  }
+  const definitions = await materializeResolvedDefinitions(resolution, environment);
   const extension = extname(sourcePath).toLowerCase();
   const candidates: ResolvedLanguageProject[] = [];
 
@@ -166,7 +106,7 @@ export async function resolveLanguageProject(input: {
     );
   }
 
-  const sourceRank = { builtin: 0, global: 1, project: 2 } as const;
+  const sourceRank = { builtin: 0, global: 1, project: 2, "project-local": 3 } as const;
   const highestRank = Math.max(...candidates.map((candidate) => sourceRank[candidate.definition.source]));
   const highest = candidates.filter((candidate) => sourceRank[candidate.definition.source] === highestRank);
   const deepestLength = Math.max(...highest.map((candidate) => candidate.projectRoot.length));
@@ -182,96 +122,38 @@ export async function resolveLanguageProject(input: {
   return nearest[0]!;
 }
 
-export async function loadProjectLanguageServerConfig(
-  workspaceRoot: string,
-): Promise<LanguageServerConfigInput> {
-  const path = join(workspaceRoot, ".forgerelay", "language-servers.json");
-  try {
-    return parseLanguageServerConfig(JSON.parse(await readFile(path, "utf8")), path);
-  } catch (error) {
-    if (isMissingFile(error)) return {};
-    if (error instanceof LanguageServerConfigurationError) throw error;
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new LanguageServerConfigurationError(
-      "code.configuration_invalid",
-      `Unable to load Language-server configuration at ${path}: ${reason}`,
-    );
-  }
-}
-
-export function parseLanguageServerConfig(value: unknown, label: string): LanguageServerConfigInput {
-  const parsed = configSchema.safeParse(value ?? {});
-  if (!parsed.success) {
-    const details = parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "config"}: ${issue.message}`)
-      .join("; ");
-    throw new LanguageServerConfigurationError(
-      "code.configuration_invalid",
-      `Invalid Language-server configuration in ${label}: ${details}`,
-    );
-  }
-  return parsed.data;
-}
-
-async function effectiveDefinitions(
-  globalConfig: LanguageServerConfigInput,
-  projectConfig: LanguageServerConfigInput,
+async function materializeResolvedDefinitions(
+  resolution: Awaited<ReturnType<typeof resolveLanguageServersConfig>>,
   env: NodeJS.ProcessEnv,
 ): Promise<ResolvedLanguageServerDefinition[]> {
-  const ids = new Set([
-    ...Object.keys(BUILTIN_DEFINITIONS),
-    ...Object.keys(globalConfig),
-    ...Object.keys(projectConfig),
-  ]);
   const definitions: ResolvedLanguageServerDefinition[] = [];
 
-  for (const id of ids) {
-    const builtin = BUILTIN_DEFINITIONS[id];
-    const global = globalConfig[id];
-    const project = projectConfig[id];
-    const source: ResolvedLanguageServerDefinition["source"] = project
-      ? "project"
-      : global
-        ? "global"
-        : "builtin";
+  for (const entry of effectiveLanguageServerEntries(resolution)) {
     const merged: CandidateDefinition = {
-      id,
-      source,
-      ...(builtin ?? {}),
-      ...(global ?? {}),
-      ...(project ?? {}),
-      env: {
-        ...(builtin?.env ?? {}),
-        ...(global?.env ?? {}),
-        ...(project?.env ?? {}),
-      },
-      languageIdByExtension: {
-        ...(builtin?.languageIdByExtension ?? {}),
-        ...(global?.languageIdByExtension ?? {}),
-        ...(project?.languageIdByExtension ?? {}),
-      },
+      id: entry.id,
+      source: sourceForScope(entry.scope),
+      ...entry.value,
     };
-
-    if (merged.enabled === false) continue;
     const languages = merged.languages ?? [];
-    const extensions = merged.extensions?.map((entry) => entry.toLowerCase()) ?? [];
+    const extensions = merged.extensions?.map((value) => value.toLowerCase()) ?? [];
     if (languages.length === 0 || extensions.length === 0) continue;
-    const languageIdByExtension = normalizeLanguageIds(id, merged, languages, extensions);
+    const languageIdByExtension = normalizeLanguageIds(entry.id, merged, languages, extensions);
 
     let command = merged.command;
-    if (!command && builtin?.executableCandidates) {
-      command = await findExecutable(builtin.executableCandidates, env);
+    const executableCandidates = BUILTIN_EXECUTABLE_CANDIDATES[entry.id];
+    if (!command && executableCandidates) {
+      command = await findExecutable(executableCandidates, env);
       if (!command) continue;
     }
     if (!command) {
       throw new LanguageServerConfigurationError(
         "code.configuration_invalid",
-        `Language-server definition ${id} requires a command.`,
+        `Language-server definition ${entry.id} requires a command.`,
       );
     }
 
     const normalized = {
-      id,
+      id: entry.id,
       command,
       args: merged.args ?? [],
       env: merged.env ?? {},
@@ -279,7 +161,7 @@ async function effectiveDefinitions(
       extensions,
       languageIdByExtension,
       projectMarkers: merged.projectMarkers ?? [],
-      source,
+      source: merged.source,
     };
     definitions.push({
       ...normalized,
@@ -288,6 +170,13 @@ async function effectiveDefinitions(
   }
 
   return definitions;
+}
+
+function sourceForScope(scope: string): ResolvedLanguageServerDefinition["source"] {
+  if (scope === "built-in") return "builtin";
+  if (scope === "user") return "global";
+  if (scope === "project" || scope === "project-local") return scope;
+  throw new Error(`Unsupported Language Server config scope: ${scope}`);
 }
 
 function normalizeLanguageIds(
@@ -425,8 +314,4 @@ async function executable(path: string): Promise<boolean> {
 function isWithin(root: string, candidate: string): boolean {
   const rel = relative(root, candidate);
   return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
-}
-
-function isMissingFile(error: unknown): boolean {
-  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }

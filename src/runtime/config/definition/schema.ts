@@ -4,6 +4,7 @@ import {
   CONFIG_FILE_SCOPES,
   CONFIG_SCHEMA_CONTRACT_MAJOR,
   type ConfigDomainDefinition,
+  type ConfigFieldDefinition,
   type ConfigFileScope,
 } from "./types.js";
 
@@ -35,43 +36,83 @@ export function generateConfigJsonSchema(
   definition: ConfigDomainDefinition,
   scope: ConfigFileScope,
 ): JsonObject {
+  if (definition.fileShape?.kind === "keyed-root") {
+    return generateKeyedRootConfigJsonSchema(definition, scope);
+  }
+
   const schema = z.toJSONSchema(configSourceSchema(definition, scope), {
     target: "draft-7",
   }) as JsonObject;
-  schema.$schema = DRAFT_7_SCHEMA;
-  schema.$id = configSchemaId(definition, scope);
-  schema.title = `${definition.title} (${scope})`;
-  schema.description = definition.description;
+  applySchemaIdentity(schema, definition, scope);
 
   const properties = asObject(schema.properties);
   for (const [name, field] of Object.entries(definition.fields)) {
     if (!field.legalScopes.includes(scope)) continue;
     const property = asObject(properties[name]);
-    if (field.builtIn.kind === "literal") property.default = field.builtIn.value;
-    property["x-forgerelay-scopes"] = [...field.legalScopes];
-    property["x-forgerelay-merge"] = field.merge;
-    property["x-forgerelay-reload"] = field.reload;
-    property["x-forgerelay-sensitivity"] = field.sensitivity;
-    property["x-forgerelay-interpolation"] = field.interpolation;
-    property["x-forgerelay-execution-effect"] =
-      typeof field.executionEffect === "function" ? "dynamic" : field.executionEffect;
-    if (field.runtimeOverride) {
-      property["x-forgerelay-runtime-override"] = {
-        ...(field.runtimeOverride.cli ? { cli: field.runtimeOverride.cli } : {}),
-        ...(field.runtimeOverride.env ? { env: field.runtimeOverride.env } : {}),
-      };
-    }
-    if (field.builtIn.kind === "computed") {
-      property["x-forgerelay-computed-default"] = field.builtIn.description;
-    }
-    if (field.deprecation) {
-      property.deprecated = true;
-      property["x-forgerelay-deprecation"] = field.deprecation;
-    }
+    applyFieldMetadata(property, field);
     properties[name] = property;
   }
   schema.properties = properties;
   return schema;
+}
+
+function generateKeyedRootConfigJsonSchema(
+  definition: ConfigDomainDefinition,
+  scope: ConfigFileScope,
+): JsonObject {
+  const fileShape = definition.fileShape;
+  if (!fileShape || fileShape.kind !== "keyed-root") {
+    throw new Error(`Config domain ${definition.domain} is not keyed-root.`);
+  }
+  const field = definition.fields[fileShape.field];
+  if (!field || !field.legalScopes.includes(scope)) {
+    throw new Error(`Config domain ${definition.domain} does not expose keyed-root field ${fileShape.field} at ${scope} scope.`);
+  }
+  const schema = z.toJSONSchema(field.schema, { target: "draft-7" }) as JsonObject;
+  applySchemaIdentity(schema, definition, scope);
+  const properties = asObject(schema.properties);
+  properties.$schema = {
+    type: "string",
+    description: "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+  };
+  schema.properties = properties;
+  applyFieldMetadata(schema, field);
+  return schema;
+}
+
+function applySchemaIdentity(
+  schema: JsonObject,
+  definition: ConfigDomainDefinition,
+  scope: ConfigFileScope,
+): void {
+  schema.$schema = DRAFT_7_SCHEMA;
+  schema.$id = configSchemaId(definition, scope);
+  schema.title = `${definition.title} (${scope})`;
+  schema.description = definition.description;
+}
+
+function applyFieldMetadata(target: JsonObject, field: ConfigFieldDefinition): void {
+  if (field.builtIn.kind === "literal") target.default = field.builtIn.value;
+  target["x-forgerelay-scopes"] = [...field.legalScopes];
+  target["x-forgerelay-merge"] = field.merge;
+  target["x-forgerelay-reload"] = field.reload;
+  target["x-forgerelay-sensitivity"] = field.sensitivity;
+  target["x-forgerelay-interpolation"] = field.interpolation;
+  target["x-forgerelay-execution-effect"] =
+    typeof field.executionEffect === "function" ? "dynamic" : field.executionEffect;
+  if (field.runtimeOverride) {
+    target["x-forgerelay-runtime-override"] = {
+      ...(field.runtimeOverride.cli ? { cli: field.runtimeOverride.cli } : {}),
+      ...(field.runtimeOverride.env ? { env: field.runtimeOverride.env } : {}),
+    };
+  }
+  if (field.builtIn.kind === "computed") {
+    target["x-forgerelay-computed-default"] = field.builtIn.description;
+  }
+  if (field.deprecation) {
+    target.deprecated = true;
+    target["x-forgerelay-deprecation"] = field.deprecation;
+  }
 }
 
 export function generateConfigSchemaFiles(

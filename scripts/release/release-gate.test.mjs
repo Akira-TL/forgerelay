@@ -78,10 +78,11 @@ test("cross-platform cloud CI delegates to one shell-free verification entrypoin
   }
 });
 
-test("architecture gate treats the append-only release-note archive as an explicit flat-path exception", async () => {
+test("architecture gate treats versioned public contract directories as explicit flat-path exceptions", async () => {
   const architecture = await readFile(resolve(repoRoot, "scripts/ci/architecture.mjs"), "utf8");
   assert.match(architecture, /DIRECT_FILE_LIMIT_EXEMPT_DIRS/);
   assert.match(architecture, /"docs\/releases"/);
+  assert.match(architecture, /"schemas\/v1"/);
   assert.match(architecture, /directory !== "\." && dirs > MAX_DIRECT_DIRS/);
 });
 

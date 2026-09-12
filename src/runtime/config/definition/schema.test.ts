@@ -3,6 +3,7 @@ import test from "node:test";
 import * as z from "zod/v4";
 import { defineConfigDomain, configSourceSchema, parseConfigSource, resolveExecutionEffect } from "./definition.js";
 import { generalConfigDefinition } from "./general-config.js";
+import { languageServersConfigDefinition } from "./language-servers.js";
 import {
   configSchemaId,
   configSchemaRelativePath,
@@ -11,6 +12,7 @@ import {
 } from "./schema.js";
 import { CONFIG_DEFINITION_CATALOG } from "./catalog.js";
 import { CONFIG_SCHEMA_CONTRACT_MAJOR } from "./types.js";
+import { resolveConfigDomain } from "../resolution/resolver.js";
 
 test("Config Definition keeps built-in defaults as metadata instead of injecting source values", () => {
   const parsed = parseConfigSource(generalConfigDefinition, "user", {});
@@ -70,11 +72,59 @@ test("schema generation is domain-and-scope based with a stable independent cont
     "schemas/v1/mcp.user.schema.json",
     "schemas/v1/mcp.project-local.schema.json",
     "schemas/v1/mcp.project.schema.json",
+    "schemas/v1/language-servers.user.schema.json",
+    "schemas/v1/language-servers.project-local.schema.json",
+    "schemas/v1/language-servers.project.schema.json",
   ]);
   assert.equal(
     configSchemaRelativePath(generalConfigDefinition, "project"),
     "schemas/v1/config.project.schema.json",
   );
+});
+
+test("Language Server root-keyed sources normalize through the shared Config Definition entrypoint", () => {
+  const parsed = parseConfigSource(languageServersConfigDefinition, "project", {
+    $schema: "https://example.invalid/language-servers.schema.json",
+    test: { command: "example", languages: ["typescript"], extensions: [".ts"] },
+  });
+  assert.deepEqual(parsed, {
+    $schema: "https://example.invalid/language-servers.schema.json",
+    servers: {
+      test: { command: "example", languages: ["typescript"], extensions: [".ts"] },
+    },
+  });
+});
+
+test("Language Server schemas expose keyed hot sensitive env-interpolated process metadata", () => {
+  const field = languageServersConfigDefinition.fields.servers;
+  assert.equal(field.merge, "keyed");
+  assert.equal(field.reload, "hot");
+  assert.equal(field.sensitivity, "sensitive");
+  assert.equal(field.interpolation, "env");
+  const resolution = resolveConfigDomain({
+    definition: languageServersConfigDefinition,
+    sources: [{
+      id: "project:language-servers",
+      scope: "project",
+      kind: "file",
+      priority: 0,
+      value: {
+        active: { command: "example", languages: ["typescript"], extensions: [".ts"] },
+        masked: { disabled: true },
+      },
+    }],
+  });
+  assert.equal(resolution.entries["servers.active"]?.effective.executionEffect, "process");
+  assert.equal(resolution.entries["servers.masked"]?.effective.executionEffect, "none");
+
+  const schema = generateConfigJsonSchema(languageServersConfigDefinition, "project");
+  const properties = schema.properties as Record<string, Record<string, unknown>>;
+  assert.equal(properties.$schema?.type, "string");
+  assert.equal(schema["x-forgerelay-merge"], "keyed");
+  assert.equal(schema["x-forgerelay-reload"], "hot");
+  assert.equal(schema["x-forgerelay-sensitivity"], "sensitive");
+  assert.equal(schema["x-forgerelay-interpolation"], "env");
+  assert.equal(schema["x-forgerelay-execution-effect"], "dynamic");
 });
 
 test("Config Definition can express entry-sensitive process execution effects without runtime-specific trust logic", () => {

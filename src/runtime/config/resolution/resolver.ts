@@ -1,5 +1,9 @@
 import * as z from "zod/v4";
-import { configSourceSchema, resolveExecutionEffect } from "../definition/definition.js";
+import {
+  configSourceSchema,
+  normalizeConfigSourceShape,
+  resolveExecutionEffect,
+} from "../definition/definition.js";
 import type {
   ConfigDomainDefinition,
   ConfigFieldDefinition,
@@ -67,7 +71,7 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
     }
 
     try {
-      const configured = sourceObject(source.value);
+      const configured = sourceObject(normalizeConfigSourceShape(input.definition, source.scope, source.value));
       const interpolated = interpolateSource(input.definition, source.scope, configured, environment);
       const parsed = parseSource(input.definition, source.scope, interpolated);
       prepared.push({

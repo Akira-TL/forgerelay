@@ -6,6 +6,7 @@ import {
   type ConfigFieldDefinition,
   type ConfigFieldMap,
   type ConfigFileScope,
+  type ConfigScope,
 } from "./types.js";
 
 const DOMAIN_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -27,6 +28,7 @@ export function defineConfigDomain<const TFields extends ConfigFieldMap>(
   for (const [name, field] of Object.entries(definition.fields)) {
     validateFieldDefinition(definition.domain, name, field);
   }
+  validateFileShape(definition);
   return definition;
 }
 
@@ -47,12 +49,35 @@ export function configSourceSchema(
   return z.object(shape).strict();
 }
 
+export function normalizeConfigSourceShape(
+  definition: ConfigDomainDefinition,
+  scope: ConfigScope,
+  value: unknown,
+): unknown {
+  const fileShape = definition.fileShape;
+  if (
+    !fileShape ||
+    fileShape.kind !== "keyed-root" ||
+    !FILE_SCOPE_SET.has(scope as ConfigFileScope) ||
+    !isRecord(value)
+  ) {
+    return value;
+  }
+  const { $schema, ...entries } = value;
+  return {
+    ...($schema === undefined ? {} : { $schema }),
+    [fileShape.field]: entries,
+  };
+}
+
 export function parseConfigSource(
   definition: ConfigDomainDefinition,
   scope: ConfigFileScope,
   value: unknown,
 ): Record<string, unknown> {
-  return configSourceSchema(definition, scope).parse(value) as Record<string, unknown>;
+  return configSourceSchema(definition, scope).parse(
+    normalizeConfigSourceShape(definition, scope, value),
+  ) as Record<string, unknown>;
 }
 
 export function resolveExecutionEffect<TSchema extends z.ZodType>(
@@ -63,6 +88,29 @@ export function resolveExecutionEffect<TSchema extends z.ZodType>(
   return typeof field.executionEffect === "function"
     ? field.executionEffect(value, logicalPath)
     : field.executionEffect;
+}
+
+function validateFileShape(definition: ConfigDomainDefinition): void {
+  const fileShape = definition.fileShape;
+  if (!fileShape || fileShape.kind === "object") return;
+  const rootField = definition.fields[fileShape.field];
+  if (!rootField) {
+    throw new Error(`Config domain ${definition.domain} keyed-root field ${fileShape.field} is not defined.`);
+  }
+  if (rootField.merge !== "keyed") {
+    throw new Error(`Config domain ${definition.domain} keyed-root field ${fileShape.field} must use keyed merge.`);
+  }
+  const otherFileFields = Object.entries(definition.fields).filter(([name, field]) =>
+    name !== fileShape.field &&
+    field.legalScopes.some((scope) => FILE_SCOPE_SET.has(scope as ConfigFileScope))
+  );
+  if (otherFileFields.length > 0) {
+    throw new Error(`Config domain ${definition.domain} keyed-root shape cannot expose additional file-backed fields.`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validateFieldDefinition(domain: string, name: string, field: ConfigFieldDefinition): void {
