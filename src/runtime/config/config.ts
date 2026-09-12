@@ -4,19 +4,13 @@ import { join, resolve } from "node:path";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "../logging/logger.js";
 import type { OAuthConfig } from "../../mcp/oauth/oauth-provider.js";
-import { mergeHookConfigs, parseHookConfig, type HookConfig } from "../../mcp/hooks/hooks.js";
 import {
   forgerelaySkillsDir,
   generateInstanceId,
   loadForgeRelayFiles,
   type ForgeRelayUserConfig,
 } from "./user-config.js";
-import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { RuntimePrivilegeState } from "../security/runtime-privilege.js";
-import {
-  parseExternalMcpServers,
-  type ExternalMcpServersConfig,
-} from "./external-mcp-config.js";
 import { DEFAULT_MEDIA_MAX_BYTES } from "../../mcp/operations/media-content.js";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import {
@@ -84,12 +78,9 @@ export interface ServerConfig {
   skillPaths: string[];
   configSkillsDir: string;
   subagents: boolean;
-  languageServers: LanguageServerConfigInput;
   allowAgentLanguageServerInstall: boolean;
-  mcpServers: ExternalMcpServersConfig;
   agentDir: string;
   systemInstructionsPath: string;
-  hooks: HookConfig;
   logging: LoggingConfig;
   commandShellRuntime: CommandShellRuntime;
   shellInstructionsEnabled: boolean;
@@ -460,15 +451,9 @@ export function loadConfig(
     skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
     configSkillsDir: forgerelaySkillsDir(env),
     subagents: config.subagents === true,
-    languageServers: config.languageServers ?? {},
     allowAgentLanguageServerInstall: config.allowAgentLanguageServerInstall === true,
-    mcpServers: parseExternalMcpServers(config.mcpServers),
     agentDir: resolve(expandHomePath(config.agentDir ?? defaultAgentDir())),
     systemInstructionsPath: parseSystemInstructionsPath(config.systemInstructionsPath),
-    hooks: mergeHookConfigs(
-      parseHookConfig(config.hooks),
-      parseHookConfig(files.hooks),
-    ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
     commandShellRuntime,
     shellInstructionsEnabled: config.shellInstructions !== false,

@@ -71,6 +71,8 @@ for (const allowed of ROOT_PROTOCOL_FILES) {
   // Presence is allowed, not required; this loop documents the intentional set.
 }
 
+checkConfigV2Contraction(violations);
+
 const directories = new Set([...directFiles.keys(), ...directDirs.keys()]);
 for (const directory of [...directories].sort()) {
   const files = directFiles.get(directory) ?? 0;
@@ -104,6 +106,53 @@ function gitTrackedFiles() {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`git ls-files failed with exit ${result.status ?? "unknown"}`);
   return result.stdout.split("\0").filter(Boolean);
+}
+
+function checkConfigV2Contraction(violations) {
+  const rules = [
+    {
+      path: "src/runtime/config/config.ts",
+      forbidden: [
+        /\bconfig\.(?:mcpServers|languageServers|hooks)\b/,
+        /\b(?:mcpServers|languageServers|hooks):\s*(?:ExternalMcpServersConfig|LanguageServerConfigInput|HookConfig)\b/,
+        /\b(?:parseExternalMcpServers|parseHookConfig|mergeHookConfigs)\b/,
+        /\bfiles\.hooks\b/,
+      ],
+      reason: "ServerConfig must not materialize migrated domain snapshots outside Config System v2",
+    },
+    {
+      path: "src/cli/config/inspect.ts",
+      forbidden: [/\blegacyServers\s*:/, /\blegacyUser\s*:/, /\bparseHookConfig\b/, /\bmergeHookConfigs\b/],
+      reason: "config inspection must consume unified domain resolvers rather than rebuild legacy precedence",
+    },
+    {
+      path: "src/mcp/hooks/hook-cli.ts",
+      forbidden: [/\bloadForgeRelayFiles\b/, /\bparseHookConfig\b/, /\bmergeHookConfigs\b/],
+      reason: "Hook CLI must consume the unified Hook resolver rather than load legacy sources directly",
+    },
+    {
+      path: "src/lsp/runtime/manager.ts",
+      forbidden: [/\bglobalConfig\s*:/, /\bconfig\.languageServers\b/],
+      reason: "Language Server runtime must resolve configuration on demand through Config System v2",
+    },
+    {
+      path: "src/mcp/operations/external-mcp/external-mcp-runtime.ts",
+      forbidden: [/\blegacyServers\s*:/, /\bconfig\.mcpServers\b/],
+      reason: "External MCP runtime must resolve configuration on demand through Config System v2",
+    },
+    {
+      path: "src/runtime/config/inspection/live.ts",
+      forbidden: [/\blegacyServers\s*:/, /\blegacyUser\s*:/, /\bconfig\.(?:mcpServers|languageServers|hooks)\b/],
+      reason: "live diagnostics must consume unified domain resolvers rather than startup snapshots",
+    },
+  ];
+
+  for (const rule of rules) {
+    const text = readFileSync(rule.path, "utf8");
+    for (const pattern of rule.forbidden) {
+      if (pattern.test(text)) violations.push(`${rule.path}: ${rule.reason} (${pattern})`);
+    }
+  }
 }
 
 function normalizeDirectory(directory) {

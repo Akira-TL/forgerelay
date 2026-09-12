@@ -77,8 +77,11 @@ const legacyHookHandlerSchema = z.object({
   timeoutSeconds: z.number().int().min(1).max(300).optional(),
   report: z.boolean().optional(),
 }).strict();
+const legacyDirectHookRuleSchema = legacyHookHandlerSchema.extend({
+  matcher: hookMatcherSchema.optional(),
+});
 const legacyHookRuleSchema = z.union([
-  legacyHookHandlerSchema,
+  legacyDirectHookRuleSchema,
   z.object({
     matcher: hookMatcherSchema.optional(),
     handlers: z.array(legacyHookHandlerSchema).min(1),
@@ -94,7 +97,7 @@ export function normalizeLegacyHookEntries(value: unknown): HookEntriesConfig {
   let order = 0;
   for (const event of HOOK_EVENTS) {
     for (const [ruleIndex, rule] of (parsed[event] ?? []).entries()) {
-      const matcher = "handlers" in rule ? rule.matcher : undefined;
+      const matcher = rule.matcher;
       const handlers = "handlers" in rule ? rule.handlers : [rule];
       for (const [handlerIndex, handler] of handlers.entries()) {
         const key = handler.name ?? legacyHookKey(event, ruleIndex, handlerIndex);

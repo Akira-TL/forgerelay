@@ -1,15 +1,12 @@
 import { join, resolve } from "node:path";
 import { forgerelayConfigDir } from "../../runtime/config/user-config.js";
 import { ExternalMcpConfigRegistry } from "../../runtime/config/external-mcp-registry.js";
-import type { ExternalMcpServersConfig } from "../../runtime/config/external-mcp-config.js";
 import { resolveGeneralConfig } from "../../runtime/config/resolution/general.js";
 import { resolveHooksConfig } from "../../runtime/config/resolution/hooks.js";
 import { resolveLanguageServersConfig } from "../../runtime/config/resolution/language-servers.js";
 import { readJsonConfigSource } from "../../runtime/config/resolution/project-sources.js";
 import { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
-import type { LanguageServerDefinitionInput } from "../../runtime/config/definition/language-servers.js";
 import { resolveSubagentProfilesConfigSources } from "../../subagents/profiles.js";
-import { mergeHookConfigs, parseHookConfig } from "../../mcp/hooks/hooks.js";
 import { ProjectContextResolver } from "../../workspaces/state/project-context.js";
 import type {
   ConfigDiagnostic,
@@ -219,7 +216,6 @@ async function resolveInspectionDomains(options: ConfigInspectionOptions): Promi
     scope: "user",
     location: join(configDir, "config.json"),
   });
-  const user = isRecord(userSource?.value) ? userSource.value : {};
   const project = options.scope.mode === "project"
     ? await new ProjectContextResolver(configDir).inspect(options.scope.projectRoot)
     : undefined;
@@ -247,7 +243,6 @@ async function resolveInspectionDomains(options: ConfigInspectionOptions): Promi
     configDir,
     environment: process.env,
     sourceRuntime,
-    legacyServers: (isRecord(user.mcpServers) ? user.mcpServers : {}) as ExternalMcpServersConfig,
   }).resolveConfiguration({
     ...(project ? { projectSharedConfigDir: project.sharedConfigDir } : {}),
     ...(project?.localConfigDir ? { projectLocalConfigDir: project.localConfigDir } : {}),
@@ -256,70 +251,21 @@ async function resolveInspectionDomains(options: ConfigInspectionOptions): Promi
     configDir,
     environment: process.env,
     sourceRuntime,
-    ...(isRecord(user.languageServers)
-      ? { legacyUser: user.languageServers as Record<string, LanguageServerDefinitionInput & { enabled?: boolean }> }
-      : {}),
     ...(project?.localConfigDir
       ? { project: { sharedConfigDir: project.sharedConfigDir, localConfigDir: project.localConfigDir } }
       : project
         ? { projectSharedConfigDir: project.sharedConfigDir }
         : {}),
   });
-  const legacyHooksFile = await readJsonConfigSource({
-    id: "legacy:user:hooks.json",
-    scope: "user",
-    location: join(configDir, "hooks.json"),
-  });
-  const legacyHookDiagnostics: ConfigDiagnostic[] = [];
-  const inlineHooks = safeLegacyHooks(
-    user.hooks,
-    {
-      id: "legacy:user:config-hooks",
-      scope: "user",
-      kind: "file",
-      location: join(configDir, "config.json"),
-      priority: 0,
-    },
-    legacyHookDiagnostics,
-  );
-  let aggregateHooks = {};
-  if (legacyHooksFile) {
-    const reference = sourceReference(legacyHooksFile);
-    if (legacyHooksFile.error) {
-      legacyHookDiagnostics.push({
-        severity: "error",
-        code: legacyHooksFile.error.code,
-        source: reference,
-        message: legacyHooksFile.error.message,
-      });
-    } else {
-      aggregateHooks = safeLegacyHooks(legacyHooksFile.value, reference, legacyHookDiagnostics);
-    }
-  }
-  const mergedLegacyHooks = mergeHookConfigs(inlineHooks, aggregateHooks);
   const hooks = await resolveHooksConfig({
     configDir,
     sourceRuntime,
-    ...(Object.keys(mergedLegacyHooks).length > 0 ? { legacyUser: mergedLegacyHooks } : {}),
     ...(project?.localConfigDir
       ? { project: { sharedConfigDir: project.sharedConfigDir, localConfigDir: project.localConfigDir } }
       : project
         ? { projectSharedConfigDir: project.sharedConfigDir }
         : {}),
   });
-  hooks.diagnostics.push(...legacyHookDiagnostics);
-  if (legacyHooksFile) {
-    const reference = sourceReference(legacyHooksFile);
-    if (!hooks.sources.some((source) => source.id === reference.id)) hooks.sources.push(reference);
-    if (!legacyHooksFile.error && aggregateHooks && Object.keys(aggregateHooks).length > 0) {
-      hooks.diagnostics.push({
-        severity: "warning",
-        code: "deprecated_source",
-        source: reference,
-        message: `Configuration source ${reference.location} is deprecated since ForgeRelay 1.2.0; use hooks/.`,
-      });
-    }
-  }
   const subagents = resolveSubagentProfilesConfigSources({
     configDir,
     sourceRuntime,
@@ -342,37 +288,6 @@ function shadowDiagnostics(domain: ResolvedConfigDomain): InspectionDiagnostic[]
         : `${entry.logicalPath} from ${shadowed.source.id} is shadowed by ${entry.effective.source.id} (${shadowed.reason}).`,
     }))
   );
-}
-
-function safeLegacyHooks(
-  value: unknown,
-  source: ConfigSourceReference | undefined,
-  diagnostics: ConfigDiagnostic[],
-) {
-  if (value === undefined) return {};
-  try {
-    return parseHookConfig(value);
-  } catch (error) {
-    if (source) {
-      diagnostics.push({
-        severity: "error",
-        code: "invalid_source",
-        source,
-        message: error instanceof Error ? error.message : "Legacy Hook configuration is invalid.",
-      });
-    }
-    return {};
-  }
-}
-
-function sourceReference(source: { id: string; scope: ConfigSourceReference["scope"]; kind: ConfigSourceReference["kind"]; location?: string; priority: number }): ConfigSourceReference {
-  return {
-    id: source.id,
-    scope: source.scope,
-    kind: source.kind,
-    ...(source.location ? { location: source.location } : {}),
-    priority: source.priority,
-  };
 }
 
 function inspectionDiagnostic(domain: string, diagnostic: ConfigDiagnostic): InspectionDiagnostic {
@@ -441,10 +356,6 @@ function inspectSources(domains: ResolvedConfigDomain[]): ConfigSourceInspection
   }).sort((left, right) =>
     left.domain.localeCompare(right.domain) || left.id.localeCompare(right.id)
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function printExplain(output: ConfigExplainOutput): void {

@@ -9,13 +9,18 @@ import { ConfigSourceRuntime } from "../runtime/config/runtime/source-refresh.js
 import {
   LanguageServerConfigurationError,
   resolveLanguageProject,
-  type LanguageServerConfigInput,
 } from "./language-server-config.js";
+
+async function writeLegacyLanguageServers(configDir: string, definitions: unknown): Promise<void> {
+  await mkdir(configDir, { recursive: true });
+  await writeFile(join(configDir, "config.json"), JSON.stringify({ languageServers: definitions }) + "\n");
+}
 
 test("project Language-server definition beats global configuration and resolves the nearest project marker", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-language-config-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "frontend");
+  const configDir = join(root, "config");
   const sourcePath = join(projectRoot, "src", "main.ts");
   await mkdir(join(root, ".forgerelay"), { recursive: true });
   await mkdir(join(projectRoot, "src"), { recursive: true });
@@ -34,17 +39,18 @@ test("project Language-server definition beats global configuration and resolves
     }) + "\n",
   );
 
+  await writeLegacyLanguageServers(configDir, {
+    "global-ts": {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+      projectMarkers: ["tsconfig.json"],
+    },
+  });
   const resolved = await resolveLanguageProject({
     workspaceRoot: root,
     sourcePath: "frontend/src/main.ts",
-    globalConfig: {
-      "global-ts": {
-        command: process.execPath,
-        languages: ["typescript"],
-        extensions: [".ts"],
-        projectMarkers: ["tsconfig.json"],
-      },
-    },
+    configDir,
   });
 
   assert.equal(resolved.definition.id, "project-ts");
@@ -210,18 +216,20 @@ test("global explicit Language-server definition beats built-in discovery", asyn
   await writeFile(builtinExecutable, "#!/bin/sh\nexit 0\n");
   await chmod(builtinExecutable, 0o755);
 
+  const configDir = join(root, "config");
+  await writeLegacyLanguageServers(configDir, {
+    "global-ts": {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+      projectMarkers: ["tsconfig.json"],
+    },
+  });
   const resolved = await resolveLanguageProject({
     workspaceRoot: root,
     sourcePath: "src/main.ts",
+    configDir,
     env: { ...process.env, PATH: [bin, process.env.PATH ?? ""].join(delimiter) },
-    globalConfig: {
-      "global-ts": {
-        command: process.execPath,
-        languages: ["typescript"],
-        extensions: [".ts"],
-        projectMarkers: ["tsconfig.json"],
-      },
-    },
   });
 
   assert.equal(resolved.definition.id, "global-ts");
@@ -237,16 +245,17 @@ test("invalid canonical user Language Server config shadows legacy inline until 
   await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
   const canonicalPath = join(configDir, "language-servers.json");
   await writeFile(canonicalPath, JSON.stringify({ broken: { command: 42 } }) + "\n");
-  const legacy: LanguageServerConfigInput = {
+  const legacy = {
     legacy: {
       command: process.execPath,
       languages: ["typescript"],
       extensions: [".ts"],
     },
   };
+  await writeLegacyLanguageServers(configDir, legacy);
 
   await assert.rejects(
-    resolveLanguageProject({ workspaceRoot: root, sourcePath: "src/main.ts", configDir, globalConfig: legacy }),
+    resolveLanguageProject({ workspaceRoot: root, sourcePath: "src/main.ts", configDir }),
     (error: unknown) => error instanceof LanguageServerConfigurationError && error.code === "code.configuration_invalid",
   );
 
@@ -255,7 +264,6 @@ test("invalid canonical user Language Server config shadows legacy inline until 
     workspaceRoot: root,
     sourcePath: "src/main.ts",
     configDir,
-    globalConfig: legacy,
   });
   assert.equal(resolved.definition.id, "legacy");
   assert.equal(resolved.definition.source, "global");
@@ -394,17 +402,19 @@ test("Language project discovery preserves a symlinked Workspace alias by canoni
   await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
   await symlink(root, alias, "dir");
 
+  const configDir = join(parent, "config");
+  await writeLegacyLanguageServers(configDir, {
+    test: {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+      projectMarkers: ["tsconfig.json"],
+    },
+  });
   const resolved = await resolveLanguageProject({
     workspaceRoot: alias,
     sourcePath: "src/main.ts",
-    globalConfig: {
-      test: {
-        command: process.execPath,
-        languages: ["typescript"],
-        extensions: [".ts"],
-        projectMarkers: ["tsconfig.json"],
-      },
-    },
+    configDir,
   });
 
   assert.equal(resolved.projectRoot, await realpath(root));
@@ -422,18 +432,20 @@ test("Language project discovery rejects a source symlink that escapes the Works
   await writeFile(join(outside, "secret.ts"), "export const secret = 1;\n");
   await symlink(join(outside, "secret.ts"), join(root, "src", "escape.ts"));
 
+  const configDir = join(root, "config");
+  await writeLegacyLanguageServers(configDir, {
+    test: {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+      projectMarkers: ["tsconfig.json"],
+    },
+  });
   await assert.rejects(
     resolveLanguageProject({
       workspaceRoot: root,
       sourcePath: "src/escape.ts",
-      globalConfig: {
-        test: {
-          command: process.execPath,
-          languages: ["typescript"],
-          extensions: [".ts"],
-          projectMarkers: ["tsconfig.json"],
-        },
-      },
+      configDir,
     }),
     (error: unknown) =>
       error instanceof LanguageServerConfigurationError &&
@@ -447,11 +459,13 @@ test("invalid global Language-server configuration is rejected before discovery"
   await mkdir(join(root, "src"), { recursive: true });
   await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
 
+  const configDir = join(root, "config");
+  await writeLegacyLanguageServers(configDir, { broken: { command: 42 } });
   await assert.rejects(
     resolveLanguageProject({
       workspaceRoot: root,
       sourcePath: "src/main.ts",
-      globalConfig: { broken: { command: 42 } } as never,
+      configDir,
     }),
     (error: unknown) =>
       error instanceof LanguageServerConfigurationError &&

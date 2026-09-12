@@ -38,7 +38,7 @@ test("Project Language Server authorization runs before Language service spawn",
     },
   };
   const manager = new CodeIntelligenceManager(
-    { languageServers: {}, configDir, configRuntime: new ConfigRuntime() },
+    { configDir, configRuntime: new ConfigRuntime() },
     { projectExecutionTrustPolicy: denyPolicy },
   );
   t.after(() => manager.shutdown());

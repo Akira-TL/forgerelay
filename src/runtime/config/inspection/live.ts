@@ -46,7 +46,6 @@ export async function liveWorkspaceConfigPanelState(
   const project = await resolveProjectContext(config.configDir, workspaceRoot);
   const mcp = new ExternalMcpConfigRegistry({
     configDir: config.configDir,
-    legacyServers: config.mcpServers,
     environment: process.env,
     sourceRuntime: config.configRuntime.sources,
   }).resolveConfiguration({
@@ -56,14 +55,12 @@ export async function liveWorkspaceConfigPanelState(
   const languageServers = await resolveLanguageServersConfig({
     configDir: config.configDir,
     project,
-    legacyUser: config.languageServers,
     environment: process.env,
     sourceRuntime: config.configRuntime.sources,
   });
   const hooks = await resolveHooksConfig({
     configDir: config.configDir,
     project,
-    legacyUser: config.hooks,
     sourceRuntime: config.configRuntime.sources,
   });
   const subagents = resolveSubagentProfilesConfigSources({

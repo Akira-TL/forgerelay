@@ -68,7 +68,6 @@ export async function resolveLanguageProject(input: {
   workspaceRoot: string;
   sourcePath: string;
   configDir?: string;
-  globalConfig?: LanguageServerConfigInput;
   env?: NodeJS.ProcessEnv;
   sourceRuntime?: ConfigSourceRuntime;
 }): Promise<ResolvedLanguageProject> {
@@ -82,7 +81,6 @@ export async function resolveLanguageProject(input: {
     ...(input.configDir ? { configDir: input.configDir } : {}),
     ...(project ? { project } : {}),
     projectSharedConfigDir: join(workspaceRoot, ".forgerelay"),
-    ...(input.globalConfig ? { legacyUser: input.globalConfig } : {}),
     environment,
     ...(input.sourceRuntime ? { sourceRuntime: input.sourceRuntime } : {}),
   });

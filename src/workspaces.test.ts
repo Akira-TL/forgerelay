@@ -7,7 +7,6 @@ import test, { type TestContext } from "node:test";
 import { promisify } from "node:util";
 import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
 import { GitWorktreeError } from "./workspaces/git/git-worktrees.js";
-import { parseHookConfig } from "./mcp/hooks/hooks.js";
 import { SqliteWorkspaceStore } from "./workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "./workspaces.js";
 
@@ -134,12 +133,13 @@ test("WorkspaceOpen hook runs once when a workspace session is created", async (
     hookScript,
     'import { appendFileSync } from "node:fs"; appendFileSync("workspace-open.log", process.env.FORGERELAY_HOOK_EVENT + "\\n");\n',
   );
-  const registry = new WorkspaceRegistry({
-    ...context.config,
-    hooks: parseHookConfig({
-      WorkspaceOpen: [{ command: `node "${hookScript}"`, timeoutSeconds: 30 }],
-    }),
-  });
+  await writeFile(
+    join(context.config.configDir, "config.json"),
+    JSON.stringify({
+      hooks: { WorkspaceOpen: [{ command: `node "${hookScript}"`, timeoutSeconds: 30 }] },
+    }) + "\n",
+  );
+  const registry = new WorkspaceRegistry(context.config);
 
   const first = await registry.openWorkspace(context.root);
   const second = await registry.openWorkspace(context.root);
@@ -264,12 +264,13 @@ test("worktree close hooks block before integration and observe successful close
   await git(gitRoot, ["add", "."]);
   await git(gitRoot, ["commit", "-m", "Add hook fixtures"]);
 
-  const blockingRegistry = new WorkspaceRegistry({
-    ...context.config,
-    hooks: parseHookConfig({
-      BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
-    }),
-  });
+  await writeFile(
+    join(context.config.configDir, "config.json"),
+    JSON.stringify({
+      hooks: { BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }] },
+    }) + "\n",
+  );
+  const blockingRegistry = new WorkspaceRegistry(context.config);
   const blocked = await blockingRegistry.openWorkspace({ path: gitRoot, mode: "worktree" });
   await writeFile(join(blocked.workspace.root, "feature.txt"), "blocked\n");
 
@@ -280,13 +281,16 @@ test("worktree close hooks block before integration and observe successful close
   assert.equal((await stat(blocked.workspace.root)).isDirectory(), true);
   assert.equal((await gitOutput(gitRoot, ["status", "--porcelain=v1"])).trim(), "");
 
-  const observingRegistry = new WorkspaceRegistry({
-    ...context.config,
-    hooks: parseHookConfig({
-      BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
-      AfterWorktreeClose: [{ command: `node "${afterScript}"`, timeoutSeconds: 30 }],
-    }),
-  });
+  await writeFile(
+    join(context.config.configDir, "config.json"),
+    JSON.stringify({
+      hooks: {
+        BeforeWorktreeClose: [{ command: `node "${beforeScript}"`, timeoutSeconds: 30 }],
+        AfterWorktreeClose: [{ command: `node "${afterScript}"`, timeoutSeconds: 30 }],
+      },
+    }) + "\n",
+  );
+  const observingRegistry = new WorkspaceRegistry(context.config);
   const opened = await observingRegistry.openWorkspace({ path: gitRoot, mode: "worktree", newWorktree: true });
   await writeFile(join(opened.workspace.root, "feature.txt"), "finished\n");
   await observingRegistry.closeWorktree(opened.workspace.id, "feat: close with hooks");
@@ -421,8 +425,10 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   const outsideRoot = await mkdtemp(join(tmpdir(), "forgerelay-workspace-outside-test-"));
   const agentDir = join(root, ".pi", "agent");
   const systemInstructionsPath = join(root, ".agents", "AGENTS.md");
+  const configDir = join(root, ".forgerelay-home");
 
   await mkdir(agentDir, { recursive: true });
+  await mkdir(configDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "legacy agent-dir instructions\n");
   await mkdir(join(root, ".agents"), { recursive: true });
 
@@ -456,7 +462,7 @@ async function fixture(t: TestContext): Promise<WorkspaceFixture> {
   await writeFile(join(root, "nested", "file.txt"), "hello\n");
 
   const config = loadConfig({
-    FORGERELAY_CONFIG_DIR: join(root, ".forgerelay-home"),
+    FORGERELAY_CONFIG_DIR: configDir,
     FORGERELAY_ALLOWED_ROOTS: root,
     FORGERELAY_WORKTREE_ROOT: join(root, ".forgerelay", "worktrees"),
     FORGERELAY_AGENT_DIR: agentDir,

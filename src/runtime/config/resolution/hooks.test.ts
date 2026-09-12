@@ -41,6 +41,72 @@ test("Hook Config v2 composes independent files and resolves same-name entries b
   assert.match(resolution.diagnostics[0]?.source.location ?? "", /broken\.json$/);
 });
 
+test("legacy user hooks.json refreshes through Config v2 LKG and deletion semantics", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hook-config-v2-user-legacy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  await mkdir(configDir, { recursive: true });
+  const legacyPath = join(configDir, "hooks.json");
+  const sourceRuntime = new ConfigSourceRuntime();
+  const legacy = (command: string) => ({
+    AfterTool: [{ handlers: [{ name: "legacy-user", command }] }],
+  });
+
+  await writeFile(legacyPath, JSON.stringify(legacy("first")) + "\n");
+  const first = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((first.values.hooks as Record<string, Array<{ command: string }>>)["legacy-user"]?.[0]?.command, "first");
+  assert.equal(first.entries["hooks.legacy-user"]?.effective.source.id, "legacy:user:hooks.json");
+
+  await writeFile(legacyPath, "{ invalid json\n");
+  const invalid = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((invalid.values.hooks as Record<string, Array<{ command: string }>>)["legacy-user"]?.[0]?.command, "first");
+  assert.equal(invalid.diagnostics.some((diagnostic) => diagnostic.usingLastKnownGood === true), true);
+
+  await writeFile(legacyPath, JSON.stringify(legacy("second")) + "\n");
+  const repaired = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((repaired.values.hooks as Record<string, Array<{ command: string }>>)["legacy-user"]?.[0]?.command, "second");
+
+  await unlink(legacyPath);
+  const deleted = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((deleted.values.hooks as Record<string, unknown> | undefined)?.["legacy-user"], undefined);
+});
+
+test("legacy inline Hooks refresh through Config v2 LKG and field deletion semantics", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hook-config-v2-inline-legacy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  await mkdir(configDir, { recursive: true });
+  const configPath = join(configDir, "config.json");
+  const sourceRuntime = new ConfigSourceRuntime();
+  const legacy = (command: string) => ({
+    hooks: { AfterTool: [{ name: "legacy-inline", matcher: { tool: "bash" }, command }] },
+  });
+
+  await writeFile(configPath, JSON.stringify(legacy("first")) + "\n");
+  const first = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((first.values.hooks as Record<string, Array<{ command: string }>>)["legacy-inline"]?.[0]?.command, "first");
+  assert.equal(first.entries["hooks.legacy-inline"]?.effective.source.id, "legacy:user:config-hooks");
+  assert.deepEqual(
+    (first.values.hooks as Record<string, Array<{ matcher?: { tool?: string } }>>)["legacy-inline"]?.[0]?.matcher,
+    { tool: "bash" },
+  );
+
+  await writeFile(configPath, JSON.stringify({ hooks: { UnknownEvent: [{ command: "broken" }] } }) + "\n");
+  const invalid = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((invalid.values.hooks as Record<string, Array<{ command: string }>>)["legacy-inline"]?.[0]?.command, "first");
+  assert.equal(invalid.diagnostics.some((diagnostic) =>
+    diagnostic.source.id === "legacy:user:config-hooks" && diagnostic.usingLastKnownGood === true
+  ), true);
+
+  await writeFile(configPath, JSON.stringify(legacy("second")) + "\n");
+  const repaired = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((repaired.values.hooks as Record<string, Array<{ command: string }>>)["legacy-inline"]?.[0]?.command, "second");
+
+  await writeFile(configPath, "{}\n");
+  const deleted = await resolveHooksConfig({ configDir, sourceRuntime });
+  assert.equal((deleted.values.hooks as Record<string, unknown> | undefined)?.["legacy-inline"], undefined);
+});
+
 test("Hook directory refresh retains last-known-good per file and deletion clears that contribution", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-hook-config-lkg-"));
   t.after(() => rm(root, { recursive: true, force: true }));

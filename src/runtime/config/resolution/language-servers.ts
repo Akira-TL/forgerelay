@@ -5,6 +5,7 @@ import {
   languageServersConfigDefinition,
   type LanguageServerDefinitionInput,
 } from "../definition/language-servers.js";
+import { refreshLegacyUserConfigField } from "./project-sources.js";
 import { resolveConfigDomain } from "./resolver.js";
 import type { ConfigScope } from "../definition/types.js";
 import type { ConfigDiagnostic, ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
@@ -22,7 +23,6 @@ export interface ResolveLanguageServersConfigInput {
   configDir?: string;
   project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
   projectSharedConfigDir?: string;
-  legacyUser?: Record<string, LanguageServerDefinitionInput & { enabled?: boolean }>;
   environment?: NodeJS.ProcessEnv;
   sourceRuntime?: ConfigSourceRuntime;
 }
@@ -39,18 +39,10 @@ export async function resolveLanguageServersConfig(
   const sources: ConfigSourceInput[] = [];
   const refreshDiagnostics: ConfigDiagnostic[] = [];
   const sourceRuntime = input.sourceRuntime ?? new ConfigSourceRuntime();
-  if (input.legacyUser && Object.keys(input.legacyUser).length > 0) {
-    sources.push({
-      id: "legacy:user:languageServers",
-      scope: "user",
-      kind: "file",
-      priority: LEGACY_PRIORITY,
-      ...(input.configDir ? { location: join(input.configDir, "config.json") } : {}),
-      value: normalizeLanguageServerDefinitions(input.legacyUser),
-      deprecation: LEGACY_DEPRECATION,
-    });
-  }
   if (input.configDir) {
+    const legacy = readLegacyInlineLanguageServers(sourceRuntime, input.configDir);
+    if (legacy.source) sources.push(legacy.source);
+    if (legacy.diagnostic) refreshDiagnostics.push(legacy.diagnostic);
     const user = readLanguageServerSource(
       sourceRuntime,
       "canonical:user:language-servers",
@@ -108,6 +100,60 @@ export function effectiveLanguageServerEntries(
       scope: entry.effective.source.scope,
     };
   });
+}
+
+function readLegacyInlineLanguageServers(
+  sourceRuntime: ConfigSourceRuntime,
+  configDir: string,
+): { source?: ConfigSourceInput; diagnostic?: ConfigDiagnostic } {
+  const location = join(configDir, "config.json");
+  const refreshed = refreshLegacyUserConfigField({
+    sourceRuntime,
+    configDir,
+    field: "languageServers",
+    parse: (value) => {
+      if (value === undefined) return undefined;
+      if (!isRecord(value)) throw new Error("languageServers must be an object.");
+      return normalizeLanguageServerDefinitions(value);
+    },
+    invalidMessage: "Legacy inline Language Server configuration is invalid.",
+  });
+  if (refreshed.status.state === "missing") return {};
+  const source = refreshed.value === undefined ? undefined : {
+    id: "legacy:user:languageServers",
+    scope: "user" as const,
+    kind: "file" as const,
+    location,
+    priority: LEGACY_PRIORITY,
+    value: refreshed.value,
+    deprecation: LEGACY_DEPRECATION,
+  };
+  if (refreshed.status.state !== "invalid" || !refreshed.issue) return source ? { source } : {};
+  if (refreshed.issueScope === "container") return source ? { source } : {};
+  if (source) {
+    return {
+      source,
+      diagnostic: {
+        severity: "error",
+        code: refreshed.issue.code,
+        source: sourceReference(source),
+        message: refreshed.issue.message,
+        usingLastKnownGood: refreshed.status.usingLastKnownGood,
+        diagnosticChanged: refreshed.status.diagnosticChanged,
+      },
+    };
+  }
+  return {
+    source: invalidSource(
+      "legacy:user:languageServers",
+      "user",
+      location,
+      refreshed.issue.message,
+      refreshed.issue.code,
+      LEGACY_PRIORITY,
+      LEGACY_DEPRECATION,
+    ),
+  };
 }
 
 function readLanguageServerSource(
@@ -195,14 +241,17 @@ function invalidSource(
   location: string,
   message: string,
   code: "invalid_source" | "missing_environment" = "invalid_source",
+  priority = CANONICAL_PRIORITY,
+  deprecation?: ConfigSourceInput["deprecation"],
 ): ConfigSourceInput {
   return {
     id,
     scope,
     kind: "file",
     location,
-    priority: CANONICAL_PRIORITY,
-    shadowsLowerPriority: true,
+    priority,
+    ...(priority === CANONICAL_PRIORITY ? { shadowsLowerPriority: true } : {}),
+    ...(deprecation ? { deprecation } : {}),
     error: { code, message },
   };
 }

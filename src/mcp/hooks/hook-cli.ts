@@ -6,10 +6,8 @@ import {
 } from "../../runtime/config/resolution/hooks.js";
 import type { ResolvedConfigDomain } from "../../runtime/config/resolution/types.js";
 import type { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
-import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
+import { forgerelayConfigDir } from "../../runtime/config/user-config.js";
 import {
-  mergeHookConfigs,
-  parseHookConfig,
   type HookConfig,
   type HookEvent,
   type HookMatcher,
@@ -34,7 +32,7 @@ export interface HookCheckResult {
 
 export async function checkHookConfiguration(
   projectRoot: string,
-  globalHooks: HookConfig = loadGlobalHooks(),
+  globalHooks: HookConfig = {},
   configDir?: string,
   sourceRuntime?: ConfigSourceRuntime,
 ): Promise<HookCheckResult> {
@@ -55,12 +53,8 @@ export async function runHooksCommand(args: string[]): Promise<void> {
   }
 
   const projectRoot = parseProjectRoot(rest);
-  const files = loadForgeRelayFiles();
-  const globalHooks = mergeHookConfigs(
-    parseHookConfig(files.config.hooks),
-    parseHookConfig(files.hooks),
-  );
-  const resolution = await resolveHookConfiguration(projectRoot, globalHooks, files.dir);
+  const configDir = forgerelayConfigDir();
+  const resolution = await resolveHookConfiguration(projectRoot, {}, configDir);
   const entries = flattenResolvedHooks(resolution);
 
   if (subcommand === "list") {
@@ -97,14 +91,6 @@ async function resolveHookConfiguration(
     legacyUser,
     ...(sourceRuntime ? { sourceRuntime } : {}),
   });
-}
-
-function loadGlobalHooks(): HookConfig {
-  const files = loadForgeRelayFiles();
-  return mergeHookConfigs(
-    parseHookConfig(files.config.hooks),
-    parseHookConfig(files.hooks),
-  );
 }
 
 function flattenResolvedHooks(resolution: ResolvedConfigDomain): HookListEntry[] {

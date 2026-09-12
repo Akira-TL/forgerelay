@@ -187,13 +187,13 @@ test("registry merges Project over global over legacy and disabled entries mask 
       "project-only": projectServer,
     },
   });
-  const registry = new ExternalMcpConfigRegistry({
-    configDir,
-    legacyServers: {
+  await writeJson(join(configDir, "config.json"), {
+    mcpServers: {
       shared: legacyServer,
       "legacy-only": legacyServer,
     },
   });
+  const registry = new ExternalMcpConfigRegistry({ configDir });
   const projectContext = await new ProjectContextResolver(configDir).resolve(project);
 
   const masked = registry.resolve(projectContext);
@@ -270,10 +270,8 @@ test("a present invalid canonical user mcp.json shadows legacy inline mcpServers
   await mkdir(projectRoot, { recursive: true });
   await writeFile(join(configDir, "mcp.json"), '{"servers":{"broken":', "utf8");
   const project = await new ProjectContextResolver(configDir).resolve(projectRoot);
-  const registry = new ExternalMcpConfigRegistry({
-    configDir,
-    legacyServers: { legacy: legacyServer },
-  });
+  await writeJson(join(configDir, "config.json"), { mcpServers: { legacy: legacyServer } });
+  const registry = new ExternalMcpConfigRegistry({ configDir });
 
   const snapshot = registry.resolve(project);
   assert.deepEqual(snapshot.servers, {});

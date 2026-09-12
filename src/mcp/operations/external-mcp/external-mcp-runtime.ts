@@ -20,7 +20,6 @@ export function createExternalMcpCapabilityRuntime(
   const externalMcp = new ExternalMcpGateway(config.mediaMaxBytes, credentialStore);
   const registry = new ExternalMcpConfigRegistry({
     configDir: config.configDir,
-    legacyServers: config.mcpServers,
     sourceRuntime: config.configRuntime.sources,
     onDiagnostic: (diagnostic) => logEvent(config.logging, "warn", "external_mcp_config_invalid", {
       source: diagnostic.source,
@@ -29,7 +28,7 @@ export function createExternalMcpCapabilityRuntime(
     }),
   });
   const transforms = new ExternalMcpTransformRunner(
-    config.hooks,
+    {},
     config.logging,
     process.env,
     config.commandShellRuntime,

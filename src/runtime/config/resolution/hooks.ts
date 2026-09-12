@@ -7,6 +7,7 @@ import {
   type ResolvedHookEntryInput,
 } from "../../../mcp/hooks/config.js";
 import { ConfigSourceRuntime } from "../runtime/source-refresh.js";
+import { refreshLegacyUserConfigField } from "./project-sources.js";
 import { resolveConfigDomain } from "./resolver.js";
 import type { ConfigDiagnostic, ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
 
@@ -57,6 +58,17 @@ export async function resolveHooksConfig(
   }
 
   if (input.configDir) {
+    const legacyInline = readLegacyInlineHooks(sourceRuntime, input.configDir);
+    if (legacyInline.source) sources.push(legacyInline.source);
+    if (legacyInline.diagnostic) refreshDiagnostics.push(legacyInline.diagnostic);
+    const legacyUserFile = readLegacyHookAggregate(
+      sourceRuntime,
+      "legacy:user:hooks.json",
+      "user",
+      join(input.configDir, "hooks.json"),
+    );
+    if (legacyUserFile.source) sources.push(legacyUserFile.source);
+    if (legacyUserFile.diagnostic) refreshDiagnostics.push(legacyUserFile.diagnostic);
     appendHookDirectory(
       sources,
       refreshDiagnostics,
@@ -252,6 +264,53 @@ function invalidHookSource(
     entryKey,
     shadowsLowerPriorityKeys: [`hooks.${entryKey}`],
     error: { code, message },
+  };
+}
+
+function readLegacyInlineHooks(
+  sourceRuntime: ConfigSourceRuntime,
+  configDir: string,
+): { source?: ConfigSourceInput; diagnostic?: ConfigDiagnostic } {
+  const location = join(configDir, "config.json");
+  const refreshed = refreshLegacyUserConfigField({
+    sourceRuntime,
+    configDir,
+    field: "hooks",
+    parse: (value) => value === undefined ? undefined : normalizeLegacyHookEntries(value),
+    invalidMessage: "Legacy inline Hook configuration is invalid.",
+  });
+  if (refreshed.status.state === "missing") return {};
+  const source = refreshed.value === undefined
+    ? undefined
+    : legacyHookSource("legacy:user:config-hooks", "user", location, refreshed.value);
+  if (refreshed.status.state !== "invalid" || !refreshed.issue) return source ? { source } : {};
+  if (refreshed.issueScope === "container") return source ? { source } : {};
+  if (source) {
+    return {
+      source,
+      diagnostic: {
+        severity: "error",
+        code: refreshed.issue.code,
+        source: sourceReference(source),
+        message: refreshed.issue.message,
+        usingLastKnownGood: refreshed.status.usingLastKnownGood,
+        diagnosticChanged: refreshed.status.diagnosticChanged,
+      },
+    };
+  }
+  return {
+    source: {
+      id: "legacy:user:config-hooks",
+      scope: "user",
+      kind: "file",
+      location,
+      priority: LEGACY_PRIORITY,
+      deprecation: LEGACY_DEPRECATION,
+      error: {
+        code: refreshed.issue.code,
+        message: refreshed.issue.message,
+      },
+    },
   };
 }
 

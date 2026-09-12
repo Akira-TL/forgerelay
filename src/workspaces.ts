@@ -248,7 +248,7 @@ export class WorkspaceRegistry {
     private readonly config: ServerConfig,
     private readonly store?: WorkspaceStore,
   ) {
-    this.hooks = new HookRunner(config.hooks, config.logging, process.env, undefined, config.commandShellRuntime, config.configDir, config.configRuntime.sources);
+    this.hooks = new HookRunner({}, config.logging, process.env, undefined, config.commandShellRuntime, config.configDir, config.configRuntime.sources);
     this.context = new WorkspaceContextService(config);
     this.sessions = new WorkspaceSessionService(config, store, this.workspaces, this.context);
     this.inventory = new WorkspaceInventoryService(config, store, this.workspaces, this.sessions);

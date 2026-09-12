@@ -75,7 +75,6 @@ export async function resolveExternalMcpScope(
   const cwd = resolve(dependencies.cwd ?? process.cwd());
   const registry = new ExternalMcpConfigRegistry({
     configDir: config.configDir,
-    legacyServers: config.mcpServers,
     sourceRuntime: config.configRuntime.sources,
   });
   const store = new ExternalMcpCredentialStore({ configDir: config.configDir });

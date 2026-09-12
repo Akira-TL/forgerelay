@@ -195,7 +195,7 @@ export function createMcpServer(
   };
   const toolDescriptions = buildToolDescriptions(config);
   const hooks = new HookRunner(
-    config.hooks,
+    {},
     config.logging,
     process.env,
     (workspaceId, result) => attachCompletedProcessNotices(
@@ -217,7 +217,7 @@ export function createMcpServer(
   const capabilityRegistry = createCapabilityRegistry({
     inspectHooks: (workspaceRoot) => checkHookConfiguration(
       workspaceRoot,
-      config.hooks,
+      {},
       config.configDir,
       config.configRuntime.sources,
     ),

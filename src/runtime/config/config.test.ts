@@ -117,10 +117,7 @@ assert.equal(loadConfig({
 }).activityPanelExpanded, false);
 assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
-assert.deepEqual(
-  forgeRelayConfig.hooks.BeforeTool?.flatMap((rule) => rule.handlers.map((handler) => handler.name)),
-  ["Legacy inline hook", "Global hooks file"],
-);
+assert.equal("hooks" in forgeRelayConfig, false, "legacy Hook sources are resolved on demand, not snapshotted into ServerConfig");
 assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
@@ -500,24 +497,7 @@ assert.equal(fileConfig.shellInstructionsEnabled, false);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));
-assert.deepEqual(fileConfig.hooks, {
-  WorkspaceOpen: [{
-    handlers: [{
-      name: undefined,
-      command: "echo opened",
-      timeoutSeconds: 30,
-      report: true,
-    }],
-  }],
-  BeforeWorktreeClose: [{
-    handlers: [{
-      name: undefined,
-      command: "npm test",
-      timeoutSeconds: 45,
-      report: true,
-    }],
-  }],
-});
+assert.equal("hooks" in fileConfig, false, "legacy inline Hooks are not materialized into ServerConfig");
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",
   "127.0.0.1",
@@ -535,28 +515,22 @@ writeFileSync(
   join(invalidHooksConfigDir, "auth.json"),
   JSON.stringify({ ownerToken: "persisted-owner-token-long-enough" }),
 );
-assert.throws(
+assert.doesNotThrow(
   () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
-  /Unknown ForgeRelay hook event: UnknownEvent/,
+  "General Config loading must not directly parse legacy Hook configuration",
 );
 
 writeFileSync(
   join(invalidHooksConfigDir, "config.json"),
   JSON.stringify({ hooks: { BeforeTool: [{ command: "   " }] } }),
 );
-assert.throws(
-  () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
-  /Hook BeforeTool command must be a non-empty string/,
-);
+assert.doesNotThrow(() => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }));
 
 writeFileSync(
   join(invalidHooksConfigDir, "config.json"),
   JSON.stringify({ hooks: { BeforeTool: [{ command: "echo ok", timeoutSeconds: 0 }] } }),
 );
-assert.throws(
-  () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
-  /Hook BeforeTool timeoutSeconds must be an integer between 1 and 300/,
-);
+assert.doesNotThrow(() => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }));
 
 writeFileSync(join(invalidHooksConfigDir, "config.json"), "{}\n");
 mkdirSync(join(invalidHooksConfigDir, "hooks"), { recursive: true });

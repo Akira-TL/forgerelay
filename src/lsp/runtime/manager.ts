@@ -93,7 +93,7 @@ export class CodeIntelligenceManager {
   private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy;
 
   constructor(
-    private readonly config: Pick<ServerConfig, "languageServers" | "configDir" | "configRuntime">,
+    private readonly config: Pick<ServerConfig, "configDir" | "configRuntime">,
     options: CodeIntelligenceManagerOptions = {},
   ) {
     this.projectExecutionTrustPolicy = options.projectExecutionTrustPolicy ?? compatibilityAllowProjectExecutionTrustPolicy;
@@ -133,7 +133,6 @@ export class CodeIntelligenceManager {
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
         configDir: this.config.configDir,
-        globalConfig: this.config.languageServers,
         env: withManagedLanguageServerPath(process.env, this.config.configDir),
         sourceRuntime: this.config.configRuntime.sources,
       }), this.config.configDir);

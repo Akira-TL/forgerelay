@@ -2,11 +2,12 @@ import { join, resolve } from "node:path";
 import type { ProjectContext } from "../../workspaces/state/project-context.js";
 import { externalMcpConfigDefinition } from "./definition/external-mcp.js";
 import {
+  parseExternalMcpServers,
   parseExternalMcpStandaloneConfig,
   type ExternalMcpServerConfig,
   type ExternalMcpServersConfig,
-  type ExternalMcpStandaloneServersConfig,
 } from "./external-mcp-config.js";
+import { refreshLegacyUserConfigField } from "./resolution/project-sources.js";
 import { resolveConfigDomain } from "./resolution/resolver.js";
 import type {
   ConfigDiagnostic,
@@ -44,7 +45,6 @@ export interface ExternalMcpRegistrySnapshot {
 
 export interface ExternalMcpRegistryOptions {
   configDir: string;
-  legacyServers?: ExternalMcpServersConfig;
   environment?: NodeJS.ProcessEnv;
   sourceRuntime?: ConfigSourceRuntime;
   onDiagnostic?: (diagnostic: ExternalMcpConfigDiagnostic) => void;
@@ -69,14 +69,12 @@ const LEGACY_DEPRECATION = {
 
 export class ExternalMcpConfigRegistry {
   private readonly configDir: string;
-  private readonly legacyServers: ExternalMcpServersConfig;
   private readonly environment: NodeJS.ProcessEnv;
   private readonly sourceRuntime: ConfigSourceRuntime;
   private readonly onDiagnostic?: ExternalMcpRegistryOptions["onDiagnostic"];
 
   constructor(options: ExternalMcpRegistryOptions) {
     this.configDir = resolve(options.configDir);
-    this.legacyServers = { ...(options.legacyServers ?? {}) };
     this.environment = options.environment ?? process.env;
     this.sourceRuntime = options.sourceRuntime ?? new ConfigSourceRuntime();
     this.onDiagnostic = options.onDiagnostic;
@@ -112,17 +110,8 @@ export class ExternalMcpConfigRegistry {
 
   private composeResolution(dynamicSources: DynamicSourceSnapshot[]): ResolvedConfigDomain {
     const sourceInputs: ConfigSourceInput[] = [];
-    if (Object.keys(this.legacyServers).length > 0) {
-      sourceInputs.push({
-        id: "legacy:user:mcpServers",
-        scope: "user",
-        kind: "file",
-        location: join(this.configDir, "config.json"),
-        priority: LEGACY_PRIORITY,
-        value: { servers: this.legacyServers },
-        deprecation: LEGACY_DEPRECATION,
-      });
-    }
+    const legacy = this.loadLegacyInlineSource();
+    if (legacy.source) sourceInputs.push(legacy.source);
     for (const dynamic of dynamicSources) {
       const input = dynamicSourceInput(dynamic);
       if (input) sourceInputs.push(input);
@@ -133,6 +122,7 @@ export class ExternalMcpConfigRegistry {
       sources: sourceInputs,
       environment: this.environment,
     });
+    if (legacy.diagnostic) resolution.diagnostics.push(legacy.diagnostic);
     for (const dynamic of dynamicSources) {
       if (!dynamic.diagnostic || !dynamic.status.usingLastKnownGood) continue;
       const source = dynamic.status.source;
@@ -199,6 +189,62 @@ export class ExternalMcpConfigRegistry {
         ...dynamicSources.map((source) => source.status),
       ],
       diagnostics,
+    };
+  }
+
+  private loadLegacyInlineSource(): { source?: ConfigSourceInput; diagnostic?: ConfigDiagnostic } {
+    const path = join(this.configDir, "config.json");
+    const refreshed = refreshLegacyUserConfigField({
+      sourceRuntime: this.sourceRuntime,
+      configDir: this.configDir,
+      field: "mcpServers",
+      parse: (value) => value === undefined ? undefined : parseExternalMcpServers(value),
+      invalidMessage: "Legacy inline External MCP configuration is invalid.",
+    });
+    if (refreshed.status.state === "missing") return {};
+    const source = refreshed.value === undefined ? undefined : {
+      id: "legacy:user:mcpServers",
+      scope: "user" as const,
+      kind: "file" as const,
+      location: path,
+      priority: LEGACY_PRIORITY,
+      value: { servers: refreshed.value },
+      deprecation: LEGACY_DEPRECATION,
+    };
+    if (refreshed.status.state !== "invalid" || !refreshed.issue) return source ? { source } : {};
+    if (refreshed.issueScope === "container") return source ? { source } : {};
+    const diagnostic: ConfigDiagnostic = {
+      severity: "error",
+      code: refreshed.issue.code,
+      source: source ? {
+        id: source.id,
+        scope: source.scope,
+        kind: source.kind,
+        ...(source.location ? { location: source.location } : {}),
+        priority: source.priority,
+      } : {
+        id: "legacy:user:mcpServers",
+        scope: "user",
+        kind: "file",
+        location: path,
+        priority: LEGACY_PRIORITY,
+      },
+      message: refreshed.issue.message,
+      usingLastKnownGood: refreshed.status.usingLastKnownGood,
+      diagnosticChanged: refreshed.status.diagnosticChanged,
+    };
+    if (refreshed.status.diagnosticChanged) this.onDiagnostic?.(configDiagnostic(diagnostic));
+    if (source) return { source, diagnostic };
+    return {
+      source: {
+        id: "legacy:user:mcpServers",
+        scope: "user",
+        kind: "file",
+        location: path,
+        priority: LEGACY_PRIORITY,
+        deprecation: LEGACY_DEPRECATION,
+        error: { code: refreshed.issue.code, message: refreshed.issue.message },
+      },
     };
   }
 

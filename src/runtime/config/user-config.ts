@@ -105,7 +105,10 @@ export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): strin
   return join(forgerelayConfigDir(env), "skills");
 }
 
-export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): ForgeRelayFiles {
+export function loadForgeRelayFiles(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { readLegacyHooks?: boolean } = {},
+): ForgeRelayFiles {
   const dir = forgerelayConfigDir(env);
   const configPath = join(dir, "config.json");
   const authPath = join(dir, "auth.json");
@@ -124,7 +127,7 @@ export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): Forge
     hooksExists,
     config: configExists ? readJsonFile<ForgeRelayUserConfig>(configPath) : {},
     auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
-    hooks: hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
+    hooks: options.readLegacyHooks && hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
   };
 }
 

@@ -13,7 +13,7 @@ import { ActivityLifecycle } from "../../activity/runtime/lifecycle.js";
 import { ActivityQueryService } from "../../activity/history/query-service.js";
 import { loadConfig, type ServerConfig } from "../config/config.js";
 import type { ForgeRelayUserConfig } from "../config/user-config.js";
-import { parseHookConfig, type HookConfigInput } from "../../mcp/hooks/hooks.js";
+import type { HookConfigInput } from "../../mcp/hooks/hooks.js";
 import type { IncomingArtifactAdapter } from "../../mcp/artifacts/incoming-artifacts.js";
 import { CodeIntelligenceManager } from "../../lsp/runtime/manager.js";
 import { ProcessManager } from "../../mcp/process/process-sessions.js";
@@ -67,8 +67,12 @@ export async function fixture(
 
   await mkdir(join(project, ".forgerelay", "subagents"), { recursive: true });
   await mkdir(configDir, { recursive: true });
-  if (options.userConfig) {
-    await writeFile(join(configDir, "config.json"), JSON.stringify(options.userConfig, null, 2) + "\n");
+  const userConfig: ForgeRelayUserConfig = {
+    ...(options.userConfig ?? {}),
+    ...(options.hooks ? { hooks: options.hooks } : {}),
+  };
+  if (Object.keys(userConfig).length > 0) {
+    await writeFile(join(configDir, "config.json"), JSON.stringify(userConfig, null, 2) + "\n");
   }
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
@@ -103,9 +107,7 @@ export async function fixture(
     PORT: "1",
     ...options.env,
   });
-  const config: ServerConfig = options.hooks
-    ? { ...loadedConfig, hooks: parseHookConfig(options.hooks) }
-    : loadedConfig;
+  const config: ServerConfig = loadedConfig;
   const store = new SqliteWorkspaceStore(stateDir);
   const workspaces = new WorkspaceRegistry(config, store);
   const auditStore = new ActivityAuditStore(stateDir);

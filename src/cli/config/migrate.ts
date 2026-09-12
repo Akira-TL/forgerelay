@@ -58,7 +58,7 @@ interface MigrationPlan {
 
 export async function runConfigMigration(args: string[]): Promise<void> {
   const options = parseMigrationArgs(args);
-  const files = loadForgeRelayFiles();
+  const files = loadForgeRelayFiles(process.env, { readLegacyHooks: true });
   const plan = options.scope === "global"
     ? buildGlobalMigrationPlan(files.dir)
     : await buildProjectMigrationPlan(files.dir, options.projectPath!);
@@ -125,7 +125,10 @@ function parseMigrationArgs(args: string[]): MigrationOptions {
 }
 
 function buildGlobalMigrationPlan(configDir: string): MigrationPlan {
-  const files = loadForgeRelayFiles({ ...process.env, FORGERELAY_CONFIG_DIR: configDir });
+  const files = loadForgeRelayFiles(
+    { ...process.env, FORGERELAY_CONFIG_DIR: configDir },
+    { readLegacyHooks: true },
+  );
   const writes: PlannedWrite[] = [];
   const copies: PlannedCopy[] = [];
   const removals: string[] = [];
