@@ -10,11 +10,9 @@ import { openDatabase } from "../runtime/state/db/client.js";
 import { SqliteWorkspaceStore } from "./state/workspace-store.js";
 import { WorkspaceRegistry } from "../workspaces.js";
 import {
-  breakAgentsDirectory,
   checkoutTargetKey,
   fixture,
   git,
-  restoreAgentsDirectory,
 } from "./conversation-test-support.js";
 
 test("a physical worktree has one canonical Workspace identity and cannot be released without close_worktree", async (t) => {
@@ -132,18 +130,18 @@ test("managed-worktree reopen stays closed when context bootstrap fails after ba
   const closedRoot = opened.workspace.root;
 
   await registry.closeWorktree(workspaceId, "test: close before bootstrap failure");
-  await rm(join(project, ".forgerelay", "agents"), { recursive: true, force: true });
-  await writeFile(join(project, ".forgerelay", "agents"), "not a directory\n");
-  await git(project, ["add", ".forgerelay/agents"]);
-  await git(project, ["commit", "-m", "test: break agent profile directory"]);
+  const failingRegistry = new WorkspaceRegistry({
+    ...config,
+    systemInstructionsPath: project,
+  }, store);
 
   await assert.rejects(
-    registry.openWorkspace({ workspaceId }),
-    /directory|ENOTDIR/i,
+    failingRegistry.openWorkspace({ workspaceId }),
+    /EISDIR|directory/i,
   );
   assert.equal(store.getSession(workspaceId)?.status, "closed");
   assert.equal(store.getSession(workspaceId)?.root, closedRoot);
-  assert.throws(() => registry.getWorkspace(workspaceId), /Unknown workspaceId/);
+  assert.throws(() => failingRegistry.getWorkspace(workspaceId), /Unknown workspaceId/);
   assert.deepEqual(await readdir(config.worktreeRoot), []);
 });
 

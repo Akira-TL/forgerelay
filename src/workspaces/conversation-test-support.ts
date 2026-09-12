@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
@@ -31,11 +31,11 @@ export async function fixture(
   const stateDir = join(root, ".state");
   const stores = new Set<SqliteWorkspaceStore>();
 
-  await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
+  await mkdir(join(project, ".forgerelay", "subagents"), { recursive: true });
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
-  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "subagents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",
@@ -80,16 +80,6 @@ export async function fixture(
     openStore,
     closeStore,
   };
-}
-
-export async function breakAgentsDirectory(agentsDir: string, backupDir: string): Promise<void> {
-  await rename(agentsDir, backupDir);
-  await writeFile(agentsDir, "not a directory\n");
-}
-
-export async function restoreAgentsDirectory(agentsDir: string, backupDir: string): Promise<void> {
-  await rm(agentsDir, { force: true });
-  await rename(backupDir, agentsDir);
 }
 
 export async function initializeGitRepository(root: string): Promise<void> {

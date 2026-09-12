@@ -13,10 +13,6 @@ import {
   type ShellInstructionSeedResult,
 } from "../runtime/instructions/shell-instructions.js";
 import {
-  seedPowerShellSkill,
-  type PowerShellSkillSeedResult,
-} from "../runtime/instructions/powershell-skill.js";
-import {
   installManagedLanguageServers,
   installedManagedLanguageServers,
   managedLanguageServerOptions,
@@ -215,7 +211,6 @@ export async function runInit({ force, version }: { force: boolean; version: str
     const shellInstructionFamilies = shellInstructionFamiliesToSeed(process.platform, commandShell.family);
     let shellInstructions = files.config.shellInstructions;
     let shellInstructionSeedResults: ShellInstructionSeedResult[] = [];
-    let powerShellSkillSeedResult: PowerShellSkillSeedResult | undefined;
     if (shellInstructionFamilies.length > 0) {
       const shellInstructionsAnswer = await prompts.confirm({
         message: "Load ForgeRelay-provided extra Instructions for this command shell?",
@@ -235,19 +230,6 @@ export async function runInit({ force, version }: { force: boolean; version: str
             `${result.family}: ${result.error ?? "download failed"}\n${result.sourceUrl}`
           ).join("\n\n"),
           "Shell Instructions unavailable",
-        );
-      }
-    }
-
-    if (commandShell.family === "pwsh") {
-      powerShellSkillSeedResult = await seedPowerShellSkill({
-        configDir: files.dir,
-        version,
-      });
-      if (powerShellSkillSeedResult.status === "failed") {
-        prompts.note(
-          `${powerShellSkillSeedResult.error ?? "download failed"}\n${powerShellSkillSeedResult.sourceUrl}`,
-          "PowerShell Skill unavailable",
         );
       }
     }
@@ -322,9 +304,6 @@ export async function runInit({ force, version }: { force: boolean; version: str
               `Shell Instructions ${result.family}: ${result.status} (${result.path})`
             ),
           ]
-        : []),
-      ...(powerShellSkillSeedResult
-        ? [`PowerShell Skill: ${powerShellSkillSeedResult.status} (${powerShellSkillSeedResult.path})`]
         : []),
       ...clientFacingBaseUrls.map((baseUrl, index) =>
         `${index === 0 ? "Client-facing MCP URL" : "Client-facing MCP alias"}: ${publicEndpointUrl(baseUrl, "mcp").toString()}`

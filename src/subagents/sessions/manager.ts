@@ -3,6 +3,7 @@ import type { ServerConfig } from "../../runtime/config/config.js";
 import {
   formatAvailableSubagentTargets,
   resolveSubagentTarget,
+  type SubagentTarget,
 } from "../cli-target.js";
 import {
   isSubagentProvider,
@@ -126,7 +127,7 @@ export class SubagentSessionManager {
       sessionId: session.id,
       runId,
       ...(input.activityId ? { activityId: input.activityId } : {}),
-      prompt: input.prompt,
+      prompt: subagentLaunchPrompt(target, input.prompt),
     }));
     return {
       session: owned,
@@ -247,6 +248,12 @@ export class SubagentSessionManager {
     if (!owner) return session;
     return this.store.assignActiveRunOwner(session.id, run.id, owner);
   }
+}
+
+function subagentLaunchPrompt(target: SubagentTarget, prompt: string): string {
+  if (target.kind !== "profile") return prompt;
+  const body = target.profile.body.trim();
+  return body ? `${body}\n\nTask:\n${prompt}` : prompt;
 }
 
 function newRunId(): string {

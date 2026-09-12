@@ -104,10 +104,6 @@ export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): strin
   return join(forgerelayConfigDir(env), "skills");
 }
 
-export function forgerelayAgentsDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(forgerelayConfigDir(env), "agents");
-}
-
 export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): ForgeRelayFiles {
   const dir = forgerelayConfigDir(env);
   const configPath = join(dir, "config.json");

@@ -287,7 +287,7 @@ try {
   const stateDir = join(root, ".state");
   const projectRoot = join(root, "project");
   mkdirSync(stateDir, { recursive: true });
-  mkdirSync(join(configDir, "agents"), { recursive: true });
+  mkdirSync(join(configDir, "subagents"), { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
   const subagentHookCommand = `node -e "require('node:fs').appendFileSync('subagent-hooks.log', process.env.FORGERELAY_HOOK_EVENT + ':' + process.env.FORGERELAY_WORKSPACE_ID + '\\n')"`;
   writeFileSync(
@@ -300,7 +300,7 @@ try {
     }),
   );
   writeFileSync(
-    join(configDir, "agents", "reviewer.md"),
+    join(configDir, "subagents", "reviewer.md"),
     [
       "---",
       "name: reviewer",
@@ -392,6 +392,7 @@ try {
         FORGERELAY_STATE_DIR: stateDir,
         FORGERELAY_SUBAGENTS: "1",
         FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+        CODEX_COMMAND: join(root, "missing-codex"),
       },
     },
   );
@@ -424,7 +425,8 @@ try {
       },
     },
   );
-  assert.match(shown, /Subagent profile not found: missing-profile/);
+  assert.match(shown, /ENOENT/);
+  assert.doesNotMatch(shown, /Subagent profile not found/);
   assert.doesNotMatch(shown, /Hook results:/);
 } finally {
   rmSync(root, { recursive: true, force: true });

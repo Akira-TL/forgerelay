@@ -13,11 +13,12 @@ try {
   const configDir = join(root, ".forgerelay");
   const stateDir = join(root, ".state");
   const projectRoot = join(root, "project");
-  mkdirSync(join(configDir, "agents"), { recursive: true });
+  mkdirSync(join(configDir, "subagents"), { recursive: true });
   mkdirSync(stateDir, { recursive: true });
   mkdirSync(projectRoot, { recursive: true });
+  const reviewerPath = join(configDir, "subagents", "reviewer.md");
   writeFileSync(
-    join(configDir, "agents", "reviewer.md"),
+    reviewerPath,
     [
       "---",
       "name: reviewer",
@@ -63,12 +64,36 @@ try {
     sessionId: started.session.id,
     runId: started.run.id,
     activityId: "act_test",
-    prompt: "Review this change.",
+    prompt: "Review carefully.\n\nTask:\nReview this change.",
   }]);
+
+  writeFileSync(
+    reviewerPath,
+    [
+      "---",
+      "name: reviewer",
+      "description: Reviews code after config change.",
+      "provider: codex",
+      "model: gpt-5.4",
+      "thinking: high",
+      "---",
+      "",
+      "Review with the changed profile.",
+    ].join("\n"),
+  );
+  const later = await manager.start({
+    workspaceId: "ws_test",
+    workspaceRoot: projectRoot,
+    target: "reviewer",
+    prompt: "Review the next change.",
+  });
+  assert.equal(launches[0]?.prompt, "Review carefully.\n\nTask:\nReview this change.");
+  assert.equal(launches[1]?.sessionId, later.session.id);
+  assert.equal(launches[1]?.prompt, "Review with the changed profile.\n\nTask:\nReview the next change.");
 
   assert.equal(manager.get(started.session.id)?.id, started.session.id);
   assert.equal(manager.get(started.session.id, { workspaceId: "ws_other" }), undefined);
-  assert.equal(manager.list({ workspaceId: "ws_test" }).length, 1);
+  assert.equal(manager.list({ workspaceId: "ws_test" }).length, 2);
   assert.throws(
     () => manager.resume({ sessionId: started.session.id, prompt: "busy" }, { workspaceId: "ws_test" }),
     (error: unknown) => (error as { code?: string }).code === "subagent.busy",

@@ -65,7 +65,7 @@ export async function fixture(
   const stateDir = join(root, ".state");
   const configDir = join(root, ".config");
 
-  await mkdir(join(project, ".forgerelay", "agents"), { recursive: true });
+  await mkdir(join(project, ".forgerelay", "subagents"), { recursive: true });
   await mkdir(configDir, { recursive: true });
   if (options.userConfig) {
     await writeFile(join(configDir, "config.json"), JSON.stringify(options.userConfig, null, 2) + "\n");
@@ -73,7 +73,7 @@ export async function fixture(
   await mkdir(agentDir, { recursive: true });
   await writeFile(join(agentDir, "AGENTS.md"), "global instructions\n");
   await writeFile(join(project, "AGENTS.md"), "project instructions\n");
-  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "subagents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",

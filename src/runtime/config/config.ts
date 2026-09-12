@@ -6,7 +6,6 @@ import type { LoggingConfig, LogFormat, LogLevel } from "../logging/logger.js";
 import type { OAuthConfig } from "../../mcp/oauth/oauth-provider.js";
 import { mergeHookConfigs, parseHookConfig, type HookConfig } from "../../mcp/hooks/hooks.js";
 import {
-  forgerelayAgentsDir,
   forgerelaySkillsDir,
   generateInstanceId,
   loadForgeRelayFiles,
@@ -71,7 +70,6 @@ export interface ServerConfig {
   skillsEnabled: boolean;
   skillPaths: string[];
   configSkillsDir: string;
-  configAgentsDir: string;
   subagents: boolean;
   languageServers: LanguageServerConfigInput;
   allowAgentLanguageServerInstall: boolean;
@@ -440,7 +438,6 @@ export function loadConfig(
     skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
     skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
     configSkillsDir: forgerelaySkillsDir(env),
-    configAgentsDir: forgerelayAgentsDir(env),
     subagents: config.subagents === true,
     languageServers: config.languageServers ?? {},
     allowAgentLanguageServerInstall: config.allowAgentLanguageServerInstall === true,

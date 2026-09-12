@@ -279,9 +279,9 @@ test("workspace.tasks persists checkout Task state across close/reopen and remov
 test("open_workspace inspect reads bounded ordinary Workspace metadata without opening, binding, or leaking bootstrap context", async (t) => {
   const context = await fixture(t);
   const otherProject = join(dirname(context.project), "inspection-target");
-  await mkdir(join(otherProject, ".forgerelay", "agents"), { recursive: true });
+  await mkdir(join(otherProject, ".forgerelay", "subagents"), { recursive: true });
   await writeFile(join(otherProject, "AGENTS.md"), "INSPECTION_BOOTSTRAP_SECRET\n");
-  await writeFile(join(otherProject, ".forgerelay", "agents", "reviewer.md"), [
+  await writeFile(join(otherProject, ".forgerelay", "subagents", "reviewer.md"), [
     "---",
     "name: inspection-reviewer",
     "description: Inspection-only reviewer.",

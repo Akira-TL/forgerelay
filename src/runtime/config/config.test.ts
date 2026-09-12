@@ -95,7 +95,6 @@ assert.deepEqual(
   ["Legacy inline hook", "Global hooks file"],
 );
 assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
-assert.equal(forgeRelayConfig.configAgentsDir, join(forgeRelayConfigDir, "agents"));
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
 assert.equal(
@@ -114,7 +113,6 @@ assert.equal(
 );
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
 assert.equal(loadConfig(baseEnv).configSkillsDir, join(emptyConfigDir, "skills"));
-assert.equal(loadConfig(baseEnv).configAgentsDir, join(emptyConfigDir, "agents"));
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);

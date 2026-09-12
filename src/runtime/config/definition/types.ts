@@ -71,6 +71,8 @@ export interface ConfigDomainDefinition<TFields extends ConfigFieldMap = ConfigF
   domain: string;
   title: string;
   description: string;
+  /** Non-JSON domains still participate in resolution/catalog metadata without emitting a misleading JSON file schema. */
+  schemaOutput?: "json" | "none";
   /** Defaults to an object whose properties are the declared fields. */
   fileShape?: ConfigFileShape;
   fields: TFields;

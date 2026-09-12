@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 import { defineConfigDomain, configSourceSchema, parseConfigSource, resolveExecutionEffect } from "./definition.js";
 import { generalConfigDefinition } from "./general-config.js";
 import { languageServersConfigDefinition } from "./language-servers.js";
+import { subagentProfilesConfigDefinition } from "../../../subagents/profiles.js";
 import { hooksConfigDefinition } from "../../../mcp/hooks/config.js";
 import {
   configSchemaId,
@@ -102,6 +103,20 @@ test("Hook keyed-entry schemas stay per-file while resolver metadata remains key
   assert.equal(schema["x-forgerelay-reload"], "hot");
   assert.equal(schema["x-forgerelay-sensitivity"], "sensitive");
   assert.equal(schema["x-forgerelay-execution-effect"], "dynamic");
+});
+
+test("Markdown-backed Subagent Profiles stay in the Config Definition catalog without emitting a misleading JSON file schema", () => {
+  const files = generateConfigSchemaFiles(CONFIG_DEFINITION_CATALOG);
+  assert.equal(CONFIG_DEFINITION_CATALOG.includes(subagentProfilesConfigDefinition), true);
+  assert.equal(subagentProfilesConfigDefinition.schemaOutput, "none");
+  assert.equal(subagentProfilesConfigDefinition.fields.profiles.merge, "keyed");
+  assert.equal(subagentProfilesConfigDefinition.fields.profiles.reload, "hot");
+  assert.equal(subagentProfilesConfigDefinition.fields.profiles.sensitivity, "sensitive");
+  assert.equal(files.some((file) => file.relativePath.includes("subagents.")), false);
+  assert.throws(
+    () => generateConfigJsonSchema(subagentProfilesConfigDefinition, "project"),
+    /does not expose a JSON file schema/,
+  );
 });
 
 test("Language Server root-keyed sources normalize through the shared Config Definition entrypoint", () => {

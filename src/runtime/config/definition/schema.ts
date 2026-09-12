@@ -36,6 +36,9 @@ export function generateConfigJsonSchema(
   definition: ConfigDomainDefinition,
   scope: ConfigFileScope,
 ): JsonObject {
+  if (definition.schemaOutput === "none") {
+    throw new Error(`Config domain ${definition.domain} does not expose a JSON file schema.`);
+  }
   if (definition.fileShape?.kind === "keyed-root") {
     return generateKeyedRootConfigJsonSchema(definition, scope);
   }
@@ -140,10 +143,12 @@ export function generateConfigSchemaFiles(
   definitions: readonly ConfigDomainDefinition[],
 ): GeneratedConfigSchema[] {
   return definitions.flatMap((definition) =>
-    CONFIG_FILE_SCOPES.map((scope) => ({
-      relativePath: configSchemaRelativePath(definition, scope),
-      schema: generateConfigJsonSchema(definition, scope),
-    })),
+    definition.schemaOutput === "none"
+      ? []
+      : CONFIG_FILE_SCOPES.map((scope) => ({
+          relativePath: configSchemaRelativePath(definition, scope),
+          schema: generateConfigJsonSchema(definition, scope),
+        })),
   );
 }
 

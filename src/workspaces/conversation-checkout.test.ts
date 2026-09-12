@@ -10,11 +10,9 @@ import { openDatabase } from "../runtime/state/db/client.js";
 import { SqliteWorkspaceStore } from "./state/workspace-store.js";
 import { WorkspaceRegistry } from "../workspaces.js";
 import {
-  breakAgentsDirectory,
   checkoutTargetKey,
   fixture,
   git,
-  restoreAgentsDirectory,
 } from "./conversation-test-support.js";
 
 test("a conversation reuses its checkout context", async (t) => {
@@ -425,38 +423,33 @@ test("legacy duplicate checkout records fold to one canonical Workspace with ali
 });
 
 test("a failed first context load does not consume bootstrap", async (t) => {
-  const { project, registry } = await fixture(t);
-  const agentsDir = join(project, ".forgerelay", "agents");
-  const backupDir = join(project, ".forgerelay", "agents-backup");
+  const { project, config, store, registry } = await fixture(t);
+  const failingRegistry = new WorkspaceRegistry({
+    ...config,
+    systemInstructionsPath: project,
+  }, store);
 
-  await breakAgentsDirectory(agentsDir, backupDir);
-  try {
-    await assert.rejects(
-      () => registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
-      /directory|ENOTDIR/i,
-    );
-  } finally {
-    await restoreAgentsDirectory(agentsDir, backupDir);
-  }
+  await assert.rejects(
+    () => failingRegistry.openWorkspace(project, { conversationScopeId: "chat-1" }),
+    /EISDIR|directory/i,
+  );
 
   const successfulOpen = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
+  assert.equal(successfulOpen.includeBootstrapContext, true);
 });
 
 test("a context-loading failure preserves a valid checkout binding", async (t) => {
-  const { project, registry } = await fixture(t);
+  const { project, config, store, registry } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const agentsDir = join(project, ".forgerelay", "agents");
-  const backupDir = join(project, ".forgerelay", "agents-backup");
+  const failingRegistry = new WorkspaceRegistry({
+    ...config,
+    systemInstructionsPath: project,
+  }, store);
 
-  await breakAgentsDirectory(agentsDir, backupDir);
-  try {
-    await assert.rejects(
-      () => registry.openWorkspace(project, { conversationScopeId: "chat-1" }),
-      /directory|ENOTDIR/i,
-    );
-  } finally {
-    await restoreAgentsDirectory(agentsDir, backupDir);
-  }
+  await assert.rejects(
+    () => failingRegistry.openWorkspace(project, { conversationScopeId: "chat-1" }),
+    /EISDIR|directory/i,
+  );
 
   const recovered = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   assert.equal(recovered.workspace.id, first.workspace.id);

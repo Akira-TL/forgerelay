@@ -173,8 +173,8 @@ async function fixture(
   const agentDir = join(root, "agent");
   const stateDir = join(root, ".state");
   await Promise.all([
-    mkdir(join(project, ".forgerelay", "agents"), { recursive: true }),
-    mkdir(join(otherProject, ".forgerelay", "agents"), { recursive: true }),
+    mkdir(join(project, ".forgerelay", "subagents"), { recursive: true }),
+    mkdir(join(otherProject, ".forgerelay", "subagents"), { recursive: true }),
     mkdir(agentDir, { recursive: true }),
   ]);
   await Promise.all([
@@ -246,7 +246,7 @@ async function writeReviewerProfile(
   project: string,
   profile: { provider: string; model: string; thinking: string; body: string },
 ): Promise<void> {
-  await writeFile(join(project, ".forgerelay", "agents", "reviewer.md"), [
+  await writeFile(join(project, ".forgerelay", "subagents", "reviewer.md"), [
     "---",
     "name: reviewer",
     "description: Reviews project changes.",
