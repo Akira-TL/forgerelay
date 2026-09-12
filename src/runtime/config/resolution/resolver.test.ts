@@ -164,6 +164,70 @@ test("known legacy inline domain keys remain valid but deprecated while unknown 
   assert.equal(invalid.diagnostics[0]?.code, "invalid_source");
 });
 
+test("keyed merge resolves each key independently, honors tombstones, and lets canonical source presence shadow same-scope legacy", () => {
+  const definition = defineConfigDomain({
+    domain: "keyed-test",
+    title: "Keyed test",
+    description: "Test-only keyed merge contract.",
+    fields: {
+      entries: {
+        schema: z.record(z.string(), z.union([
+          z.object({ value: z.string() }).strict(),
+          z.object({ disabled: z.literal(true) }).strict(),
+        ])),
+        description: "Keyed entries.",
+        legalScopes: ["project", "user"],
+        merge: "keyed",
+        reload: "hot",
+        sensitivity: "public",
+        interpolation: "none",
+        builtIn: { kind: "none" },
+        executionEffect: "none",
+      },
+    },
+  });
+  const resolved = resolveConfigDomain({
+    definition,
+    sources: [
+      {
+        scope: "user",
+        id: "legacy:user",
+        kind: "file",
+        priority: 0,
+        value: { entries: { legacyOnly: { value: "legacy" }, shared: { value: "legacy" } } },
+      },
+      {
+        scope: "user",
+        id: "canonical:user",
+        kind: "file",
+        priority: 100,
+        shadowsLowerPriority: true,
+        value: { entries: { shared: { value: "user" }, inherited: { value: "user" } } },
+      },
+      {
+        scope: "project",
+        id: "canonical:project",
+        kind: "file",
+        priority: 100,
+        shadowsLowerPriority: true,
+        value: { entries: { shared: { disabled: true }, projectOnly: { value: "project" } } },
+      },
+    ],
+  });
+
+  assert.deepEqual(resolved.values.entries, {
+    inherited: { value: "user" },
+    projectOnly: { value: "project" },
+  });
+  assert.equal(resolved.entries["entries.shared"]?.tombstone, true);
+  assert.equal(resolved.entries["entries.shared"]?.effective.source.scope, "project");
+  assert.equal(resolved.entries["entries.legacyOnly"], undefined, "canonical user source presence shadows legacy backfill");
+  assert.equal(
+    resolved.entries["entries.shared"]?.shadowed.some((entry) => entry.source.id === "legacy:user" && entry.reason === "source-shadowed"),
+    true,
+  );
+});
+
 function source(
   scope: "runtime" | "project-local" | "project" | "user",
   id: string,

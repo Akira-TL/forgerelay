@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { withFileLock } from "../runtime/state/lock/file-lock.js";
+import { withFileLock } from "../../runtime/state/lock/file-lock.js";
 
 const execFileAsync = promisify(execFile);
 const PROJECT_ID_PATTERN = /^proj_[a-f0-9]{20}$/;

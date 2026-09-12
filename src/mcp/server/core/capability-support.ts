@@ -23,6 +23,7 @@ export function capabilityContextFor(workspace: Workspace): CapabilityContext {
     workspaceRoot: workspace.root,
     workspaceMode: workspace.mode,
     workspaceManaged: workspace.worktree?.managed ?? false,
+    ...(workspace.project ? { project: workspace.project } : {}),
     guides: workspace.capabilityGuides.map((guide) => ({
       name: guide.name,
       description: guide.description,
@@ -74,6 +75,16 @@ export function requireCapabilityWorkspaceRoot(context: CapabilityContext): stri
     );
   }
   return context.workspaceRoot;
+}
+
+export function requireCapabilityProject(context: CapabilityContext): NonNullable<CapabilityContext["project"]> {
+  if (!context.project) {
+    throw new CapabilityError(
+      "capability_unavailable",
+      `Capability execution requires Project identity for Workspace ${context.workspaceId}.`,
+    );
+  }
+  return context.project;
 }
 
 export function runWorkspaceTasksCapability(

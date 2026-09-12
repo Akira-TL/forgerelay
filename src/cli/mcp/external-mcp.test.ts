@@ -15,6 +15,7 @@ import {
   externalMcpCredentialIdentity,
 } from "../../runtime/config/external-mcp-auth-store.js";
 import { ExternalMcpError, ExternalMcpGateway } from "../../mcp/operations/external-mcp/external-mcp.js";
+import { ProjectContextResolver } from "../../workspaces/state/project-context.js";
 
 void test("mcp auth completes OAuth and the running External MCP gateway hot-consumes the stored credential", async (t) => {
   const fixture = await startOAuthMcpFixture(t);
@@ -48,7 +49,7 @@ void test("mcp auth completes OAuth and the running External MCP gateway hot-con
       { operation: "tools", server: "secure" },
       undefined,
       undefined,
-      { workspaceRoot: context.projectRoot, origins: { secure: "global" } },
+      { origins: { secure: "global" } },
     ),
     (error: unknown) => {
       assert.ok(error instanceof ExternalMcpError);
@@ -68,7 +69,7 @@ void test("mcp auth completes OAuth and the running External MCP gateway hot-con
     { operation: "call", server: "secure", tool: "secure_echo", arguments: { message: "hot" } },
     undefined,
     undefined,
-    { workspaceRoot: context.projectRoot, origins: { secure: "global" } },
+    { origins: { secure: "global" } },
   );
   assert.deepEqual(called.value.content, [{ type: "text", text: "secure:hot" }]);
   assert.equal(fixture.lastMcpAuthorization(), "Bearer access-1");
@@ -163,7 +164,12 @@ void test("Project External MCP OAuth credentials do not follow copied Project c
   await runExternalMcpCommand(["auth", "secure", "--project", context.projectRoot], dependencies);
 
   const store = new ExternalMcpCredentialStore({ configDir: context.configDir });
-  const projectIdentity = externalMcpCredentialIdentity("project", "secure", context.projectRoot);
+  const projectResolver = new ProjectContextResolver(context.configDir);
+  const projectAContext = await projectResolver.resolve(context.projectRoot);
+  const projectIdentity = externalMcpCredentialIdentity("project", "secure", {
+    id: projectAContext.id,
+    projectRoot: projectAContext.projectRoot,
+  });
   const globalIdentity = externalMcpCredentialIdentity("global", "secure", context.projectRoot);
   assert.equal(store.read(projectIdentity)?.tokens?.access_token, "access-1");
   assert.equal(store.read(globalIdentity), undefined);
@@ -171,7 +177,12 @@ void test("Project External MCP OAuth credentials do not follow copied Project c
   const projectB = join(context.projectRoot, "..", "project-b");
   mkdirSync(join(projectB, ".forgerelay"), { recursive: true });
   writeFileSync(join(projectB, ".forgerelay", "mcp.json"), projectConfig);
-  const projectBIdentity = externalMcpCredentialIdentity("project", "secure", projectB);
+  const projectBContext = await projectResolver.resolve(projectB);
+  const projectBIdentity = externalMcpCredentialIdentity("project", "secure", {
+    id: projectBContext.id,
+    projectRoot: projectBContext.projectRoot,
+  });
+  assert.notEqual(projectBContext.id, projectAContext.id);
   assert.equal(store.read(projectBIdentity), undefined);
 
   const gateway = new ExternalMcpGateway(1024 * 1024, store);
@@ -181,7 +192,10 @@ void test("Project External MCP OAuth credentials do not follow copied Project c
       { operation: "tools", server: "secure" },
       undefined,
       undefined,
-      { workspaceRoot: projectB, origins: { secure: "project" } },
+      {
+        project: { id: projectBContext.id, projectRoot: projectBContext.projectRoot },
+        origins: { secure: "project" },
+      },
     ),
     (error: unknown) => {
       assert.ok(error instanceof ExternalMcpError);
@@ -289,7 +303,7 @@ void test("External MCP insufficient_scope requires human reauthorization and pe
       { operation: "tools", server: "secure" },
       undefined,
       undefined,
-      { workspaceRoot: context.projectRoot, origins: { secure: "global" } },
+      { origins: { secure: "global" } },
     ),
     (error: unknown) => {
       assert.ok(error instanceof ExternalMcpError);

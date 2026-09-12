@@ -3,7 +3,10 @@ import { ExternalMcpConfigRegistry } from "../../../runtime/config/external-mcp-
 import { ExternalMcpCredentialStore } from "../../../runtime/config/external-mcp-auth-store.js";
 import { logEvent } from "../../../runtime/logging/logger.js";
 import { CapabilityError, type CapabilityRegistryDependencies } from "../../server/core/capability-registry.js";
-import { requireCapabilityWorkspaceRoot } from "../../server/core/capability-support.js";
+import {
+  requireCapabilityProject,
+  requireCapabilityWorkspaceRoot,
+} from "../../server/core/capability-support.js";
 import {
   ExternalMcpTransformError,
   ExternalMcpTransformRunner,
@@ -37,7 +40,8 @@ export function createExternalMcpCapabilityRuntime(
     run: async (input, context, runOptions) => {
       try {
         const workspaceRoot = requireCapabilityWorkspaceRoot(context);
-        const snapshot = registry.resolve(workspaceRoot);
+        const project = requireCapabilityProject(context);
+        const snapshot = registry.resolve(project);
         const transformContext = (server: string, tool: string) => ({
           workspaceId: context.workspaceId,
           workspaceRoot,
@@ -64,7 +68,7 @@ export function createExternalMcpCapabilityRuntime(
               }
             : undefined,
           {
-            workspaceRoot,
+            project: { id: project.id, projectRoot: project.projectRoot },
             origins: snapshot.origins,
           },
         );

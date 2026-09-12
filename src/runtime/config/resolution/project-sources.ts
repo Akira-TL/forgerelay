@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { ProjectContext } from "../../../projects/project-context.js";
+import type { ProjectContext } from "../../../workspaces/state/project-context.js";
 import { resolveGeneralConfig, type GeneralConfigResolutionInput } from "./general.js";
 import type { ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
 

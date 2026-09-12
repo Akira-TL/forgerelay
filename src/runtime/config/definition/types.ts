@@ -34,14 +34,22 @@ export type ConfigExecutionEffectResolver<T = unknown> = (
   logicalPath: readonly string[],
 ) => ConfigExecutionEffect;
 
+export type ConfigValueInterpolator<T = unknown> = (
+  value: T,
+  environment: NodeJS.ProcessEnv,
+) => T;
+
 export interface ConfigFieldDefinition<TSchema extends z.ZodType = z.ZodType> {
   schema: TSchema;
   description: string;
+  /** File-backed domains may require a field whenever the domain source exists. */
+  required?: boolean;
   legalScopes: readonly ConfigScope[];
   merge: ConfigMergeStrategy;
   reload: ConfigReloadPolicy;
   sensitivity: ConfigSensitivity;
   interpolation: ConfigInterpolation;
+  interpolateValue?: ConfigValueInterpolator<z.input<TSchema>>;
   builtIn: ConfigBuiltInDefault<z.input<TSchema>>;
   executionEffect: ConfigExecutionEffect | ConfigExecutionEffectResolver<z.output<TSchema>>;
   runtimeOverride?: ConfigRuntimeOverride<z.output<TSchema>>;

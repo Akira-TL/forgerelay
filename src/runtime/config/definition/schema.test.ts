@@ -67,6 +67,9 @@ test("schema generation is domain-and-scope based with a stable independent cont
     "schemas/v1/config.user.schema.json",
     "schemas/v1/config.project-local.schema.json",
     "schemas/v1/config.project.schema.json",
+    "schemas/v1/mcp.user.schema.json",
+    "schemas/v1/mcp.project-local.schema.json",
+    "schemas/v1/mcp.project.schema.json",
   ]);
   assert.equal(
     configSchemaRelativePath(generalConfigDefinition, "project"),

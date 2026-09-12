@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadCapabilityGuides } from "../mcp/server/core/capabilities.js";
-import { resolveProjectContext } from "../projects/project-context.js";
+import { resolveProjectContext } from "./state/project-context.js";
 import type { ServerConfig } from "../runtime/config/config.js";
 import {
   createManagedWorktree,

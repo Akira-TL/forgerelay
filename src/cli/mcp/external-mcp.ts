@@ -43,6 +43,7 @@ interface McpCommandOptions extends ExternalMcpScopeRequest {
 interface ExternalMcpCliTarget {
   store: ExternalMcpCredentialStore;
   projectRoot: string;
+  project?: { id: string; projectRoot: string };
   server: string;
   source: ExternalMcpConfigSource;
   serverConfig: ExternalMcpHttpServerConfig;
@@ -148,7 +149,7 @@ async function runExternalMcpList(
   if (options.rest.length > 0) {
     throw new Error("Usage: forgerelay mcp list [--project <path>|--global]");
   }
-  const scope = resolveExternalMcpScope(options, dependencies);
+  const scope = await resolveExternalMcpScope(options, dependencies);
   const status = inspectExternalMcpStatus(scope);
   console.log(formatExternalMcpList(status));
   if (status.configIssues > 0) {
@@ -160,7 +161,7 @@ async function runExternalMcpTest(
   options: McpCommandOptions,
   dependencies: ExternalMcpCliDependencies,
 ): Promise<void> {
-  const scope = resolveExternalMcpScope(options, dependencies);
+  const scope = await resolveExternalMcpScope(options, dependencies);
   const initialStatus = inspectExternalMcpStatus(scope);
   const serverStatus = findExternalMcpServerStatus(initialStatus, options.server);
   if (!serverStatus) throw new Error(`Unknown configured External MCP server: ${options.server}.`);
@@ -177,7 +178,10 @@ async function runExternalMcpTest(
       scope.snapshot.servers,
       options.server,
       undefined,
-      { workspaceRoot: scope.projectRoot, origins: scope.snapshot.origins },
+      {
+        ...(scope.project ? { project: { id: scope.project.id, projectRoot: scope.project.projectRoot } } : {}),
+        origins: scope.snapshot.origins,
+      },
     );
     console.log("Connection: ok");
     console.log(
@@ -231,7 +235,7 @@ function cliArgument(value: string): string {
 }
 
 function formatCredentialScope(source: ExternalMcpConfigSource, projectRoot: string): string {
-  return source === "project" ? `project · ${projectRoot}` : "global";
+  return source === "project" || source === "project-local" ? `project · ${projectRoot}` : "global";
 }
 
 async function runExternalMcpAuth(
@@ -239,7 +243,7 @@ async function runExternalMcpAuth(
   dependencies: ExternalMcpCliDependencies,
 ): Promise<void> {
   assertInteractive(dependencies);
-  const target = resolveExternalMcpCliTarget(options, dependencies);
+  const target = await resolveExternalMcpCliTarget(options, dependencies);
   if (hasStaticAuthorizationHeader(target.serverConfig.headers)) {
     throw new Error(
       `External MCP ${target.server} uses a static Authorization header; remove that header before using OAuth authentication.`,
@@ -251,7 +255,7 @@ async function runExternalMcpAuth(
   console.log(`Transport: ${target.serverConfig.transport}`);
   console.log(`Credential scope: ${formatCredentialScope(target.source, target.projectRoot)}`);
 
-  const identity = externalMcpCredentialIdentity(target.source, target.server, target.projectRoot);
+  const identity = externalMcpCredentialIdentity(target.source, target.server, target.project);
   const existing = target.store.read(identity);
   const receiver = await (dependencies.createLoopbackReceiver ?? createLoopbackReceiver)(
     target.serverConfig.oauth?.callbackPort,
@@ -323,11 +327,11 @@ async function runExternalMcpLogout(
   options: McpCommandOptions,
   dependencies: ExternalMcpCliDependencies,
 ): Promise<void> {
-  const target = resolveExternalMcpCliTarget(options, dependencies);
+  const target = await resolveExternalMcpCliTarget(options, dependencies);
   console.log(`Logging out External MCP ${target.server}`);
   console.log(`Source: ${target.source}`);
   console.log(`Credential scope: ${formatCredentialScope(target.source, target.projectRoot)}`);
-  const identity = externalMcpCredentialIdentity(target.source, target.server, target.projectRoot);
+  const identity = externalMcpCredentialIdentity(target.source, target.server, target.project);
   let existing: ExternalMcpOAuthCredentialRecord | undefined;
   await target.store.withIdentityLock(identity, async () => {
     existing = target.store.read(identity);
@@ -351,11 +355,11 @@ async function runExternalMcpLogout(
   else console.log("Remote revocation: failed; the local credential was still removed.");
 }
 
-function resolveExternalMcpCliTarget(
+async function resolveExternalMcpCliTarget(
   options: McpCommandOptions,
   dependencies: ExternalMcpCliDependencies,
-): ExternalMcpCliTarget {
-  const scope = resolveExternalMcpScope(options, dependencies);
+): Promise<ExternalMcpCliTarget> {
+  const scope = await resolveExternalMcpScope(options, dependencies);
   const serverConfig = scope.snapshot.servers[options.server];
   const source = scope.snapshot.origins[options.server];
   if (!serverConfig || !source) {
@@ -371,6 +375,7 @@ function resolveExternalMcpCliTarget(
   return {
     store: scope.store,
     projectRoot: scope.projectRoot,
+    ...(scope.project ? { project: { id: scope.project.id, projectRoot: scope.project.projectRoot } } : {}),
     server: options.server,
     source,
     serverConfig,

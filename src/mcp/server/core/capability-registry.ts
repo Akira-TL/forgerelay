@@ -1,4 +1,5 @@
 import { z, type ZodType } from "zod";
+import type { ProjectContext } from "../../../workspaces/state/project-context.js";
 import {
   MAX_CODE_INTELLIGENCE_RESULT_LIMIT,
   type CodeIntelligenceCapabilityInput,
@@ -15,7 +16,6 @@ import {
   externalMcpCapabilityDefinitions,
   type ExternalMcpCapabilityDependency,
 } from "./capabilities/external-mcp.js";
-
 export type CapabilityErrorCode =
   | "unknown_capability"
   | "capability_unavailable"
@@ -50,6 +50,7 @@ export interface CapabilityContext {
   workspaceRoot?: string;
   workspaceMode?: "checkout" | "worktree";
   workspaceManaged?: boolean;
+  project?: Pick<ProjectContext, "id" | "projectRoot" | "sharedConfigDir" | "localConfigDir">;
   guides: CapabilityGuideContext[];
 }
 

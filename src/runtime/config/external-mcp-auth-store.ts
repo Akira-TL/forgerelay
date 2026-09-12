@@ -18,7 +18,18 @@ import { forgerelayConfigDir } from "./user-config.js";
 
 export type ExternalMcpCredentialIdentity =
   | { kind: "global"; server: string }
-  | { kind: "project"; server: string; projectRoot: string };
+  | { kind: "project"; server: string; projectId: string; legacyProjectRoot?: string };
+
+interface LegacyExternalMcpProjectCredentialIdentity {
+  kind: "project";
+  server: string;
+  projectRoot: string;
+}
+
+type PersistedExternalMcpCredentialIdentity =
+  | Exclude<ExternalMcpCredentialIdentity, { kind: "project" }>
+  | { kind: "project"; server: string; projectId: string }
+  | LegacyExternalMcpProjectCredentialIdentity;
 
 export interface ExternalMcpOAuthCredentialRecord {
   identity: ExternalMcpCredentialIdentity;
@@ -37,9 +48,13 @@ export interface ExternalMcpOAuthCredentialRecord {
   };
 }
 
+interface PersistedExternalMcpOAuthCredentialRecord extends Omit<ExternalMcpOAuthCredentialRecord, "identity"> {
+  identity: PersistedExternalMcpCredentialIdentity;
+}
+
 interface ExternalMcpAuthFile {
   version: 1;
-  credentials: Record<string, ExternalMcpOAuthCredentialRecord>;
+  credentials: Record<string, PersistedExternalMcpOAuthCredentialRecord>;
 }
 
 export interface ExternalMcpCredentialStoreOptions {
@@ -60,9 +75,7 @@ export class ExternalMcpCredentialStore {
   }
 
   read(identity: ExternalMcpCredentialIdentity): ExternalMcpOAuthCredentialRecord | undefined {
-    const record = this.readFile().credentials[credentialKey(identity)];
-    if (!record || !sameIdentity(record.identity, identity)) return undefined;
-    return cloneRecord(record);
+    return findCredential(this.readFile(), identity);
   }
 
   inspect(): { exists: boolean; credentialCount: number } {
@@ -85,7 +98,7 @@ export class ExternalMcpCredentialStore {
         revision: randomUUID(),
         updatedAt: new Date().toISOString(),
       };
-      file.credentials[credentialKey(identity)] = written;
+      file.credentials[credentialKey(identity)] = persistedRecord(written);
     });
     return cloneRecord(written);
   }
@@ -100,11 +113,10 @@ export class ExternalMcpCredentialStore {
     let written: ExternalMcpOAuthCredentialRecord | undefined;
     await this.updateFile((file) => {
       const key = credentialKey(identity);
-      const existing = file.credentials[key];
-      const current = existing && sameIdentity(existing.identity, identity) ? cloneRecord(existing) : undefined;
+      const current = findCredential(file, identity);
       const next = update(current);
       if (!next) {
-        delete file.credentials[key];
+        deleteMatchingCredentials(file, identity);
         written = undefined;
         return;
       }
@@ -115,7 +127,7 @@ export class ExternalMcpCredentialStore {
         revision: randomUUID(),
         updatedAt: new Date().toISOString(),
       };
-      file.credentials[key] = written;
+      file.credentials[key] = persistedRecord(written);
     });
     return written ? cloneRecord(written) : undefined;
   }
@@ -123,11 +135,7 @@ export class ExternalMcpCredentialStore {
   async remove(identity: ExternalMcpCredentialIdentity): Promise<boolean> {
     let removed = false;
     await this.updateFile((file) => {
-      const key = credentialKey(identity);
-      const existing = file.credentials[key];
-      if (!existing || !sameIdentity(existing.identity, identity)) return;
-      delete file.credentials[key];
-      removed = true;
+      removed = deleteMatchingCredentials(file, identity);
     });
     return removed;
   }
@@ -163,13 +171,20 @@ export class ExternalMcpCredentialStore {
 }
 
 export function externalMcpCredentialIdentity(
-  source: "legacy" | "global" | "project",
+  source: "legacy" | "global" | "project" | "project-local",
   server: string,
-  projectRoot: string,
+  project?: { id: string; projectRoot?: string } | string,
 ): ExternalMcpCredentialIdentity {
-  return source === "project"
-    ? { kind: "project", server, projectRoot: resolve(projectRoot) }
-    : { kind: "global", server };
+  if (source === "legacy" || source === "global") return { kind: "global", server };
+  if (!project || typeof project === "string" || !project.id) {
+    throw new Error(`External MCP ${source} credential identity requires a Project ID.`);
+  }
+  return {
+    kind: "project",
+    server,
+    projectId: project.id,
+    ...(project.projectRoot ? { legacyProjectRoot: resolve(project.projectRoot) } : {}),
+  };
 }
 
 export function credentialKey(identity: ExternalMcpCredentialIdentity): string {
@@ -183,22 +198,104 @@ function credentialKeyHash(identity: ExternalMcpCredentialIdentity): string {
   const normalized = normalizeIdentity(identity);
   const material = normalized.kind === "global"
     ? `global\0${normalized.server}`
-    : `project\0${normalized.projectRoot}\0${normalized.server}`;
+    : `project-id\0${normalized.projectId}\0${normalized.server}`;
   return createHash("sha256").update(material).digest("hex");
+}
+
+function legacyCredentialKey(server: string, projectRoot: string): string {
+  const normalizedRoot = resolve(projectRoot);
+  const hash = createHash("sha256").update(`project\0${normalizedRoot}\0${server}`).digest("hex");
+  return `project:${hash}:${server}`;
 }
 
 function normalizeIdentity(identity: ExternalMcpCredentialIdentity): ExternalMcpCredentialIdentity {
   return identity.kind === "project"
-    ? { kind: "project", server: identity.server, projectRoot: resolve(identity.projectRoot) }
+    ? {
+        kind: "project",
+        server: identity.server,
+        projectId: identity.projectId,
+        ...(identity.legacyProjectRoot ? { legacyProjectRoot: resolve(identity.legacyProjectRoot) } : {}),
+      }
     : { kind: "global", server: identity.server };
 }
 
-function sameIdentity(left: ExternalMcpCredentialIdentity, right: ExternalMcpCredentialIdentity): boolean {
-  const a = normalizeIdentity(left);
-  const b = normalizeIdentity(right);
-  return a.kind === b.kind
-    && a.server === b.server
-    && (a.kind === "global" || (b.kind === "project" && a.projectRoot === b.projectRoot));
+function storedIdentity(identity: ExternalMcpCredentialIdentity): Exclude<PersistedExternalMcpCredentialIdentity, LegacyExternalMcpProjectCredentialIdentity> {
+  const normalized = normalizeIdentity(identity);
+  return normalized.kind === "project"
+    ? { kind: "project", server: normalized.server, projectId: normalized.projectId }
+    : normalized;
+}
+
+function persistedIdentityMatches(
+  persisted: PersistedExternalMcpCredentialIdentity,
+  requested: ExternalMcpCredentialIdentity,
+): boolean {
+  const normalized = normalizeIdentity(requested);
+  if (normalized.kind === "global") {
+    return persisted.kind === "global" && persisted.server === normalized.server;
+  }
+  return persisted.kind === "project"
+    && "projectId" in persisted
+    && persisted.server === normalized.server
+    && persisted.projectId === normalized.projectId;
+}
+
+function legacyIdentityMatches(
+  persisted: PersistedExternalMcpCredentialIdentity,
+  requested: Extract<ExternalMcpCredentialIdentity, { kind: "project" }>,
+): boolean {
+  return persisted.kind === "project"
+    && "projectRoot" in persisted
+    && persisted.server === requested.server
+    && requested.legacyProjectRoot !== undefined
+    && resolve(persisted.projectRoot) === resolve(requested.legacyProjectRoot);
+}
+
+function findCredential(
+  file: ExternalMcpAuthFile,
+  identity: ExternalMcpCredentialIdentity,
+): ExternalMcpOAuthCredentialRecord | undefined {
+  const normalized = normalizeIdentity(identity);
+  const primary = file.credentials[credentialKey(normalized)];
+  if (primary && persistedIdentityMatches(primary.identity, normalized)) {
+    return publicRecord(primary, normalized);
+  }
+  if (normalized.kind !== "project" || !normalized.legacyProjectRoot) return undefined;
+  const legacy = file.credentials[legacyCredentialKey(normalized.server, normalized.legacyProjectRoot)];
+  if (!legacy || !legacyIdentityMatches(legacy.identity, normalized)) return undefined;
+  return publicRecord(legacy, normalized);
+}
+
+function deleteMatchingCredentials(file: ExternalMcpAuthFile, identity: ExternalMcpCredentialIdentity): boolean {
+  const normalized = normalizeIdentity(identity);
+  let removed = false;
+  const key = credentialKey(normalized);
+  const primary = file.credentials[key];
+  if (primary && persistedIdentityMatches(primary.identity, normalized)) {
+    delete file.credentials[key];
+    removed = true;
+  }
+  if (normalized.kind === "project" && normalized.legacyProjectRoot) {
+    const legacyKey = legacyCredentialKey(normalized.server, normalized.legacyProjectRoot);
+    const legacy = file.credentials[legacyKey];
+    if (legacy && legacyIdentityMatches(legacy.identity, normalized)) {
+      delete file.credentials[legacyKey];
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+function persistedRecord(record: ExternalMcpOAuthCredentialRecord): PersistedExternalMcpOAuthCredentialRecord {
+  return { ...cloneRecord(record), identity: storedIdentity(record.identity) };
+}
+
+function publicRecord(
+  record: PersistedExternalMcpOAuthCredentialRecord,
+  identity: ExternalMcpCredentialIdentity,
+): ExternalMcpOAuthCredentialRecord {
+  const { identity: _persistedIdentity, ...rest } = cloneRecord(record);
+  return { ...rest, identity: normalizeIdentity(identity) };
 }
 
 function emptyAuthFile(): ExternalMcpAuthFile {
@@ -209,14 +306,14 @@ function parseAuthFile(value: unknown, filePath: string): ExternalMcpAuthFile {
   if (!isRecord(value) || value.version !== AUTH_FILE_VERSION || !isRecord(value.credentials)) {
     throw new Error(`Unable to read External MCP credential store ${filePath}: unsupported format.`);
   }
-  const credentials: Record<string, ExternalMcpOAuthCredentialRecord> = {};
+  const credentials: Record<string, PersistedExternalMcpOAuthCredentialRecord> = {};
   for (const [key, raw] of Object.entries(value.credentials)) {
     credentials[key] = parseCredentialRecord(raw, filePath);
   }
   return { version: AUTH_FILE_VERSION, credentials };
 }
 
-function parseCredentialRecord(value: unknown, filePath: string): ExternalMcpOAuthCredentialRecord {
+function parseCredentialRecord(value: unknown, filePath: string): PersistedExternalMcpOAuthCredentialRecord {
   if (!isRecord(value) || !isCredentialIdentity(value.identity)) {
     throw new Error(`Unable to read External MCP credential store ${filePath}: invalid credential identity.`);
   }
@@ -247,7 +344,7 @@ function parseCredentialRecord(value: unknown, filePath: string): ExternalMcpOAu
   }
   const reauthorization = parseReauthorization(value.reauthorization, filePath);
   return {
-    identity: normalizeIdentity(value.identity),
+    identity: normalizePersistedIdentity(value.identity),
     serverUrl: value.serverUrl,
     revision: value.revision,
     updatedAt: value.updatedAt,
@@ -286,10 +383,23 @@ function parseReauthorization(
   };
 }
 
-function isCredentialIdentity(value: unknown): value is ExternalMcpCredentialIdentity {
+function isCredentialIdentity(value: unknown): value is PersistedExternalMcpCredentialIdentity {
   if (!isRecord(value) || typeof value.server !== "string" || !value.server) return false;
   if (value.kind === "global") return true;
-  return value.kind === "project" && typeof value.projectRoot === "string" && Boolean(value.projectRoot);
+  if (value.kind !== "project") return false;
+  const hasProjectId = typeof value.projectId === "string" && Boolean(value.projectId);
+  const hasProjectRoot = typeof value.projectRoot === "string" && Boolean(value.projectRoot);
+  return hasProjectId !== hasProjectRoot;
+}
+
+function normalizePersistedIdentity(
+  identity: PersistedExternalMcpCredentialIdentity,
+): PersistedExternalMcpCredentialIdentity {
+  if (identity.kind === "global") return { kind: "global", server: identity.server };
+  if ("projectId" in identity) {
+    return { kind: "project", server: identity.server, projectId: identity.projectId };
+  }
+  return { kind: "project", server: identity.server, projectRoot: resolve(identity.projectRoot) };
 }
 
 function cloneRecord<T>(value: T): T {

@@ -29,6 +29,7 @@ interface ResolveConfigDomainInput {
 }
 
 interface PreparedSource {
+  input: ConfigSourceInput;
   reference: ConfigSourceReference;
   values: Record<string, unknown>;
   configuredValues: Record<string, unknown>;
@@ -54,6 +55,7 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
 
   for (const source of input.sources) {
     const reference = sourceReference(source);
+    if (source.deprecation) diagnostics.push(sourceDeprecationDiagnostic(reference, source.deprecation));
     if (source.error) {
       diagnostics.push({
         severity: "error",
@@ -69,6 +71,7 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
       const interpolated = interpolateSource(input.definition, source.scope, configured, environment);
       const parsed = parseSource(input.definition, source.scope, interpolated);
       prepared.push({
+        input: source,
         reference,
         values: stripSchemaMetadata(parsed),
         configuredValues: stripSchemaMetadata(configured),
@@ -84,63 +87,37 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
     kind: "built-in",
     priority: 0,
   };
+  const shadowBarriers = sourceShadowBarriers(input.sources);
   const entries: ResolvedConfigDomain["entries"] = {};
   const values: Record<string, unknown> = {};
 
   for (const [name, field] of Object.entries(input.definition.fields)) {
-    const logicalPath = `${input.definition.domain}.${name}`;
-    const candidates = prepared
-      .filter((source) => Object.prototype.hasOwnProperty.call(source.values, name))
-      .map((source): Candidate => ({
-        source: source.reference,
-        value: source.values[name],
-        hasValue: true,
-        configuredValue: source.configuredValues[name],
-      }));
-
-    if (field.builtIn.kind === "literal") {
-      candidates.push({
-        source: builtInReference,
-        value: field.builtIn.value,
-        hasValue: true,
-        configuredValue: field.builtIn.value,
+    if (field.merge === "keyed") {
+      resolveKeyedField({
+        definition: input.definition,
+        name,
+        field,
+        prepared,
+        builtInReference,
+        shadowBarriers,
+        entries,
+        values,
+        diagnostics,
       });
-    } else if (field.builtIn.kind === "computed") {
-      candidates.push({
-        source: builtInReference,
-        value: undefined,
-        hasValue: false,
-        configuredValue: `<computed: ${field.builtIn.description}>`,
-      });
+      continue;
     }
 
-    candidates.sort(compareCandidates);
-    const winner = candidates[0];
-    if (!winner) continue;
-
-    const effective = provenanceFor(field, winner, logicalPath);
-    const shadowed = candidates.slice(1).map((candidate) => ({
-      ...provenanceFor(field, candidate, logicalPath),
-      reason: shadowReason(winner, candidate),
-    }));
-    entries[name] = {
-      logicalPath,
-      effective,
-      shadowed,
-    };
-    if (winner.hasValue) values[name] = winner.value;
-
-    for (const candidate of candidates) {
-      if (candidate.source.scope === "built-in" || !field.deprecation) continue;
-      diagnostics.push({
-        severity: "warning",
-        code: "deprecated_source",
-        source: candidate.source,
-        logicalPath,
-        message: `${logicalPath} is deprecated since ForgeRelay ${field.deprecation.since}` +
-          (field.deprecation.replacement ? `; use ${field.deprecation.replacement}.` : "."),
-      });
-    }
+    resolveReplaceField({
+      definition: input.definition,
+      name,
+      field,
+      prepared,
+      builtInReference,
+      shadowBarriers,
+      entries,
+      values,
+      diagnostics,
+    });
   }
 
   const sources = [
@@ -167,6 +144,159 @@ export function assertConfigResolutionValid(resolution: ResolvedConfigDomain): v
   throw new Error(`Invalid ForgeRelay ${resolution.domain} configuration: ${details.join("; ")}`);
 }
 
+function resolveReplaceField(input: {
+  definition: ConfigDomainDefinition;
+  name: string;
+  field: ConfigFieldDefinition;
+  prepared: PreparedSource[];
+  builtInReference: ConfigSourceReference;
+  shadowBarriers: ReadonlyMap<ConfigScope, number>;
+  entries: ResolvedConfigDomain["entries"];
+  values: Record<string, unknown>;
+  diagnostics: ConfigDiagnostic[];
+}): void {
+  const logicalPath = `${input.definition.domain}.${input.name}`;
+  const candidates = input.prepared
+    .filter((source) => Object.prototype.hasOwnProperty.call(source.values, input.name))
+    .map((source): Candidate => ({
+      source: source.reference,
+      value: source.values[input.name],
+      hasValue: true,
+      configuredValue: source.configuredValues[input.name],
+    }));
+  appendBuiltInCandidate(candidates, input.field, input.builtInReference);
+  candidates.sort(compareCandidates);
+
+  const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers));
+  if (!winner) return;
+  input.entries[input.name] = {
+    logicalPath,
+    effective: provenanceFor(input.field, winner, logicalPath),
+    shadowed: candidates
+      .filter((candidate) => candidate !== winner)
+      .map((candidate) => ({
+        ...provenanceFor(input.field, candidate, logicalPath),
+        reason: candidateIsSourceShadowed(candidate, input.shadowBarriers)
+          ? "source-shadowed"
+          : shadowReason(winner, candidate),
+      })),
+  };
+  if (winner.hasValue) input.values[input.name] = winner.value;
+  appendFieldDeprecations(input.diagnostics, input.field, candidates, logicalPath);
+}
+
+function resolveKeyedField(input: {
+  definition: ConfigDomainDefinition;
+  name: string;
+  field: ConfigFieldDefinition;
+  prepared: PreparedSource[];
+  builtInReference: ConfigSourceReference;
+  shadowBarriers: ReadonlyMap<ConfigScope, number>;
+  entries: ResolvedConfigDomain["entries"];
+  values: Record<string, unknown>;
+  diagnostics: ConfigDiagnostic[];
+}): void {
+  const sourceValues = input.prepared
+    .filter((source) => Object.prototype.hasOwnProperty.call(source.values, input.name))
+    .map((source) => ({
+      source,
+      value: keyedObject(source.values[input.name], `${input.definition.domain}.${input.name}`),
+      configured: keyedObject(source.configuredValues[input.name], `${input.definition.domain}.${input.name}`),
+    }));
+  let fieldPresent = sourceValues.length > 0;
+  let builtInValue: Record<string, unknown> | undefined;
+  if (input.field.builtIn.kind === "literal") {
+    builtInValue = keyedObject(input.field.builtIn.value, `${input.definition.domain}.${input.name}`);
+    fieldPresent = true;
+  }
+
+  const keys = new Set<string>();
+  for (const source of sourceValues) for (const key of Object.keys(source.value)) keys.add(key);
+  for (const key of Object.keys(builtInValue ?? {})) keys.add(key);
+  const merged: Record<string, unknown> = {};
+
+  for (const key of [...keys].sort()) {
+    const logicalPath = `${input.definition.domain}.${input.name}.${key}`;
+    const candidates: Candidate[] = sourceValues
+      .filter(({ value }) => Object.prototype.hasOwnProperty.call(value, key))
+      .map(({ source, value, configured }) => ({
+        source: source.reference,
+        value: value[key],
+        hasValue: true,
+        configuredValue: configured[key],
+      }));
+    if (builtInValue && Object.prototype.hasOwnProperty.call(builtInValue, key)) {
+      candidates.push({
+        source: input.builtInReference,
+        value: builtInValue[key],
+        hasValue: true,
+        configuredValue: builtInValue[key],
+      });
+    }
+    candidates.sort(compareCandidates);
+    const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers));
+    if (!winner) continue;
+
+    const tombstone = isDisabledTombstone(winner.value);
+    input.entries[`${input.name}.${key}`] = {
+      logicalPath,
+      effective: provenanceFor(input.field, winner, logicalPath),
+      shadowed: candidates
+        .filter((candidate) => candidate !== winner)
+        .map((candidate) => ({
+          ...provenanceFor(input.field, candidate, logicalPath),
+          reason: candidateIsSourceShadowed(candidate, input.shadowBarriers)
+            ? "source-shadowed"
+            : shadowReason(winner, candidate),
+        })),
+      ...(tombstone ? { tombstone: true } : {}),
+    };
+    if (!tombstone) merged[key] = winner.value;
+    appendFieldDeprecations(input.diagnostics, input.field, candidates, logicalPath);
+  }
+
+  if (fieldPresent) input.values[input.name] = merged;
+}
+
+function appendBuiltInCandidate(
+  candidates: Candidate[],
+  field: ConfigFieldDefinition,
+  builtInReference: ConfigSourceReference,
+): void {
+  if (field.builtIn.kind === "literal") {
+    candidates.push({
+      source: builtInReference,
+      value: field.builtIn.value,
+      hasValue: true,
+      configuredValue: field.builtIn.value,
+    });
+  } else if (field.builtIn.kind === "computed") {
+    candidates.push({
+      source: builtInReference,
+      value: undefined,
+      hasValue: false,
+      configuredValue: `<computed: ${field.builtIn.description}>`,
+    });
+  }
+}
+
+function sourceShadowBarriers(sources: readonly ConfigSourceInput[]): ReadonlyMap<ConfigScope, number> {
+  const barriers = new Map<ConfigScope, number>();
+  for (const source of sources) {
+    if (!source.shadowsLowerPriority) continue;
+    barriers.set(source.scope, Math.max(barriers.get(source.scope) ?? Number.NEGATIVE_INFINITY, source.priority));
+  }
+  return barriers;
+}
+
+function candidateIsSourceShadowed(
+  candidate: Candidate,
+  barriers: ReadonlyMap<ConfigScope, number>,
+): boolean {
+  const barrier = barriers.get(candidate.source.scope);
+  return barrier !== undefined && candidate.source.priority < barrier;
+}
+
 function parseSource(
   definition: ConfigDomainDefinition,
   scope: ConfigScope,
@@ -181,7 +311,8 @@ function parseSource(
 
   const shape: Record<string, z.ZodType> = {};
   for (const [name, field] of Object.entries(definition.fields)) {
-    if (field.legalScopes.includes("runtime")) shape[name] = field.schema.optional();
+    if (!field.legalScopes.includes("runtime")) continue;
+    shape[name] = field.required ? field.schema : field.schema.optional();
   }
   return z.object(shape).strict().parse(value) as Record<string, unknown>;
 }
@@ -196,7 +327,9 @@ function interpolateSource(
   for (const [name, field] of Object.entries(definition.fields)) {
     if (!field.legalScopes.includes(scope) || field.interpolation !== "env") continue;
     if (!Object.prototype.hasOwnProperty.call(interpolated, name)) continue;
-    interpolated[name] = interpolateValue(interpolated[name], environment);
+    interpolated[name] = field.interpolateValue
+      ? field.interpolateValue(interpolated[name], environment)
+      : interpolateValue(interpolated[name], environment);
   }
   return interpolated;
 }
@@ -264,16 +397,52 @@ function preserveEnvironmentReferences(value: unknown): unknown {
   return "<redacted>";
 }
 
+function appendFieldDeprecations(
+  diagnostics: ConfigDiagnostic[],
+  field: ConfigFieldDefinition,
+  candidates: Candidate[],
+  logicalPath: string,
+): void {
+  if (!field.deprecation) return;
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate.source.scope === "built-in" || seen.has(candidate.source.id)) continue;
+    seen.add(candidate.source.id);
+    diagnostics.push({
+      severity: "warning",
+      code: "deprecated_source",
+      source: candidate.source,
+      logicalPath,
+      message: `${logicalPath} is deprecated since ForgeRelay ${field.deprecation.since}` +
+        (field.deprecation.replacement ? `; use ${field.deprecation.replacement}.` : "."),
+    });
+  }
+}
+
+function sourceDeprecationDiagnostic(
+  source: ConfigSourceReference,
+  deprecation: NonNullable<ConfigSourceInput["deprecation"]>,
+): ConfigDiagnostic {
+  return {
+    severity: "warning",
+    code: "deprecated_source",
+    source,
+    message: `Configuration source ${source.location ?? source.id} is deprecated since ForgeRelay ${deprecation.since}` +
+      (deprecation.replacement ? `; use ${deprecation.replacement}.` : "."),
+  };
+}
+
 function diagnosticForSourceError(
   source: ConfigSourceReference,
   error: unknown,
 ): ConfigDiagnostic {
-  if (error instanceof MissingEnvironmentError) {
+  const missingEnvironment = missingEnvironmentName(error);
+  if (missingEnvironment) {
     return {
       severity: "error",
       code: "missing_environment",
       source,
-      message: `Required environment variable ${error.name} is not available.`,
+      message: `Required environment variable ${missingEnvironment} is not available.`,
     };
   }
   if (error instanceof z.ZodError) {
@@ -295,9 +464,33 @@ function diagnosticForSourceError(
   };
 }
 
+function missingEnvironmentName(error: unknown): string | undefined {
+  if (error instanceof MissingEnvironmentError) return error.name;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "missing_environment" &&
+    "variable" in error &&
+    typeof (error as { variable?: unknown }).variable === "string"
+  ) {
+    return (error as { variable: string }).variable;
+  }
+  return undefined;
+}
+
 function sourceObject(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error("Configuration source must be a JSON object.");
   return value;
+}
+
+function keyedObject(value: unknown, logicalPath: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${logicalPath} must resolve to a keyed object.`);
+  return value;
+}
+
+function isDisabledTombstone(value: unknown): boolean {
+  return isRecord(value) && value.disabled === true;
 }
 
 function stripSchemaMetadata(value: Record<string, unknown>): Record<string, unknown> {

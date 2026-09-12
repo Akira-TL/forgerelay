@@ -103,7 +103,7 @@ export interface ExternalMcpRunResult {
 }
 
 export interface ExternalMcpAuthContext {
-  workspaceRoot: string;
+  project?: { id: string; projectRoot: string };
   origins: Record<string, ExternalMcpConfigSource>;
 }
 
@@ -315,7 +315,7 @@ export class ExternalMcpGateway {
     if (hasStaticAuthorizationHeader(config.headers)) return undefined;
     const source = context.origins[name];
     if (!source) return undefined;
-    const identity = externalMcpCredentialIdentity(source, name, context.workspaceRoot);
+    const identity = externalMcpCredentialIdentity(source, name, context.project);
     return createExternalMcpRuntimeAuth(this.credentialStore, identity, config.url);
   }
 

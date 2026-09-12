@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { ProjectContextResolver, type ProjectContext } from "../../workspaces/state/project-context.js";
 import { loadConfig, type ServerConfig } from "../../runtime/config/config.js";
 import {
   ExternalMcpCredentialStore,
@@ -29,6 +30,7 @@ export interface ExternalMcpScopeDependencies {
 export interface ExternalMcpResolvedScope {
   mode: ExternalMcpCliScopeMode;
   projectRoot: string;
+  project?: Pick<ProjectContext, "id" | "projectRoot" | "sharedConfigDir" | "localConfigDir">;
   projectSelection: "explicit" | "workspace-env" | "ancestor-config" | "cwd" | "global";
   config: ServerConfig;
   registry: ExternalMcpConfigRegistry;
@@ -61,10 +63,10 @@ export interface ExternalMcpStatusSnapshot {
   credentialStoreMessage?: string;
 }
 
-export function resolveExternalMcpScope(
+export async function resolveExternalMcpScope(
   request: ExternalMcpScopeRequest,
   dependencies: ExternalMcpScopeDependencies = {},
-): ExternalMcpResolvedScope {
+): Promise<ExternalMcpResolvedScope> {
   if (request.global && request.projectRoot) {
     throw new Error("--global and --project cannot be used together.");
   }
@@ -90,13 +92,15 @@ export function resolveExternalMcpScope(
   }
 
   const selected = selectProjectRoot(request.projectRoot, cwd, env);
+  const project = await new ProjectContextResolver(config.configDir).resolve(selected.root);
   return {
     mode: "project",
-    projectRoot: selected.root,
+    projectRoot: project.projectRoot,
+    project,
     projectSelection: selected.selection,
     config,
     registry,
-    snapshot: registry.resolve(selected.root),
+    snapshot: registry.resolve(project),
     store,
   };
 }
@@ -148,7 +152,7 @@ export function formatExternalMcpList(status: ExternalMcpStatusSnapshot): string
   }
   lines.push("", "Config:");
   for (const source of status.scope.snapshot.sources) {
-    lines.push(`  ${source.source.padEnd(7)} ${source.path} · ${formatConfigSourceState(source, status)}`);
+    lines.push(`  ${source.source.padEnd(13)} ${source.path} · ${formatConfigSourceState(source, status)}`);
   }
   if (status.credentialStore === "invalid") {
     lines.push(`  auth    ${status.scope.store.filePath} · invalid`);
@@ -179,6 +183,7 @@ export function formatExternalMcpList(status: ExternalMcpStatusSnapshot): string
     for (const diagnostic of status.scope.snapshot.diagnostics) {
       const source = status.scope.snapshot.sources.find((candidate) => candidate.source === diagnostic.source);
       lines.push(`  ${diagnostic.source}: ${diagnostic.message}`);
+      if (diagnostic.severity !== "error") continue;
       if (source?.usingLastKnownGood) {
         lines.push("    Using this process's last-known-good configuration.");
       } else {
@@ -269,7 +274,11 @@ function serverStatus(
     };
   }
 
-  const identity = externalMcpCredentialIdentity(source, name, scope.projectRoot);
+  const identity = externalMcpCredentialIdentity(
+    source,
+    name,
+    scope.project ? { id: scope.project.id, projectRoot: scope.project.projectRoot } : undefined,
+  );
   let record: ExternalMcpOAuthCredentialRecord | undefined;
   try {
     record = scope.store.read(identity);

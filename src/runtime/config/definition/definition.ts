@@ -41,7 +41,8 @@ export function configSourceSchema(
   };
   for (const [name, field] of Object.entries(definition.fields)) {
     if (!field.legalScopes.includes(scope)) continue;
-    shape[name] = field.schema.optional().describe(field.description);
+    const schema = field.required ? field.schema : field.schema.optional();
+    shape[name] = schema.describe(field.description);
   }
   return z.object(shape).strict();
 }
@@ -79,5 +80,8 @@ function validateFieldDefinition(domain: string, name: string, field: ConfigFiel
   }
   if (field.runtimeOverride && !field.legalScopes.includes("runtime")) {
     throw new Error(`Config field ${domain}.${name} declares a runtime override without runtime scope.`);
+  }
+  if (field.interpolateValue && field.interpolation !== "env") {
+    throw new Error(`Config field ${domain}.${name} declares a custom interpolator without env interpolation.`);
   }
 }

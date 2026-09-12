@@ -447,7 +447,7 @@ async function runDoctor(): Promise<void> {
     console.log(`Agent-managed Language Server install: ${config.allowAgentLanguageServerInstall ? "enabled" : "disabled"}`);
     console.log(`Allowed roots: ${config.allowedRoots.join(", ")}`);
     console.log(`Allowed hosts: ${config.allowedHosts.join(", ")}`);
-    console.log(formatExternalMcpDoctor(inspectExternalMcpStatus(resolveExternalMcpScope({}, {
+    console.log(formatExternalMcpDoctor(inspectExternalMcpStatus(await resolveExternalMcpScope({}, {
       env: process.env,
       cwd: process.cwd(),
     }))));

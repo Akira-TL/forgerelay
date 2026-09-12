@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+      "type": "string"
+    },
+    "servers": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9._-]{0,63}$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "disabled": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "disabled"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "transport": {
+                "type": "string",
+                "const": "stdio"
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "cwd": {
+                "type": "string",
+                "minLength": 1
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "transport",
+              "command"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "transport": {
+                "type": "string",
+                "const": "streamable-http"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "headers": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "oauth": {
+                "type": "object",
+                "properties": {
+                  "clientMetadataUrl": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "callbackPort": {
+                    "type": "integer",
+                    "minimum": 1024,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "clientMetadataUrl",
+                  "callbackPort"
+                ],
+                "additionalProperties": false
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "transport",
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "description": "External MCP servers keyed by stable server name.",
+      "x-forgerelay-scopes": [
+        "project-local",
+        "project",
+        "user"
+      ],
+      "x-forgerelay-merge": "keyed",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "sensitive",
+      "x-forgerelay-interpolation": "env",
+      "x-forgerelay-execution-effect": "dynamic"
+    }
+  },
+  "required": [
+    "servers"
+  ],
+  "additionalProperties": false,
+  "$id": "https://raw.githubusercontent.com/Akira-TL/forgerelay/main/schemas/v1/mcp.project.schema.json",
+  "title": "ForgeRelay External MCP configuration (project)",
+  "description": "Canonical External MCP server configuration. OAuth credentials remain in the machine-private mcp-auth.json store."
+}

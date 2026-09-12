@@ -11,7 +11,7 @@ import {
   resolveExternalMcpScope,
 } from "./status.js";
 
-void test("External MCP CLI scope resolves ancestor Project config and explicit global scope", (t) => {
+void test("External MCP CLI scope resolves ancestor Project config and explicit global scope", async (t) => {
   const context = createStatusContext(t);
   const nested = join(context.projectRoot, "src", "nested");
   mkdirSync(nested, { recursive: true });
@@ -28,7 +28,7 @@ void test("External MCP CLI scope resolves ancestor Project config and explicit 
     },
   });
 
-  const project = resolveExternalMcpScope({}, { cwd: nested, env: context.env });
+  const project = await resolveExternalMcpScope({}, { cwd: nested, env: context.env });
   assert.equal(project.mode, "project");
   assert.equal(project.projectRoot, context.projectRoot);
   assert.equal(project.projectSelection, "ancestor-config");
@@ -36,21 +36,21 @@ void test("External MCP CLI scope resolves ancestor Project config and explicit 
   assert.equal(project.snapshot.origins.project, "project");
   assert.equal(project.snapshot.origins.global, "global");
 
-  const global = resolveExternalMcpScope({ global: true }, { cwd: nested, env: context.env });
+  const global = await resolveExternalMcpScope({ global: true }, { cwd: nested, env: context.env });
   assert.equal(global.mode, "global");
   assert.equal(global.snapshot.origins.shared, "global");
   assert.equal(global.snapshot.origins.global, "global");
   assert.equal(global.snapshot.servers.project, undefined);
 
-  const explicit = resolveExternalMcpScope(
+  const explicit = await resolveExternalMcpScope(
     { projectRoot: context.projectRoot },
     { cwd: context.root, env: context.env },
   );
   assert.equal(explicit.projectSelection, "explicit");
   assert.equal(explicit.projectRoot, context.projectRoot);
 
-  assert.throws(
-    () => resolveExternalMcpScope(
+  await assert.rejects(
+    resolveExternalMcpScope(
       { global: true, projectRoot: context.projectRoot },
       { cwd: nested, env: context.env },
     ),
@@ -74,7 +74,7 @@ void test("External MCP list and doctor expose status without credential or stat
       disabled: { disabled: true },
     },
   });
-  const scope = resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
+  const scope = await resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
   await scope.store.replace(
     externalMcpCredentialIdentity("global", "authenticated", context.projectRoot),
     "https://auth.example/mcp",
@@ -131,7 +131,7 @@ void test("External MCP list and doctor expose status without credential or stat
   assert.match(doctor, /Active checks: not run/);
 });
 
-void test("External MCP invalid live edit reports last-known-good status without exposing invalid content", (t) => {
+void test("External MCP invalid live edit reports last-known-good status without exposing invalid content", async (t) => {
   const context = createStatusContext(t);
   const globalPath = join(context.configDir, "mcp.json");
   writeJson(globalPath, {
@@ -139,7 +139,7 @@ void test("External MCP invalid live edit reports last-known-good status without
       stable: { transport: "streamable-http", url: "https://stable.example/mcp" },
     },
   });
-  const scope = resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
+  const scope = await resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
   assert.equal(scope.snapshot.sources.find((source) => source.source === "global")?.state, "valid");
 
   writeFileSync(globalPath, '{"servers":{"secret":"DO-NOT-ECHO-INVALID-CONTENT"');
@@ -152,7 +152,7 @@ void test("External MCP invalid live edit reports last-known-good status without
   assert.doesNotMatch(list, /DO-NOT-ECHO-INVALID-CONTENT/);
 });
 
-void test("External MCP status reports an invalid credential store without echoing persisted secret content", (t) => {
+void test("External MCP status reports an invalid credential store without echoing persisted secret content", async (t) => {
   const context = createStatusContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: {
@@ -160,7 +160,7 @@ void test("External MCP status reports an invalid credential store without echoi
     },
   });
   writeFileSync(join(context.configDir, "mcp-auth.json"), '{"secret":"CREDENTIAL-SECRET-SENTINEL"');
-  const scope = resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
+  const scope = await resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
   const status = inspectExternalMcpStatus(scope);
   const list = formatExternalMcpList(status);
   assert.equal(status.credentialStore, "invalid");

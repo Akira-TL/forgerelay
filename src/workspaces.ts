@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { realpathSync, type Stats } from "node:fs";
-import { resolveProjectContext, type ProjectContext } from "./projects/project-context.js";
+import { resolveProjectContext, type ProjectContext } from "./workspaces/state/project-context.js";
 import type {
   WorkspaceMode,
   WorkspaceSession,

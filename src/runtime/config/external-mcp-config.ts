@@ -1,5 +1,51 @@
+import * as z from "zod/v4";
+
 const MCP_SERVER_NAME_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
 const MAX_MCP_SERVERS = 32;
+
+const nonEmptyStringSchema = z.string().trim().min(1);
+const stringRecordSchema = z.record(z.string(), z.string());
+const httpUrlSchema = z.string().url().refine((value) => {
+  const protocol = new URL(value).protocol;
+  return protocol === "http:" || protocol === "https:";
+}, "URL must use http or https.");
+const clientMetadataUrlSchema = z.string().url().refine((value) => {
+  const parsed = new URL(value);
+  return parsed.protocol === "https:" && parsed.pathname !== "/";
+}, "clientMetadataUrl must use https and contain a non-root path.");
+const oauthSourceSchema = z.object({
+  clientMetadataUrl: clientMetadataUrlSchema,
+  callbackPort: z.number().int().min(1024).max(65535),
+}).strict();
+const stdioSourceSchema = z.object({
+  transport: z.literal("stdio"),
+  command: nonEmptyStringSchema,
+  args: z.array(z.string()).optional(),
+  env: stringRecordSchema.optional(),
+  cwd: nonEmptyStringSchema.optional(),
+  disabled: z.literal(false).optional(),
+}).strict();
+const httpSourceSchema = z.object({
+  transport: z.literal("streamable-http"),
+  url: httpUrlSchema,
+  headers: stringRecordSchema.optional(),
+  oauth: oauthSourceSchema.optional(),
+  disabled: z.literal(false).optional(),
+}).strict();
+const disabledSourceSchema = z.object({ disabled: z.literal(true) }).strict();
+
+export const externalMcpStandaloneServerSchema = z.union([
+  disabledSourceSchema,
+  stdioSourceSchema,
+  httpSourceSchema,
+]);
+
+export const externalMcpStandaloneServersSchema = z.record(
+  z.string().regex(MCP_SERVER_NAME_PATTERN, "Use a lowercase stable server name."),
+  externalMcpStandaloneServerSchema,
+).refine((value) => Object.keys(value).length <= MAX_MCP_SERVERS, {
+  message: `servers may contain at most ${MAX_MCP_SERVERS} configured servers.`,
+});
 
 export interface ExternalMcpStdioServerConfig {
   transport: "stdio";

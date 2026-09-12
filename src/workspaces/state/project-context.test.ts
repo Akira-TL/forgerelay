@@ -6,12 +6,12 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import * as z from "zod/v4";
-import { defineConfigDomain } from "../runtime/config/definition/definition.js";
-import { resolveConfigDomain } from "../runtime/config/resolution/resolver.js";
+import { defineConfigDomain } from "../../runtime/config/definition/definition.js";
+import { resolveConfigDomain } from "../../runtime/config/resolution/resolver.js";
 import {
   loadProjectConfigSources,
   resolveProjectGeneralConfig,
-} from "../runtime/config/resolution/project-sources.js";
+} from "../../runtime/config/resolution/project-sources.js";
 import { ProjectContextResolver } from "./project-context.js";
 
 const execFileAsync = promisify(execFile);

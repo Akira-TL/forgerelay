@@ -1,4 +1,5 @@
 import type {
+  ConfigDeprecation,
   ConfigExecutionEffect,
   ConfigReloadPolicy,
   ConfigScope,
@@ -7,7 +8,7 @@ import type {
 
 export type ConfigSourceKind = "cli" | "environment" | "file" | "built-in";
 export type ConfigDiagnosticSeverity = "error" | "warning" | "info";
-export type ConfigShadowReason = "higher-scope" | "higher-priority";
+export type ConfigShadowReason = "higher-scope" | "higher-priority" | "source-shadowed";
 
 export interface ConfigSourceReference {
   id: string;
@@ -19,6 +20,10 @@ export interface ConfigSourceReference {
 
 export interface ConfigSourceInput extends ConfigSourceReference {
   value?: unknown;
+  /** A present canonical source may suppress lower-priority compatibility sources at the same scope. */
+  shadowsLowerPriority?: boolean;
+  /** Source-level deprecation used by compatibility adapters. */
+  deprecation?: ConfigDeprecation;
   error?: {
     code: "invalid_source" | "missing_environment";
     message: string;
@@ -50,6 +55,8 @@ export interface ResolvedConfigEntry {
   logicalPath: string;
   effective: ConfigValueProvenance;
   shadowed: ConfigShadowedValue[];
+  /** True when the effective keyed value is a `disabled: true` tombstone. */
+  tombstone?: boolean;
 }
 
 export interface ResolvedConfigDomain {
