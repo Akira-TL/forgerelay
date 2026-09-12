@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -63,6 +63,22 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
   assert.equal(openedStructured.root, remoteRoot);
   assert.doesNotMatch(JSON.stringify(opened), /"ws_[0-9a-f]{10}"/);
 
+  const remoteProjectIndexPath = join(root, "remote", "config", "projects", "non-git-identities.json");
+  const remoteProjectIndex = JSON.parse(await readFile(remoteProjectIndexPath, "utf8")) as {
+    version: number;
+    projects: Record<string, string>;
+  };
+  const remoteProjectId = remoteProjectIndex.projects[await realpath(remoteRoot)];
+  assert.match(remoteProjectId ?? "", /^proj_[0-9a-f]{20}$/);
+  await assert.rejects(
+    () => readFile(join(gatewayConfigDir, "projects", "non-git-identities.json"), "utf8"),
+    /ENOENT/,
+  );
+  const remoteProjectLocalDir = join(root, "remote", "config", "projects", remoteProjectId!);
+  await mkdir(remoteProjectLocalDir, { recursive: true });
+  const remoteProjectLocalSentinel = join(remoteProjectLocalDir, "config.json");
+  await writeFile(remoteProjectLocalSentinel, JSON.stringify({ $schema: "execution-owned-project-local" }));
+
   const inspected = await client.callTool({
     name: "open_workspace",
     arguments: { action: "inspect", workspaceId: gatewayWorkspaceId },
@@ -110,6 +126,10 @@ void test("gateway opens, reads, and closes a workspace on a direct remote Forge
   assert.equal(closed.isError, undefined, resultText(closed));
   assert.equal(structuredContent(closed).workspaceId, gatewayWorkspaceId);
   assert.doesNotMatch(JSON.stringify(closed), /"ws_[0-9a-f]{10}"/);
+  assert.equal(
+    await readFile(remoteProjectLocalSentinel, "utf8"),
+    JSON.stringify({ $schema: "execution-owned-project-local" }),
+  );
 
   const remoteInventory = await withRemoteMcpClient(
     remoteRecord,

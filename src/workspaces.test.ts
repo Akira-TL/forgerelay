@@ -19,6 +19,9 @@ test("a checkout loads one configured system instruction plus project context", 
 
   assert.match(opened.workspace.id, /^ws_[a-f0-9]{10}$/);
   assert.equal(opened.workspace.mode, "checkout");
+  assert.match(opened.workspace.project?.id ?? "", /^proj_[a-f0-9]{20}$/);
+  assert.equal(opened.workspace.project?.kind, "non-git");
+  assert.equal(opened.workspace.project?.localConfigDir, join(context.config.configDir, "projects", opened.workspace.project.id));
   assert.deepEqual(
     opened.agentsFiles.map((file) => ({ path: file.path, content: file.content })),
     [
@@ -99,6 +102,31 @@ test("instruction discovery is depth-bounded on open and lazy along accessed pat
   );
 });
 
+test("Project identity is rehydrated on Workspace resume and Project Local state survives Workspace deletion", async (t) => {
+  const context = await fixture(t);
+  const stateDir = join(context.root, ".workspace-state");
+  const firstStore = new SqliteWorkspaceStore(stateDir);
+  const firstRegistry = new WorkspaceRegistry(context.config, firstStore);
+  const opened = await firstRegistry.openWorkspace(context.root);
+  const project = opened.workspace.project;
+  assert.ok(project);
+  const workspaceId = opened.workspace.id;
+  await mkdir(project.localConfigDir, { recursive: true });
+  const projectLocalConfig = join(project.localConfigDir, "config.json");
+  await writeFile(projectLocalConfig, JSON.stringify({ $schema: "project-local" }));
+  firstStore.close();
+
+  const secondStore = new SqliteWorkspaceStore(stateDir);
+  t.after(() => secondStore.close());
+  const secondRegistry = new WorkspaceRegistry(context.config, secondStore);
+  const resumed = await secondRegistry.openWorkspace({ workspaceId });
+  assert.equal(resumed.workspace.project?.id, project.id);
+  assert.equal(resumed.workspace.project?.localConfigDir, project.localConfigDir);
+
+  secondRegistry.deleteWorkspace(workspaceId);
+  assert.equal(await readFile(projectLocalConfig, "utf8"), JSON.stringify({ $schema: "project-local" }));
+});
+
 test("WorkspaceOpen hook runs once when a workspace session is created", async (t) => {
   const context = await fixture(t);
   const hookScript = join(context.root, "workspace-open-hook.mjs");
@@ -159,9 +187,13 @@ test("worktree opens require Git and create an isolated managed workspace", asyn
   const gitRoot = await createGitProject(context.root);
   await writeFile(join(gitRoot, "dirty.txt"), "not copied\n");
 
+  const checkout = await context.registry.openWorkspace(gitRoot);
   const opened = await context.registry.openWorkspace({ path: gitRoot, mode: "worktree" });
 
   assert.equal(opened.workspace.mode, "worktree");
+  assert.equal(opened.workspace.project?.kind, "git");
+  assert.equal(opened.workspace.project?.id, checkout.workspace.project?.id);
+  assert.equal(opened.workspace.project?.gitCommonDir, checkout.workspace.project?.gitCommonDir);
   assert.notEqual(opened.workspace.root, gitRoot);
   assert.equal(opened.workspace.sourceRoot, gitRoot);
   assert.equal(opened.workspace.worktree?.baseRef, "HEAD");

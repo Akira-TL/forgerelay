@@ -7,46 +7,37 @@ export interface GeneralConfigResolutionInput {
   cli?: Record<string, unknown>;
   user?: unknown;
   userSourcePath?: string;
+  userSource?: ConfigSourceInput;
   project?: unknown;
   projectSourcePath?: string;
+  projectSource?: ConfigSourceInput;
   projectLocal?: unknown;
   projectLocalSourcePath?: string;
+  projectLocalSource?: ConfigSourceInput;
 }
 
 export function resolveGeneralConfig(input: GeneralConfigResolutionInput = {}) {
   const env = input.env ?? process.env;
   const sources: ConfigSourceInput[] = [];
 
-  if (input.user !== undefined) {
-    sources.push({
-      id: "user:config",
-      scope: "user",
-      kind: "file",
-      location: input.userSourcePath,
-      priority: 0,
-      value: input.user,
-    });
-  }
-  if (input.project !== undefined) {
-    sources.push({
-      id: "project:config",
-      scope: "project",
-      kind: "file",
-      location: input.projectSourcePath,
-      priority: 0,
-      value: input.project,
-    });
-  }
-  if (input.projectLocal !== undefined) {
-    sources.push({
-      id: "project-local:config",
-      scope: "project-local",
-      kind: "file",
-      location: input.projectLocalSourcePath,
-      priority: 0,
-      value: input.projectLocal,
-    });
-  }
+  appendFileSource(sources, {
+    expectedScope: "user",
+    prepared: input.userSource,
+    value: input.user,
+    sourcePath: input.userSourcePath,
+  });
+  appendFileSource(sources, {
+    expectedScope: "project",
+    prepared: input.projectSource,
+    value: input.project,
+    sourcePath: input.projectSourcePath,
+  });
+  appendFileSource(sources, {
+    expectedScope: "project-local",
+    prepared: input.projectLocalSource,
+    value: input.projectLocal,
+    sourcePath: input.projectLocalSourcePath,
+  });
 
   sources.push(environmentSource(env));
   if (input.cli !== undefined) {
@@ -63,6 +54,36 @@ export function resolveGeneralConfig(input: GeneralConfigResolutionInput = {}) {
     definition: generalConfigDefinition,
     sources,
     environment: env,
+  });
+}
+
+function appendFileSource(
+  sources: ConfigSourceInput[],
+  input: {
+    expectedScope: "user" | "project" | "project-local";
+    prepared?: ConfigSourceInput;
+    value?: unknown;
+    sourcePath?: string;
+  },
+): void {
+  if (input.prepared !== undefined && input.value !== undefined) {
+    throw new Error(`General configuration received duplicate ${input.expectedScope} sources.`);
+  }
+  if (input.prepared !== undefined) {
+    if (input.prepared.scope !== input.expectedScope || input.prepared.kind !== "file") {
+      throw new Error(`General configuration ${input.expectedScope} source must be a file source at the matching scope.`);
+    }
+    sources.push(input.prepared);
+    return;
+  }
+  if (input.value === undefined) return;
+  sources.push({
+    id: `${input.expectedScope}:config`,
+    scope: input.expectedScope,
+    kind: "file",
+    location: input.sourcePath,
+    priority: 0,
+    value: input.value,
   });
 }
 

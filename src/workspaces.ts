@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { realpathSync, type Stats } from "node:fs";
+import { resolveProjectContext, type ProjectContext } from "./projects/project-context.js";
 import type {
   WorkspaceMode,
   WorkspaceSession,
@@ -78,6 +79,7 @@ export interface Workspace {
   root: string;
   mode: WorkspaceMode;
   sourceRoot?: string;
+  project?: ProjectContext;
   worktree?: WorkspaceWorktree;
   skills: LoadedSkills["skills"];
   skillDiagnostics: LoadedSkills["diagnostics"];
@@ -721,6 +723,7 @@ export class WorkspaceRegistry {
       root: input.root,
       mode: input.mode,
       sourceRoot: input.sourceRoot,
+      project: await resolveProjectContext(this.config.configDir, input.root),
       worktree: input.worktree,
       ...this.context.loadSkillsForWorkspace(input.root),
       capabilityGuides: loadCapabilityGuides(this.config),

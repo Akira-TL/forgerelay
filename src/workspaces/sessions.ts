@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadCapabilityGuides } from "../mcp/server/core/capabilities.js";
+import { resolveProjectContext } from "../projects/project-context.js";
 import type { ServerConfig } from "../runtime/config/config.js";
 import {
   createManagedWorktree,
@@ -333,6 +334,7 @@ export class WorkspaceSessionService {
   }
 
   async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+    workspace.project = await resolveProjectContext(this.config.configDir, workspace.root);
     Object.assign(workspace, this.context.loadSkillsForWorkspace(workspace.root));
     workspace.capabilityGuides = loadCapabilityGuides(this.config);
     workspace.agentProfiles = await loadSubagentProfiles(this.config, workspace.root);
