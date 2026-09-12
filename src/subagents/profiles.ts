@@ -133,14 +133,31 @@ export async function resolveSubagentProfilesConfig(
   workspaceRoot: string,
 ): Promise<ResolvedConfigDomain> {
   const project = await resolveProjectContext(config.configDir, workspaceRoot);
+  return resolveSubagentProfilesConfigSources({
+    configDir: config.configDir,
+    sourceRuntime: config.configRuntime.sources,
+    projectSharedConfigDir: project.sharedConfigDir,
+    projectLocalConfigDir: project.localConfigDir,
+  });
+}
+
+export function resolveSubagentProfilesConfigSources(input: {
+  configDir: string;
+  sourceRuntime: ConfigSourceRuntime;
+  projectSharedConfigDir?: string;
+  projectLocalConfigDir?: string;
+}): ResolvedConfigDomain {
   const sources: ConfigSourceInput[] = [];
   const refreshDiagnostics: ConfigDiagnostic[] = [];
-  const sourceRuntime = config.configRuntime.sources;
-  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "user", join(config.configDir, "agents"), false);
-  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "user", join(config.configDir, "subagents"), true);
-  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project", join(project.sharedConfigDir, "agents"), false);
-  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project", join(project.sharedConfigDir, "subagents"), true);
-  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project-local", join(project.localConfigDir, "subagents"), true);
+  appendProfileDirectory(sources, refreshDiagnostics, input.sourceRuntime, "user", join(input.configDir, "agents"), false);
+  appendProfileDirectory(sources, refreshDiagnostics, input.sourceRuntime, "user", join(input.configDir, "subagents"), true);
+  if (input.projectSharedConfigDir) {
+    appendProfileDirectory(sources, refreshDiagnostics, input.sourceRuntime, "project", join(input.projectSharedConfigDir, "agents"), false);
+    appendProfileDirectory(sources, refreshDiagnostics, input.sourceRuntime, "project", join(input.projectSharedConfigDir, "subagents"), true);
+  }
+  if (input.projectLocalConfigDir) {
+    appendProfileDirectory(sources, refreshDiagnostics, input.sourceRuntime, "project-local", join(input.projectLocalConfigDir, "subagents"), true);
+  }
   const resolution = resolveConfigDomain({
     definition: subagentProfilesConfigDefinition,
     sources,

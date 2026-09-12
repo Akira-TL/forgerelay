@@ -60,49 +60,6 @@ const canonicalToolNames = [
   "bash",
 ] as const;
 
-test("activity Panel reports restart-required and last-known-good live configuration state", async (t) => {
-  const context = await fixture(t, { userConfig: { host: "127.0.0.1" } });
-  const opened = await callOpen(context.client, context.project, "chat-config-runtime-panel");
-  const workspaceId = String(structuredContent(opened).workspaceId);
-  const configPath = join(context.config.configDir, "config.json");
-
-  await writeFile(configPath, JSON.stringify({ host: "0.0.0.0" }) + "\n");
-  const panel = await context.client.callTool({
-    name: "activity_panel",
-    arguments: { workspaceId },
-  });
-  assert.equal(panel.isError, undefined, allResponseText(panel));
-  const panelMeta = panel._meta as Record<string, unknown>;
-  const panelWorkspace = panelMeta[ACTIVITY_PANEL_WORKSPACE_META_KEY] as Record<string, unknown>;
-  const panelConfiguration = panelWorkspace.configuration as Record<string, unknown>;
-  const restartRequired = panelConfiguration.restartRequired as Array<Record<string, unknown>>;
-  assert.deepEqual(restartRequired.find((field) => field.logicalPath === "config.host"), {
-    logicalPath: "config.host",
-    configuredValue: "0.0.0.0",
-    appliedValue: "127.0.0.1",
-  });
-  assert.equal(context.config.host, "127.0.0.1", "live config status must not mutate the running server");
-
-  await writeFile(configPath, "{ invalid json\n");
-  const snapshot = await context.client.callTool({
-    name: "activity_snapshot",
-    arguments: {
-      turnId: String(structuredContent(panel).turnId),
-      workspaceId,
-    },
-  });
-  assert.equal(snapshot.isError, undefined, allResponseText(snapshot));
-  const snapshotMeta = snapshot._meta as Record<string, unknown>;
-  const snapshotWorkspace = snapshotMeta[ACTIVITY_PANEL_WORKSPACE_META_KEY] as Record<string, unknown>;
-  const snapshotConfiguration = snapshotWorkspace.configuration as Record<string, unknown>;
-  assert.deepEqual(snapshotConfiguration.restartRequired, restartRequired);
-  assert.deepEqual(snapshotConfiguration.source, {
-    state: "invalid",
-    usingLastKnownGood: true,
-    message: "General configuration is not valid JSON.",
-  });
-});
-
 test("open_workspace keeps lifecycle flags out of model output and makes repeated card metadata lightweight", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");

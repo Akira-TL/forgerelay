@@ -18,7 +18,7 @@ export async function resolveProjectGeneralConfig(
   project: ProjectContext,
   input: ProjectGeneralConfigResolutionInput = {},
 ): Promise<ResolvedConfigDomain> {
-  const userSource = await readJsonSource({
+  const userSource = await readJsonConfigSource({
     id: "user:config",
     scope: "user",
     location: join(project.configDir, "config.json"),
@@ -46,14 +46,14 @@ export async function loadProjectConfigSources(
   const fileName = normalizeConfigFileName(options.fileName);
   const domain = normalizeDomain(options.domain);
   const sources: ConfigSourceInput[] = [];
-  const projectSource = await readJsonSource({
+  const projectSource = await readJsonConfigSource({
     id: `project:${domain}`,
     scope: "project",
     location: join(project.sharedConfigDir, fileName),
   });
   if (projectSource) sources.push(projectSource);
 
-  const localSource = await readJsonSource({
+  const localSource = await readJsonConfigSource({
     id: `project-local:${domain}`,
     scope: "project-local",
     location: join(project.localConfigDir, fileName),
@@ -62,7 +62,7 @@ export async function loadProjectConfigSources(
   return sources;
 }
 
-async function readJsonSource(input: {
+export async function readJsonConfigSource(input: {
   id: string;
   scope: "user" | "project" | "project-local";
   location: string;

@@ -11,7 +11,8 @@ import { buildCapabilityFingerprint, loadCapabilityGuides } from "./mcp/server/c
 import { CapabilityError, createCapabilityRegistry } from "./mcp/server/core/capability-registry.js";
 import { downloadIncomingArtifact, isArtifactDownloadSupportedPlatform } from "./mcp/artifacts/artifact-tools.js";
 import { ArtifactError } from "./mcp/artifacts/artifact-error.js";
-import { liveGeneralConfigState, loadConfig, type ServerConfig } from "./runtime/config/config.js";
+import { loadConfig, type ServerConfig } from "./runtime/config/config.js";
+import { liveWorkspaceConfigPanelState } from "./runtime/config/inspection/live.js";
 import { CodeIntelligenceError } from "./lsp/code-intelligence.js";
 import { CodeIntelligenceManager } from "./lsp/runtime/manager.js";
 import {
@@ -552,15 +553,16 @@ export function createMcpServer(
       },
     });
   };
-  const workspacePanelState = (workspaceId: string): Record<string, unknown> | undefined => {
+  const workspacePanelState = async (workspaceId: string): Promise<Record<string, unknown> | undefined> => {
     const remembered = workspacePanelStates.get(workspaceId);
     if (remoteWorkspaces.has(workspaceId) || compositeWorkspaces.has(workspaceId)) {
       return remembered;
     }
     try {
-      const live = liveWorkspacePanelState(workspaces.getWorkspace(workspaceId));
+      const workspace = workspaces.getWorkspace(workspaceId);
+      const live = liveWorkspacePanelState(workspace);
       const presentation = remembered ? { ...live, ...remembered } : live;
-      const configuration = liveConfigPanelState(config);
+      const configuration = await liveWorkspaceConfigPanelState(config, workspace.root);
       return configuration ? { ...presentation, configuration } : presentation;
     } catch {
       return undefined;
@@ -720,22 +722,6 @@ export function createMcpServer(
   }
 
   return server;
-}
-
-function liveConfigPanelState(config: ServerConfig): Record<string, unknown> | undefined {
-  const state = liveGeneralConfigState(config);
-  const restartRequired = Object.values(state.applied.fields)
-    .filter((field) => field.restartRequired)
-    .map((field) => ({
-      logicalPath: field.logicalPath,
-      configuredValue: field.configuredValue,
-      appliedValue: field.appliedValue,
-    }));
-  if (restartRequired.length === 0 && !state.source) return undefined;
-  return {
-    ...(restartRequired.length > 0 ? { restartRequired } : {}),
-    ...(state.source ? { source: state.source } : {}),
-  };
 }
 
 export type { CreateServerOptions, RunningServer } from "./mcp/server/transport/http-server.js";

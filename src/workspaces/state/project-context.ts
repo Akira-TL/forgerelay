@@ -27,6 +27,17 @@ export interface ProjectContext {
   canonicalRoot?: string;
 }
 
+export interface ProjectInspectionContext {
+  id?: string;
+  kind: ProjectKind;
+  projectRoot: string;
+  configDir: string;
+  sharedConfigDir: string;
+  localConfigDir?: string;
+  gitCommonDir?: string;
+  canonicalRoot?: string;
+}
+
 interface NonGitIdentityIndex {
   version: 1;
   projects: Record<string, string>;
@@ -48,6 +59,33 @@ export class ProjectContextResolver {
   constructor(configDir: string) {
     this.configDir = resolve(configDir);
     this.projectsDir = join(this.configDir, "projects");
+  }
+
+  async inspect(workspaceRoot: string): Promise<ProjectInspectionContext> {
+    const canonicalWorkspaceRoot = await realpath(workspaceRoot);
+    const git = await resolveGitProject(canonicalWorkspaceRoot);
+    if (git) {
+      const id = await readProjectId(join(git.gitCommonDir, GIT_PROJECT_STATE_DIR, GIT_PROJECT_ID_FILE));
+      return {
+        ...(id ? { id, localConfigDir: join(this.projectsDir, id) } : {}),
+        kind: "git",
+        projectRoot: git.projectRoot,
+        configDir: this.configDir,
+        sharedConfigDir: join(git.projectRoot, ".forgerelay"),
+        gitCommonDir: git.gitCommonDir,
+      };
+    }
+
+    const index = await readNonGitIdentityIndex(join(this.projectsDir, NON_GIT_INDEX_FILE));
+    const id = index.projects[canonicalWorkspaceRoot];
+    return {
+      ...(id ? { id, localConfigDir: join(this.projectsDir, id) } : {}),
+      kind: "non-git",
+      projectRoot: canonicalWorkspaceRoot,
+      configDir: this.configDir,
+      sharedConfigDir: join(canonicalWorkspaceRoot, ".forgerelay"),
+      canonicalRoot: canonicalWorkspaceRoot,
+    };
   }
 
   async resolve(workspaceRoot: string): Promise<ProjectContext> {

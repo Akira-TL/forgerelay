@@ -12,6 +12,7 @@ import { loadConfig } from "./runtime/config/config.js";
 import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
 import { runConfigMigration } from "./cli/config/migrate.js";
+import { runConfigInspection } from "./cli/config/inspect.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
 import {
@@ -482,6 +483,10 @@ async function runConfigCommand(args: string[]): Promise<void> {
     await runConfigMigration(args.slice(1));
     return;
   }
+  if (subcommand === "check" || subcommand === "sources" || subcommand === "explain") {
+    process.exitCode = await runConfigInspection(args);
+    return;
+  }
   const files = loadForgeRelayFiles();
 
   if (!subcommand || subcommand === "get") {
@@ -522,6 +527,9 @@ function printHelp(): void {
       "  forgerelay doctor          Show config, runtime, and native dependency status",
       "  forgerelay config get      Print persisted config",
       "  forgerelay config set publicBaseUrl <url[,url...]|null>",
+      "  forgerelay config check [--global|--project <path>] [--json]",
+      "  forgerelay config sources [--global|--project <path>] [--json]",
+      "  forgerelay config explain <logical-path> [--global|--project <path>] [--json]",
       "  forgerelay config migrate [--dry-run] [--global|--project <path>]",
       "  forgerelay hooks list [--project <path>]",
       "  forgerelay hooks check [--project <path>]",

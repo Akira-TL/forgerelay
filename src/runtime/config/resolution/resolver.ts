@@ -4,9 +4,11 @@ import {
   normalizeConfigSourceShape,
   resolveExecutionEffect,
 } from "../definition/definition.js";
+import { configSchemaId } from "../definition/schema.js";
 import type {
   ConfigDomainDefinition,
   ConfigFieldDefinition,
+  ConfigFileScope,
   ConfigScope,
 } from "../definition/types.js";
 import type {
@@ -64,6 +66,8 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
 
   for (const source of input.sources) {
     const reference = sourceReference(source);
+    const schemaDiagnostic = sourceSchemaDiagnostic(input.definition, source, reference);
+    if (schemaDiagnostic) diagnostics.push(schemaDiagnostic);
     if (source.deprecation) diagnostics.push(sourceDeprecationDiagnostic(reference, source.deprecation));
     if (source.error) {
       diagnostics.push({
@@ -450,6 +454,24 @@ function appendFieldDeprecations(
         (field.deprecation.replacement ? `; use ${field.deprecation.replacement}.` : "."),
     });
   }
+}
+
+function sourceSchemaDiagnostic(
+  definition: ConfigDomainDefinition,
+  source: ConfigSourceInput,
+  reference: ConfigSourceReference,
+): ConfigDiagnostic | undefined {
+  if (source.kind !== "file" || definition.schemaOutput === "none") return undefined;
+  if (source.scope !== "user" && source.scope !== "project" && source.scope !== "project-local") return undefined;
+  if (!isRecord(source.value) || typeof source.value.$schema !== "string") return undefined;
+  const expected = configSchemaId(definition, source.scope as ConfigFileScope);
+  if (source.value.$schema === expected) return undefined;
+  return {
+    severity: "warning",
+    code: "schema_mismatch",
+    source: reference,
+    message: `Configuration $schema does not match the current ${definition.domain} ${source.scope} schema; expected ${expected}.`,
+  };
 }
 
 function sourceDeprecationDiagnostic(

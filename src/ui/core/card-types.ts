@@ -95,6 +95,14 @@ export interface ToolResultCard {
       usingLastKnownGood?: boolean;
       message?: string;
     };
+    issues?: Array<{
+      domain?: string;
+      severity?: "error";
+      code?: string;
+      source?: string;
+      usingLastKnownGood?: boolean;
+      message?: string;
+    }>;
   };
   executionContext?: {
     platform?: string;

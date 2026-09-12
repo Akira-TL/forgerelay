@@ -21,7 +21,7 @@ export interface ExternalMcpConfigDiagnostic {
   source: ExternalMcpConfigSource;
   path: string;
   severity: "error" | "warning";
-  code: "invalid_source" | "missing_environment" | "deprecated_source";
+  code: "invalid_source" | "missing_environment" | "deprecated_source" | "schema_mismatch";
   message: string;
 }
 
@@ -52,6 +52,7 @@ interface DynamicSourceSnapshot {
   value?: unknown;
   hasLastKnownGood: boolean;
   status: ExternalMcpConfigSourceStatus;
+  diagnosticChanged: boolean;
   diagnostic?: ExternalMcpConfigDiagnostic;
 }
 
@@ -80,22 +81,34 @@ export class ExternalMcpConfigRegistry {
   }
 
   resolve(project: Pick<ProjectContext, "id" | "projectRoot" | "sharedConfigDir" | "localConfigDir">): ExternalMcpRegistrySnapshot {
-    const global = this.loadCanonicalSource("global", "user", join(this.configDir, "mcp.json"));
-    const shared = this.loadCanonicalSource("project", "project", join(project.sharedConfigDir, "mcp.json"));
-    const local = this.loadCanonicalSource(
-      "project-local",
-      "project-local",
-      join(project.localConfigDir, "mcp.json"),
-    );
-    return this.composeSnapshot([global, shared, local]);
+    const dynamicSources = this.projectSources(project.sharedConfigDir, project.localConfigDir);
+    return this.composeSnapshot(dynamicSources, this.composeResolution(dynamicSources));
   }
 
   resolveGlobal(): ExternalMcpRegistrySnapshot {
-    const global = this.loadCanonicalSource("global", "user", join(this.configDir, "mcp.json"));
-    return this.composeSnapshot([global]);
+    const dynamicSources = this.projectSources();
+    return this.composeSnapshot(dynamicSources, this.composeResolution(dynamicSources));
   }
 
-  private composeSnapshot(dynamicSources: DynamicSourceSnapshot[]): ExternalMcpRegistrySnapshot {
+  /** Internal Config v2 inspection seam. Resolved values may contain secrets; callers must use provenance for display. */
+  resolveConfiguration(input: { projectSharedConfigDir?: string; projectLocalConfigDir?: string } = {}): ResolvedConfigDomain {
+    const dynamicSources = this.projectSources(input.projectSharedConfigDir, input.projectLocalConfigDir);
+    return this.composeResolution(dynamicSources);
+  }
+
+  private projectSources(projectSharedConfigDir?: string, projectLocalConfigDir?: string): DynamicSourceSnapshot[] {
+    return [
+      this.loadCanonicalSource("global", "user", join(this.configDir, "mcp.json")),
+      ...(projectSharedConfigDir
+        ? [this.loadCanonicalSource("project", "project", join(projectSharedConfigDir, "mcp.json"))]
+        : []),
+      ...(projectLocalConfigDir
+        ? [this.loadCanonicalSource("project-local", "project-local", join(projectLocalConfigDir, "mcp.json"))]
+        : []),
+    ];
+  }
+
+  private composeResolution(dynamicSources: DynamicSourceSnapshot[]): ResolvedConfigDomain {
     const sourceInputs: ConfigSourceInput[] = [];
     if (Object.keys(this.legacyServers).length > 0) {
       sourceInputs.push({
@@ -118,6 +131,32 @@ export class ExternalMcpConfigRegistry {
       sources: sourceInputs,
       environment: this.environment,
     });
+    for (const dynamic of dynamicSources) {
+      if (!dynamic.diagnostic || !dynamic.status.usingLastKnownGood) continue;
+      const source = dynamic.status.source;
+      if (source === "legacy") continue;
+      resolution.diagnostics.push({
+        severity: "error",
+        code: dynamic.diagnostic.code,
+        source: {
+          id: sourceId(source),
+          scope: scopeForSource(source),
+          kind: "file",
+          location: dynamic.status.path,
+          priority: CANONICAL_PRIORITY,
+        },
+        message: dynamic.diagnostic.message,
+        usingLastKnownGood: true,
+        diagnosticChanged: dynamic.diagnosticChanged,
+      });
+    }
+    return resolution;
+  }
+
+  private composeSnapshot(
+    dynamicSources: DynamicSourceSnapshot[],
+    resolution: ResolvedConfigDomain,
+  ): ExternalMcpRegistrySnapshot {
     const normalized = normalizeResolvedServers(resolution);
     const origins: Record<string, ExternalMcpConfigSource> = {};
     const masked: Record<string, Exclude<ExternalMcpConfigSource, "legacy">> = {};
@@ -134,7 +173,7 @@ export class ExternalMcpConfigRegistry {
 
     const diagnostics = mergeDiagnostics(
       resolution.diagnostics.map(configDiagnostic),
-      dynamicSources.flatMap((source) => source.diagnostic ? [source.diagnostic] : []),
+      [],
     );
     return {
       servers: normalized,
@@ -203,6 +242,7 @@ export class ExternalMcpConfigRegistry {
         state: refreshed.status.state,
         usingLastKnownGood: refreshed.status.usingLastKnownGood,
       },
+      diagnosticChanged: refreshed.status.diagnosticChanged,
       ...(diagnostic ? { diagnostic } : {}),
     };
   }

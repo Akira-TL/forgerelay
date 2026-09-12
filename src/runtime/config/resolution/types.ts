@@ -38,7 +38,7 @@ export interface ConfigSourceInput extends ConfigSourceReference {
 
 export interface ConfigDiagnostic {
   severity: ConfigDiagnosticSeverity;
-  code: "invalid_source" | "missing_environment" | "deprecated_source";
+  code: "invalid_source" | "missing_environment" | "deprecated_source" | "schema_mismatch";
   source: ConfigSourceReference;
   logicalPath?: string;
   message: string;

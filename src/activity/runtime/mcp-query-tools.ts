@@ -84,7 +84,7 @@ export function registerActivityQueryTools(
   panelMeta: Record<string, unknown> = {},
   panelDefaultExpanded = false,
   logging?: LoggingConfig,
-  workspacePanelState?: (workspaceId: string) => Record<string, unknown> | undefined,
+  workspacePanelState?: (workspaceId: string) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined,
   relay?: ActivityQueryRelay,
 ): void {
   const panelUi = typeof panelMeta.ui === "object" && panelMeta.ui !== null
@@ -117,7 +117,7 @@ export function registerActivityQueryTools(
     },
     async ({ workspaceId }, extra) => {
       const requestContext = mcpHandlerRequestContext(extra);
-      const workspace = workspacePanelState?.(workspaceId);
+      const workspace = await workspacePanelState?.(workspaceId);
       if (!workspace) {
         throw new Error(
           `No Workspace presentation is available for ${workspaceId}. Call open_workspace for that workspace before activity_panel.`,
@@ -186,7 +186,7 @@ export function registerActivityQueryTools(
         conversationScopeId,
       );
       if (relayed) {
-        const workspace = workspaceId ? workspacePanelState?.(workspaceId) : undefined;
+        const workspace = workspaceId ? await workspacePanelState?.(workspaceId) : undefined;
         if (workspaceId && !workspace) {
           throw new Error(`No Workspace presentation is available for ${workspaceId}.`);
         }
@@ -219,7 +219,7 @@ export function registerActivityQueryTools(
           transportSessionIdPrefix: transportSessionIdPrefix(requestContext.transportSessionId),
         });
       }
-      const workspace = workspaceId ? workspacePanelState?.(workspaceId) : undefined;
+      const workspace = workspaceId ? await workspacePanelState?.(workspaceId) : undefined;
       if (workspaceId && !workspace) {
         throw new Error(`No Workspace presentation is available for ${workspaceId}.`);
       }

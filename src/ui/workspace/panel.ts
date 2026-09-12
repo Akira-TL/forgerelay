@@ -200,6 +200,18 @@ export class WorkspacePanelController {
         toolIcons.warning,
       );
     }
+    for (const issue of configuration.issues ?? []) {
+      const context = [issue.domain, issue.source]
+        .filter((value): value is string => Boolean(value))
+        .join(" · ");
+      const message = issue.message ?? issue.code ?? "Configuration issue";
+      appendWorkspaceTextRow(
+        container,
+        issue.usingLastKnownGood ? "Config fallback" : "Config issue",
+        context ? `${context}: ${message}` : message,
+        toolIcons.warning,
+      );
+    }
   }
 
   private appendWorktreeRows(container: HTMLElement, card: WorkspacePanelCard): void {
