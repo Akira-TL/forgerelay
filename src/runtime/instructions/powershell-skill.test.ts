@@ -6,7 +6,7 @@ import test from "node:test";
 import { loadConfig } from "../config/config.js";
 import { loadWorkspaceSkills } from "../../workspaces/resources/skills.js";
 
-test("an existing legacy private PowerShell Skill remains readable during the compatibility window", async (t) => {
+test("a ForgeRelay-owned private PowerShell Skill remains readable from the ForgeRelay config directory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-legacy-powershell-skill-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const configDir = join(root, "config");
@@ -19,7 +19,7 @@ test("an existing legacy private PowerShell Skill remains readable during the co
     [
       "---",
       "name: powershell",
-      "description: Legacy ForgeRelay PowerShell guidance.",
+      "description: ForgeRelay-owned PowerShell guidance.",
       "---",
       "",
       "# Existing owner content",
@@ -35,5 +35,5 @@ test("an existing legacy private PowerShell Skill remains readable during the co
   const loaded = loadWorkspaceSkills(config, projectRoot);
   const legacy = loaded.skills.find((skill) => skill.name === "powershell");
   assert.equal(legacy?.filePath, skillPath);
-  assert.equal(legacy?.description, "Legacy ForgeRelay PowerShell guidance.");
+  assert.equal(legacy?.description, "ForgeRelay-owned PowerShell guidance.");
 });

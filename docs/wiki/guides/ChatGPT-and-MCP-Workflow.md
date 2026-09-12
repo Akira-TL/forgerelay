@@ -83,6 +83,8 @@ FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
 
+这些位置只共享 discovery contract，不共享所有权。`.agents/skills` 是开放 Agent Skills 目录，可以由其他 Agent 工具安装或软链接；ForgeRelay-owned Skill 保持在 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`），ForgeRelay 不把自己的 Skill 安装或迁移进 `~/.agents/skills`。
+
 同名 Skill 只保留优先级最高的来源，因此 Project Skill 会覆盖同名的全局 Skill。
 
 ForgeRelay 只负责发现，并把 `name + description` 暴露给 Agent。任务匹配由 Agent 自己判断；真正需要时再读取：

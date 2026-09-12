@@ -179,25 +179,23 @@ test("config migrate handles project-shared legacy Hooks and Subagent Profiles e
   assert.equal(existsSync(join(project, ".forgerelay", "agents")), false);
 });
 
-test("config migrate moves only ForgeRelay-owned legacy Skills into the open Agent Skills path", () => {
+test("config migrate preserves ForgeRelay-owned Skills under the ForgeRelay config directory", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-skills-"));
   const configDir = join(root, "config");
   const home = join(root, "home");
-  mkdirSync(join(configDir, "skills", "legacy-skill", "assets"), { recursive: true });
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(configDir, "skills", "legacy-skill", "SKILL.md"), "---\nname: legacy-skill\ndescription: Legacy\n---\nBody\n");
-  writeFileSync(join(configDir, "skills", "legacy-skill", "assets", "blob.bin"), Buffer.from([0, 255, 1, 2, 3]));
-  writeFileSync(join(home, ".claude", "private.json"), "FOREIGN_PRIVATE_SENTINEL");
+  mkdirSync(join(configDir, "skills", "owned-skill", "assets"), { recursive: true });
+  mkdirSync(join(home, ".agents", "skills"), { recursive: true });
+  writeFileSync(join(configDir, "skills", "owned-skill", "SKILL.md"), "---\nname: owned-skill\ndescription: ForgeRelay owned\n---\nBody\n");
+  writeFileSync(join(configDir, "skills", "owned-skill", "assets", "blob.bin"), Buffer.from([0, 255, 1, 2, 3]));
 
   const result = runCli(configDir, ["config", "migrate", "--global"], { HOME: home });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(existsSync(join(configDir, "skills")), false);
-  assert.equal(readFileSync(join(home, ".agents", "skills", "legacy-skill", "SKILL.md"), "utf8").includes("Body"), true);
+  assert.equal(existsSync(join(configDir, "skills", "owned-skill", "SKILL.md")), true);
   assert.deepEqual(
-    [...readFileSync(join(home, ".agents", "skills", "legacy-skill", "assets", "blob.bin"))],
+    [...readFileSync(join(configDir, "skills", "owned-skill", "assets", "blob.bin"))],
     [0, 255, 1, 2, 3],
   );
-  assert.equal(readFileSync(join(home, ".claude", "private.json"), "utf8"), "FOREIGN_PRIVATE_SENTINEL");
+  assert.equal(existsSync(join(home, ".agents", "skills", "owned-skill")), false);
 });
 
 test("config migrate preserves repeated legacy Hook names by assigning stable extra canonical files", async () => {
@@ -223,19 +221,19 @@ test("config migrate preserves repeated legacy Hook names by assigning stable ex
   assert.deepEqual(commands, ["printf after", "printf before"]);
 });
 
-test("config migrate keeps canonical Skill winners instead of failing on shadowed legacy Skills", () => {
+test("config migrate does not merge ForgeRelay-owned Skills with Agent ecosystem Skills", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-skill-shadow-"));
   const configDir = join(root, "config");
   const home = join(root, "home");
   mkdirSync(join(configDir, "skills", "review"), { recursive: true });
   mkdirSync(join(home, ".agents", "skills", "review"), { recursive: true });
-  writeFileSync(join(configDir, "skills", "review", "SKILL.md"), "legacy-skill");
-  writeFileSync(join(home, ".agents", "skills", "review", "SKILL.md"), "canonical-skill");
+  writeFileSync(join(configDir, "skills", "review", "SKILL.md"), "forgerelay-owned-skill");
+  writeFileSync(join(home, ".agents", "skills", "review", "SKILL.md"), "agent-ecosystem-skill");
 
   const result = runCli(configDir, ["config", "migrate", "--global"], { HOME: home });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(join(home, ".agents", "skills", "review", "SKILL.md"), "utf8"), "canonical-skill");
-  assert.equal(existsSync(join(configDir, "skills")), false);
+  assert.equal(readFileSync(join(configDir, "skills", "review", "SKILL.md"), "utf8"), "forgerelay-owned-skill");
+  assert.equal(readFileSync(join(home, ".agents", "skills", "review", "SKILL.md"), "utf8"), "agent-ecosystem-skill");
 });
 
 test("config migrate preserves Subagent Profiles when legacy and canonical filenames collide but names differ", async () => {

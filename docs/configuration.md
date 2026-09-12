@@ -868,6 +868,8 @@ Standard Agent Skills are discovered in precedence order from:
 - `FORGERELAY_AGENT_DIR/skills`
 - paths from `FORGERELAY_SKILL_PATHS`
 
+The ownership boundaries are different even though all of these are readable Skill sources. Project/global `.agents/skills` belong to the open Agent Skills ecosystem and may contain files or symlinks installed by other Agent tooling. ForgeRelay-owned Skills stay under the active ForgeRelay config directory (`~/.forgerelay/skills` by default); ForgeRelay does not migrate or install its private Skills into `~/.agents/skills`.
+
 When the same Skill name appears in more than one source, the first source wins. Project Skills therefore override same-named global `~/.agents/skills` entries, matching ForgeRelay's project-over-global configuration model.
 
 When subagents are enabled, profiles are discovered from:

@@ -180,11 +180,13 @@ FORGERELAY_SKILLS=1 forgerelay serve
 
 Standard paths include:
 
-- `~/.agents/skills`
 - project `.agents/skills`
-- active ForgeRelay config `skills` directory
+- `~/.agents/skills`
+- active ForgeRelay config `skills` directory (`~/.forgerelay/skills` by default)
 - `FORGERELAY_AGENT_DIR/skills`
 - additional `FORGERELAY_SKILL_PATHS`
+
+`.agents/skills` is an external/open Agent Skill source and may contain symlinks managed by other Agent tooling. ForgeRelay-owned Skills belong under its own config `skills` directory and must not be migrated into `.agents/skills`.
 
 ## Subagent profiles do not appear
 

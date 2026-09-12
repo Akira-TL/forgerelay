@@ -241,12 +241,14 @@ FORGERELAY_SKILLS=0
 标准发现位置：
 
 ```text
-~/.agents/skills
 <project>/.agents/skills
+~/.agents/skills
 <forgerelay-config>/skills
 FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
+
+这些目录只是发现来源，不代表同一个所有权域。`.agents/skills` 属于开放 Agent Skills 生态，可以包含其他 Agent 工具安装或软链接进去的 Skill；ForgeRelay 自己管理的 Skill 保留在 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`），不会迁移或安装到 `~/.agents/skills`。
 
 发现到的 Skill 会向 Agent 暴露 `name + description`；Agent 需要时再通过 `skills://<name>` 加载正文。
 

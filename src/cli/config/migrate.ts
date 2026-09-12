@@ -10,7 +10,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { configSchemaId } from "../../runtime/config/definition/schema.js";
@@ -177,12 +176,6 @@ function buildGlobalMigrationPlan(configDir: string): MigrationPlan {
     removals.push(agentsDir);
   }
 
-  const skillsDir = join(configDir, "skills");
-  if (existsSync(skillsDir)) {
-    copies.push(...planSkillCopies(skillsDir, join(homedir(), ".agents", "skills")));
-    removals.push(skillsDir);
-  }
-
   const generalSchema = configSchemaId(generalConfigDefinition, "user");
   if (files.configExists && nextConfig.$schema !== generalSchema) {
     nextConfig.$schema = generalSchema;
@@ -193,7 +186,6 @@ function buildGlobalMigrationPlan(configDir: string): MigrationPlan {
   if (configChanged && files.configExists) backupSources.push({ path: files.configPath, relativePath: "config.json" });
   if (files.hooksExists) backupSources.push({ path: files.hooksPath, relativePath: "hooks.json" });
   if (existsSync(agentsDir)) backupSources.push({ path: agentsDir, relativePath: "agents" });
-  if (existsSync(skillsDir)) backupSources.push({ path: skillsDir, relativePath: "skills" });
 
   return deduplicatePlan({ label: "global ForgeRelay configuration", backupSources, writes, copies, removals });
 }
@@ -319,17 +311,6 @@ function profileName(content: string, path: string): string {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Subagent Profile is invalid: ${path}`);
   const raw = (parsed as Record<string, unknown>).name;
   return typeof raw === "string" && raw.trim() ? raw.trim() : basename(path, ".md");
-}
-
-function planSkillCopies(legacyDir: string, canonicalDir: string): PlannedCopy[] {
-  const copies: PlannedCopy[] = [];
-  for (const name of readdirSync(legacyDir).sort()) {
-    const source = join(legacyDir, name);
-    const target = join(canonicalDir, name);
-    if (existsSync(target)) continue;
-    copies.push({ source, target });
-  }
-  return copies;
 }
 
 function jsonWrite(path: string, value: unknown): PlannedWrite {

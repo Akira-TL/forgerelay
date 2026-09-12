@@ -240,6 +240,8 @@ ForgeRelay discovers standard Agent Skills in precedence order from:
 - `FORGERELAY_AGENT_DIR/skills` (defaults to `~/.codex/skills`)
 - paths from `FORGERELAY_SKILL_PATHS`
 
+These paths are discovery sources, not one shared ownership domain. `.agents/skills` is the open Agent Skills ecosystem and may contain files or symlinks managed by other Agent tooling. ForgeRelay-owned Skills remain private to the active ForgeRelay config directory (`~/.forgerelay/skills` by default) and are never migrated into `~/.agents/skills`.
+
 Same-named collisions use the first source, so project Skills override global Skills.
 
 When a task matches an advertised skill, read its `SKILL.md` before using other
