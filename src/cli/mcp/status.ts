@@ -76,6 +76,7 @@ export async function resolveExternalMcpScope(
   const registry = new ExternalMcpConfigRegistry({
     configDir: config.configDir,
     legacyServers: config.mcpServers,
+    sourceRuntime: config.configRuntime.sources,
   });
   const store = new ExternalMcpCredentialStore({ configDir: config.configDir });
 

@@ -84,6 +84,18 @@ export interface ToolResultCard {
     path?: string;
     status?: "loaded" | "available" | "disabled" | "unavailable";
   }>;
+  configuration?: {
+    restartRequired?: Array<{
+      logicalPath?: string;
+      configuredValue?: unknown;
+      appliedValue?: unknown;
+    }>;
+    source?: {
+      state?: "invalid";
+      usingLastKnownGood?: boolean;
+      message?: string;
+    };
+  };
   executionContext?: {
     platform?: string;
     commandShellRuntime?: {

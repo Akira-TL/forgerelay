@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProjectContext } from "../../../workspaces/state/project-context.js";
 import {
@@ -8,7 +7,8 @@ import {
 } from "../definition/language-servers.js";
 import { resolveConfigDomain } from "./resolver.js";
 import type { ConfigScope } from "../definition/types.js";
-import type { ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
+import type { ConfigDiagnostic, ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
+import { ConfigSourceRuntime } from "../runtime/source-refresh.js";
 
 const CANONICAL_PRIORITY = 100;
 const LEGACY_PRIORITY = 0;
@@ -24,6 +24,7 @@ export interface ResolveLanguageServersConfigInput {
   projectSharedConfigDir?: string;
   legacyUser?: Record<string, LanguageServerDefinitionInput & { enabled?: boolean }>;
   environment?: NodeJS.ProcessEnv;
+  sourceRuntime?: ConfigSourceRuntime;
 }
 
 export interface EffectiveLanguageServerConfigEntry {
@@ -36,6 +37,8 @@ export async function resolveLanguageServersConfig(
   input: ResolveLanguageServersConfigInput,
 ): Promise<ResolvedConfigDomain> {
   const sources: ConfigSourceInput[] = [];
+  const refreshDiagnostics: ConfigDiagnostic[] = [];
+  const sourceRuntime = input.sourceRuntime ?? new ConfigSourceRuntime();
   if (input.legacyUser && Object.keys(input.legacyUser).length > 0) {
     sources.push({
       id: "legacy:user:languageServers",
@@ -48,35 +51,46 @@ export async function resolveLanguageServersConfig(
     });
   }
   if (input.configDir) {
-    const user = await readLanguageServerSource(
+    const user = readLanguageServerSource(
+      sourceRuntime,
       "canonical:user:language-servers",
       "user",
       join(input.configDir, "language-servers.json"),
+      input.environment,
     );
-    if (user) sources.push(user);
+    if (user.source) sources.push(user.source);
+    if (user.diagnostic) refreshDiagnostics.push(user.diagnostic);
   }
   const sharedConfigDir = input.project?.sharedConfigDir ?? input.projectSharedConfigDir;
   if (sharedConfigDir) {
-    const shared = await readLanguageServerSource(
+    const shared = readLanguageServerSource(
+      sourceRuntime,
       "canonical:project:language-servers",
       "project",
       join(sharedConfigDir, "language-servers.json"),
+      input.environment,
     );
-    if (shared) sources.push(shared);
+    if (shared.source) sources.push(shared.source);
+    if (shared.diagnostic) refreshDiagnostics.push(shared.diagnostic);
   }
   if (input.project) {
-    const local = await readLanguageServerSource(
+    const local = readLanguageServerSource(
+      sourceRuntime,
       "canonical:project-local:language-servers",
       "project-local",
       join(input.project.localConfigDir, "language-servers.json"),
+      input.environment,
     );
-    if (local) sources.push(local);
+    if (local.source) sources.push(local.source);
+    if (local.diagnostic) refreshDiagnostics.push(local.diagnostic);
   }
-  return resolveConfigDomain({
+  const resolution = resolveConfigDomain({
     definition: languageServersConfigDefinition,
     sources,
     environment: input.environment,
   });
+  resolution.diagnostics = mergeDiagnostics(resolution.diagnostics, refreshDiagnostics);
+  return resolution;
 }
 
 export function effectiveLanguageServerEntries(
@@ -96,41 +110,73 @@ export function effectiveLanguageServerEntries(
   });
 }
 
-async function readLanguageServerSource(
+function readLanguageServerSource(
+  sourceRuntime: ConfigSourceRuntime,
   id: string,
   scope: "user" | "project" | "project-local",
   location: string,
-): Promise<ConfigSourceInput | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(location, "utf8");
-  } catch (error) {
-    if (isErrno(error, "ENOENT")) return undefined;
-    return invalidSource(id, scope, location, "Configuration source could not be read.");
+  environment: NodeJS.ProcessEnv | undefined,
+): { source?: ConfigSourceInput; diagnostic?: ConfigDiagnostic } {
+  const refreshed = sourceRuntime.refreshFile<unknown>({
+    key: `language-servers:${id}:${location}`,
+    path: location,
+    parse: (raw) => {
+      const value = JSON.parse(raw) as unknown;
+      return isRecord(value) ? normalizeFileDefinitions(value) : value;
+    },
+    parseIssue: {
+      code: "invalid_source",
+      message: "Configuration source is not valid JSON.",
+    },
+    readIssue: {
+      code: "invalid_source",
+      message: "Configuration source could not be read.",
+    },
+    validate: (value) => {
+      const validation = resolveConfigDomain({
+        definition: languageServersConfigDefinition,
+        sources: [canonicalLanguageServerSource(id, scope, location, value)],
+        environment,
+      });
+      const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+      if (!error) return undefined;
+      return {
+        code: error.code === "missing_environment" ? "missing_environment" : "invalid_source",
+        message: error.message,
+      };
+    },
+  });
+  if (refreshed.status.state === "missing") return {};
+  if (refreshed.value !== undefined) {
+    const source = canonicalLanguageServerSource(id, scope, location, refreshed.value);
+    if (refreshed.status.state !== "invalid" || !refreshed.issue) return { source };
+    return {
+      source,
+      diagnostic: {
+        severity: "error",
+        code: refreshed.issue.code,
+        source: sourceReference(source),
+        message: refreshed.issue.message,
+        usingLastKnownGood: true,
+        diagnosticChanged: refreshed.status.diagnosticChanged,
+      },
+    };
   }
-
-  let value: unknown;
-  try {
-    value = JSON.parse(raw) as unknown;
-  } catch {
-    return invalidSource(id, scope, location, "Configuration source is not valid JSON.");
-  }
-  return {
+  const source = invalidSource(
     id,
     scope,
-    kind: "file",
     location,
-    priority: CANONICAL_PRIORITY,
-    shadowsLowerPriority: true,
-    value: isRecord(value) ? normalizeFileDefinitions(value) : value,
-  };
+    refreshed.issue?.message ?? "Language Server configuration is invalid.",
+    refreshed.issue?.code,
+  );
+  return { source };
 }
 
-function invalidSource(
+function canonicalLanguageServerSource(
   id: string,
   scope: "user" | "project" | "project-local",
   location: string,
-  message: string,
+  value: unknown,
 ): ConfigSourceInput {
   return {
     id,
@@ -139,8 +185,46 @@ function invalidSource(
     location,
     priority: CANONICAL_PRIORITY,
     shadowsLowerPriority: true,
-    error: { code: "invalid_source", message },
+    value,
   };
+}
+
+function invalidSource(
+  id: string,
+  scope: "user" | "project" | "project-local",
+  location: string,
+  message: string,
+  code: "invalid_source" | "missing_environment" = "invalid_source",
+): ConfigSourceInput {
+  return {
+    id,
+    scope,
+    kind: "file",
+    location,
+    priority: CANONICAL_PRIORITY,
+    shadowsLowerPriority: true,
+    error: { code, message },
+  };
+}
+
+function sourceReference(source: ConfigSourceInput): ConfigDiagnostic["source"] {
+  return {
+    id: source.id,
+    scope: source.scope,
+    kind: source.kind,
+    ...(source.location ? { location: source.location } : {}),
+    priority: source.priority,
+  };
+}
+
+function mergeDiagnostics(left: ConfigDiagnostic[], right: ConfigDiagnostic[]): ConfigDiagnostic[] {
+  const seen = new Set<string>();
+  return [...left, ...right].filter((diagnostic) => {
+    const key = `${diagnostic.source.id}\0${diagnostic.code}\0${diagnostic.message}\0${diagnostic.usingLastKnownGood === true}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeFileDefinitions(value: Record<string, unknown>): Record<string, unknown> {
@@ -172,8 +256,4 @@ function normalizeLanguageServerDefinitions(value: Record<string, unknown>): Rec
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isErrno(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }

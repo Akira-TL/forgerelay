@@ -8,6 +8,7 @@ import {
   effectiveLanguageServerEntries,
   resolveLanguageServersConfig,
 } from "../runtime/config/resolution/language-servers.js";
+import type { ConfigSourceRuntime } from "../runtime/config/runtime/source-refresh.js";
 
 export type LanguageServerDefinitionInput = Omit<CanonicalLanguageServerDefinitionInput, "disabled"> & {
   enabled?: boolean;
@@ -26,18 +27,22 @@ export interface ResolvedLanguageServerDefinition {
   projectMarkers: string[];
   source: "builtin" | "global" | "project" | "project-local";
   initializationOptions?: Record<string, unknown>;
+  /** Config-only identity before managed-runtime/package identity is applied. */
+  configFingerprint: string;
   fingerprint: string;
 }
 
 export interface ResolvedLanguageProject {
   definition: ResolvedLanguageServerDefinition;
   projectRoot: string;
+  availableDefinitionFingerprints: Record<string, string>;
 }
 
 export class LanguageServerConfigurationError extends Error {
   constructor(
     readonly code: "code.language_service_unavailable" | "code.configuration_ambiguous" | "code.configuration_invalid",
     message: string,
+    readonly availableDefinitionFingerprints?: Record<string, string>,
   ) {
     super(message);
     this.name = "LanguageServerConfigurationError";
@@ -63,6 +68,7 @@ export async function resolveLanguageProject(input: {
   configDir?: string;
   globalConfig?: LanguageServerConfigInput;
   env?: NodeJS.ProcessEnv;
+  sourceRuntime?: ConfigSourceRuntime;
 }): Promise<ResolvedLanguageProject> {
   const workspaceRoot = await canonicalWorkspaceRoot(input.workspaceRoot);
   const sourcePath = await resolveWorkspaceSourcePath(workspaceRoot, input.sourcePath);
@@ -76,15 +82,15 @@ export async function resolveLanguageProject(input: {
     projectSharedConfigDir: join(workspaceRoot, ".forgerelay"),
     ...(input.globalConfig ? { legacyUser: input.globalConfig } : {}),
     environment,
+    ...(input.sourceRuntime ? { sourceRuntime: input.sourceRuntime } : {}),
   });
-  const errors = resolution.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
-  if (errors.length > 0) {
-    throw new LanguageServerConfigurationError(
-      "code.configuration_invalid",
-      `Invalid Language-server configuration: ${errors.map((diagnostic) => `${diagnostic.source.location ?? diagnostic.source.id}: ${diagnostic.message}`).join("; ")}`,
-    );
-  }
+  const errors = resolution.diagnostics.filter((diagnostic) =>
+    diagnostic.severity === "error" && diagnostic.usingLastKnownGood !== true
+  );
   const definitions = await materializeResolvedDefinitions(resolution, environment);
+  const availableDefinitionFingerprints = Object.fromEntries(
+    definitions.map((definition) => [definition.id, definition.configFingerprint]),
+  );
   const extension = extname(sourcePath).toLowerCase();
   const candidates: ResolvedLanguageProject[] = [];
 
@@ -96,13 +102,21 @@ export async function resolveLanguageProject(input: {
       definition.projectMarkers,
     );
     if (!projectRoot) continue;
-    candidates.push({ definition, projectRoot });
+    candidates.push({ definition, projectRoot, availableDefinitionFingerprints });
   }
 
   if (candidates.length === 0) {
+    if (errors.length > 0) {
+      throw new LanguageServerConfigurationError(
+        "code.configuration_invalid",
+        `Invalid Language-server configuration: ${errors.map((diagnostic) => `${diagnostic.source.location ?? diagnostic.source.id}: ${diagnostic.message}`).join("; ")}`,
+        availableDefinitionFingerprints,
+      );
+    }
     throw new LanguageServerConfigurationError(
       "code.language_service_unavailable",
       `No available Language-server definition matches ${relative(workspaceRoot, sourcePath) || "."}.`,
+      availableDefinitionFingerprints,
     );
   }
 
@@ -116,6 +130,7 @@ export async function resolveLanguageProject(input: {
     throw new LanguageServerConfigurationError(
       "code.configuration_ambiguous",
       `Multiple Language-server definitions match ${relative(workspaceRoot, sourcePath)} at the same priority: ${nearest.map((candidate) => candidate.definition.id).join(", ")}.`,
+      availableDefinitionFingerprints,
     );
   }
 
@@ -163,9 +178,11 @@ async function materializeResolvedDefinitions(
       projectMarkers: merged.projectMarkers ?? [],
       source: merged.source,
     };
+    const configFingerprint = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
     definitions.push({
       ...normalized,
-      fingerprint: createHash("sha256").update(JSON.stringify(normalized)).digest("hex"),
+      configFingerprint,
+      fingerprint: configFingerprint,
     });
   }
 

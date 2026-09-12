@@ -161,6 +161,13 @@ test("restart reconciliation preserves live owners and interrupts stale Runs wit
   await eventually(() => providerInputs.length === 1);
   assert.equal(providerInputs[0]?.providerSessionId, "thread_existing");
   assert.equal(providerInputs[0]?.prompt, "only this new prompt may execute");
+  await eventually(async () => {
+    const status = await callSession(restored.client, workspaceId, {
+      operation: "status",
+      sessionId: staleWithContinuation.id,
+    });
+    return sessionResult(status).session.status === "idle";
+  });
 
   const activitySnapshot = readActivityAuditSnapshot(stateDir, restored.auditStore);
   const audit = JSON.stringify(activityEventsForTool(activitySnapshot, "subagent_result"));
@@ -262,9 +269,9 @@ function allResponseText(result: Awaited<ReturnType<Client["callTool"]>>): strin
     : "";
 }
 
-async function eventually(predicate: () => boolean): Promise<void> {
+async function eventually(predicate: () => boolean | Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.fail("condition did not become true");

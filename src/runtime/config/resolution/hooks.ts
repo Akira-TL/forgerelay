@@ -1,13 +1,14 @@
-import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProjectContext } from "../../../workspaces/state/project-context.js";
 import {
   hooksConfigDefinition,
   normalizeLegacyHookEntries,
+  type HookEntriesConfig,
   type ResolvedHookEntryInput,
 } from "../../../mcp/hooks/config.js";
+import { ConfigSourceRuntime } from "../runtime/source-refresh.js";
 import { resolveConfigDomain } from "./resolver.js";
-import type { ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
+import type { ConfigDiagnostic, ConfigSourceInput, ResolvedConfigDomain } from "./types.js";
 
 const CANONICAL_PRIORITY = 100;
 const LEGACY_PRIORITY = 0;
@@ -17,16 +18,19 @@ const LEGACY_DEPRECATION = {
   replacement: "hooks/",
 } as const;
 
+type HookConfigScope = "user" | "project" | "project-local";
+
 export interface ResolveHooksConfigInput {
   configDir?: string;
   project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
   projectSharedConfigDir?: string;
   legacyUser?: unknown;
+  sourceRuntime?: ConfigSourceRuntime;
 }
 
 export interface EffectiveHookConfigEntry {
   name: string;
-  scope: "user" | "project" | "project-local";
+  scope: HookConfigScope;
   sourcePriority: number;
   sourceLocation?: string;
   entries: ResolvedHookEntryInput[];
@@ -36,6 +40,9 @@ export async function resolveHooksConfig(
   input: ResolveHooksConfigInput,
 ): Promise<ResolvedConfigDomain> {
   const sources: ConfigSourceInput[] = [];
+  const refreshDiagnostics: ConfigDiagnostic[] = [];
+  const sourceRuntime = input.sourceRuntime ?? new ConfigSourceRuntime();
+
   if (input.legacyUser && isRecord(input.legacyUser) && Object.keys(input.legacyUser).length > 0) {
     sources.push({
       id: "legacy:user:hooks",
@@ -48,26 +55,52 @@ export async function resolveHooksConfig(
       value: { hooks: normalizeLegacyHookEntries(input.legacyUser) },
     });
   }
+
   if (input.configDir) {
-    sources.push(...await loadHookDirectory("user", join(input.configDir, "hooks")));
+    appendHookDirectory(
+      sources,
+      refreshDiagnostics,
+      sourceRuntime,
+      "user",
+      join(input.configDir, "hooks"),
+    );
   }
+
   const sharedConfigDir = input.project?.sharedConfigDir ?? input.projectSharedConfigDir;
   if (sharedConfigDir) {
-    const legacyProject = await readLegacyHookAggregate(
+    const legacyProject = readLegacyHookAggregate(
+      sourceRuntime,
       "legacy:project:hooks.json",
       "project",
       join(sharedConfigDir, "hooks.json"),
     );
-    if (legacyProject) sources.push(legacyProject);
-    sources.push(...await loadHookDirectory("project", join(sharedConfigDir, "hooks")));
+    if (legacyProject.source) sources.push(legacyProject.source);
+    if (legacyProject.diagnostic) refreshDiagnostics.push(legacyProject.diagnostic);
+    appendHookDirectory(
+      sources,
+      refreshDiagnostics,
+      sourceRuntime,
+      "project",
+      join(sharedConfigDir, "hooks"),
+    );
   }
+
   if (input.project) {
-    sources.push(...await loadHookDirectory("project-local", join(input.project.localConfigDir, "hooks")));
+    appendHookDirectory(
+      sources,
+      refreshDiagnostics,
+      sourceRuntime,
+      "project-local",
+      join(input.project.localConfigDir, "hooks"),
+    );
   }
-  return resolveConfigDomain({
+
+  const resolution = resolveConfigDomain({
     definition: hooksConfigDefinition,
     sources,
   });
+  resolution.diagnostics = mergeDiagnostics(resolution.diagnostics, refreshDiagnostics);
+  return resolution;
 }
 
 export function effectiveHookConfigEntries(
@@ -104,65 +137,92 @@ function hookScopeRank(scope: EffectiveHookConfigEntry["scope"]): number {
   return scope === "user" ? 0 : scope === "project" ? 1 : 2;
 }
 
-async function loadHookDirectory(
-  scope: "user" | "project" | "project-local",
+function appendHookDirectory(
+  sources: ConfigSourceInput[],
+  diagnostics: ConfigDiagnostic[],
+  sourceRuntime: ConfigSourceRuntime,
+  scope: HookConfigScope,
   directory: string,
-): Promise<ConfigSourceInput[]> {
-  let entries;
-  try {
-    entries = (await readdir(directory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-  } catch (error) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return [];
-    return [{
-      id: `canonical:${scope}:hooks-directory`,
-      scope,
-      kind: "file",
-      location: directory,
-      priority: CANONICAL_PRIORITY,
-      error: {
-        code: "invalid_source",
-        message: "Hook configuration directory could not be read.",
-      },
-    }];
-  }
+): void {
+  const refreshed = sourceRuntime.refreshDirectory<unknown>({
+    key: `hooks:${scope}:${directory}`,
+    directory,
+    include: (name) => name.endsWith(".json"),
+    parse: (_name, content) => JSON.parse(content) as unknown,
+    parseIssue: {
+      code: "invalid_source",
+      message: "Hook configuration file is not valid JSON.",
+    },
+    readIssue: {
+      code: "invalid_source",
+      message: "Hook configuration file could not be read.",
+    },
+    validate: (value, name, location) => {
+      const entryKey = name.slice(0, -5);
+      const validation = resolveConfigDomain({
+        definition: hooksConfigDefinition,
+        sources: [canonicalHookSource(scope, location, entryKey, value)],
+      });
+      const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+      if (!error) return undefined;
+      return {
+        code: error.code === "missing_environment" ? "missing_environment" : "invalid_source",
+        message: error.message,
+      };
+    },
+  });
 
-  const sources: ConfigSourceInput[] = [];
-  for (const entry of entries) {
-    const location = join(directory, entry.name);
-    const entryKey = entry.name.slice(0, -5);
-    let raw: string;
-    try {
-      raw = await readFile(location, "utf8");
-    } catch {
-      sources.push(invalidHookSource(scope, location, entryKey, "Hook configuration file could not be read."));
-      continue;
-    }
-
-    try {
-      sources.push({
-        id: `canonical:${scope}:hook:${entryKey}`,
+  if (refreshed.state === "invalid" && refreshed.issue) {
+    diagnostics.push({
+      severity: "error",
+      code: refreshed.issue.code,
+      source: {
+        id: `canonical:${scope}:hooks-directory`,
         scope,
         kind: "file",
-        location,
+        location: refreshed.directory,
         priority: CANONICAL_PRIORITY,
+      },
+      message: refreshed.issue.message,
+      diagnosticChanged: refreshed.diagnosticChanged,
+    });
+  }
+
+  for (const unit of refreshed.units) {
+    const location = unit.status.path;
+    const entryKey = unit.name.slice(0, -5);
+    if (unit.value !== undefined) {
+      const source = canonicalHookSource(scope, location, entryKey, unit.value);
+      sources.push(source);
+      if (unit.status.state === "invalid" && unit.issue) {
+        diagnostics.push({
+          severity: "error",
+          code: unit.issue.code,
+          source: sourceReference(source),
+          message: unit.issue.message,
+          usingLastKnownGood: true,
+          diagnosticChanged: unit.status.diagnosticChanged,
+        });
+      }
+      continue;
+    }
+    if (unit.status.state === "invalid") {
+      sources.push(invalidHookSource(
+        scope,
+        location,
         entryKey,
-        shadowsLowerPriorityKeys: [`hooks.${entryKey}`],
-        value: JSON.parse(raw) as unknown,
-      });
-    } catch {
-      sources.push(invalidHookSource(scope, location, entryKey, "Hook configuration file is not valid JSON."));
+        unit.issue?.message ?? "Hook configuration file is invalid.",
+        unit.issue?.code,
+      ));
     }
   }
-  return sources;
 }
 
-function invalidHookSource(
-  scope: "user" | "project" | "project-local",
+function canonicalHookSource(
+  scope: HookConfigScope,
   location: string,
   entryKey: string,
-  message: string,
+  value: unknown,
 ): ConfigSourceInput {
   return {
     id: `canonical:${scope}:hook:${entryKey}`,
@@ -172,60 +232,122 @@ function invalidHookSource(
     priority: CANONICAL_PRIORITY,
     entryKey,
     shadowsLowerPriorityKeys: [`hooks.${entryKey}`],
-    error: { code: "invalid_source", message },
+    value,
   };
 }
 
-async function readLegacyHookAggregate(
+function invalidHookSource(
+  scope: HookConfigScope,
+  location: string,
+  entryKey: string,
+  message: string,
+  code: "invalid_source" | "missing_environment" = "invalid_source",
+): ConfigSourceInput {
+  return {
+    id: `canonical:${scope}:hook:${entryKey}`,
+    scope,
+    kind: "file",
+    location,
+    priority: CANONICAL_PRIORITY,
+    entryKey,
+    shadowsLowerPriorityKeys: [`hooks.${entryKey}`],
+    error: { code, message },
+  };
+}
+
+function readLegacyHookAggregate(
+  sourceRuntime: ConfigSourceRuntime,
   id: string,
   scope: "user" | "project",
   location: string,
-): Promise<ConfigSourceInput | undefined> {
-  let raw: string;
-  try {
-    raw = await readFile(location, "utf8");
-  } catch (error) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return undefined;
+): { source?: ConfigSourceInput; diagnostic?: ConfigDiagnostic } {
+  const refreshed = sourceRuntime.refreshFile<HookEntriesConfig>({
+    key: `hooks:${id}:${location}`,
+    path: location,
+    parse: (raw) => normalizeLegacyHookEntries(JSON.parse(raw) as unknown),
+    parseIssue: { code: "invalid_source", message: "Legacy Hook configuration is invalid." },
+    readIssue: { code: "invalid_source", message: "Legacy Hook configuration could not be read." },
+    validate: (value) => {
+      const validation = resolveConfigDomain({
+        definition: hooksConfigDefinition,
+        sources: [legacyHookSource(id, scope, location, value)],
+      });
+      const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+      return error ? { code: "invalid_source", message: error.message } : undefined;
+    },
+  });
+
+  if (refreshed.status.state === "missing") return {};
+  if (refreshed.value !== undefined) {
+    const source = legacyHookSource(id, scope, location, refreshed.value);
+    if (refreshed.status.state !== "invalid" || !refreshed.issue) return { source };
     return {
-      id,
-      scope,
-      kind: "file",
-      location,
-      priority: LEGACY_PRIORITY,
-      deprecation: LEGACY_DEPRECATION,
-      error: { code: "invalid_source", message: "Legacy Hook configuration could not be read." },
+      source,
+      diagnostic: {
+        severity: "error",
+        code: refreshed.issue.code,
+        source: sourceReference(source),
+        message: refreshed.issue.message,
+        usingLastKnownGood: true,
+        diagnosticChanged: refreshed.status.diagnosticChanged,
+      },
     };
   }
 
-  try {
-    const value = normalizeLegacyHookEntries(JSON.parse(raw) as unknown);
-    return {
-      id,
-      scope,
-      kind: "file",
-      location,
-      priority: LEGACY_PRIORITY,
-      normalized: true,
-      deprecation: LEGACY_DEPRECATION,
-      value: { hooks: value },
-    };
-  } catch {
-    return {
+  return {
+    source: {
       id,
       scope,
       kind: "file",
       location,
       priority: LEGACY_PRIORITY,
       deprecation: LEGACY_DEPRECATION,
-      error: { code: "invalid_source", message: "Legacy Hook configuration is invalid." },
-    };
-  }
+      error: {
+        code: refreshed.issue?.code ?? "invalid_source",
+        message: refreshed.issue?.message ?? "Legacy Hook configuration is invalid.",
+      },
+    },
+  };
+}
+
+function legacyHookSource(
+  id: string,
+  scope: "user" | "project",
+  location: string,
+  value: HookEntriesConfig,
+): ConfigSourceInput {
+  return {
+    id,
+    scope,
+    kind: "file",
+    location,
+    priority: LEGACY_PRIORITY,
+    normalized: true,
+    deprecation: LEGACY_DEPRECATION,
+    value: { hooks: value },
+  };
+}
+
+function sourceReference(source: ConfigSourceInput): ConfigDiagnostic["source"] {
+  return {
+    id: source.id,
+    scope: source.scope,
+    kind: source.kind,
+    ...(source.location ? { location: source.location } : {}),
+    priority: source.priority,
+  };
+}
+
+function mergeDiagnostics(left: ConfigDiagnostic[], right: ConfigDiagnostic[]): ConfigDiagnostic[] {
+  const seen = new Set<string>();
+  return [...left, ...right].filter((diagnostic) => {
+    const key = `${diagnostic.source.id}\0${diagnostic.code}\0${diagnostic.message}\0${diagnostic.usingLastKnownGood === true}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isErrno(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
 }

@@ -87,7 +87,7 @@ export class CodeIntelligenceManager {
   private readonly crashCooldownMs: number;
 
   constructor(
-    private readonly config: Pick<ServerConfig, "languageServers" | "configDir">,
+    private readonly config: Pick<ServerConfig, "languageServers" | "configDir" | "configRuntime">,
     options: CodeIntelligenceManagerOptions = {},
   ) {
     this.crashCooldownMs = positiveInteger(
@@ -118,25 +118,35 @@ export class CodeIntelligenceManager {
     input: CodeIntelligenceInput,
     options: { signal?: AbortSignal } = {},
   ): Promise<CodeIntelligenceResult> {
+    const canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
+    this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
     let project: ResolvedLanguageProject;
-    let canonicalWorkspaceRoot: string;
     try {
-      canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
-      this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
       project = withManagedLanguageServerRuntime(await resolveLanguageProject({
         workspaceRoot: canonicalWorkspaceRoot,
         sourcePath: input.path,
         configDir: this.config.configDir,
         globalConfig: this.config.languageServers,
         env: withManagedLanguageServerPath(process.env, this.config.configDir),
+        sourceRuntime: this.config.configRuntime.sources,
       }), this.config.configDir);
     } catch (error) {
       if (error instanceof LanguageServerConfigurationError) {
+        if (error.availableDefinitionFingerprints) {
+          await this.invalidateUnavailableServices(
+            canonicalWorkspaceRoot,
+            error.availableDefinitionFingerprints,
+          );
+        }
         throw new CodeIntelligenceError(error.code, error.message);
       }
       throw error;
     }
 
+    await this.invalidateUnavailableServices(
+      canonicalWorkspaceRoot,
+      project.availableDefinitionFingerprints,
+    );
     await this.invalidateChangedServices(project);
     const identity = languageServiceKey(project);
     this.assertNotCoolingDown(identity, project);
@@ -315,6 +325,27 @@ export class CodeIntelligenceManager {
       "code.language_service_cooldown",
       `Language server ${project.definition.id} is cooling down after repeated crashes; retry in ${remaining}ms.`,
     );
+  }
+
+  private async invalidateUnavailableServices(
+    workspaceRoot: string,
+    availableDefinitionFingerprints: Record<string, string>,
+  ): Promise<void> {
+    const root = resolve(workspaceRoot);
+    const invalidated: Array<[string, LanguageService]> = [];
+    for (const [key, service] of this.services) {
+      if (resolve(service.workspaceRoot) !== root) continue;
+      const currentFingerprint = availableDefinitionFingerprints[service.project.definition.id];
+      if (currentFingerprint === service.project.definition.configFingerprint) continue;
+      this.invalidatedServiceKeys.add(key);
+      this.crashStates.delete(key);
+      if (service.isIdle) invalidated.push([key, service]);
+    }
+    for (const [key, service] of invalidated) {
+      if (this.services.get(key) === service) this.services.delete(key);
+      this.invalidatedServiceKeys.delete(key);
+      await service.shutdown();
+    }
   }
 
   private async invalidateChangedServices(project: ResolvedLanguageProject): Promise<void> {

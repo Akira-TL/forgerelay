@@ -131,7 +131,7 @@ export function registerActivityQueryTools(
           _meta: {
             ...(relayed._meta ?? {}),
             [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
-            [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+            [ACTIVITY_PANEL_WORKSPACE_META_KEY]: mergeRelayedWorkspaceConfiguration(workspace, relayed),
           },
         };
       }
@@ -196,7 +196,7 @@ export function registerActivityQueryTools(
               _meta: {
                 ...(relayed._meta ?? {}),
                 [ACTIVITY_PANEL_DEFAULT_EXPANDED_META_KEY]: panelDefaultExpanded,
-                [ACTIVITY_PANEL_WORKSPACE_META_KEY]: workspace,
+                [ACTIVITY_PANEL_WORKSPACE_META_KEY]: mergeRelayedWorkspaceConfiguration(workspace, relayed),
               },
             }
           : relayed;
@@ -367,4 +367,16 @@ export function registerActivityQueryTools(
       };
     },
   );
+}
+
+function mergeRelayedWorkspaceConfiguration(
+  workspace: Record<string, unknown>,
+  relayed: CallToolResult,
+): Record<string, unknown> {
+  const meta = relayed._meta;
+  if (!meta || typeof meta !== "object") return workspace;
+  const relayedWorkspace = (meta as Record<string, unknown>)[ACTIVITY_PANEL_WORKSPACE_META_KEY];
+  if (!relayedWorkspace || typeof relayedWorkspace !== "object" || Array.isArray(relayedWorkspace)) return workspace;
+  const configuration = (relayedWorkspace as Record<string, unknown>).configuration;
+  return configuration === undefined ? workspace : { ...workspace, configuration };
 }

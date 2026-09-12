@@ -5,6 +5,7 @@ import {
   resolveHooksConfig,
 } from "../../runtime/config/resolution/hooks.js";
 import type { ResolvedConfigDomain } from "../../runtime/config/resolution/types.js";
+import type { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
 import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
 import {
   mergeHookConfigs,
@@ -35,8 +36,9 @@ export async function checkHookConfiguration(
   projectRoot: string,
   globalHooks: HookConfig = loadGlobalHooks(),
   configDir?: string,
+  sourceRuntime?: ConfigSourceRuntime,
 ): Promise<HookCheckResult> {
-  const resolution = await resolveHookConfiguration(projectRoot, globalHooks, configDir);
+  const resolution = await resolveHookConfiguration(projectRoot, globalHooks, configDir, sourceRuntime);
   assertHookResolutionValid(resolution);
   const entries = flattenResolvedHooks(resolution);
   return {
@@ -85,6 +87,7 @@ async function resolveHookConfiguration(
   projectRoot: string,
   legacyUser: HookConfig,
   configDir?: string,
+  sourceRuntime?: ConfigSourceRuntime,
 ): Promise<ResolvedConfigDomain> {
   const project = configDir ? await resolveProjectContext(configDir, projectRoot) : undefined;
   return resolveHooksConfig({
@@ -92,6 +95,7 @@ async function resolveHookConfiguration(
     ...(project ? { project } : {}),
     projectSharedConfigDir: join(projectRoot, ".forgerelay"),
     legacyUser,
+    ...(sourceRuntime ? { sourceRuntime } : {}),
   });
 }
 

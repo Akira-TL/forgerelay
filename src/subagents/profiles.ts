@@ -1,4 +1,3 @@
-import { readdir, readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import * as z from "zod/v4";
 import { parse as parseYaml } from "yaml";
@@ -7,9 +6,14 @@ import { defineConfigDomain } from "../runtime/config/definition/definition.js";
 import type { ConfigScope } from "../runtime/config/definition/types.js";
 import { resolveConfigDomain } from "../runtime/config/resolution/resolver.js";
 import type {
+  ConfigDiagnostic,
   ConfigSourceInput,
   ResolvedConfigDomain,
 } from "../runtime/config/resolution/types.js";
+import {
+  ConfigSourceRuntime,
+  type ConfigSourceRefreshIssue,
+} from "../runtime/config/runtime/source-refresh.js";
 import { resolveProjectContext } from "../workspaces/state/project-context.js";
 
 export type SubagentProvider = "codex" | "claude" | "opencode" | "pi" | "cursor" | "copilot";
@@ -125,21 +129,24 @@ export const subagentProfilesConfigDefinition = defineConfigDomain({
 });
 
 export async function resolveSubagentProfilesConfig(
-  config: Pick<ServerConfig, "configDir">,
+  config: Pick<ServerConfig, "configDir" | "configRuntime">,
   workspaceRoot: string,
 ): Promise<ResolvedConfigDomain> {
   const project = await resolveProjectContext(config.configDir, workspaceRoot);
-  const sources: ConfigSourceInput[] = [
-    ...await loadProfileDirectory("user", join(config.configDir, "agents"), false),
-    ...await loadProfileDirectory("user", join(config.configDir, "subagents"), true),
-    ...await loadProfileDirectory("project", join(project.sharedConfigDir, "agents"), false),
-    ...await loadProfileDirectory("project", join(project.sharedConfigDir, "subagents"), true),
-    ...await loadProfileDirectory("project-local", join(project.localConfigDir, "subagents"), true),
-  ];
-  return resolveConfigDomain({
+  const sources: ConfigSourceInput[] = [];
+  const refreshDiagnostics: ConfigDiagnostic[] = [];
+  const sourceRuntime = config.configRuntime.sources;
+  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "user", join(config.configDir, "agents"), false);
+  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "user", join(config.configDir, "subagents"), true);
+  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project", join(project.sharedConfigDir, "agents"), false);
+  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project", join(project.sharedConfigDir, "subagents"), true);
+  appendProfileDirectory(sources, refreshDiagnostics, sourceRuntime, "project-local", join(project.localConfigDir, "subagents"), true);
+  const resolution = resolveConfigDomain({
     definition: subagentProfilesConfigDefinition,
     sources,
   });
+  resolution.diagnostics = mergeDiagnostics(resolution.diagnostics, refreshDiagnostics);
+  return resolution;
 }
 
 export async function loadSubagentProfiles(
@@ -149,7 +156,7 @@ export async function loadSubagentProfiles(
   if (!config.subagents) return [];
   const resolution = await resolveSubagentProfilesConfig(config, workspaceRoot);
   for (const diagnostic of resolution.diagnostics) {
-    if (diagnostic.severity !== "error") continue;
+    if (diagnostic.severity !== "error" || diagnostic.diagnosticChanged === false) continue;
     console.warn(
       `Skipping invalid subagent profile ${diagnostic.source.location ?? diagnostic.source.id}: ${diagnostic.message}`,
     );
@@ -210,71 +217,102 @@ function effectiveSubagentProfileEntries(
   return result;
 }
 
-async function loadProfileDirectory(
+function appendProfileDirectory(
+  sources: ConfigSourceInput[],
+  diagnostics: ConfigDiagnostic[],
+  sourceRuntime: ConfigSourceRuntime,
   scope: ProfileScope,
   directory: string,
   canonical: boolean,
-): Promise<ConfigSourceInput[]> {
+): void {
   const resolvedDirectory = resolve(directory);
-  let entries;
-  try {
-    entries = (await readdir(resolvedDirectory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-      .sort((left, right) => left.name.localeCompare(right.name));
-  } catch (error) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return [];
-    return [{
-      id: `${canonical ? "canonical" : "legacy"}:${scope}:subagents-directory`,
-      scope,
-      kind: "file",
-      location: resolvedDirectory,
-      priority: canonical ? CANONICAL_PRIORITY : LEGACY_PRIORITY,
-      ...(canonical ? {} : { deprecation: LEGACY_DEPRECATION }),
-      error: { code: "invalid_source", message: "Subagent Profile directory could not be read." },
-    }];
-  }
+  const refreshed = sourceRuntime.refreshDirectory<SubagentProfile>({
+    key: `subagents:${canonical ? "canonical" : "legacy"}:${scope}:${resolvedDirectory}`,
+    directory: resolvedDirectory,
+    include: (name) => name.endsWith(".md"),
+    parse: (_name, content, filePath) => parseProfileSourceDocument(canonical, content, filePath),
+    parseIssue: (error) => ({
+      code: "invalid_source",
+      message: "Subagent Profile is invalid.",
+      ...(error instanceof SubagentProfileSourceError && error.keyHint
+        ? { keyHint: error.keyHint }
+        : {}),
+    }),
+    readIssue: { code: "invalid_source", message: "Subagent Profile could not be read." },
+  });
 
-  const sources: ConfigSourceInput[] = [];
-  for (const entry of entries) {
-    const filePath = join(resolvedDirectory, entry.name);
-    const fallbackName = basename(entry.name, ".md");
-    let content: string;
-    try {
-      content = await readFile(filePath, "utf8");
-    } catch {
-      sources.push(invalidProfileSource(scope, filePath, fallbackName, canonical, "Subagent Profile could not be read."));
-      continue;
-    }
-
-    const keyHint = profileKeyHint(content, filePath) ?? fallbackName;
-    try {
-      const parsed = canonical
-        ? canonicalProfileFromDocument(content, filePath)
-        : legacyProfileFromDocument(content, filePath);
-      const value = parsed.disabled
-        ? { disabled: true as const }
-        : {
-            description: parsed.description,
-            provider: parsed.provider,
-            ...(parsed.model ? { model: parsed.model } : {}),
-            ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
-            body: parsed.body,
-          };
-      sources.push({
-        id: `${canonical ? "canonical" : "legacy"}:${scope}:subagent:${entry.name}`,
+  if (refreshed.state === "invalid" && refreshed.issue) {
+    diagnostics.push({
+      severity: "error",
+      code: refreshed.issue.code,
+      source: {
+        id: `${canonical ? "canonical" : "legacy"}:${scope}:subagents-directory`,
         scope,
         kind: "file",
-        location: filePath,
+        location: resolvedDirectory,
         priority: canonical ? CANONICAL_PRIORITY : LEGACY_PRIORITY,
-        normalized: true,
-        ...(canonical ? { shadowsLowerPriorityKeys: [`profiles.${parsed.name}`] } : { deprecation: LEGACY_DEPRECATION }),
-        value: { profiles: { [parsed.name]: value } },
-      });
-    } catch {
-      sources.push(invalidProfileSource(scope, filePath, keyHint, canonical, "Subagent Profile is invalid."));
+      },
+      message: refreshed.issue.message,
+      diagnosticChanged: refreshed.diagnosticChanged,
+    });
+  }
+
+  for (const unit of refreshed.units) {
+    const filePath = unit.status.path;
+    if (unit.value !== undefined) {
+      const source = profileSource(scope, filePath, unit.name, canonical, unit.value);
+      sources.push(source);
+      if (unit.status.state === "invalid" && unit.issue) {
+        diagnostics.push({
+          severity: "error",
+          code: unit.issue.code,
+          source: sourceReference(source),
+          message: unit.issue.message,
+          usingLastKnownGood: true,
+          diagnosticChanged: unit.status.diagnosticChanged,
+        });
+      }
+      continue;
+    }
+    if (unit.status.state === "invalid") {
+      sources.push(invalidProfileSource(
+        scope,
+        filePath,
+        profileKeyHintFromIssue(unit.issue) ?? basename(unit.name, ".md"),
+        canonical,
+        unit.issue?.message ?? "Subagent Profile is invalid.",
+        unit.issue?.code,
+      ));
     }
   }
-  return sources;
+}
+
+function profileSource(
+  scope: ProfileScope,
+  filePath: string,
+  fileName: string,
+  canonical: boolean,
+  profile: SubagentProfile,
+): ConfigSourceInput {
+  const value = profile.disabled
+    ? { disabled: true as const }
+    : {
+        description: profile.description,
+        provider: profile.provider,
+        ...(profile.model ? { model: profile.model } : {}),
+        ...(profile.thinking ? { thinking: profile.thinking } : {}),
+        body: profile.body,
+      };
+  return {
+    id: `${canonical ? "canonical" : "legacy"}:${scope}:subagent:${fileName}`,
+    scope,
+    kind: "file",
+    location: filePath,
+    priority: canonical ? CANONICAL_PRIORITY : LEGACY_PRIORITY,
+    normalized: true,
+    ...(canonical ? { shadowsLowerPriorityKeys: [`profiles.${profile.name}`] } : { deprecation: LEGACY_DEPRECATION }),
+    value: { profiles: { [profile.name]: value } },
+  };
 }
 
 function invalidProfileSource(
@@ -283,6 +321,7 @@ function invalidProfileSource(
   key: string,
   canonical: boolean,
   message: string,
+  code: "invalid_source" | "missing_environment" = "invalid_source",
 ): ConfigSourceInput {
   return {
     id: `${canonical ? "canonical" : "legacy"}:${scope}:subagent:${basename(filePath)}`,
@@ -291,8 +330,30 @@ function invalidProfileSource(
     location: filePath,
     priority: canonical ? CANONICAL_PRIORITY : LEGACY_PRIORITY,
     ...(canonical ? { shadowsLowerPriorityKeys: [`profiles.${key}`] } : { deprecation: LEGACY_DEPRECATION }),
-    error: { code: "invalid_source", message },
+    error: { code, message },
   };
+}
+
+class SubagentProfileSourceError extends Error {
+  constructor(readonly keyHint?: string) {
+    super("Subagent Profile source is invalid.");
+    this.name = "SubagentProfileSourceError";
+  }
+}
+
+function parseProfileSourceDocument(
+  canonical: boolean,
+  content: string,
+  filePath: string,
+): SubagentProfile {
+  const keyHint = profileKeyHint(content, filePath);
+  try {
+    return canonical
+      ? canonicalProfileFromDocument(content, filePath)
+      : legacyProfileFromDocument(content, filePath);
+  } catch {
+    throw new SubagentProfileSourceError(keyHint);
+  }
 }
 
 function canonicalProfileFromDocument(content: string, filePath: string): SubagentProfile {
@@ -363,6 +424,12 @@ function profileKeyHint(content: string, filePath: string): string | undefined {
   }
 }
 
+function profileKeyHintFromIssue(issue: ConfigSourceRefreshIssue | undefined): string | undefined {
+  if (!issue || !("keyHint" in issue) || typeof issue.keyHint !== "string") return undefined;
+  const trimmed = issue.keyHint.trim();
+  return trimmed || undefined;
+}
+
 function parseFrontmatter(content: string, filePath: string): ParsedFrontmatter {
   const normalized = content.replace(/^\uFEFF/, "");
   const lines = normalized.split(/\r?\n/);
@@ -422,12 +489,28 @@ function readString(frontmatter: Record<string, unknown>, key: string): string |
   return trimmed || undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function sourceReference(source: ConfigSourceInput): ConfigDiagnostic["source"] {
+  return {
+    id: source.id,
+    scope: source.scope,
+    kind: source.kind,
+    ...(source.location ? { location: source.location } : {}),
+    priority: source.priority,
+  };
 }
 
-function isErrno(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
+function mergeDiagnostics(left: ConfigDiagnostic[], right: ConfigDiagnostic[]): ConfigDiagnostic[] {
+  const seen = new Set<string>();
+  return [...left, ...right].filter((diagnostic) => {
+    const key = `${diagnostic.source.id}\0${diagnostic.code}\0${diagnostic.message}\0${diagnostic.usingLastKnownGood === true}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

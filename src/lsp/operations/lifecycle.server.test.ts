@@ -299,6 +299,62 @@ test("capacity refuses new work instead of killing a service with an active sema
   assert.equal(context.codeIntelligence.stats().servicesTotal, 1);
 });
 
+test("disabling a Language-server retires its active generation after current work completes", async (t) => {
+  const context = await createCodeIntelligenceServerFixture(t, {
+    codeIntelligenceOptions: {
+      requestTimeoutMs: 5_000,
+      idleMs: 30_000,
+      cleanupIntervalMs: 30_000,
+    },
+  });
+  const logPath = join(context.project, ".disable-active.log");
+  await prepareSingleProject(context.project);
+  await writeFile(join(context.project, "src", "main.fixture"), "fixture_target()\n");
+  await writeServerConfig(context.project, {
+    custom: {
+      ...definition({
+        FORGERELAY_FAKE_LSP_LOG: logPath,
+        FORGERELAY_FAKE_LSP_REFERENCE_DELAY_MS: "1200",
+      }),
+      languages: ["fixture"],
+      extensions: [".fixture"],
+    },
+  });
+  const opened = await callOpen(context.client, context.project, "lifecycle-disable-active");
+  const workspaceId = structuredContent(opened).workspaceId as string;
+
+  const pending = context.client.callTool(capabilityCall(workspaceId, {
+    operation: "references",
+    path: "src/main.fixture",
+    line: 1,
+    column: 5,
+  }));
+  await waitForMethod(logPath, "textDocument/references");
+
+  await writeServerConfig(context.project, { custom: { disabled: true } });
+  const blocked = await context.client.callTool(capabilityCall(workspaceId, {
+    operation: "hover",
+    path: "src/main.fixture",
+    line: 1,
+    column: 5,
+  }));
+  assert.equal(blocked.isError, true);
+  assert.equal(
+    (structuredContent(blocked).error as { code?: string }).code,
+    "code.language_service_unavailable",
+  );
+  const retiring = context.codeIntelligence.stats();
+  assert.equal(retiring.invalidatedServices, 1);
+  assert.equal(retiring.servicesActive, 1);
+  assert.equal((await readEvents(logPath)).some((event) => event.method === "shutdown"), false);
+
+  const completed = await pending;
+  assert.equal(completed.isError, undefined);
+  await waitFor(() => context.codeIntelligence.stats().servicesTotal === 0);
+  await waitForMethod(logPath, "shutdown");
+  await waitForMethod(logPath, "exit");
+});
+
 test("managed-worktree finalization releases its Language service before removing the worktree", async (t) => {
   const context = await createCodeIntelligenceServerFixture(t, {
     codeIntelligenceOptions: {

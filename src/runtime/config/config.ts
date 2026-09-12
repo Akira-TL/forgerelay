@@ -23,8 +23,10 @@ import {
   resolveConfiguredCommandShellRuntime,
   type CommandShellRuntime,
 } from "../shell/command-shell-runtime.js";
+import { generalConfigDefinition } from "./definition/general-config.js";
 import { resolveGeneralConfig } from "./resolution/general.js";
 import { assertConfigResolutionValid } from "./resolution/resolver.js";
+import { ConfigRuntime, type ConfigAppliedDomainState } from "./runtime/config-runtime.js";
 
 export type ToolMode = "minimal" | "full" | "codex";
 export type WidgetMode = "off" | "changes" | "full";
@@ -42,7 +44,18 @@ export interface LoadConfigOptions {
   projectLocalConfigPath?: string;
 }
 
+export interface LiveGeneralConfigState {
+  applied: ConfigAppliedDomainState;
+  source?: {
+    state: "invalid";
+    usingLastKnownGood: boolean;
+    message: string;
+  };
+}
+
 export interface ServerConfig {
+  /** In-process Config v2 refresh/LKG and startup-applied state. Never persisted. */
+  configRuntime: ConfigRuntime;
   instanceId: string;
   configDir: string;
   host: string;
@@ -383,6 +396,12 @@ export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   options: LoadConfigOptions = {},
 ): ServerConfig {
+  const configRuntime = new ConfigRuntime();
+  const runtimeEnvironment = generalConfigRuntimeEnvironment(env);
+  configRuntime.captureResolutionInputs(generalConfigDefinition.domain, {
+    environment: runtimeEnvironment,
+    ...(options.runtimeOverrides ? { cli: options.runtimeOverrides } : {}),
+  });
   const files = loadForgeRelayFiles(env);
   const generalResolution = resolveGeneralConfig({
     env,
@@ -397,6 +416,7 @@ export function loadConfig(
   });
   assertConfigResolutionValid(generalResolution);
   const config = generalResolution.values as ForgeRelayUserConfig;
+  refreshGeneralUserConfigSource(configRuntime, files.configPath, runtimeEnvironment);
   const instanceId = files.auth.instanceId?.trim() || generateInstanceId();
   const host = config.host ?? "127.0.0.1";
   const port = config.port ?? 7676;
@@ -413,7 +433,8 @@ export function loadConfig(
     ...(config.allowedHosts ?? []),
   ];
 
-  return {
+  const serverConfig: ServerConfig = {
+    configRuntime,
     instanceId,
     configDir: files.dir,
     host,
@@ -452,6 +473,117 @@ export function loadConfig(
     commandShellRuntime,
     shellInstructionsEnabled: config.shellInstructions !== false,
     shellInstructionPath: shellInstructionPath(files.dir, commandShellRuntime.family),
+  };
+  configRuntime.captureApplied(
+    generalConfigDefinition,
+    restartRequiredGeneralValues(config, runtimeEnvironment),
+  );
+  return serverConfig;
+}
+
+export function liveGeneralConfigState(config: ServerConfig): LiveGeneralConfigState {
+  const inputs = config.configRuntime.resolutionInputsFor(generalConfigDefinition.domain);
+  const configPath = join(config.configDir, "config.json");
+  const refreshed = refreshGeneralUserConfigSource(
+    config.configRuntime,
+    configPath,
+    inputs.environment,
+  );
+  const resolution = resolveGeneralConfig({
+    env: inputs.environment,
+    ...(inputs.cli ? { cli: inputs.cli } : {}),
+    ...(refreshed.value !== undefined
+      ? { user: refreshed.value, userSourcePath: configPath }
+      : {}),
+  });
+  const configured = resolution.values as ForgeRelayUserConfig;
+  return {
+    applied: config.configRuntime.snapshotApplied(
+      generalConfigDefinition,
+      restartRequiredGeneralValues(configured, inputs.environment),
+    ),
+    ...(refreshed.status.state === "invalid" && refreshed.issue
+      ? {
+          source: {
+            state: "invalid" as const,
+            usingLastKnownGood: refreshed.status.usingLastKnownGood,
+            message: refreshed.issue.message,
+          },
+        }
+      : {}),
+  };
+}
+
+function refreshGeneralUserConfigSource(
+  runtime: ConfigRuntime,
+  configPath: string,
+  environment: NodeJS.ProcessEnv,
+) {
+  return runtime.sources.refreshFile<ForgeRelayUserConfig>({
+    key: `general:user:${configPath}`,
+    path: configPath,
+    parse: (raw) => JSON.parse(raw) as ForgeRelayUserConfig,
+    parseIssue: {
+      code: "invalid_source",
+      message: "General configuration is not valid JSON.",
+    },
+    readIssue: {
+      code: "invalid_source",
+      message: "General configuration could not be read.",
+    },
+    validate: (value) => {
+      const validation = resolveGeneralConfig({
+        env: environment,
+        user: value,
+        userSourcePath: configPath,
+      });
+      const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+      return error
+        ? { code: error.code === "missing_environment" ? "missing_environment" : "invalid_source", message: error.message }
+        : undefined;
+    },
+  });
+}
+
+function generalConfigRuntimeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const names = new Set<string>(["FORGERELAY_TRUST_PROXY"]);
+  for (const field of Object.values(generalConfigDefinition.fields)) {
+    const configured = field.runtimeOverride?.env;
+    if (!configured) continue;
+    for (const name of Array.isArray(configured) ? configured : [configured]) names.add(name);
+  }
+  return Object.fromEntries(
+    [...names].flatMap((name) => env[name] === undefined ? [] : [[name, env[name]]]),
+  );
+}
+
+function restartRequiredGeneralValues(
+  configured: ForgeRelayUserConfig,
+  env: NodeJS.ProcessEnv,
+): Record<string, unknown> {
+  const host = configured.host ?? "127.0.0.1";
+  const port = configured.port ?? 7676;
+  const publicDeployment = resolvePublicDeployment(configured.publicBaseUrl, host, port);
+  const proxyTrust = resolveProxyTrust(env, configured, host, publicDeployment.canonicalBaseUrl);
+  const derivedAllowedHosts = [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    host,
+    ...publicDeployment.baseUrls.map((baseUrl) => new URL(baseUrl).hostname),
+    ...(configured.allowedHosts ?? []),
+  ];
+  return {
+    host,
+    port,
+    allowedRoots: parseAllowedRoots(configured.allowedRoots),
+    publicBaseUrl: publicDeployment.baseUrls,
+    allowedHosts: parseAllowedHosts(configured.allowedHosts, derivedAllowedHosts),
+    trustedProxies: proxyTrust === false ? [] : proxyTrust,
+    stateDir: resolve(expandHomePath(configured.stateDir ?? defaultStateDir())),
+    worktreeRoot: resolve(expandHomePath(configured.worktreeRoot ?? defaultWorktreeRoot())),
+    agentDir: resolve(expandHomePath(configured.agentDir ?? defaultAgentDir())),
+    commandShell: configured.commandShell,
   };
 }
 

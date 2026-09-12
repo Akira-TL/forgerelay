@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
-import { loadConfig } from "./config.js";
+import { liveGeneralConfigState, loadConfig } from "./config.js";
 import { resolveSubagentsFlag } from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-empty-config-test-"));
@@ -31,6 +31,33 @@ assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "full" }).toolMode, 
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_TOOL_MODE: "codex" }).toolMode, "codex");
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_MINIMAL_TOOLS: "0" }).toolMode, "full");
 assert.equal(loadConfig({ ...baseEnv, FORGERELAY_MINIMAL_TOOLS: "1" }).toolMode, "minimal");
+
+const liveConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-live-config-test-"));
+const liveConfigPath = join(liveConfigDir, "config.json");
+writeFileSync(liveConfigPath, JSON.stringify({ host: "127.0.0.1" }) + "\n");
+const liveRuntime = loadConfig({
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: liveConfigDir,
+});
+assert.equal(liveGeneralConfigState(liveRuntime).applied.restartRequired, false);
+writeFileSync(liveConfigPath, JSON.stringify({ host: "0.0.0.0" }) + "\n");
+const liveChanged = liveGeneralConfigState(liveRuntime);
+assert.equal(liveChanged.applied.restartRequired, true);
+assert.deepEqual(liveChanged.applied.fields.host, {
+  logicalPath: "config.host",
+  configuredValue: "0.0.0.0",
+  appliedValue: "127.0.0.1",
+  restartRequired: true,
+});
+assert.equal(liveRuntime.host, "127.0.0.1", "configured restart-required changes do not mutate running state");
+writeFileSync(liveConfigPath, "{ invalid json\n");
+const liveInvalid = liveGeneralConfigState(liveRuntime);
+assert.equal(liveInvalid.applied.fields.host?.configuredValue, "0.0.0.0");
+assert.deepEqual(liveInvalid.source, {
+  state: "invalid",
+  usingLastKnownGood: true,
+  message: "General configuration is not valid JSON.",
+});
 
 const forgeRelayConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-config-test-"));
 writeFileSync(

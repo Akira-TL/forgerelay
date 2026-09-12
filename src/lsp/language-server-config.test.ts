@@ -5,6 +5,7 @@ import { delimiter, join } from "node:path";
 import test from "node:test";
 import { ProjectContextResolver } from "../workspaces/state/project-context.js";
 import { resolveLanguageServersConfig } from "../runtime/config/resolution/language-servers.js";
+import { ConfigSourceRuntime } from "../runtime/config/runtime/source-refresh.js";
 import {
   LanguageServerConfigurationError,
   resolveLanguageProject,
@@ -90,6 +91,74 @@ test("Project Local canonical Language-server config outranks project and user d
   assert.equal(resolved.definition.id, "selected");
   assert.equal(resolved.definition.command, process.execPath);
   assert.equal(resolved.definition.source, "project-local");
+});
+
+test("Language Server demand refresh keeps last-known-good for an invalid replacement", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-language-config-lkg-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  await mkdir(join(root, "src"), { recursive: true });
+  await mkdir(configDir, { recursive: true });
+  await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
+  const configPath = join(configDir, "language-servers.json");
+  await writeFile(configPath, JSON.stringify({
+    selected: {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+    },
+  }) + "\n");
+  const sourceRuntime = new ConfigSourceRuntime();
+
+  const first = await resolveLanguageProject({
+    workspaceRoot: root,
+    sourcePath: "src/main.ts",
+    configDir,
+    sourceRuntime,
+  });
+  assert.equal(first.definition.id, "selected");
+
+  await writeFile(configPath, '{"selected":{"command":42}}\n', "utf8");
+  const retained = await resolveLanguageProject({
+    workspaceRoot: root,
+    sourcePath: "src/main.ts",
+    configDir,
+    sourceRuntime,
+  });
+  assert.equal(retained.definition.id, "selected");
+  assert.equal(retained.definition.command, process.execPath);
+
+  const liveResolution = await resolveLanguageServersConfig({ configDir, sourceRuntime });
+  const diagnostic = liveResolution.diagnostics.find((entry) => entry.usingLastKnownGood === true);
+  assert.ok(diagnostic);
+  assert.equal(diagnostic?.diagnosticChanged, false, "same invalid fingerprint is deduplicated after the operation refresh");
+});
+
+test("invalid higher-scope Language Server source degrades to a safe lower-scope definition", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-language-config-degrade-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  await mkdir(join(root, "src"), { recursive: true });
+  await mkdir(join(root, ".forgerelay"), { recursive: true });
+  await mkdir(configDir, { recursive: true });
+  await writeFile(join(root, "src", "main.ts"), "const value = 1;\n");
+  await writeFile(join(configDir, "language-servers.json"), JSON.stringify({
+    user: {
+      command: process.execPath,
+      languages: ["typescript"],
+      extensions: [".ts"],
+    },
+  }) + "\n");
+  await writeFile(join(root, ".forgerelay", "language-servers.json"), '{"broken":{"command":42}}\n');
+
+  const resolved = await resolveLanguageProject({
+    workspaceRoot: root,
+    sourcePath: "src/main.ts",
+    configDir,
+    sourceRuntime: new ConfigSourceRuntime(),
+  });
+  assert.equal(resolved.definition.id, "user");
+  assert.equal(resolved.definition.source, "global");
 });
 
 test("Language Server env interpolation is field-limited and provenance never retains resolved secrets", async (t) => {

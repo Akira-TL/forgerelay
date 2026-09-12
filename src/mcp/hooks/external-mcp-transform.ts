@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import type { LoggingConfig } from "../../runtime/logging/logger.js";
+import { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../runtime/logging/logger.js";
 import {
   resolveCompatibilityCommandShellRuntime,
@@ -69,6 +70,7 @@ export class ExternalMcpTransformRunner {
     commandShellRuntime?: CommandShellRuntime,
     mediaMaxBytes = 20 * 1024 * 1024,
     private readonly configDir?: string,
+    private readonly sourceRuntime: ConfigSourceRuntime = new ConfigSourceRuntime(),
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -119,6 +121,7 @@ export class ExternalMcpTransformRunner {
       legacyUser: this.hooks,
       ...(this.configDir ? { configDir: this.configDir } : {}),
       ...(context.project ? { project: context.project } : {}),
+      sourceRuntime: this.sourceRuntime,
     });
     const handlers = plan.handlers;
 

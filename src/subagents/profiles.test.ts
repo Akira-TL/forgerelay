@@ -118,7 +118,7 @@ test("invalid canonical Subagent Profile shadows only the same-name legacy profi
     name: "reviewer",
     description: "Legacy reviewer.",
   }));
-  const invalidCanonical = join(configDir, "subagents", "reviewer.md");
+  const invalidCanonical = join(configDir, "subagents", "custom-name.md");
   await writeFile(invalidCanonical, profile({
     name: "reviewer",
     description: "Broken canonical reviewer.",
@@ -133,12 +133,64 @@ test("invalid canonical Subagent Profile shadows only the same-name legacy profi
   const invalidResolution = await resolveSubagentProfilesConfig(config, workspaceRoot);
   assert.deepEqual((await loadSubagentProfiles(config, workspaceRoot)).map((entry) => entry.name), ["helper"]);
   assert.equal(invalidResolution.diagnostics.filter((diagnostic) => diagnostic.code === "invalid_source").length, 1);
-  assert.match(invalidResolution.diagnostics.find((diagnostic) => diagnostic.code === "invalid_source")?.source.location ?? "", /reviewer\.md$/);
+  assert.match(invalidResolution.diagnostics.find((diagnostic) => diagnostic.code === "invalid_source")?.source.location ?? "", /custom-name\.md$/);
 
   await unlink(invalidCanonical);
   const revealed = await loadSubagentProfiles(config, workspaceRoot);
   assert.deepEqual(revealed.map((entry) => entry.name), ["helper", "reviewer"]);
   assert.equal(revealed.find((entry) => entry.name === "reviewer")?.description, "Legacy reviewer.");
+});
+
+test("Subagent Profile demand refresh keeps per-file LKG and deletion clears it", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-subagent-lkg-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  const workspaceRoot = join(root, "project");
+  await mkdir(join(configDir, "subagents"), { recursive: true });
+  await mkdir(workspaceRoot, { recursive: true });
+  const path = join(configDir, "subagents", "reviewer.md");
+  await writeFile(path, profile({
+    name: "reviewer",
+    description: "First reviewer.",
+    provider: "codex",
+    body: "First body.",
+  }));
+  const config = enabledConfig(configDir, workspaceRoot);
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+  t.after(() => {
+    console.warn = originalWarn;
+  });
+
+  const first = await loadSubagentProfiles(config, workspaceRoot);
+  assert.equal(first[0]?.description, "First reviewer.");
+  assert.equal(first[0]?.body, "First body.");
+
+  await writeFile(path, profile({
+    name: "reviewer",
+    description: "Broken reviewer.",
+    provider: "unsupported-provider",
+  }));
+  const retained = await loadSubagentProfiles(config, workspaceRoot);
+  assert.equal(retained[0]?.description, "First reviewer.");
+  assert.equal(warnings.length, 1, "first invalid fingerprint is reported once");
+  const invalidResolution = await resolveSubagentProfilesConfig(config, workspaceRoot);
+  const lkgDiagnostic = invalidResolution.diagnostics.find((diagnostic) => diagnostic.usingLastKnownGood === true);
+  assert.ok(lkgDiagnostic);
+  assert.equal(lkgDiagnostic?.diagnosticChanged, false);
+  await loadSubagentProfiles(config, workspaceRoot);
+  assert.equal(warnings.length, 1, "unchanged invalid fingerprint does not spam warnings");
+
+  await unlink(path);
+  assert.deepEqual(await loadSubagentProfiles(config, workspaceRoot), []);
+
+  await writeFile(path, profile({
+    name: "reviewer",
+    description: "Still broken.",
+    provider: "unsupported-provider",
+  }));
+  assert.deepEqual(await loadSubagentProfiles(config, workspaceRoot), []);
 });
 
 test("canonical disabled Subagent Profile is a keyed tombstone that masks lower scopes", async (t) => {

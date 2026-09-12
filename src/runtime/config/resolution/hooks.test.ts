@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { ProjectContextResolver } from "../../../workspaces/state/project-context.js";
+import { ConfigSourceRuntime } from "../runtime/source-refresh.js";
 import { resolveHooksConfig } from "./hooks.js";
 
 test("Hook Config v2 composes independent files and resolves same-name entries by scope", async (t) => {
@@ -38,6 +39,44 @@ test("Hook Config v2 composes independent files and resolves same-name entries b
   assert.equal(resolution.entries["hooks.user-only"]?.effective.source.scope, "user");
   assert.equal(resolution.diagnostics.filter((diagnostic) => diagnostic.code === "invalid_source").length, 1);
   assert.match(resolution.diagnostics[0]?.source.location ?? "", /broken\.json$/);
+});
+
+test("Hook directory refresh retains last-known-good per file and deletion clears that contribution", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hook-config-lkg-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  const projectRoot = join(root, "project");
+  await mkdir(join(configDir, "hooks"), { recursive: true });
+  await mkdir(projectRoot, { recursive: true });
+  const project = await new ProjectContextResolver(configDir).resolve(projectRoot);
+  const retainedPath = join(configDir, "hooks", "retained.json");
+  const siblingPath = join(configDir, "hooks", "sibling.json");
+  await writeFile(retainedPath, JSON.stringify({ event: "AfterTool", command: "first" }) + "\n");
+  await writeFile(siblingPath, JSON.stringify({ event: "AfterTool", command: "sibling" }) + "\n");
+  const sourceRuntime = new ConfigSourceRuntime();
+
+  const first = await resolveHooksConfig({ configDir, project, sourceRuntime });
+  assert.equal((first.values.hooks as Record<string, Array<{ command: string }>>).retained?.[0]?.command, "first");
+
+  await writeFile(retainedPath, "{ invalid json\n");
+  const invalid = await resolveHooksConfig({ configDir, project, sourceRuntime });
+  const invalidHooks = invalid.values.hooks as Record<string, Array<{ command: string }>>;
+  assert.equal(invalidHooks.retained?.[0]?.command, "first");
+  assert.equal(invalidHooks.sibling?.[0]?.command, "sibling");
+  const lkgDiagnostic = invalid.diagnostics.find((diagnostic) => diagnostic.usingLastKnownGood === true);
+  assert.ok(lkgDiagnostic);
+  assert.equal(lkgDiagnostic?.diagnosticChanged, true);
+
+  const sameInvalid = await resolveHooksConfig({ configDir, project, sourceRuntime });
+  assert.equal(
+    sameInvalid.diagnostics.find((diagnostic) => diagnostic.usingLastKnownGood === true)?.diagnosticChanged,
+    false,
+  );
+
+  await unlink(retainedPath);
+  const deleted = await resolveHooksConfig({ configDir, project, sourceRuntime });
+  assert.equal((deleted.values.hooks as Record<string, unknown>).retained, undefined);
+  assert.ok((deleted.values.hooks as Record<string, unknown>).sibling);
 });
 
 test("invalid canonical Hook shadows only the same-name legacy Hook and repair resolves predictably", async (t) => {

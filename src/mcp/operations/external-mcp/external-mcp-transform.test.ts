@@ -114,6 +114,39 @@ void test("external MCP transform Hooks explicitly adapt request/result while un
   assert.equal(workspaceId.startsWith("ws_"), true);
 });
 
+void test("external MCP transform Hooks retain canonical last-known-good across calls", async (t) => {
+  const scripts = await createTransformScripts(t);
+  const context = await createExternalTransformFixture(t, {});
+  const hooksDir = join(context.project, ".forgerelay", "hooks");
+  await mkdir(hooksDir, { recursive: true });
+  const hookPath = join(hooksDir, "rewrite-external-request.json");
+  await writeFile(hookPath, JSON.stringify({
+    event: "ExternalMcpBeforeForward",
+    matcher: {
+      tool: "capability",
+      capability: "mcp.external",
+      externalServer: "blender",
+      externalTool: "echo_text",
+    },
+    command: scripts.transform,
+  }) + "\n");
+  const { call } = await openExternalCapability(context, "chat-external-transform-lkg");
+
+  const first = await call("echo_text", { message: "first" });
+  assert.equal(first.isError, undefined, allResponseText(first));
+  assert.equal(allResponseText(first), "echo:hooked:first");
+
+  await writeFile(hookPath, "{ invalid json\n");
+  const retained = await call("echo_text", { message: "second" });
+  assert.equal(retained.isError, undefined, allResponseText(retained));
+  assert.match(allResponseText(retained), /^echo:hooked:second/);
+  assert.match(allResponseText(retained), /Hook configuration file is not valid JSON/);
+
+  const sameInvalid = await call("echo_text", { message: "third" });
+  assert.equal(sameInvalid.isError, undefined, allResponseText(sameInvalid));
+  assert.equal(allResponseText(sameInvalid), "echo:hooked:third");
+});
+
 void test("transformed external MCP media is revalidated by the normal media budget", async (t) => {
   const scripts = await createTransformScripts(t);
   const context = await createExternalTransformFixture(t, {

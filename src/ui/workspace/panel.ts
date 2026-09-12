@@ -122,6 +122,7 @@ export class WorkspacePanelController {
     appendWorkspaceTextRow(rows, "Root", card.root, toolIcons.folderOpen, true);
     appendWorkspaceTextRow(rows, "Mode", card.mode ?? "workspace", toolIcons.folderTree);
     this.appendExecutionContextRows(rows, card);
+    this.appendConfigurationRows(rows, card);
 
     if (card.worktree) this.appendWorktreeRows(rows, card);
     if (card.sourceRoot && card.sourceRoot !== card.root) {
@@ -172,6 +173,31 @@ export class WorkspacePanelController {
         "Runtime privilege",
         execution.runtimePrivilege.level,
         execution.runtimePrivilege.level === "standard" ? toolIcons.terminal : toolIcons.warning,
+      );
+    }
+  }
+
+  private appendConfigurationRows(container: HTMLElement, card: WorkspacePanelCard): void {
+    const configuration = card.configuration;
+    if (!configuration) return;
+    const restartRequired = configuration.restartRequired ?? [];
+    if (restartRequired.length > 0) {
+      const summary = restartRequired.map((field) => {
+        const path = field.logicalPath ?? "configuration";
+        return `${path}: ${formatConfigValue(field.configuredValue)} (running ${formatConfigValue(field.appliedValue)})`;
+      }).join("; ");
+      appendWorkspaceTextRow(container, "Restart required", summary, toolIcons.warning);
+    }
+    const source = configuration.source;
+    if (source?.state === "invalid") {
+      const prefix = source.usingLastKnownGood
+        ? "Using last-known-good configuration"
+        : "Configuration is invalid";
+      appendWorkspaceTextRow(
+        container,
+        source.usingLastKnownGood ? "Config fallback" : "Config issue",
+        source.message ? `${prefix}: ${source.message}` : prefix,
+        toolIcons.warning,
       );
     }
   }
@@ -513,6 +539,13 @@ function renderWorkspaceChips(chips: WorkspaceChip[]): HTMLElement {
     list.append(item);
   }
   return list;
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === undefined) return "<unset>";
+  if (typeof value === "string") return JSON.stringify(value);
+  const serialized = JSON.stringify(value);
+  return serialized ?? String(value);
 }
 
 function workspaceBasename(path: string): string {

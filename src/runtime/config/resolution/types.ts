@@ -42,6 +42,10 @@ export interface ConfigDiagnostic {
   source: ConfigSourceReference;
   logicalPath?: string;
   message: string;
+  /** Live runtime only: the invalid observed revision is currently falling back to in-process LKG. */
+  usingLastKnownGood?: boolean;
+  /** Live runtime only: true only when this invalid observed fingerprint changed since the prior demand refresh. */
+  diagnosticChanged?: boolean;
 }
 
 export interface ConfigValueProvenance {

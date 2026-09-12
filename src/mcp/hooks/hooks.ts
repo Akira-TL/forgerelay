@@ -18,6 +18,7 @@ import {
   effectiveHookConfigEntries,
   resolveHooksConfig,
 } from "../../runtime/config/resolution/hooks.js";
+import { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
 import { HOOK_EVENTS, type ResolvedHookEntryInput } from "./config.js";
 
 export { HOOK_EVENTS } from "./config.js";
@@ -342,7 +343,7 @@ export async function resolveHookExecutionPlan(input: {
   invocation: HookInvocation;
   legacyUser: HookConfig;
   configDir?: string;
-  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
+  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">; sourceRuntime?: ConfigSourceRuntime;
 }): Promise<HookExecutionPlan> {
   let projectRoot = input.event === "AfterWorktreeClose" && input.invocation.sourceRoot
     ? input.invocation.sourceRoot
@@ -362,7 +363,7 @@ export async function resolveHookExecutionPlan(input: {
     ...(input.configDir ? { configDir: input.configDir } : {}),
     ...(project ? { project } : {}),
     projectSharedConfigDir: join(projectRoot, ".forgerelay"),
-    legacyUser: input.legacyUser,
+    legacyUser: input.legacyUser, ...(input.sourceRuntime ? { sourceRuntime: input.sourceRuntime } : {}),
   });
   const handlers = effectiveHookConfigEntries(resolution).flatMap((entry) =>
     entry.entries.flatMap((hook) => {
@@ -388,7 +389,7 @@ export class HookRunner {
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
     private readonly resultDecorator?: (workspaceId: string, result: unknown) => unknown,
     commandShellRuntime?: CommandShellRuntime,
-    private readonly configDir?: string,
+    private readonly configDir?: string, private readonly sourceRuntime: ConfigSourceRuntime = new ConfigSourceRuntime(),
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -409,7 +410,7 @@ export class HookRunner {
       event,
       invocation,
       legacyUser: this.hooks,
-      ...(this.configDir ? { configDir: this.configDir } : {}),
+      ...(this.configDir ? { configDir: this.configDir } : {}), sourceRuntime: this.sourceRuntime,
     });
     const blocking = BLOCKING_EVENTS.has(event);
     const executions: HookExecutionReport[] = hookResolutionReports(plan.resolution, event);
@@ -527,7 +528,7 @@ function hookResolutionReports(
 ): HookExecutionReport[] {
   const grouped = new Map<"global" | "project", string[]>();
   for (const diagnostic of resolution.diagnostics) {
-    if (diagnostic.severity !== "error") continue;
+    if (diagnostic.severity !== "error" || diagnostic.diagnosticChanged === false) continue;
     const scope = diagnostic.source.scope === "user"
       ? "global"
       : diagnostic.source.scope === "project" || diagnostic.source.scope === "project-local"

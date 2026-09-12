@@ -57,6 +57,8 @@ export async function executeSubagentRun(
       process.env,
       undefined,
       config.commandShellRuntime,
+      config.configDir,
+      config.configRuntime.sources,
     );
     const hookInvocation = {
       workspaceId: record.workspaceId,

@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ProjectContext } from "../../workspaces/state/project-context.js";
 import { externalMcpConfigDefinition } from "./definition/external-mcp.js";
@@ -15,6 +13,7 @@ import type {
   ConfigSourceInput,
   ResolvedConfigDomain,
 } from "./resolution/types.js";
+import { ConfigSourceRuntime } from "./runtime/source-refresh.js";
 
 export type ExternalMcpConfigSource = "legacy" | "global" | "project" | "project-local";
 
@@ -45,18 +44,17 @@ export interface ExternalMcpRegistryOptions {
   configDir: string;
   legacyServers?: ExternalMcpServersConfig;
   environment?: NodeJS.ProcessEnv;
+  sourceRuntime?: ConfigSourceRuntime;
   onDiagnostic?: (diagnostic: ExternalMcpConfigDiagnostic) => void;
 }
 
 interface DynamicSourceSnapshot {
-  observedFingerprint: string;
-  value?: Record<string, unknown>;
+  value?: unknown;
   hasLastKnownGood: boolean;
   status: ExternalMcpConfigSourceStatus;
   diagnostic?: ExternalMcpConfigDiagnostic;
 }
 
-const MISSING_FINGERPRINT = "missing";
 const CANONICAL_PRIORITY = 100;
 const LEGACY_PRIORITY = 0;
 const MAX_DIAGNOSTIC_LENGTH = 320;
@@ -70,13 +68,14 @@ export class ExternalMcpConfigRegistry {
   private readonly configDir: string;
   private readonly legacyServers: ExternalMcpServersConfig;
   private readonly environment: NodeJS.ProcessEnv;
+  private readonly sourceRuntime: ConfigSourceRuntime;
   private readonly onDiagnostic?: ExternalMcpRegistryOptions["onDiagnostic"];
-  private readonly sourceSnapshots = new Map<string, DynamicSourceSnapshot>();
 
   constructor(options: ExternalMcpRegistryOptions) {
     this.configDir = resolve(options.configDir);
     this.legacyServers = { ...(options.legacyServers ?? {}) };
     this.environment = options.environment ?? process.env;
+    this.sourceRuntime = options.sourceRuntime ?? new ConfigSourceRuntime();
     this.onDiagnostic = options.onDiagnostic;
   }
 
@@ -159,108 +158,52 @@ export class ExternalMcpConfigRegistry {
     scope: "user" | "project" | "project-local",
     path: string,
   ): DynamicSourceSnapshot {
-    const cacheKey = `${source}\0${path}`;
-    const previous = this.sourceSnapshots.get(cacheKey);
-    let content: string;
-    try {
-      content = readFileSync(path, "utf8");
-    } catch (error) {
-      if (isMissingFileError(error)) {
-        if (previous?.observedFingerprint === MISSING_FINGERPRINT) return previous;
-        const missing: DynamicSourceSnapshot = {
-          observedFingerprint: MISSING_FINGERPRINT,
-          hasLastKnownGood: false,
-          status: {
-            source,
-            path,
-            state: "missing",
-            usingLastKnownGood: false,
-          },
-        };
-        this.sourceSnapshots.set(cacheKey, missing);
-        return missing;
-      }
-      const fingerprint = `read-error:${errorCode(error)}`;
-      if (previous?.observedFingerprint === fingerprint) return previous;
-      const invalid = this.invalidSource(source, path, fingerprint, previous, {
-        code: "invalid_source",
-        message: "Configuration source could not be read.",
-      });
-      this.sourceSnapshots.set(cacheKey, invalid);
-      return invalid;
-    }
-
-    const fingerprint = createHash("sha256").update(content).digest("base64url");
-    if (previous?.observedFingerprint === fingerprint) return previous;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content) as unknown;
-    } catch {
-      const invalid = this.invalidSource(source, path, fingerprint, previous, {
+    const refreshed = this.sourceRuntime.refreshFile<unknown>({
+      key: `external-mcp:${source}:${path}`,
+      path,
+      parse: (content) => JSON.parse(content) as unknown,
+      parseIssue: {
         code: "invalid_source",
         message: "Configuration source is not valid JSON.",
-      });
-      this.sourceSnapshots.set(cacheKey, invalid);
-      return invalid;
-    }
-
-    const candidate = canonicalSourceInput(source, scope, path, parsed);
-    const validation = resolveConfigDomain({
-      definition: externalMcpConfigDefinition,
-      sources: [candidate],
-      environment: this.environment,
+      },
+      readIssue: {
+        code: "invalid_source",
+        message: "Configuration source could not be read.",
+      },
+      validate: (value) => {
+        const validation = resolveConfigDomain({
+          definition: externalMcpConfigDefinition,
+          sources: [canonicalSourceInput(source, scope, path, value)],
+          environment: this.environment,
+        });
+        const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+        if (!error) return undefined;
+        return {
+          code: error.code === "missing_environment" ? "missing_environment" : "invalid_source",
+          message: error.message,
+        };
+      },
     });
-    const error = validation.diagnostics.find((diagnostic) => diagnostic.severity === "error");
-    if (error) {
-      const invalid = this.invalidSource(source, path, fingerprint, previous, {
-        code: error.code === "missing_environment" ? "missing_environment" : "invalid_source",
-        message: error.message,
-      });
-      this.sourceSnapshots.set(cacheKey, invalid);
-      return invalid;
-    }
-
-    const valid: DynamicSourceSnapshot = {
-      observedFingerprint: fingerprint,
-      value: parsed as Record<string, unknown>,
-      hasLastKnownGood: true,
-      status: {
-        source,
-        path,
-        state: "valid",
-        usingLastKnownGood: false,
-      },
-    };
-    this.sourceSnapshots.set(cacheKey, valid);
-    return valid;
-  }
-
-  private invalidSource(
-    source: Exclude<ExternalMcpConfigSource, "legacy">,
-    path: string,
-    observedFingerprint: string,
-    previous: DynamicSourceSnapshot | undefined,
-    error: { code: "invalid_source" | "missing_environment"; message: string },
-  ): DynamicSourceSnapshot {
-    const diagnostic: ExternalMcpConfigDiagnostic = {
-      source,
-      path,
-      severity: "error",
-      code: error.code,
-      message: boundedDiagnosticMessage(error.message),
-    };
-    this.onDiagnostic?.(diagnostic);
+    const diagnostic = refreshed.status.state === "invalid" && refreshed.issue
+      ? {
+          source,
+          path,
+          severity: "error" as const,
+          code: refreshed.issue.code,
+          message: boundedDiagnosticMessage(refreshed.issue.message),
+        }
+      : undefined;
+    if (diagnostic && refreshed.status.diagnosticChanged) this.onDiagnostic?.(diagnostic);
     return {
-      observedFingerprint,
-      ...(previous?.hasLastKnownGood && previous.value ? { value: previous.value } : {}),
-      hasLastKnownGood: previous?.hasLastKnownGood === true && previous.value !== undefined,
+      ...(refreshed.value !== undefined ? { value: refreshed.value } : {}),
+      hasLastKnownGood: refreshed.status.usingLastKnownGood || refreshed.status.state === "valid",
       status: {
         source,
         path,
-        state: "invalid",
-        usingLastKnownGood: previous?.hasLastKnownGood === true && previous.value !== undefined,
+        state: refreshed.status.state,
+        usingLastKnownGood: refreshed.status.usingLastKnownGood,
       },
-      diagnostic,
+      ...(diagnostic ? { diagnostic } : {}),
     };
   }
 }
