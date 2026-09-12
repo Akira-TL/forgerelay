@@ -301,7 +301,7 @@ export function createMcpServer(
           if (!config.allowAgentLanguageServerInstall) {
             throw new CapabilityError(
               "code.managed_install_disabled",
-              "Agent-managed Language Server installation is disabled. Enable it explicitly with forgerelay init --force.",
+              "Agent-managed Language Server installation is disabled. Enable it explicitly with forgerelay init --advanced.",
             );
           }
           const install = options.managedLanguageServerInstaller ?? installManagedLanguageServers;

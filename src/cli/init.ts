@@ -22,18 +22,18 @@ import {
   generateInstanceId,
   generateOwnerToken,
   loadForgeRelayFiles,
-  resolveSubagentsFlag,
   writeForgeRelayAuth,
   writeForgeRelayConfig,
   type ForgeRelayUserConfig,
 } from "../runtime/config/user-config.js";
+import { generalConfigDefinition } from "../runtime/config/definition/general-config.js";
+import { configSchemaId } from "../runtime/config/definition/schema.js";
 import {
   classifyClientFacingBaseUrl,
   compactPublicBaseUrlConfig,
   hasInsecureLanBaseUrl,
   isLoopbackBindAddress,
   normalizePublicBaseUrlsInput,
-  setupBindAddress,
   SetupCancelledError,
   textPrompt,
   validateHttpsProxyBaseUrls,
@@ -52,10 +52,11 @@ import {
   shellFamiliesForCustomSelection,
   type CommandShellSetupChoice,
 } from "./shell/setup.js";
+import { applySetupConfig, type AdvancedSetupSelection } from "./init/setup-config.js";
 
-export async function runInit({ force, version }: { force: boolean; version: string }): Promise<void> {
+export async function runInit({ force, advanced, version }: { force: boolean; advanced: boolean; version: string }): Promise<void> {
   const files = loadForgeRelayFiles();
-  if (!force && files.configExists && files.authExists) {
+  if (!force && !advanced && files.configExists && files.authExists) {
     prompts.log.info(`ForgeRelay is already configured at ${files.dir}`);
     prompts.log.info("Run `forgerelay init --force` to update it.");
     return;
@@ -77,13 +78,14 @@ export async function runInit({ force, version }: { force: boolean; version: str
       .filter(Boolean);
 
     const defaultPort = String(files.config.port ?? 7676);
-    const portAnswer = await textPrompt({
-      message: `Which local port should ForgeRelay use? Press Enter to use ${defaultPort}`,
-      placeholder: defaultPort,
-      defaultValue: defaultPort,
-      validate: validatePort,
-    });
-    const port = Number(portAnswer);
+    const port = advanced
+      ? Number(await textPrompt({
+          message: `Which local port should ForgeRelay use? Press Enter to use ${defaultPort}`,
+          placeholder: defaultPort,
+          defaultValue: defaultPort,
+          validate: validatePort,
+        }))
+      : Number(defaultPort);
 
     const existingPublicBaseUrls = Array.isArray(files.config.publicBaseUrl)
       ? files.config.publicBaseUrl
@@ -122,10 +124,8 @@ export async function runInit({ force, version }: { force: boolean; version: str
     if (prompts.isCancel(selectedMode)) throw new SetupCancelledError();
     const networkMode = selectedMode as SetupNetworkMode;
 
-    const host = setupBindAddress(networkMode);
-    let publicBaseUrl: ForgeRelayUserConfig["publicBaseUrl"] = null;
+    let publicBaseUrl: ForgeRelayUserConfig["publicBaseUrl"] | undefined;
     let clientFacingBaseUrls = [`http://127.0.0.1:${port}`];
-    const trustedProxies = networkMode === "proxy" ? ["loopback"] : undefined;
 
     if (networkMode === "lan" || networkMode === "proxy") {
       const validateBaseUrls = networkMode === "lan"
@@ -174,116 +174,121 @@ export async function runInit({ force, version }: { force: boolean; version: str
       publicBaseUrl = compactPublicBaseUrlConfig(clientFacingBaseUrls);
     }
 
-    const launcherShell = detectLauncherCommandShell();
-    const selectedShellChoice = await prompts.select({
-      message: "Which command shell should Agent commands and Hooks use?",
-      initialValue: defaultCommandShellSetupChoice(files.config.commandShell),
-      options: commandShellSetupOptions(process.platform, files.config.commandShell, launcherShell),
-    });
-    if (prompts.isCancel(selectedShellChoice)) throw new SetupCancelledError();
-
-    let commandShell: CommandShellPreference;
-    const shellChoice = selectedShellChoice as CommandShellSetupChoice;
-    if (shellChoice === "follow-launcher") {
-      commandShell = followLauncherPreference(files.config.commandShell, launcherShell);
-    } else if (shellChoice === "keep-pinned") {
-      commandShell = preservePinnedPreference(files.config.commandShell);
-    } else if (shellChoice === "custom") {
-      const customFamily = await prompts.select({
-        message: "Which command language does the custom executable implement?",
-        options: shellFamiliesForCustomSelection(),
-      });
-      if (prompts.isCancel(customFamily)) throw new SetupCancelledError();
-      const executable = await textPrompt({
-        message: "What is the command-shell executable path?",
-        placeholder: process.platform === "win32" ? "D:\\Portable\\PowerShell\\pwsh.exe" : "/opt/custom/bin/zsh",
-        defaultValue: "",
-        validate: (value) => value?.trim() ? undefined : "Enter an executable path.",
-      });
-      commandShell = customPinnedPreference(customFamily as CommandShellFamily, executable);
-    } else {
-      commandShell = pinnedFamilyPreference(shellChoice);
-    }
-
-    const shellWarning = commandShellCompatibilityWarning(commandShell.family);
-    if (shellWarning) prompts.note(shellWarning, "Command shell compatibility");
-
-    const shellInstructionFamilies = shellInstructionFamiliesToSeed(process.platform, commandShell.family);
-    let shellInstructions = files.config.shellInstructions;
+    let advancedSelection: AdvancedSetupSelection | undefined;
+    let commandShell: CommandShellPreference | undefined = files.config.commandShell;
+    let shellInstructionFamilies: ReturnType<typeof shellInstructionFamiliesToSeed> = [];
+    let shellInstructions = files.config.shellInstructions ?? false;
     let shellInstructionSeedResults: ShellInstructionSeedResult[] = [];
-    if (shellInstructionFamilies.length > 0) {
-      const shellInstructionsAnswer = await prompts.confirm({
-        message: "Load ForgeRelay-provided extra Instructions for this command shell?",
-        initialValue: files.config.shellInstructions !== false,
+    if (advanced) {
+      const launcherShell = detectLauncherCommandShell();
+      const selectedShellChoice = await prompts.select({
+        message: "Which command shell should Agent commands and Hooks use?",
+        initialValue: defaultCommandShellSetupChoice(files.config.commandShell),
+        options: commandShellSetupOptions(process.platform, files.config.commandShell, launcherShell),
       });
-      if (prompts.isCancel(shellInstructionsAnswer)) throw new SetupCancelledError();
-      shellInstructions = shellInstructionsAnswer === true;
-      shellInstructionSeedResults = await seedShellInstructionFiles({
-        configDir: files.dir,
-        version,
-        families: shellInstructionFamilies,
+      if (prompts.isCancel(selectedShellChoice)) throw new SetupCancelledError();
+
+      const shellChoice = selectedShellChoice as CommandShellSetupChoice;
+      if (shellChoice === "follow-launcher") {
+        commandShell = followLauncherPreference(files.config.commandShell, launcherShell);
+      } else if (shellChoice === "keep-pinned") {
+        commandShell = preservePinnedPreference(files.config.commandShell);
+      } else if (shellChoice === "custom") {
+        const customFamily = await prompts.select({
+          message: "Which command language does the custom executable implement?",
+          options: shellFamiliesForCustomSelection(),
+        });
+        if (prompts.isCancel(customFamily)) throw new SetupCancelledError();
+        const executable = await textPrompt({
+          message: "What is the command-shell executable path?",
+          placeholder: process.platform === "win32" ? "D:\\Portable\\PowerShell\\pwsh.exe" : "/opt/custom/bin/zsh",
+          defaultValue: "",
+          validate: (value) => value?.trim() ? undefined : "Enter an executable path.",
+        });
+        commandShell = customPinnedPreference(customFamily as CommandShellFamily, executable);
+      } else {
+        commandShell = pinnedFamilyPreference(shellChoice);
+      }
+
+      const shellWarning = commandShellCompatibilityWarning(commandShell.family);
+      if (shellWarning) prompts.note(shellWarning, "Command shell compatibility");
+
+      shellInstructionFamilies = shellInstructionFamiliesToSeed(process.platform, commandShell.family);
+      if (shellInstructionFamilies.length > 0) {
+        const shellInstructionsAnswer = await prompts.confirm({
+          message: "Enable ForgeRelay Runtime Shell Instructions for this command shell?",
+          initialValue: files.config.shellInstructions === true,
+        });
+        if (prompts.isCancel(shellInstructionsAnswer)) throw new SetupCancelledError();
+        shellInstructions = shellInstructionsAnswer === true;
+        if (shellInstructions) {
+          shellInstructionSeedResults = await seedShellInstructionFiles({
+            configDir: files.dir,
+            version,
+            families: shellInstructionFamilies,
+          });
+          const failedShellInstructions = shellInstructionSeedResults.filter((result) => result.status === "failed");
+          if (failedShellInstructions.length > 0) {
+            prompts.note(
+              failedShellInstructions.map((result) =>
+                `${result.family}: ${result.error ?? "download failed"}\n${result.sourceUrl}`
+              ).join("\n\n"),
+              "Shell Instructions unavailable",
+            );
+          }
+        }
+      }
+
+      const installedManaged = installedManagedLanguageServers(files.dir);
+      const selectedManaged = await prompts.multiselect({
+        message: "Which Language Servers should ForgeRelay manage with npm?",
+        options: managedLanguageServerOptions(),
+        initialValues: installedManaged,
+        required: false,
       });
-      const failedShellInstructions = shellInstructionSeedResults.filter((result) => result.status === "failed");
-      if (failedShellInstructions.length > 0) {
+      if (prompts.isCancel(selectedManaged)) throw new SetupCancelledError();
+      const managedIds = selectedManaged as ManagedLanguageServerId[];
+      const allowAgentInstallAnswer = await prompts.confirm({
+        message: "Allow Agents to install or update ForgeRelay-managed Language Servers on demand?",
+        initialValue: files.config.allowAgentLanguageServerInstall === true,
+      });
+      if (prompts.isCancel(allowAgentInstallAnswer)) throw new SetupCancelledError();
+      const allowAgentLanguageServerInstall = allowAgentInstallAnswer === true;
+      if (managedIds.length > 0) {
         prompts.note(
-          failedShellInstructions.map((result) =>
-            `${result.family}: ${result.error ?? "download failed"}\n${result.sourceUrl}`
-          ).join("\n\n"),
-          "Shell Instructions unavailable",
+          [
+            "ForgeRelay installs these optional Language Servers into its private config directory, not global npm.",
+            "Rust Analyzer, gopls, and clangd remain external toolchain/system installations and are auto-detected when available.",
+          ].join("\n"),
+          "Managed Language Servers",
         );
+        const spinner = prompts.spinner();
+        spinner.start("Installing managed Language Servers with npm");
+        try {
+          const installed = await installManagedLanguageServers(managedIds, files.dir);
+          spinner.stop(`Installed ${installed.installed.join(", ")} under ${installed.root}`);
+        } catch (error) {
+          spinner.stop("Managed Language Server installation failed");
+          throw error;
+        }
       }
+      advancedSelection = {
+        port,
+        commandShell,
+        shellInstructions,
+        allowAgentLanguageServerInstall,
+      };
     }
 
-    const installedManaged = installedManagedLanguageServers(files.dir);
-    const selectedManaged = await prompts.multiselect({
-      message: "Which Language Servers should ForgeRelay manage with npm?",
-      options: managedLanguageServerOptions(),
-      initialValues: installedManaged,
-      required: false,
-    });
-    if (prompts.isCancel(selectedManaged)) throw new SetupCancelledError();
-    const managedIds = selectedManaged as ManagedLanguageServerId[];
-    const allowAgentInstallAnswer = await prompts.confirm({
-      message: "Allow Agents to install or update ForgeRelay-managed Language Servers on demand?",
-      initialValue: files.config.allowAgentLanguageServerInstall === true,
-    });
-    if (prompts.isCancel(allowAgentInstallAnswer)) throw new SetupCancelledError();
-    const allowAgentLanguageServerInstall = allowAgentInstallAnswer === true;
-    if (managedIds.length > 0) {
-      prompts.note(
-        [
-          "ForgeRelay installs these optional Language Servers into its private config directory, not global npm.",
-          "Rust Analyzer, gopls, and clangd remain external toolchain/system installations and are auto-detected when available.",
-        ].join("\n"),
-        "Managed Language Servers",
-      );
-      const spinner = prompts.spinner();
-      spinner.start("Installing managed Language Servers with npm");
-      try {
-        const installed = await installManagedLanguageServers(managedIds, files.dir);
-        spinner.stop(`Installed ${installed.installed.join(", ")} under ${installed.root}`);
-      } catch (error) {
-        spinner.stop("Managed Language Server installation failed");
-        throw error;
-      }
-    }
-
-    const config: ForgeRelayUserConfig = {
-      ...files.config,
-      host,
-      port,
+    const config = applySetupConfig(files.config, {
+      schema: configSchemaId(generalConfigDefinition, "user"),
       allowedRoots,
-      publicBaseUrl,
-      allowedHosts: files.config.allowedHosts,
-      trustedProxies,
-      workflowInstructions: files.config.workflowInstructions,
-      appendInstructions: files.config.appendInstructions,
-      commandShell,
-      shellInstructions,
-      subagents: resolveSubagentsFlag(files.config),
-      languageServers: files.config.languageServers,
-      allowAgentLanguageServerInstall,
-    };
+      network: {
+        mode: networkMode,
+        ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
+      },
+      ...(advancedSelection ? { advanced: advancedSelection } : {}),
+    });
     const auth = {
       ...files.auth,
       ownerToken: files.auth.ownerToken ?? generateOwnerToken(),
@@ -292,12 +297,17 @@ export async function runInit({ force, version }: { force: boolean; version: str
 
     const configPath = writeForgeRelayConfig(config);
     const authPath = await writeForgeRelayAuth(auth);
+    const bindHost = config.host ?? "127.0.0.1";
+    const bindPort = config.port ?? 7676;
     const lines = [
       `Config: ${configPath}`,
       `Auth: ${authPath}`,
-      `Bind: http://${config.host}:${config.port}`,
-      `Command shell: ${commandShell.mode} ${commandShell.family} (${commandShell.executable})`,
-      ...(shellInstructionFamilies.length > 0
+      `Bind: http://${bindHost}:${bindPort}`,
+      "OAuth mode: Owner-password approval",
+      ...(advancedSelection && commandShell
+        ? [`Command shell: ${commandShell.mode} ${commandShell.family} (${commandShell.executable})`]
+        : []),
+      ...(advancedSelection && shellInstructionFamilies.length > 0
         ? [
             `Shell Instructions: ${shellInstructions ? "enabled" : "disabled"}`,
             ...shellInstructionSeedResults.map((result) =>
@@ -310,7 +320,7 @@ export async function runInit({ force, version }: { force: boolean; version: str
       ),
     ];
     if (networkMode === "ssh") {
-      lines.push(`SSH relay: forgerelay auth -J <ssh-host> 127.0.0.1:${port} --ssh-auth`);
+      lines.push(`SSH relay: forgerelay auth -J <ssh-host> 127.0.0.1:${bindPort} --ssh-auth`);
     }
     prompts.note(lines.join("\n"), "ForgeRelay configured");
     prompts.note(

@@ -235,7 +235,7 @@ function normalizeFileDefinitions(value: Record<string, unknown>): Record<string
   };
 }
 
-function normalizeLanguageServerDefinitions(value: Record<string, unknown>): Record<string, unknown> {
+export function normalizeLanguageServerDefinitions(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(value).map(([id, raw]) => {
     if (!isRecord(raw)) return [id, raw];
     if (raw.disabled === true || raw.enabled === false) return [id, { disabled: true }];

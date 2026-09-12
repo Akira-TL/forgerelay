@@ -136,7 +136,7 @@ export const generalConfigDefinition = defineConfigDomain({
     }),
     shellInstructions: field(z.boolean(), "Enable ForgeRelay-owned runtime shell instructions.", {
       scopes: USER_SCOPES,
-      builtIn: literal(true),
+      builtIn: literal(false),
     }),
     subagents: field(z.boolean(), "Enable Subagent Session support.", {
       scopes: USER_RUNTIME_SCOPES,

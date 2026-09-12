@@ -146,7 +146,7 @@ assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).mediaMaxBytes, 20 * 1024 * 1024);
 assert.equal(loadConfig(baseEnv).taskReminderInterval, 30);
 const defaultShellConfig = loadConfig(baseEnv);
-assert.equal(defaultShellConfig.shellInstructionsEnabled, true);
+assert.equal(defaultShellConfig.shellInstructionsEnabled, false);
 assert.equal(
   defaultShellConfig.shellInstructionPath,
   shellInstructionPath(emptyConfigDir, defaultShellConfig.commandShellRuntime.family),

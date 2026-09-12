@@ -91,6 +91,7 @@ test("Agent-managed install is permission-gated and dynamically available withou
   });
   assert.equal(blockedInstall.isError, true);
   assert.match(JSON.stringify(blockedInstall.structuredContent), /code\.managed_install_disabled/);
+  assert.match(JSON.stringify(blockedInstall.structuredContent), /forgerelay init --advanced/);
   await blocked.close();
 
   const context = await createCodeIntelligenceServerFixture(t, {

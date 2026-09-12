@@ -436,7 +436,7 @@
     "shellInstructions": {
       "description": "Enable ForgeRelay-owned runtime shell instructions.",
       "type": "boolean",
-      "default": true,
+      "default": false,
       "x-forgerelay-scopes": [
         "user",
         "built-in"

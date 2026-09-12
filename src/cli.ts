@@ -11,6 +11,7 @@ import * as prompts from "@clack/prompts";
 import { loadConfig } from "./runtime/config/config.js";
 import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
+import { runConfigMigration } from "./cli/config/migrate.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
 import {
@@ -88,14 +89,16 @@ async function main(argv: string[]): Promise<void> {
       await serve(runtimePrivilege);
       return;
     }
-    case "init":
-      await runInit({ force: args.includes("--force"), version: installedForgeRelayVersion() });
+    case "init": {
+      const initOptions = parseInitCommandArgs(args);
+      await runInit({ ...initOptions, version: installedForgeRelayVersion() });
       return;
+    }
     case "doctor":
       await runDoctor();
       return;
     case "config":
-      runConfigCommand(args);
+      await runConfigCommand(args);
       return;
     case "hooks":
       await runHooksCommand(args);
@@ -127,6 +130,23 @@ function normalizeCommand(command: string | undefined): Command {
   if (command === "help" || command === "--help" || command === "-h") return "help";
   if (command === "version" || command === "--version" || command === "-v") return "version";
   throw new Error(`Unknown command: ${command}`);
+}
+
+interface InitCommandOptions {
+  force: boolean;
+  advanced: boolean;
+}
+
+function parseInitCommandArgs(args: string[]): InitCommandOptions {
+  let force = false;
+  let advanced = false;
+  for (const arg of args) {
+    if (arg === "--force" && !force) force = true;
+    else if (arg === "--advanced" && !advanced) advanced = true;
+    else if (arg === "--force" || arg === "--advanced") throw new Error(`${arg} may only be supplied once.`);
+    else throw new Error(`Unknown init option: ${arg}`);
+  }
+  return { force, advanced };
 }
 
 interface ServeCommandOptions {
@@ -170,7 +190,7 @@ async function ensureConfigured(): Promise<void> {
     );
   }
 
-  await runInit({ force: false, version: installedForgeRelayVersion() });
+  await runInit({ force: false, advanced: false, version: installedForgeRelayVersion() });
 }
 
 async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
@@ -456,8 +476,12 @@ async function runDoctor(): Promise<void> {
   }
 }
 
-function runConfigCommand(args: string[]): void {
+async function runConfigCommand(args: string[]): Promise<void> {
   const [subcommand, key, ...rest] = args;
+  if (subcommand === "migrate") {
+    await runConfigMigration(args.slice(1));
+    return;
+  }
   const files = loadForgeRelayFiles();
 
   if (!subcommand || subcommand === "get") {
@@ -492,10 +516,13 @@ function printHelp(): void {
       "  forgerelay serve           Start the server",
       "  forgerelay serve --allow-elevated",
       "                            Explicitly allow this invocation to run with elevated/unknown OS privilege",
-      "  forgerelay init            Create or update ~/.forgerelay/config.json and auth.json",
+      "  forgerelay init            Run minimal first-time setup",
+      "  forgerelay init --advanced Configure common advanced runtime options",
+      "  forgerelay init --force     Update setup-owned fields without migrating legacy config",
       "  forgerelay doctor          Show config, runtime, and native dependency status",
       "  forgerelay config get      Print persisted config",
       "  forgerelay config set publicBaseUrl <url[,url...]|null>",
+      "  forgerelay config migrate [--dry-run] [--global|--project <path>]",
       "  forgerelay hooks list [--project <path>]",
       "  forgerelay hooks check [--project <path>]",
       "  forgerelay agents ls       List subagent sessions",

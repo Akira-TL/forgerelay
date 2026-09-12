@@ -22,6 +22,7 @@ export interface ForgeRelayRetentionConfig {
 }
 
 export interface ForgeRelayUserConfig {
+  $schema?: string;
   host?: string;
   port?: number;
   allowedRoots?: string[];

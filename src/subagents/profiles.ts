@@ -392,6 +392,19 @@ function legacyProfileFromDocument(content: string, filePath: string): SubagentP
   return legacyProfileFromFrontmatter(parsed.frontmatter, parsed.body, filePath);
 }
 
+export function canonicalSubagentProfileDocumentFromLegacy(content: string, filePath: string): string {
+  const profile = legacyProfileFromDocument(content, filePath);
+  const frontmatter = [
+    `name: ${JSON.stringify(profile.name)}`,
+    `description: ${JSON.stringify(profile.description)}`,
+    `provider: ${profile.provider}`,
+    ...(profile.model ? [`model: ${JSON.stringify(profile.model)}`] : []),
+    ...(profile.thinking ? [`thinking: ${JSON.stringify(profile.thinking)}`] : []),
+    ...(profile.disabled ? ["disabled: true"] : []),
+  ];
+  return [FRONTMATTER_DELIMITER, ...frontmatter, FRONTMATTER_DELIMITER, profile.body, ""].join("\n");
+}
+
 function legacyProfileFromFrontmatter(
   frontmatter: Record<string, unknown>,
   body: string,
