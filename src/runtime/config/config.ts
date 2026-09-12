@@ -450,7 +450,6 @@ export function loadConfig(
     hooks: mergeHookConfigs(
       parseHookConfig(config.hooks),
       parseHookConfig(files.hooks),
-      files.hookFiles,
     ),
     logging: parseLoggingConfig(env, proxyTrust !== false),
     commandShellRuntime,

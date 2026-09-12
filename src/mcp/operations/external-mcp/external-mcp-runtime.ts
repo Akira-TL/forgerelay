@@ -33,6 +33,7 @@ export function createExternalMcpCapabilityRuntime(
     process.env,
     config.commandShellRuntime,
     config.mediaMaxBytes,
+    config.configDir,
   );
 
   return {
@@ -46,6 +47,7 @@ export function createExternalMcpCapabilityRuntime(
           workspaceId: context.workspaceId,
           workspaceRoot,
           workspaceMode: context.workspaceMode,
+          project,
           server,
           tool,
         });

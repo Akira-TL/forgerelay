@@ -53,30 +53,46 @@ export function normalizeConfigSourceShape(
   definition: ConfigDomainDefinition,
   scope: ConfigScope,
   value: unknown,
+  entryKey?: string,
 ): unknown {
   const fileShape = definition.fileShape;
-  if (
-    !fileShape ||
-    fileShape.kind !== "keyed-root" ||
-    !FILE_SCOPE_SET.has(scope as ConfigFileScope) ||
-    !isRecord(value)
-  ) {
-    return value;
+  if (!fileShape || !FILE_SCOPE_SET.has(scope as ConfigFileScope)) return value;
+
+  if (fileShape.kind === "keyed-root") {
+    if (!isRecord(value)) return value;
+    const { $schema, ...entries } = value;
+    return {
+      ...($schema === undefined ? {} : { $schema }),
+      [fileShape.field]: entries,
+    };
   }
-  const { $schema, ...entries } = value;
-  return {
-    ...($schema === undefined ? {} : { $schema }),
-    [fileShape.field]: entries,
-  };
+
+  if (fileShape.kind === "keyed-entry") {
+    const key = entryKey?.trim();
+    if (!key) throw new Error(`Config domain ${definition.domain} keyed-entry source requires an entry key.`);
+    const parsed = fileShape.fileSchema.parse(value) as unknown;
+    if (!isRecord(parsed)) {
+      throw new Error(`Config domain ${definition.domain} keyed-entry source must be an object.`);
+    }
+    const { $schema, ...entry } = parsed;
+    const normalized = fileShape.normalizeEntry ? fileShape.normalizeEntry(entry) : entry;
+    return {
+      ...($schema === undefined ? {} : { $schema }),
+      [fileShape.field]: { [key]: normalized },
+    };
+  }
+
+  return value;
 }
 
 export function parseConfigSource(
   definition: ConfigDomainDefinition,
   scope: ConfigFileScope,
   value: unknown,
+  entryKey?: string,
 ): Record<string, unknown> {
   return configSourceSchema(definition, scope).parse(
-    normalizeConfigSourceShape(definition, scope, value),
+    normalizeConfigSourceShape(definition, scope, value, entryKey),
   ) as Record<string, unknown>;
 }
 
@@ -95,17 +111,17 @@ function validateFileShape(definition: ConfigDomainDefinition): void {
   if (!fileShape || fileShape.kind === "object") return;
   const rootField = definition.fields[fileShape.field];
   if (!rootField) {
-    throw new Error(`Config domain ${definition.domain} keyed-root field ${fileShape.field} is not defined.`);
+    throw new Error(`Config domain ${definition.domain} keyed file field ${fileShape.field} is not defined.`);
   }
   if (rootField.merge !== "keyed") {
-    throw new Error(`Config domain ${definition.domain} keyed-root field ${fileShape.field} must use keyed merge.`);
+    throw new Error(`Config domain ${definition.domain} keyed file field ${fileShape.field} must use keyed merge.`);
   }
   const otherFileFields = Object.entries(definition.fields).filter(([name, field]) =>
     name !== fileShape.field &&
     field.legalScopes.some((scope) => FILE_SCOPE_SET.has(scope as ConfigFileScope))
   );
   if (otherFileFields.length > 0) {
-    throw new Error(`Config domain ${definition.domain} keyed-root shape cannot expose additional file-backed fields.`);
+    throw new Error(`Config domain ${definition.domain} keyed file shape cannot expose additional file-backed fields.`);
   }
 }
 

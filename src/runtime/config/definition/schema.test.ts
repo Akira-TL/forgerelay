@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 import { defineConfigDomain, configSourceSchema, parseConfigSource, resolveExecutionEffect } from "./definition.js";
 import { generalConfigDefinition } from "./general-config.js";
 import { languageServersConfigDefinition } from "./language-servers.js";
+import { hooksConfigDefinition } from "../../../mcp/hooks/config.js";
 import {
   configSchemaId,
   configSchemaRelativePath,
@@ -75,11 +76,32 @@ test("schema generation is domain-and-scope based with a stable independent cont
     "schemas/v1/language-servers.user.schema.json",
     "schemas/v1/language-servers.project-local.schema.json",
     "schemas/v1/language-servers.project.schema.json",
+    "schemas/v1/hooks.user.schema.json",
+    "schemas/v1/hooks.project-local.schema.json",
+    "schemas/v1/hooks.project.schema.json",
   ]);
   assert.equal(
     configSchemaRelativePath(generalConfigDefinition, "project"),
     "schemas/v1/config.project.schema.json",
   );
+});
+
+test("Hook keyed-entry schemas stay per-file while resolver metadata remains keyed and hot", () => {
+  const schema = generateConfigJsonSchema(hooksConfigDefinition, "project");
+  const variants = schema.anyOf as Array<Record<string, unknown>>;
+  const active = variants.find((variant) => "event" in ((variant.properties ?? {}) as Record<string, unknown>));
+  const disabled = variants.find((variant) => "disabled" in ((variant.properties ?? {}) as Record<string, unknown>));
+  const activeProperties = active?.properties as Record<string, Record<string, unknown>>;
+  const disabledProperties = disabled?.properties as Record<string, Record<string, unknown>>;
+  assert.equal(activeProperties.event?.type, "string");
+  assert.equal(activeProperties.command?.type, "string");
+  assert.equal(activeProperties.$schema?.type, "string");
+  assert.equal(disabledProperties.disabled?.const, true);
+  assert.equal(disabledProperties.$schema?.type, "string");
+  assert.equal(schema["x-forgerelay-merge"], "keyed");
+  assert.equal(schema["x-forgerelay-reload"], "hot");
+  assert.equal(schema["x-forgerelay-sensitivity"], "sensitive");
+  assert.equal(schema["x-forgerelay-execution-effect"], "dynamic");
 });
 
 test("Language Server root-keyed sources normalize through the shared Config Definition entrypoint", () => {

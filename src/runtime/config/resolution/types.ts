@@ -20,8 +20,14 @@ export interface ConfigSourceReference {
 
 export interface ConfigSourceInput extends ConfigSourceReference {
   value?: unknown;
-  /** A present canonical source may suppress lower-priority compatibility sources at the same scope. */
+  /** Stable key for one file-backed entry in a keyed-entry directory domain. */
+  entryKey?: string;
+  /** Compatibility adapters may provide an already normalized field-object; resolver validation still applies. */
+  normalized?: boolean;
+  /** A present canonical source may suppress all lower-priority compatibility sources at the same scope. */
   shadowsLowerPriority?: boolean;
+  /** Keyed domains may suppress only these same-scope, lower-priority entry paths (for example `hooks.release`). */
+  shadowsLowerPriorityKeys?: readonly string[];
   /** Source-level deprecation used by compatibility adapters. */
   deprecation?: ConfigDeprecation;
   error?: {

@@ -46,6 +46,11 @@ interface Candidate {
   configuredValue: unknown;
 }
 
+interface SourceShadowBarriers {
+  scope: ReadonlyMap<ConfigScope, number>;
+  entries: ReadonlyMap<string, number>;
+}
+
 class MissingEnvironmentError extends Error {
   constructor(readonly name: string) {
     super(`Required environment variable ${name} is not available.`);
@@ -71,7 +76,14 @@ export function resolveConfigDomain(input: ResolveConfigDomainInput): ResolvedCo
     }
 
     try {
-      const configured = sourceObject(normalizeConfigSourceShape(input.definition, source.scope, source.value));
+      const configured = sourceObject(source.normalized
+        ? source.value
+        : normalizeConfigSourceShape(
+            input.definition,
+            source.scope,
+            source.value,
+            source.entryKey,
+          ));
       const interpolated = interpolateSource(input.definition, source.scope, configured, environment);
       const parsed = parseSource(input.definition, source.scope, interpolated);
       prepared.push({
@@ -154,7 +166,7 @@ function resolveReplaceField(input: {
   field: ConfigFieldDefinition;
   prepared: PreparedSource[];
   builtInReference: ConfigSourceReference;
-  shadowBarriers: ReadonlyMap<ConfigScope, number>;
+  shadowBarriers: SourceShadowBarriers;
   entries: ResolvedConfigDomain["entries"];
   values: Record<string, unknown>;
   diagnostics: ConfigDiagnostic[];
@@ -171,7 +183,7 @@ function resolveReplaceField(input: {
   appendBuiltInCandidate(candidates, input.field, input.builtInReference);
   candidates.sort(compareCandidates);
 
-  const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers));
+  const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers, input.name));
   if (!winner) return;
   input.entries[input.name] = {
     logicalPath,
@@ -180,7 +192,7 @@ function resolveReplaceField(input: {
       .filter((candidate) => candidate !== winner)
       .map((candidate) => ({
         ...provenanceFor(input.field, candidate, logicalPath),
-        reason: candidateIsSourceShadowed(candidate, input.shadowBarriers)
+        reason: candidateIsSourceShadowed(candidate, input.shadowBarriers, input.name)
           ? "source-shadowed"
           : shadowReason(winner, candidate),
       })),
@@ -195,7 +207,7 @@ function resolveKeyedField(input: {
   field: ConfigFieldDefinition;
   prepared: PreparedSource[];
   builtInReference: ConfigSourceReference;
-  shadowBarriers: ReadonlyMap<ConfigScope, number>;
+  shadowBarriers: SourceShadowBarriers;
   entries: ResolvedConfigDomain["entries"];
   values: Record<string, unknown>;
   diagnostics: ConfigDiagnostic[];
@@ -238,7 +250,8 @@ function resolveKeyedField(input: {
       });
     }
     candidates.sort(compareCandidates);
-    const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers));
+    const entryPath = `${input.name}.${key}`;
+    const winner = candidates.find((candidate) => !candidateIsSourceShadowed(candidate, input.shadowBarriers, entryPath));
     if (!winner) continue;
 
     const tombstone = isDisabledTombstone(winner.value);
@@ -249,7 +262,7 @@ function resolveKeyedField(input: {
         .filter((candidate) => candidate !== winner)
         .map((candidate) => ({
           ...provenanceFor(input.field, candidate, logicalPath),
-          reason: candidateIsSourceShadowed(candidate, input.shadowBarriers)
+          reason: candidateIsSourceShadowed(candidate, input.shadowBarriers, entryPath)
             ? "source-shadowed"
             : shadowReason(winner, candidate),
         })),
@@ -284,21 +297,37 @@ function appendBuiltInCandidate(
   }
 }
 
-function sourceShadowBarriers(sources: readonly ConfigSourceInput[]): ReadonlyMap<ConfigScope, number> {
-  const barriers = new Map<ConfigScope, number>();
+function sourceShadowBarriers(sources: readonly ConfigSourceInput[]): SourceShadowBarriers {
+  const scope = new Map<ConfigScope, number>();
+  const entries = new Map<string, number>();
   for (const source of sources) {
-    if (!source.shadowsLowerPriority) continue;
-    barriers.set(source.scope, Math.max(barriers.get(source.scope) ?? Number.NEGATIVE_INFINITY, source.priority));
+    if (source.shadowsLowerPriority) {
+      scope.set(source.scope, Math.max(scope.get(source.scope) ?? Number.NEGATIVE_INFINITY, source.priority));
+    }
+    for (const entryPath of source.shadowsLowerPriorityKeys ?? []) {
+      const key = shadowBarrierKey(source.scope, entryPath);
+      entries.set(key, Math.max(entries.get(key) ?? Number.NEGATIVE_INFINITY, source.priority));
+    }
   }
-  return barriers;
+  return { scope, entries };
 }
 
 function candidateIsSourceShadowed(
   candidate: Candidate,
-  barriers: ReadonlyMap<ConfigScope, number>,
+  barriers: SourceShadowBarriers,
+  entryPath: string,
 ): boolean {
-  const barrier = barriers.get(candidate.source.scope);
-  return barrier !== undefined && candidate.source.priority < barrier;
+  const scopeBarrier = barriers.scope.get(candidate.source.scope);
+  const entryBarrier = barriers.entries.get(shadowBarrierKey(candidate.source.scope, entryPath));
+  const barrier = Math.max(
+    scopeBarrier ?? Number.NEGATIVE_INFINITY,
+    entryBarrier ?? Number.NEGATIVE_INFINITY,
+  );
+  return candidate.source.priority < barrier;
+}
+
+function shadowBarrierKey(scope: ConfigScope, entryPath: string): string {
+  return `${scope}\0${entryPath}`;
 }
 
 function parseSource(

@@ -1,14 +1,18 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { resolveProjectContext } from "../../workspaces/state/project-context.js";
 import {
-  HOOK_EVENTS,
-  loadProjectHookConfig,
+  effectiveHookConfigEntries,
+  resolveHooksConfig,
+} from "../../runtime/config/resolution/hooks.js";
+import type { ResolvedConfigDomain } from "../../runtime/config/resolution/types.js";
+import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
+import {
   mergeHookConfigs,
   parseHookConfig,
   type HookConfig,
   type HookEvent,
   type HookMatcher,
 } from "./hooks.js";
-import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
 
 type HookScope = "global" | "project";
 
@@ -30,16 +34,14 @@ export interface HookCheckResult {
 export async function checkHookConfiguration(
   projectRoot: string,
   globalHooks: HookConfig = loadGlobalHooks(),
+  configDir?: string,
 ): Promise<HookCheckResult> {
-  const globalEntries = flattenHooks(globalHooks, "global");
-  const project = await loadProjectHookConfig(projectRoot);
-  if (project.diagnostic) {
-    throw new Error(`Hook check failed: ${project.diagnostic}`);
-  }
-  const projectEntries = flattenHooks(project.hooks, "project");
+  const resolution = await resolveHookConfiguration(projectRoot, globalHooks, configDir);
+  assertHookResolutionValid(resolution);
+  const entries = flattenResolvedHooks(resolution);
   return {
-    globalHooks: globalEntries.length,
-    projectHooks: projectEntries.length,
+    globalHooks: entries.filter((entry) => entry.scope === "global").length,
+    projectHooks: entries.filter((entry) => entry.scope === "project").length,
   };
 }
 
@@ -51,33 +53,46 @@ export async function runHooksCommand(args: string[]): Promise<void> {
   }
 
   const projectRoot = parseProjectRoot(rest);
-  const globalHooks = loadGlobalHooks();
-  const project = await loadProjectHookConfig(projectRoot);
-  const globalEntries = flattenHooks(globalHooks, "global");
-  const projectEntries = flattenHooks(project.hooks, "project");
+  const files = loadForgeRelayFiles();
+  const globalHooks = mergeHookConfigs(
+    parseHookConfig(files.config.hooks),
+    parseHookConfig(files.hooks),
+  );
+  const resolution = await resolveHookConfiguration(projectRoot, globalHooks, files.dir);
+  const entries = flattenResolvedHooks(resolution);
 
   if (subcommand === "list") {
-    for (const entry of [...globalEntries, ...projectEntries]) {
-      console.log(formatHookEntry(entry));
-    }
-    if (globalEntries.length === 0 && projectEntries.length === 0) {
-      console.log("No hooks configured.");
-    }
-    if (project.diagnostic) {
-      console.error(`Project hooks diagnostic: ${project.diagnostic}`);
+    for (const entry of entries) console.log(formatHookEntry(entry));
+    if (entries.length === 0) console.log("No hooks configured.");
+    for (const diagnostic of hookErrors(resolution)) {
+      console.error(`Hooks diagnostic: ${formatDiagnostic(diagnostic)}`);
     }
     return;
   }
 
   if (subcommand === "check") {
-    if (project.diagnostic) {
-      throw new Error(`Hook check failed: ${project.diagnostic}`);
-    }
-    console.log(`Hooks OK: ${globalEntries.length} global, ${projectEntries.length} project`);
+    assertHookResolutionValid(resolution);
+    const globalHooksCount = entries.filter((entry) => entry.scope === "global").length;
+    const projectHooksCount = entries.filter((entry) => entry.scope === "project").length;
+    console.log(`Hooks OK: ${globalHooksCount} global, ${projectHooksCount} project`);
     return;
   }
 
   throw new Error(`Unknown hooks command: ${subcommand}`);
+}
+
+async function resolveHookConfiguration(
+  projectRoot: string,
+  legacyUser: HookConfig,
+  configDir?: string,
+): Promise<ResolvedConfigDomain> {
+  const project = configDir ? await resolveProjectContext(configDir, projectRoot) : undefined;
+  return resolveHooksConfig({
+    ...(configDir ? { configDir } : {}),
+    ...(project ? { project } : {}),
+    projectSharedConfigDir: join(projectRoot, ".forgerelay"),
+    legacyUser,
+  });
 }
 
 function loadGlobalHooks(): HookConfig {
@@ -85,45 +100,56 @@ function loadGlobalHooks(): HookConfig {
   return mergeHookConfigs(
     parseHookConfig(files.config.hooks),
     parseHookConfig(files.hooks),
-    files.hookFiles,
   );
+}
+
+function flattenResolvedHooks(resolution: ResolvedConfigDomain): HookListEntry[] {
+  const counters = new Map<string, number>();
+  return effectiveHookConfigEntries(resolution).flatMap((entry) =>
+    entry.entries.map((hook) => {
+      const scope: HookScope = entry.scope === "user" ? "global" : "project";
+      const counterKey = `${scope}:${hook.event}`;
+      const index = (counters.get(counterKey) ?? 0) + 1;
+      counters.set(counterKey, index);
+      const synthetic = entry.name.startsWith("@legacy/");
+      return {
+        scope,
+        event: hook.event,
+        name: hook.name ?? (synthetic ? `${hook.event} handler ${index}` : entry.name),
+        ...(hook.matcher ? { matcher: hook.matcher } : {}),
+        command: hook.command,
+        timeoutSeconds: hook.timeoutSeconds ?? 30,
+        report: hook.report ?? true,
+      };
+    })
+  );
+}
+
+function hookErrors(resolution: ResolvedConfigDomain) {
+  return resolution.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+}
+
+function assertHookResolutionValid(resolution: ResolvedConfigDomain): void {
+  const errors = hookErrors(resolution);
+  if (errors.length === 0) return;
+  throw new Error(`Hook check failed: ${errors.map(formatDiagnostic).join(" | ")}`);
+}
+
+function formatDiagnostic(diagnostic: ResolvedConfigDomain["diagnostics"][number]): string {
+  return `${diagnostic.source.location ?? diagnostic.source.id}: ${diagnostic.message}`;
 }
 
 function parseProjectRoot(args: string[]): string {
   let projectRoot = process.cwd();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg !== "--project") {
-      throw new Error(`Unknown hooks option: ${arg}`);
-    }
+    if (arg !== "--project") throw new Error(`Unknown hooks option: ${arg}`);
     const value = args[index + 1];
     if (!value) throw new Error("Usage: forgerelay hooks <list|check> [--project <path>]");
     projectRoot = resolve(value);
     index += 1;
   }
   return projectRoot;
-}
-
-function flattenHooks(config: HookConfig, scope: HookScope): HookListEntry[] {
-  const entries: HookListEntry[] = [];
-  for (const event of HOOK_EVENTS) {
-    let handlerIndex = 0;
-    for (const rule of config[event] ?? []) {
-      for (const handler of rule.handlers) {
-        handlerIndex += 1;
-        entries.push({
-          scope,
-          event,
-          name: handler.name ?? `${event} handler ${handlerIndex}`,
-          matcher: rule.matcher,
-          command: handler.command,
-          timeoutSeconds: handler.timeoutSeconds,
-          report: handler.report,
-        });
-      }
-    }
-  }
-  return entries;
 }
 
 function formatHookEntry(entry: HookListEntry): string {

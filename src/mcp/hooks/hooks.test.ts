@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { HookExecutionError, HookRunner, parseHookConfig } from "./hooks.js";
+import { ProjectContextResolver } from "../../workspaces/state/project-context.js";
 import type { LoggingConfig } from "../../runtime/logging/logger.js";
 
 const silentLogging: LoggingConfig = {
@@ -233,6 +234,42 @@ test("project hook files load by filename and report that filename as the hook n
 
   assert.equal((await readFile(marker, "utf8")).replace(/\r\n/g, "\n"), "first\nsecond\n");
   assert.deepEqual(reports.map((report) => report.name), ["10-first", "20-second"]);
+});
+
+test("Project Local canonical Hook overrides same-name project Hook through HookRunner", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-hooks-project-local-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  const projectRoot = join(root, "project");
+  const projectHookDir = join(projectRoot, ".forgerelay", "hooks");
+  const marker = join(projectRoot, "winner.txt");
+  const projectScript = join(projectRoot, "project-hook.mjs");
+  const localScript = join(projectRoot, "project-local-hook.mjs");
+  await mkdir(projectHookDir, { recursive: true });
+  await mkdir(configDir, { recursive: true });
+  const project = await new ProjectContextResolver(configDir).resolve(projectRoot);
+  await mkdir(join(project.localConfigDir, "hooks"), { recursive: true });
+  await writeFile(projectScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "project");\n`);
+  await writeFile(localScript, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "project-local");\n`);
+  await writeFile(
+    join(projectHookDir, "shared.json"),
+    JSON.stringify({ event: "AfterTool", command: `node "${projectScript}"` }) + "\n",
+  );
+  await writeFile(
+    join(project.localConfigDir, "hooks", "shared.json"),
+    JSON.stringify({ event: "AfterTool", command: `node "${localScript}"` }) + "\n",
+  );
+
+  const runner = new HookRunner({}, silentLogging, process.env, undefined, undefined, configDir);
+  const reports = await runner.run("AfterTool", {
+    workspaceId: "ws_test",
+    workspaceRoot: projectRoot,
+    workspaceMode: "checkout",
+    payload: { tool: "bash" },
+  });
+
+  assert.equal(await readFile(marker, "utf8"), "project-local");
+  assert.deepEqual(reports.map((report) => [report.name, report.scope]), [["shared", "project"]]);
 });
 
 test("an invalid project hook file reports a diagnostic without disabling valid sibling hooks", async (t) => {

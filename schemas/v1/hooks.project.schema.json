@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "string",
+          "enum": [
+            "WorkspaceOpen",
+            "BeforeTool",
+            "AfterTool",
+            "AfterToolFailure",
+            "ExternalMcpBeforeForward",
+            "ExternalMcpAfterForward",
+            "AfterFileChange",
+            "BeforeWorktreeClose",
+            "AfterWorktreeClose",
+            "SubagentStart",
+            "SubagentStop"
+          ]
+        },
+        "matcher": {
+          "type": "object",
+          "properties": {
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "commandRegex": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pathRegex": {
+              "type": "string",
+              "minLength": 1
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workspaceMode": {
+              "type": "string",
+              "enum": [
+                "checkout",
+                "worktree"
+              ]
+            },
+            "capability": {
+              "type": "string",
+              "minLength": 1
+            },
+            "externalServer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "externalTool": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "report": {
+          "type": "boolean"
+        },
+        "$schema": {
+          "description": "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "command"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "const": true
+        },
+        "$schema": {
+          "description": "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disabled"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$id": "https://raw.githubusercontent.com/Akira-TL/forgerelay/main/schemas/v1/hooks.project.schema.json",
+  "title": "ForgeRelay Lifecycle Hook configuration (project)",
+  "description": "Lifecycle Hook files composed by stable file name across user, project, and Project Local scopes.",
+  "x-forgerelay-scopes": [
+    "project-local",
+    "project",
+    "user"
+  ],
+  "x-forgerelay-merge": "keyed",
+  "x-forgerelay-reload": "hot",
+  "x-forgerelay-sensitivity": "sensitive",
+  "x-forgerelay-interpolation": "none",
+  "x-forgerelay-execution-effect": "dynamic"
+}

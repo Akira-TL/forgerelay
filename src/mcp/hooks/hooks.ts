@@ -1,4 +1,3 @@
-import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "../../workspaces/state/workspace-store.js";
@@ -11,22 +10,17 @@ import {
 } from "../../runtime/shell/command-shell-runtime.js";
 import { resolveShellCommandForRuntime } from "../process/process-platform.js";
 import { executeHookCommand, hookFailureOutput } from "./command-runner.js";
+import {
+  resolveProjectContext,
+  type ProjectContext,
+} from "../../workspaces/state/project-context.js";
+import {
+  effectiveHookConfigEntries,
+  resolveHooksConfig,
+} from "../../runtime/config/resolution/hooks.js";
+import { HOOK_EVENTS, type ResolvedHookEntryInput } from "./config.js";
 
-
-export const HOOK_EVENTS = [
-  "WorkspaceOpen",
-  "BeforeTool",
-  "AfterTool",
-  "AfterToolFailure",
-  "ExternalMcpBeforeForward",
-  "ExternalMcpAfterForward",
-  "AfterFileChange",
-  "BeforeWorktreeClose",
-  "AfterWorktreeClose",
-  "SubagentStart",
-  "SubagentStop",
-] as const;
-
+export { HOOK_EVENTS } from "./config.js";
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 export interface HookHandlerInput {
@@ -102,10 +96,19 @@ export interface HookReportContainer {
   hookReports: HookExecutionReport[];
 }
 
+export interface HookExecutionPlanEntry {
+  scope: HookExecutionReport["scope"];
+  handler: HookHandler;
+  invocation: HookInvocation;
+}
+
+export interface HookExecutionPlan {
+  handlers: HookExecutionPlanEntry[];
+  resolution: Awaited<ReturnType<typeof resolveHooksConfig>>;
+}
+
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 const MAX_HOOK_TIMEOUT_SECONDS = 300;
-const PROJECT_HOOKS_PATH = join(".forgerelay", "hooks.json");
-const PROJECT_HOOKS_DIR = join(".forgerelay", "hooks");
 const BLOCKING_EVENTS = new Set<HookEvent>([
   "BeforeTool",
   "ExternalMcpBeforeForward",
@@ -334,6 +337,48 @@ function formatHookReports(executions: HookExecutionReport[]): string {
   ].join("\n");
 }
 
+export async function resolveHookExecutionPlan(input: {
+  event: HookEvent;
+  invocation: HookInvocation;
+  legacyUser: HookConfig;
+  configDir?: string;
+  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
+}): Promise<HookExecutionPlan> {
+  let projectRoot = input.event === "AfterWorktreeClose" && input.invocation.sourceRoot
+    ? input.invocation.sourceRoot
+    : input.invocation.workspaceRoot;
+  let project = input.project;
+  if (!project && input.configDir) {
+    try {
+      project = await resolveProjectContext(input.configDir, projectRoot);
+    } catch (error) {
+      const sourceRoot = input.invocation.sourceRoot;
+      if (!sourceRoot || projectRoot === sourceRoot || !isMissingPath(error)) throw error;
+      projectRoot = sourceRoot;
+      project = await resolveProjectContext(input.configDir, projectRoot);
+    }
+  }
+  const resolution = await resolveHooksConfig({
+    ...(input.configDir ? { configDir: input.configDir } : {}),
+    ...(project ? { project } : {}),
+    projectSharedConfigDir: join(projectRoot, ".forgerelay"),
+    legacyUser: input.legacyUser,
+  });
+  const handlers = effectiveHookConfigEntries(resolution).flatMap((entry) =>
+    entry.entries.flatMap((hook) => {
+      if (hook.event !== input.event) return [];
+      const matchedInvocation = matchHookRule(hook.matcher, input.invocation);
+      if (!matchedInvocation) return [];
+      return [{
+        scope: entry.scope === "user" ? "global" as const : "project" as const,
+        handler: resolvedHookHandler(entry.name, hook),
+        invocation: matchedInvocation,
+      }];
+    })
+  );
+  return { handlers, resolution };
+}
+
 export class HookRunner {
   private readonly commandShellRuntime: CommandShellRuntime;
 
@@ -343,6 +388,7 @@ export class HookRunner {
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
     private readonly resultDecorator?: (workspaceId: string, result: unknown) => unknown,
     commandShellRuntime?: CommandShellRuntime,
+    private readonly configDir?: string,
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -359,30 +405,16 @@ export class HookRunner {
     signal?: AbortSignal,
   ): Promise<HookExecutionReport[]> {
     signal?.throwIfAborted();
-    const projectRoot = event === "AfterWorktreeClose" && invocation.sourceRoot
-      ? invocation.sourceRoot
-      : invocation.workspaceRoot;
-    const project = await loadProjectHookConfig(projectRoot);
-    const handlers = [
-      ...(this.hooks[event] ?? []).map((rule) => ({ scope: "global" as const, rule })),
-      ...(project.hooks[event] ?? []).map((rule) => ({ scope: "project" as const, rule })),
-    ].flatMap(({ scope, rule }) => {
-      const matchedInvocation = matchHookRule(rule.matcher, invocation);
-      if (!matchedInvocation) return [];
-      return rule.handlers.map((handler) => ({ scope, handler, invocation: matchedInvocation }));
+    const plan = await resolveHookExecutionPlan({
+      event,
+      invocation,
+      legacyUser: this.hooks,
+      ...(this.configDir ? { configDir: this.configDir } : {}),
     });
     const blocking = BLOCKING_EVENTS.has(event);
-    const executions: HookExecutionReport[] = project.diagnostic
-      ? [{
-          event,
-          name: "Project hooks config",
-          scope: "project",
-          status: "failed",
-          durationMs: 0,
-          report: true,
-          error: project.diagnostic,
-        }]
-      : [];
+    const executions: HookExecutionReport[] = hookResolutionReports(plan.resolution, event);
+
+    const handlers = plan.handlers;
 
     for (const [index, { scope, handler, invocation: matchedInvocation }] of handlers.entries()) {
       signal?.throwIfAborted();
@@ -475,6 +507,49 @@ export class HookRunner {
       };
     }
   }
+}
+
+function resolvedHookHandler(name: string, hook: ResolvedHookEntryInput): HookHandler {
+  const legacySyntheticName = name.startsWith("@legacy/");
+  return {
+    ...((hook.name ?? (!legacySyntheticName ? name : undefined))
+      ? { name: hook.name ?? name }
+      : {}),
+    command: hook.command,
+    timeoutSeconds: hook.timeoutSeconds ?? DEFAULT_HOOK_TIMEOUT_SECONDS,
+    report: hook.report ?? true,
+  };
+}
+
+function hookResolutionReports(
+  resolution: Awaited<ReturnType<typeof resolveHooksConfig>>,
+  event: HookEvent,
+): HookExecutionReport[] {
+  const grouped = new Map<"global" | "project", string[]>();
+  for (const diagnostic of resolution.diagnostics) {
+    if (diagnostic.severity !== "error") continue;
+    const scope = diagnostic.source.scope === "user"
+      ? "global"
+      : diagnostic.source.scope === "project" || diagnostic.source.scope === "project-local"
+        ? "project"
+        : undefined;
+    if (!scope) continue;
+    const location = diagnostic.source.location ?? diagnostic.source.id;
+    grouped.set(scope, [...(grouped.get(scope) ?? []), `${location}: ${diagnostic.message}`]);
+  }
+  return (["global", "project"] as const).flatMap((scope) => {
+    const errors = grouped.get(scope);
+    if (!errors?.length) return [];
+    return [{
+      event,
+      name: scope === "global" ? "Global hooks config" : "Project hooks config",
+      scope,
+      status: "failed" as const,
+      durationMs: 0,
+      report: true,
+      error: errors.join(" | "),
+    }];
+  });
 }
 
 function parseHookRule(event: HookEvent, value: unknown, index: number): HookRule {
@@ -627,51 +702,6 @@ function assertValidRegex(event: HookEvent, field: string, pattern: string): voi
   }
 }
 
-export interface ProjectHookLoadResult {
-  hooks: HookConfig;
-  diagnostic?: string;
-}
-
-export async function loadProjectHookConfig(workspaceRoot: string): Promise<ProjectHookLoadResult> {
-  let hooks: HookConfig = {};
-  const diagnostics: string[] = [];
-  const aggregatePath = join(workspaceRoot, PROJECT_HOOKS_PATH);
-
-  try {
-    const content = await readFile(aggregatePath, "utf8");
-    hooks = mergeHookConfigs(hooks, parseHookConfig(JSON.parse(content)));
-  } catch (error) {
-    if (!(isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"))) {
-      diagnostics.push(`Could not load project hooks at ${aggregatePath}: ${errorMessage(error)}`);
-    }
-  }
-
-  const directory = join(workspaceRoot, PROJECT_HOOKS_DIR);
-  try {
-    const entries = (await readdir(directory, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      try {
-        const value = JSON.parse(await readFile(path, "utf8"));
-        hooks = mergeHookConfigs(hooks, parseHookFile(value, entry.name.slice(0, -5)));
-      } catch (error) {
-        diagnostics.push(`Could not load project hook at ${path}: ${errorMessage(error)}`);
-      }
-    }
-  } catch (error) {
-    if (!(isErrnoException(error) && (error.code === "ENOENT" || error.code === "ENOTDIR"))) {
-      diagnostics.push(`Could not read project hook directory at ${directory}: ${errorMessage(error)}`);
-    }
-  }
-
-  return {
-    hooks,
-    ...(diagnostics.length > 0 ? { diagnostic: diagnostics.join(" | ") } : {}),
-  };
-}
-
 export function matchHookRule(
   matcher: HookMatcher | undefined,
   invocation: HookInvocation,
@@ -760,8 +790,8 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
+function isMissingPath(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -11,7 +11,13 @@ export type ConfigInterpolation = "none" | "env";
 export type ConfigExecutionEffect = "none" | "process";
 export type ConfigFileShape =
   | { kind: "object" }
-  | { kind: "keyed-root"; field: string };
+  | { kind: "keyed-root"; field: string }
+  | {
+      kind: "keyed-entry";
+      field: string;
+      fileSchema: z.ZodType;
+      normalizeEntry?: (value: unknown) => unknown;
+    };
 
 export const CONFIG_FILE_SCOPES = ["user", "project-local", "project"] as const satisfies readonly ConfigFileScope[];
 

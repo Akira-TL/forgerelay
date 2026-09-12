@@ -92,7 +92,7 @@ assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
 assert.deepEqual(
   forgeRelayConfig.hooks.BeforeTool?.flatMap((rule) => rule.handlers.map((handler) => handler.name)),
-  ["Legacy inline hook", "Global hooks file", "10-release-verify", "20-package-inspection"],
+  ["Legacy inline hook", "Global hooks file"],
 );
 assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
 assert.equal(forgeRelayConfig.configAgentsDir, join(forgeRelayConfigDir, "agents"));
@@ -532,6 +532,11 @@ assert.throws(
   () => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }),
   /Hook BeforeTool timeoutSeconds must be an integer between 1 and 300/,
 );
+
+writeFileSync(join(invalidHooksConfigDir, "config.json"), "{}\n");
+mkdirSync(join(invalidHooksConfigDir, "hooks"), { recursive: true });
+writeFileSync(join(invalidHooksConfigDir, "hooks", "broken.json"), "{ invalid json\n");
+assert.doesNotThrow(() => loadConfig({ FORGERELAY_CONFIG_DIR: invalidHooksConfigDir }));
 
 const strictConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-strict-config-test-"));
 writeFileSync(

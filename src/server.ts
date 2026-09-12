@@ -204,6 +204,7 @@ export function createMcpServer(
       (snapshot) => recordBashCompletion(activityLifecycle, bashOutputStore, snapshot.outputId),
     ),
     config.commandShellRuntime,
+    config.configDir,
   );
   const incomingArtifactRegistry = new IncomingArtifactAdapterRegistry(incomingArtifactAdapters);
   const artifactDownloadAvailable = config.artifactsEnabled && isArtifactDownloadSupportedPlatform();
@@ -212,7 +213,7 @@ export function createMcpServer(
   let batchExecutor: BatchExecutor | undefined;
   const batchExecuteAvailable = config.toolMode !== "codex";
   const capabilityRegistry = createCapabilityRegistry({
-    inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks),
+    inspectHooks: (workspaceRoot) => checkHookConfiguration(workspaceRoot, config.hooks, config.configDir),
     ...subagentMcp.registryDependencies,
     externalMcp: externalMcpCapability,
     workspaceRecovery: {

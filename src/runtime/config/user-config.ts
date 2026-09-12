@@ -3,7 +3,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -15,12 +14,7 @@ import { expandHomePath } from "../../mcp/filesystem/roots.js";
 import type { LanguageServerConfigInput } from "../../lsp/language-server-config.js";
 import type { CommandShellPreference } from "../shell/command-shell-runtime.js";
 import type { ExternalMcpServersConfig } from "./external-mcp-config.js";
-import {
-  mergeHookConfigs,
-  parseHookFile,
-  type HookConfig,
-  type HookConfigInput,
-} from "../../mcp/hooks/hooks.js";
+import type { HookConfigInput } from "../../mcp/hooks/hooks.js";
 
 export interface ForgeRelayRetentionConfig {
   historyDays?: number;
@@ -82,7 +76,6 @@ export interface ForgeRelayFiles {
   config: ForgeRelayUserConfig;
   auth: ForgeRelayAuthConfig;
   hooks: HookConfigInput;
-  hookFiles: HookConfig;
 }
 
 export function forgerelayConfigDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -135,7 +128,6 @@ export function loadForgeRelayFiles(env: NodeJS.ProcessEnv = process.env): Forge
     config: configExists ? readJsonFile<ForgeRelayUserConfig>(configPath) : {},
     auth: authExists ? readJsonFile<ForgeRelayAuthConfig>(authPath) : {},
     hooks: hooksExists ? readJsonFile<HookConfigInput>(hooksPath) : {},
-    hookFiles: readHookFiles(join(dir, "hooks")),
   };
 }
 
@@ -258,28 +250,6 @@ export function resolveSubagentsFlag(
   const value = env.FORGERELAY_SUBAGENTS;
   if (value === undefined) return config.subagents;
   return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function readHookFiles(directory: string): HookConfig {
-  if (!existsSync(directory)) return {};
-
-  let hooks: HookConfig = {};
-  const entries = readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
-  for (const entry of entries) {
-    const filePath = join(directory, entry.name);
-    try {
-      hooks = mergeHookConfigs(
-        hooks,
-        parseHookFile(readJsonFile<unknown>(filePath), entry.name.slice(0, -5)),
-      );
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`Unable to load hook file ${filePath}: ${reason}`);
-    }
-  }
-  return hooks;
 }
 
 function readJsonFile<T>(filePath: string): T {

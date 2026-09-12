@@ -7,11 +7,11 @@ import {
   type CommandShellRuntime,
 } from "../../runtime/shell/command-shell-runtime.js";
 import type { WorkspaceMode } from "../../workspaces/state/workspace-store.js";
+import type { ProjectContext } from "../../workspaces/state/project-context.js";
 import { resolveShellCommandForRuntime } from "../process/process-platform.js";
 import { executeHookCommand } from "./command-runner.js";
 import {
-  loadProjectHookConfig,
-  matchHookRule,
+  resolveHookExecutionPlan,
   type HookConfig,
   type HookEvent,
   type HookExecutionReport,
@@ -25,6 +25,7 @@ export interface ExternalMcpTransformContext {
   workspaceId: string;
   workspaceRoot: string;
   workspaceMode?: WorkspaceMode;
+  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
   server: string;
   tool: string;
 }
@@ -67,6 +68,7 @@ export class ExternalMcpTransformRunner {
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
     commandShellRuntime?: CommandShellRuntime,
     mediaMaxBytes = 20 * 1024 * 1024,
+    private readonly configDir?: string,
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -111,15 +113,14 @@ export class ExternalMcpTransformRunner {
       workspaceMode: context.workspaceMode,
       payload: transformMetadata(context, phase),
     };
-    const project = await loadProjectHookConfig(context.workspaceRoot);
-    const handlers = [
-      ...(this.hooks[event] ?? []).map((rule) => ({ scope: "global" as const, rule })),
-      ...(project.hooks[event] ?? []).map((rule) => ({ scope: "project" as const, rule })),
-    ].flatMap(({ scope, rule }) => {
-      const matched = matchHookRule(rule.matcher, invocation);
-      if (!matched) return [];
-      return rule.handlers.map((handler) => ({ scope, handler }));
+    const plan = await resolveHookExecutionPlan({
+      event,
+      invocation,
+      legacyUser: this.hooks,
+      ...(this.configDir ? { configDir: this.configDir } : {}),
+      ...(context.project ? { project: context.project } : {}),
     });
+    const handlers = plan.handlers;
 
     let value = initialValue;
     const transforms: ExternalMcpTransformSummary[] = [];

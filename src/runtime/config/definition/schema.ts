@@ -39,6 +39,9 @@ export function generateConfigJsonSchema(
   if (definition.fileShape?.kind === "keyed-root") {
     return generateKeyedRootConfigJsonSchema(definition, scope);
   }
+  if (definition.fileShape?.kind === "keyed-entry") {
+    return generateKeyedEntryConfigJsonSchema(definition, scope);
+  }
 
   const schema = z.toJSONSchema(configSourceSchema(definition, scope), {
     target: "draft-7",
@@ -76,6 +79,24 @@ function generateKeyedRootConfigJsonSchema(
     description: "Editor-only JSON Schema URL. Ignored by ForgeRelay resolution.",
   };
   schema.properties = properties;
+  applyFieldMetadata(schema, field);
+  return schema;
+}
+
+function generateKeyedEntryConfigJsonSchema(
+  definition: ConfigDomainDefinition,
+  scope: ConfigFileScope,
+): JsonObject {
+  const fileShape = definition.fileShape;
+  if (!fileShape || fileShape.kind !== "keyed-entry") {
+    throw new Error(`Config domain ${definition.domain} is not keyed-entry.`);
+  }
+  const field = definition.fields[fileShape.field];
+  if (!field || !field.legalScopes.includes(scope)) {
+    throw new Error(`Config domain ${definition.domain} does not expose keyed-entry field ${fileShape.field} at ${scope} scope.`);
+  }
+  const schema = z.toJSONSchema(fileShape.fileSchema, { target: "draft-7" }) as JsonObject;
+  applySchemaIdentity(schema, definition, scope);
   applyFieldMetadata(schema, field);
   return schema;
 }
