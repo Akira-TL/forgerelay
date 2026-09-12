@@ -15,6 +15,7 @@ import {
   type ConfigSourceRefreshIssue,
 } from "../runtime/config/runtime/source-refresh.js";
 import { resolveProjectContext } from "../workspaces/state/project-context.js";
+import { projectExecutionRequirement, type ProjectExecutionRequirement } from "../runtime/security/project-execution-trust.js";
 
 export type SubagentProvider = "codex" | "claude" | "opencode" | "pi" | "cursor" | "copilot";
 
@@ -36,6 +37,7 @@ export interface SubagentProfile {
   filePath: string;
   body: string;
   disabled: boolean;
+  executionRequirement?: ProjectExecutionRequirement;
 }
 
 export interface SubagentProfileSummary {
@@ -171,7 +173,13 @@ export async function loadSubagentProfiles(
   workspaceRoot: string,
 ): Promise<SubagentProfile[]> {
   if (!config.subagents) return [];
-  const resolution = await resolveSubagentProfilesConfig(config, workspaceRoot);
+  const project = await resolveProjectContext(config.configDir, workspaceRoot);
+  const resolution = resolveSubagentProfilesConfigSources({
+    configDir: config.configDir,
+    sourceRuntime: config.configRuntime.sources,
+    projectSharedConfigDir: project.sharedConfigDir,
+    projectLocalConfigDir: project.localConfigDir,
+  });
   for (const diagnostic of resolution.diagnostics) {
     if (diagnostic.severity !== "error" || diagnostic.diagnosticChanged === false) continue;
     console.warn(
@@ -179,16 +187,25 @@ export async function loadSubagentProfiles(
     );
   }
   return effectiveSubagentProfileEntries(resolution)
-    .map((entry) => ({
-      name: entry.name,
-      description: entry.value.description,
-      provider: entry.value.provider,
-      ...(entry.value.model ? { model: entry.value.model } : {}),
-      ...(entry.value.thinking ? { thinking: entry.value.thinking } : {}),
-      filePath: entry.filePath,
-      body: entry.value.body,
-      disabled: false,
-    }))
+    .map((entry) => {
+      const executionRequirement = projectExecutionRequirement({
+        projectId: project.id,
+        resolution,
+        entryKey: `profiles.${entry.name}`,
+        display: { kind: "subagent-profile", name: entry.name },
+      });
+      return {
+        name: entry.name,
+        description: entry.value.description,
+        provider: entry.value.provider,
+        ...(entry.value.model ? { model: entry.value.model } : {}),
+        ...(entry.value.thinking ? { thinking: entry.value.thinking } : {}),
+        filePath: entry.filePath,
+        body: entry.value.body,
+        disabled: false,
+        ...(executionRequirement ? { executionRequirement } : {}),
+      };
+    })
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 

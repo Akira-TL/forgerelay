@@ -14,6 +14,7 @@ import type {
   ResolvedConfigDomain,
 } from "./resolution/types.js";
 import { ConfigSourceRuntime } from "./runtime/source-refresh.js";
+import { projectExecutionRequirement, type ProjectExecutionRequirement } from "../security/project-execution-trust.js";
 
 export type ExternalMcpConfigSource = "legacy" | "global" | "project" | "project-local";
 
@@ -35,6 +36,7 @@ export interface ExternalMcpConfigSourceStatus {
 export interface ExternalMcpRegistrySnapshot {
   servers: ExternalMcpServersConfig;
   origins: Record<string, ExternalMcpConfigSource>;
+  executionRequirements: Record<string, ProjectExecutionRequirement>;
   masked: Record<string, Exclude<ExternalMcpConfigSource, "legacy">>;
   sources: ExternalMcpConfigSourceStatus[];
   diagnostics: ExternalMcpConfigDiagnostic[];
@@ -82,7 +84,7 @@ export class ExternalMcpConfigRegistry {
 
   resolve(project: Pick<ProjectContext, "id" | "projectRoot" | "sharedConfigDir" | "localConfigDir">): ExternalMcpRegistrySnapshot {
     const dynamicSources = this.projectSources(project.sharedConfigDir, project.localConfigDir);
-    return this.composeSnapshot(dynamicSources, this.composeResolution(dynamicSources));
+    return this.composeSnapshot(dynamicSources, this.composeResolution(dynamicSources), project.id);
   }
 
   resolveGlobal(): ExternalMcpRegistrySnapshot {
@@ -156,9 +158,11 @@ export class ExternalMcpConfigRegistry {
   private composeSnapshot(
     dynamicSources: DynamicSourceSnapshot[],
     resolution: ResolvedConfigDomain,
+    projectId?: string,
   ): ExternalMcpRegistrySnapshot {
     const normalized = normalizeResolvedServers(resolution);
     const origins: Record<string, ExternalMcpConfigSource> = {};
+    const executionRequirements: Record<string, ProjectExecutionRequirement> = {};
     const masked: Record<string, Exclude<ExternalMcpConfigSource, "legacy">> = {};
     for (const [entryName, entry] of Object.entries(resolution.entries)) {
       if (!entryName.startsWith("servers.")) continue;
@@ -168,6 +172,11 @@ export class ExternalMcpConfigRegistry {
         if (source !== "legacy") masked[name] = source;
       } else if (name in normalized) {
         origins[name] = source;
+        const requirement = projectId ? projectExecutionRequirement({
+          projectId, resolution, entryKey: entryName,
+          display: { kind: "external-mcp", name },
+        }) : undefined;
+        if (requirement) executionRequirements[name] = requirement;
       }
     }
 
@@ -178,6 +187,7 @@ export class ExternalMcpConfigRegistry {
     return {
       servers: normalized,
       origins,
+      executionRequirements,
       masked,
       sources: [
         {

@@ -20,6 +20,10 @@ import {
   managedTypeScriptTsserverPath,
   withManagedLanguageServerPath,
 } from "./managed-language-servers.js";
+import {
+  compatibilityAllowProjectExecutionTrustPolicy,
+  type ProjectExecutionTrustPolicy,
+} from "../../runtime/security/project-execution-trust.js";
 
 const LANGUAGE_SERVICE_IDLE_MS = 10 * 60 * 1_000;
 const LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS = 60 * 1_000;
@@ -34,6 +38,7 @@ const MAX_DIAGNOSTICS_PER_DOCUMENT = 1000;
 const LANGUAGE_SERVICE_CRASH_COOLDOWN_MS = 5_000;
 
 export interface CodeIntelligenceManagerOptions {
+  projectExecutionTrustPolicy?: ProjectExecutionTrustPolicy;
   idleMs?: number;
   cleanupIntervalMs?: number;
   maxServices?: number;
@@ -85,11 +90,13 @@ export class CodeIntelligenceManager {
   private readonly cleanupTimer: NodeJS.Timeout;
   private readonly policy: CodeIntelligenceRuntimePolicy;
   private readonly crashCooldownMs: number;
+  private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy;
 
   constructor(
     private readonly config: Pick<ServerConfig, "languageServers" | "configDir" | "configRuntime">,
     options: CodeIntelligenceManagerOptions = {},
   ) {
+    this.projectExecutionTrustPolicy = options.projectExecutionTrustPolicy ?? compatibilityAllowProjectExecutionTrustPolicy;
     this.crashCooldownMs = positiveInteger(
       options.crashCooldownMs,
       LANGUAGE_SERVICE_CRASH_COOLDOWN_MS,
@@ -143,6 +150,9 @@ export class CodeIntelligenceManager {
       throw error;
     }
 
+    if (project.definition.executionRequirement) {
+      await this.projectExecutionTrustPolicy.authorize(project.definition.executionRequirement);
+    }
     await this.invalidateUnavailableServices(
       canonicalWorkspaceRoot,
       project.availableDefinitionFingerprints,

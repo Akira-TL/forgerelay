@@ -9,6 +9,11 @@ import {
 } from "../../runtime/shell/command-shell-runtime.js";
 import type { WorkspaceMode } from "../../workspaces/state/workspace-store.js";
 import type { ProjectContext } from "../../workspaces/state/project-context.js";
+import {
+  compatibilityAllowProjectExecutionTrustPolicy,
+  type ProjectExecutionRequirement,
+  type ProjectExecutionTrustPolicy,
+} from "../../runtime/security/project-execution-trust.js";
 import { resolveShellCommandForRuntime } from "../process/process-platform.js";
 import { executeHookCommand } from "./command-runner.js";
 import {
@@ -26,7 +31,7 @@ export interface ExternalMcpTransformContext {
   workspaceId: string;
   workspaceRoot: string;
   workspaceMode?: WorkspaceMode;
-  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">;
+  project?: Pick<ProjectContext, "id" | "sharedConfigDir" | "localConfigDir">;
   server: string;
   tool: string;
 }
@@ -71,6 +76,7 @@ export class ExternalMcpTransformRunner {
     mediaMaxBytes = 20 * 1024 * 1024,
     private readonly configDir?: string,
     private readonly sourceRuntime: ConfigSourceRuntime = new ConfigSourceRuntime(),
+    private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy = compatibilityAllowProjectExecutionTrustPolicy,
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -137,6 +143,7 @@ export class ExternalMcpTransformRunner {
         entry.scope,
         index,
         value,
+        entry.executionRequirement,
         signal,
       );
       value = execution.value;
@@ -158,6 +165,7 @@ export class ExternalMcpTransformRunner {
     scope: "global" | "project",
     index: number,
     currentValue: unknown,
+    executionRequirement?: ProjectExecutionRequirement,
     signal?: AbortSignal,
   ): Promise<{ value: unknown; report: HookExecutionReport }> {
     const startedAt = performance.now();
@@ -181,6 +189,7 @@ export class ExternalMcpTransformRunner {
     const stdin = JSON.stringify(transformInput(phase, context, currentValue));
 
     try {
+      if (executionRequirement) await this.projectExecutionTrustPolicy.authorize(executionRequirement);
       const result = await executeHookCommand({
         executable: shell.executable,
         args: shell.args,

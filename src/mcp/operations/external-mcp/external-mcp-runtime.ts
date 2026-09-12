@@ -74,6 +74,7 @@ export function createExternalMcpCapabilityRuntime(
           {
             project: { id: project.id, projectRoot: project.projectRoot },
             origins: snapshot.origins,
+            executionRequirements: snapshot.executionRequirements,
           },
         );
         return {

@@ -133,6 +133,37 @@ test("External MCP interpolation is limited to env and headers and provenance ne
   assert.match(JSON.stringify(resolution.entries), /\$\{SECRET_TOKEN\}/);
 });
 
+test("registry exposes a secret-safe execution requirement only for effective Project stdio MCP", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-external-mcp-trust-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configDir = join(root, "config");
+  const projectRoot = join(root, "project");
+  await mkdir(join(projectRoot, ".forgerelay"), { recursive: true });
+  await mkdir(configDir, { recursive: true });
+  await writeJson(join(projectRoot, ".forgerelay", "mcp.json"), {
+    servers: {
+      worker: {
+        transport: "stdio",
+        command: "node",
+        args: ["worker.mjs"],
+        env: { TOKEN: "${PROJECT_MCP_TOKEN}" },
+      },
+      remote: { transport: "streamable-http", url: "https://example.test/mcp" },
+    },
+  });
+  const project = await new ProjectContextResolver(configDir).resolve(projectRoot);
+  const snapshot = new ExternalMcpConfigRegistry({
+    configDir,
+    environment: { PROJECT_MCP_TOKEN: "MCP_SECRET_SENTINEL" },
+  }).resolve(project);
+
+  assert.equal(snapshot.executionRequirements.worker?.projectId, project.id);
+  assert.equal(snapshot.executionRequirements.worker?.logicalPath, "mcp.servers.worker");
+  assert.deepEqual(snapshot.executionRequirements.worker?.display, { kind: "external-mcp", name: "worker" });
+  assert.equal(snapshot.executionRequirements.remote, undefined);
+  assert.doesNotMatch(JSON.stringify(snapshot.executionRequirements), /MCP_SECRET_SENTINEL|TOKEN|worker\.mjs/);
+});
+
 test("registry merges Project over global over legacy and disabled entries mask lower sources", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-external-mcp-registry-"));
   t.after(() => rm(root, { recursive: true, force: true }));

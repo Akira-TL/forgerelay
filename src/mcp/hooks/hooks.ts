@@ -3,21 +3,12 @@ import { performance } from "node:perf_hooks";
 import type { WorkspaceMode } from "../../workspaces/state/workspace-store.js";
 import type { LoggingConfig } from "../../runtime/logging/logger.js";
 import { commandPreview, logEvent, workspaceLogLabel } from "../../runtime/logging/logger.js";
-import {
-  resolveCompatibilityCommandShellRuntime,
-  snapshotCommandShellRuntime,
-  type CommandShellRuntime,
-} from "../../runtime/shell/command-shell-runtime.js";
+import { resolveCompatibilityCommandShellRuntime, snapshotCommandShellRuntime, type CommandShellRuntime } from "../../runtime/shell/command-shell-runtime.js";
 import { resolveShellCommandForRuntime } from "../process/process-platform.js";
 import { executeHookCommand, hookFailureOutput } from "./command-runner.js";
-import {
-  resolveProjectContext,
-  type ProjectContext,
-} from "../../workspaces/state/project-context.js";
-import {
-  effectiveHookConfigEntries,
-  resolveHooksConfig,
-} from "../../runtime/config/resolution/hooks.js";
+import { resolveProjectContext, type ProjectContext } from "../../workspaces/state/project-context.js";
+import { effectiveHookConfigEntries, resolveHooksConfig } from "../../runtime/config/resolution/hooks.js";
+import { compatibilityAllowProjectExecutionTrustPolicy, projectExecutionRequirement, type ProjectExecutionRequirement, type ProjectExecutionTrustPolicy } from "../../runtime/security/project-execution-trust.js";
 import { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
 import { HOOK_EVENTS, type ResolvedHookEntryInput } from "./config.js";
 
@@ -101,6 +92,7 @@ export interface HookExecutionPlanEntry {
   scope: HookExecutionReport["scope"];
   handler: HookHandler;
   invocation: HookInvocation;
+  executionRequirement?: ProjectExecutionRequirement;
 }
 
 export interface HookExecutionPlan {
@@ -343,7 +335,7 @@ export async function resolveHookExecutionPlan(input: {
   invocation: HookInvocation;
   legacyUser: HookConfig;
   configDir?: string;
-  project?: Pick<ProjectContext, "sharedConfigDir" | "localConfigDir">; sourceRuntime?: ConfigSourceRuntime;
+  project?: Pick<ProjectContext, "id" | "sharedConfigDir" | "localConfigDir">; sourceRuntime?: ConfigSourceRuntime;
 }): Promise<HookExecutionPlan> {
   let projectRoot = input.event === "AfterWorktreeClose" && input.invocation.sourceRoot
     ? input.invocation.sourceRoot
@@ -370,10 +362,14 @@ export async function resolveHookExecutionPlan(input: {
       if (hook.event !== input.event) return [];
       const matchedInvocation = matchHookRule(hook.matcher, input.invocation);
       if (!matchedInvocation) return [];
+      const requirement = project ? projectExecutionRequirement({
+        projectId: project.id, resolution, entryKey: `hooks.${entry.name}`,
+        display: { kind: "hook", name: entry.name },
+      }) : undefined;
       return [{
         scope: entry.scope === "user" ? "global" as const : "project" as const,
-        handler: resolvedHookHandler(entry.name, hook),
-        invocation: matchedInvocation,
+        handler: resolvedHookHandler(entry.name, hook), invocation: matchedInvocation,
+        ...(requirement ? { executionRequirement: requirement } : {}),
       }];
     })
   );
@@ -390,6 +386,7 @@ export class HookRunner {
     private readonly resultDecorator?: (workspaceId: string, result: unknown) => unknown,
     commandShellRuntime?: CommandShellRuntime,
     private readonly configDir?: string, private readonly sourceRuntime: ConfigSourceRuntime = new ConfigSourceRuntime(),
+    private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy = compatibilityAllowProjectExecutionTrustPolicy,
   ) {
     this.commandShellRuntime = snapshotCommandShellRuntime(
       commandShellRuntime ?? resolveCompatibilityCommandShellRuntime(process.platform, baseEnv),
@@ -417,9 +414,9 @@ export class HookRunner {
 
     const handlers = plan.handlers;
 
-    for (const [index, { scope, handler, invocation: matchedInvocation }] of handlers.entries()) {
+    for (const [index, { scope, handler, invocation: matchedInvocation, executionRequirement }] of handlers.entries()) {
       signal?.throwIfAborted();
-      const execution = await this.runHandler(event, handler, index, matchedInvocation, scope, signal);
+      const execution = await this.runHandler(event, handler, index, matchedInvocation, scope, executionRequirement, signal);
       executions.push(execution);
       logEvent(this.logging, execution.status === "passed" ? "info" : "warn", "hook_call", {
         hookEvent: event,
@@ -447,7 +444,7 @@ export class HookRunner {
     handler: HookHandler,
     index: number,
     invocation: HookInvocation,
-    scope: HookExecutionReport["scope"],
+    scope: HookExecutionReport["scope"], executionRequirement?: ProjectExecutionRequirement,
     signal?: AbortSignal,
   ): Promise<HookExecutionReport> {
     const startedAt = performance.now();
@@ -457,6 +454,7 @@ export class HookRunner {
     const env = hookEnvironment(this.baseEnv, event, invocation);
 
     try {
+      if (executionRequirement) await this.projectExecutionTrustPolicy.authorize(executionRequirement);
       const result = await executeHookCommand({
         executable: shell.executable,
         args: shell.args,

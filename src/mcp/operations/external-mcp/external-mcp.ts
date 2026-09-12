@@ -25,6 +25,11 @@ import {
 } from "../../../runtime/config/external-mcp-auth-store.js";
 import type { ExternalMcpConfigSource } from "../../../runtime/config/external-mcp-registry.js";
 import {
+  compatibilityAllowProjectExecutionTrustPolicy,
+  type ProjectExecutionRequirement,
+  type ProjectExecutionTrustPolicy,
+} from "../../../runtime/security/project-execution-trust.js";
+import {
   claimMediaBytes,
   createMediaBudget,
   isSupportedImageMimeType,
@@ -105,6 +110,7 @@ export interface ExternalMcpRunResult {
 export interface ExternalMcpAuthContext {
   project?: { id: string; projectRoot: string };
   origins: Record<string, ExternalMcpConfigSource>;
+  executionRequirements?: Record<string, ProjectExecutionRequirement>;
 }
 
 export interface ExternalMcpProbeResult {
@@ -131,6 +137,7 @@ export class ExternalMcpGateway {
   constructor(
     private readonly mediaMaxBytes: number,
     private readonly credentialStore?: ExternalMcpCredentialStore,
+    private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy = compatibilityAllowProjectExecutionTrustPolicy,
   ) {}
 
   async run(
@@ -259,6 +266,10 @@ export class ExternalMcpGateway {
     if (!config) throw new ExternalMcpError("unknown_server", `Unknown configured external MCP server: ${name}.`);
     const fingerprint = externalMcpServerFingerprint(config);
     const runtimeAuth = this.resolveRuntimeAuth(name, config, authContext);
+    const requirement = authContext?.executionRequirements?.[name];
+    if (config.transport === "stdio" && requirement) {
+      await this.projectExecutionTrustPolicy.authorize(requirement);
+    }
     const client = new Client(
       { name: "forgerelay-external-mcp", version: "1.0.0" },
       { versionNegotiation: { mode: "auto" } },

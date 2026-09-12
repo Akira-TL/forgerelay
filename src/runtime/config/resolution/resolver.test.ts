@@ -79,7 +79,7 @@ test("sensitive interpolation resolves runtime values without copying raw secret
         sensitivity: "sensitive",
         interpolation: "env",
         builtIn: { kind: "none" },
-        executionEffect: "none",
+        executionEffect: "process",
       },
     },
   });
@@ -88,11 +88,22 @@ test("sensitive interpolation resolves runtime values without copying raw secret
     sources: [source("user", "user:file", "file", 0, { token: "${SECRET_TOKEN}" })],
     environment: { SECRET_TOKEN: "sentinel-super-secret" },
   });
+  const changedSecret = resolveConfigDomain({
+    definition,
+    sources: [source("user", "user:file", "file", 0, { token: "${SECRET_TOKEN}" })],
+    environment: { SECRET_TOKEN: "different-super-secret" },
+  });
 
   assert.equal(resolved.values.token, "sentinel-super-secret");
   assert.equal(resolved.entries.token?.effective.configuredValue, "${SECRET_TOKEN}");
   assert.equal(resolved.entries.token?.effective.effectiveValue, "<redacted>");
-  assert.doesNotMatch(JSON.stringify(resolved.entries), /sentinel-super-secret/);
+  assert.match(resolved.entries.token?.effective.executionFingerprint ?? "", /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(
+    resolved.entries.token?.effective.executionFingerprint,
+    changedSecret.entries.token?.effective.executionFingerprint,
+  );
+  assert.doesNotMatch(JSON.stringify(resolved.entries), /sentinel-super-secret|different-super-secret/);
+  assert.doesNotMatch(JSON.stringify(resolved.entries), /executionFingerprint/);
 });
 
 test("missing interpolation variables invalidate the whole source with a safe diagnostic", () => {

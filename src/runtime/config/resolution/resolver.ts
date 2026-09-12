@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as z from "zod/v4";
 import {
   configSourceSchema,
@@ -398,7 +399,7 @@ function provenanceFor(
     : typeof field.executionEffect === "string"
       ? field.executionEffect
       : "none";
-  return {
+  const provenance: ConfigValueProvenance = {
     source: candidate.source,
     configuredValue: safeConfiguredValue(field, candidate.configuredValue),
     effectiveValue: candidate.hasValue
@@ -408,6 +409,13 @@ function provenanceFor(
     sensitivity: field.sensitivity,
     executionEffect,
   };
+  if (executionEffect === "process" && candidate.hasValue) {
+    Object.defineProperty(provenance, "executionFingerprint", {
+      value: valueFingerprint({ logicalPath, value: candidate.value }),
+      enumerable: false,
+    });
+  }
+  return provenance;
 }
 
 function safeConfiguredValue(field: ConfigFieldDefinition, value: unknown): unknown {
@@ -419,6 +427,24 @@ function safeConfiguredValue(field: ConfigFieldDefinition, value: unknown): unkn
 function safeValue(field: ConfigFieldDefinition, value: unknown): unknown {
   if (field.sensitivity === "sensitive") return "<redacted>";
   return structuredClone(value);
+}
+
+function valueFingerprint(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("base64url");
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(normalizeForFingerprint(value)) ?? "undefined";
+}
+
+function normalizeForFingerprint(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeForFingerprint);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, normalizeForFingerprint(entry)]),
+  );
 }
 
 function preserveEnvironmentReferences(value: unknown): unknown {

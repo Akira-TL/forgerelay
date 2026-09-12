@@ -55,6 +55,8 @@ export interface ConfigValueProvenance {
   reload: ConfigReloadPolicy;
   sensitivity: ConfigSensitivity;
   executionEffect: ConfigExecutionEffect;
+  /** Opaque identity of the resolved executable value. Present only when executionEffect=process. */
+  executionFingerprint?: string;
 }
 
 export interface ConfigShadowedValue extends ConfigValueProvenance {

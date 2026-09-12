@@ -9,6 +9,7 @@ import {
   resolveLanguageServersConfig,
 } from "../runtime/config/resolution/language-servers.js";
 import type { ConfigSourceRuntime } from "../runtime/config/runtime/source-refresh.js";
+import { projectExecutionRequirement, type ProjectExecutionRequirement } from "../runtime/security/project-execution-trust.js";
 
 export type LanguageServerDefinitionInput = Omit<CanonicalLanguageServerDefinitionInput, "disabled"> & {
   enabled?: boolean;
@@ -27,6 +28,7 @@ export interface ResolvedLanguageServerDefinition {
   projectMarkers: string[];
   source: "builtin" | "global" | "project" | "project-local";
   initializationOptions?: Record<string, unknown>;
+  executionRequirement?: ProjectExecutionRequirement;
   /** Config-only identity before managed-runtime/package identity is applied. */
   configFingerprint: string;
   fingerprint: string;
@@ -87,7 +89,7 @@ export async function resolveLanguageProject(input: {
   const errors = resolution.diagnostics.filter((diagnostic) =>
     diagnostic.severity === "error" && diagnostic.usingLastKnownGood !== true
   );
-  const definitions = await materializeResolvedDefinitions(resolution, environment);
+  const definitions = await materializeResolvedDefinitions(resolution, environment, project?.id);
   const availableDefinitionFingerprints = Object.fromEntries(
     definitions.map((definition) => [definition.id, definition.configFingerprint]),
   );
@@ -140,6 +142,7 @@ export async function resolveLanguageProject(input: {
 async function materializeResolvedDefinitions(
   resolution: Awaited<ReturnType<typeof resolveLanguageServersConfig>>,
   env: NodeJS.ProcessEnv,
+  projectId?: string,
 ): Promise<ResolvedLanguageServerDefinition[]> {
   const definitions: ResolvedLanguageServerDefinition[] = [];
 
@@ -179,8 +182,15 @@ async function materializeResolvedDefinitions(
       source: merged.source,
     };
     const configFingerprint = createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+    const executionRequirement = projectId ? projectExecutionRequirement({
+      projectId,
+      resolution,
+      entryKey: `servers.${entry.id}`,
+      display: { kind: "language-server", name: entry.id },
+    }) : undefined;
     definitions.push({
       ...normalized,
+      ...(executionRequirement ? { executionRequirement } : {}),
       configFingerprint,
       fingerprint: configFingerprint,
     });

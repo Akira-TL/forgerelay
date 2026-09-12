@@ -12,6 +12,10 @@ import {
 import { assertSubagentProviderAvailable } from "../providers/availability.js";
 import { subagentProviderContinuationSupported } from "../providers/continuation.js";
 import {
+  compatibilityAllowProjectExecutionTrustPolicy,
+  type ProjectExecutionTrustPolicy,
+} from "../../runtime/security/project-execution-trust.js";
+import {
   createSubagentSessionStore,
   type SubagentRunSummary,
   type SubagentSession,
@@ -84,6 +88,7 @@ export class SubagentSessionManager {
   constructor(
     private readonly config: ServerConfig,
     private readonly launcher: SubagentLauncher,
+    private readonly projectExecutionTrustPolicy: ProjectExecutionTrustPolicy = compatibilityAllowProjectExecutionTrustPolicy,
   ) {
     this.store = createSubagentSessionStore(config);
   }
@@ -103,6 +108,9 @@ export class SubagentSessionManager {
       throw new Error(
         `Unknown subagent profile or provider: ${input.target}. Available ${formatAvailableSubagentTargets(profiles)}`,
       );
+    }
+    if (target.kind === "profile" && target.profile.executionRequirement) {
+      await this.projectExecutionTrustPolicy.authorize(target.profile.executionRequirement);
     }
     assertSubagentProviderAvailable(target.provider);
 
