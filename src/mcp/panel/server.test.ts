@@ -66,12 +66,12 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
   } | undefined;
   assert.equal(resourceMeta?.ui?.domain, "https://forge.example.com");
   assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, [
-    "https://forge.example.com/base/path",
-    "https://forge-alt.example.com/alternate/path",
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
   ]);
   assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, [
-    "https://forge.example.com/base/path",
-    "https://forge-alt.example.com/alternate/path",
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
   ]);
 
   const activityRead = await context.client.readResource({ uri: activity.uri });
@@ -87,17 +87,17 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
   } | undefined;
   assert.equal(activityContentMeta?.ui?.domain, "https://forge.example.com");
   assert.deepEqual(activityContentMeta?.ui?.csp?.resourceDomains, [
-    "https://forge.example.com/base/path",
-    "https://forge-alt.example.com/alternate/path",
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
   ]);
   assert.equal(activityContentMeta?.domain, "https://forge.example.com");
   assert.deepEqual(activityContentMeta?.csp?.resourceDomains, [
-    "https://forge.example.com/base/path",
-    "https://forge-alt.example.com/alternate/path",
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
   ]);
   assert.deepEqual(activityContentMeta?.csp?.connectDomains, [
-    "https://forge.example.com/base/path",
-    "https://forge-alt.example.com/alternate/path",
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
   ]);
   assert.match(
     activityText,

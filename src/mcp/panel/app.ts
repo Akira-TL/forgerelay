@@ -132,9 +132,12 @@ function currentIdentity(
 }
 
 function activityPanelCsp(config: ServerConfig): ActivityPanelCsp {
+  const publicOrigins = Array.from(new Set(
+    config.publicBaseUrls.map((baseUrl) => new URL(baseUrl).origin),
+  ));
   return {
-    resourceDomains: [...config.publicBaseUrls],
-    connectDomains: [...config.publicBaseUrls],
+    resourceDomains: publicOrigins,
+    connectDomains: publicOrigins,
   };
 }
 
