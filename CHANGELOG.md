@@ -4,6 +4,31 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.0-rc.1] - 2026-09-13
+
+### Added
+
+- Added Config System v2 with generated v1 schemas, one definition/resolver model, explicit provenance, Project identity, machine-private Project Local configuration, and operator-facing `config check`, `config sources`, and `config explain` diagnostics.
+- Added explicit `forgerelay config migrate` with dry-run, backups, atomic writes, and ForgeRelay-owned legacy normalization for External MCP, Language Servers, Lifecycle Hooks, and Subagent Profiles.
+- Added packaged Config v2 product acceptance covering fresh setup, direct 1.1-style upgrade, explicit migration equivalence, reload/LKG, Project Local behavior, the project-execution trust seam, and isolated packaged server startup.
+
+### Changed
+
+- Unified precedence as `runtime > project-local > project > user > built-in`; External MCP, Language Servers, Hooks, and Subagent Profiles now use canonical Config v2 sources with content-fingerprint demand refresh, last-known-good fallback, and deletion semantics.
+- Rebuilt setup so basic `init` asks only required roots and connection mode, while `init --advanced` owns common advanced options. Runtime Shell Instructions remain opt-in, and `init --force` no longer acts as an implicit migration path.
+- Canonicalized Subagent Profile configuration under `subagents/`, kept ForgeRelay-owned Skills private to the ForgeRelay config directory, and routed legacy inputs through the same resolver instead of maintaining parallel old/new configuration architectures.
+- Added configured-versus-applied reporting for restart-required General Config and generation retirement for long-lived runtime resources whose effective configuration changes.
+
+### Compatibility
+
+- Existing ForgeRelay-owned legacy configuration remains directly readable with deprecation diagnostics in v1.2.x, receives stronger removal warnings in v1.3.x, and is scheduled for parser/path removal in v1.4.0. Startup never rewrites legacy files automatically.
+- Canonical configuration can coexist with legacy sources during migration; canonical same-scope sources shadow the corresponding legacy adapter so explicit migration preserves effective behavior.
+
+### Security
+
+- Separated allowed-root filesystem authority from Project Trust. Project Hooks, stdio External MCP, Project Language Servers, and Project Subagent Profiles now pass through one project-execution trust seam; v1.2.0 intentionally uses a compatibility-allow policy and does not claim a full interactive Project Trust approval UI.
+- Kept credentials outside the ordinary Config Resolver, limited environment interpolation to definition-approved fields, and kept resolved sensitive values out of normal provenance and diagnostic output.
+
 ## [1.1.2] - 2026-09-11
 
 ### Fixed
