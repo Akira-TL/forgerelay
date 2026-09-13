@@ -12,3 +12,4 @@ import "./operations/activity-batch.test.js";
 import "./operations/filesystem.test.js";
 import "./operations/filesystem-media.test.js";
 import "./operations/hooks.test.js";
+import "./transport/http-origin.test.js";

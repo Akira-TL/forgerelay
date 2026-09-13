@@ -4,6 +4,7 @@ import {
   createMcpHandler,
   isInitializeRequest,
   isLegacyRequest,
+  localhostAllowedOrigins,
   resourceUrlFromServerUrl,
   type McpServer,
 } from "@modelcontextprotocol/server";
@@ -84,17 +85,22 @@ export function createHttpServer(
 ): RunningServer {
   const incomingArtifactAdapters = options.incomingArtifactAdapters
     ?? [createOpenAIIncomingArtifactAdapter()];
+  const routeBaseUrls = config.publicBaseUrls.map((baseUrl) => new URL(baseUrl));
   const allowedHosts = config.allowedHosts.includes("*")
     ? undefined
     : Array.from(new Set([config.host, ...config.allowedHosts]));
+  const allowedOrigins = Array.from(new Set([
+    ...localhostAllowedOrigins(),
+    ...routeBaseUrls.map((baseUrl) => baseUrl.hostname),
+  ]));
   const app = createMcpExpressApp({
     host: config.host,
     ...(allowedHosts ? { allowedHosts } : {}),
+    allowedOrigins,
   });
   const transports = new McpTransportRegistry<Transport>({
     maxTransports: MAX_MCP_TRANSPORT_SESSIONS,
   });
-  const routeBaseUrls = config.publicBaseUrls.map((baseUrl) => new URL(baseUrl));
   const mcpUrl = publicEndpointUrl(config.publicBaseUrl, "mcp");
   const mcpPaths = publicEndpointPaths(routeBaseUrls, "mcp");
   const activityPanelAssetsPaths = publicEndpointPaths(routeBaseUrls, "mcp-app-assets");
@@ -422,4 +428,3 @@ export function createHttpServer(
     },
   };
 }
-
