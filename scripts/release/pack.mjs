@@ -52,8 +52,34 @@ if (missingSchemas.length > 0) {
   throw new Error(`release:pack omitted generated Config schemas: ${missingSchemas.join(", ")}`);
 }
 
+const expectedRuntimeResources = [
+  "dist/cli.js",
+  ...collectPackageFiles(resolve(repoRoot, "templates"), "templates"),
+  ...collectPackageFiles(resolve(repoRoot, "capabilities"), "capabilities"),
+].sort();
+const missingRuntimeResources = expectedRuntimeResources.filter((path) => !packagedPaths.has(path));
+if (missingRuntimeResources.length > 0) {
+  throw new Error(
+    `release:pack omitted ForgeRelay-owned runtime resources: ${missingRuntimeResources.join(", ")}`,
+  );
+}
+
 console.log(`Verified npm artifact: ${packages[0]}`);
 console.log(`Verified packaged Config schemas: ${expectedSchemas.join(", ")}`);
+console.log(`Verified packaged ForgeRelay-owned runtime resources: ${expectedRuntimeResources.join(", ")}`);
+
+function collectPackageFiles(directory, prefix) {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relative = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      files.push(...collectPackageFiles(resolve(directory, entry.name), relative));
+    } else if (entry.isFile()) {
+      files.push(relative);
+    }
+  }
+  return files;
+}
 
 function parsePackReport(stdout) {
   let parsed;

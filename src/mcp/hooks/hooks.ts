@@ -558,6 +558,7 @@ function parseHookRule(event: HookEvent, value: unknown, index: number): HookRul
 
   if (!("handlers" in value)) {
     return {
+      matcher: parseHookMatcher(event, value.matcher, index),
       handlers: [parseHookHandler(event, value, index)],
     };
   }

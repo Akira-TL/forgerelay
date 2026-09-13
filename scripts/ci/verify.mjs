@@ -15,6 +15,7 @@ runNpm(["run", "release:check"], "Release metadata");
 runNpm(["run", "typecheck"], "Typecheck");
 runNpm(["test"], "Full test suite");
 runNpm(["run", "build"], "Build");
+runNpm(["run", "config:product-accept"], "Config v2 packaged product acceptance");
 if (process.platform === "win32") runNpm(["run", "pwsh:accept"], "PowerShell 7 packaged acceptance");
 // The traffic audit is an end-to-end wire-budget check, not a platform feature
 // matrix. Run it once on Linux so regressions are gated without tripling the

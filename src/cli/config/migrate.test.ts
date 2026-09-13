@@ -68,7 +68,7 @@ test("config migrate writes canonical user domains, backs up legacy sources, and
     artifactsEnabled: true,
     mcpServers: { demo: { transport: "stdio", command: "demo-mcp", args: ["--stdio"] } },
     languageServers: { custom: { command: "custom-lsp", extensions: [".custom"] } },
-    hooks: { BeforeTool: [{ name: "guard", command: "printf guard", report: true }] },
+    hooks: { BeforeTool: [{ name: "guard", matcher: { tool: "read" }, command: "printf guard", report: true }] },
   }, null, 2));
   writeFileSync(join(configDir, "hooks.json"), JSON.stringify({
     AfterTool: [{ name: "audit", command: "printf audit" }],
@@ -93,6 +93,7 @@ test("config migrate writes canonical user domains, backs up legacy sources, and
   assert.equal(lsp.custom.command, "custom-lsp");
   assert.match(lsp.$schema, /schemas\/v1\/language-servers\.user\.schema\.json$/);
   assert.equal(json(join(configDir, "hooks", "guard.json")).command, "printf guard");
+  assert.deepEqual(json(join(configDir, "hooks", "guard.json")).matcher, { tool: "read" });
   assert.equal(json(join(configDir, "hooks", "audit.json")).command, "printf audit");
   assert.equal(existsSync(join(configDir, "hooks.json")), false);
   assert.equal(existsSync(join(configDir, "agents")), false);

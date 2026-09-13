@@ -40,19 +40,26 @@ test("optional release:verify records proof only after the cloud-equivalent pari
   assert.equal(pkg.scripts["release:push-ready"], "node scripts/release/push-ready.mjs");
 });
 
-test("Config schemas are generated, drift-checked, and required in the packed release artifact", async () => {
+test("Config schemas and ForgeRelay-owned runtime resources are gated in packaged verification", async () => {
   const pkg = await readJson("package.json");
   assert.ok(pkg.files.includes("schemas"));
+  assert.ok(pkg.files.includes("templates"));
+  assert.ok(pkg.files.includes("capabilities"));
   assert.match(pkg.scripts.build, /config:schema:check/);
   assert.equal(pkg.scripts["config:schema:generate"], "node --import tsx scripts/config/schema.mjs write");
   assert.equal(pkg.scripts["config:schema:check"], "node --import tsx scripts/config/schema.mjs check");
+  assert.equal(pkg.scripts["config:product-accept"], "node scripts/ci/config-v2-product-acceptance.mjs");
 
   const verify = await readFile(resolve(repoRoot, "scripts/ci/verify.mjs"), "utf8");
   assert.match(verify, /\["run", "config:schema:check"\]/);
+  assert.match(verify, /\["run", "config:product-accept"\]/);
 
   const pack = await readFile(resolve(repoRoot, "scripts/release/pack.mjs"), "utf8");
   assert.match(pack, /schemas", "v1"/);
   assert.match(pack, /release:pack omitted generated Config schemas/);
+  assert.match(pack, /templates/);
+  assert.match(pack, /capabilities/);
+  assert.match(pack, /release:pack omitted ForgeRelay-owned runtime resources/);
 });
 
 test("cross-platform cloud CI delegates to one shell-free verification entrypoint", async () => {
