@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -46,6 +46,8 @@ test("Git linked worktrees share one Project ID while independent clones remain 
   await createGitProject(source);
   await git(source, ["worktree", "add", "-b", "linked-test", linked, "HEAD"]);
   await git(root, ["clone", "--local", source, clone]);
+  const canonicalSource = await realpath(source);
+  const canonicalLinked = await realpath(linked);
 
   const resolver = new ProjectContextResolver(configDir);
   const sourceProject = await resolver.resolve(source);
@@ -56,10 +58,10 @@ test("Git linked worktrees share one Project ID while independent clones remain 
   assert.equal(linkedProject.kind, "git");
   assert.equal(sourceProject.id, linkedProject.id);
   assert.notEqual(sourceProject.id, cloneProject.id);
-  assert.equal(sourceProject.projectRoot, resolve(source));
-  assert.equal(linkedProject.projectRoot, resolve(linked));
+  assert.equal(sourceProject.projectRoot, canonicalSource);
+  assert.equal(linkedProject.projectRoot, canonicalLinked);
   assert.equal(sourceProject.localConfigDir, join(configDir, "projects", sourceProject.id));
-  assert.equal(sourceProject.sharedConfigDir, join(source, ".forgerelay"));
+  assert.equal(sourceProject.sharedConfigDir, join(canonicalSource, ".forgerelay"));
 
   assert.equal(sourceProject.gitCommonDir, linkedProject.gitCommonDir);
   assert.notEqual(sourceProject.gitCommonDir, cloneProject.gitCommonDir);
@@ -83,10 +85,11 @@ test("Git Project identity survives path moves while Project Local storage stays
   assert.equal(isolated.localConfigDir, join(configB, "projects", first.id));
 
   await rename(source, moved);
+  const canonicalMoved = await realpath(moved);
   const afterMove = await new ProjectContextResolver(configA).resolve(moved);
   assert.equal(afterMove.id, first.id);
-  assert.equal(afterMove.projectRoot, resolve(moved));
-  assert.equal(afterMove.sharedConfigDir, join(moved, ".forgerelay"));
+  assert.equal(afterMove.projectRoot, canonicalMoved);
+  assert.equal(afterMove.sharedConfigDir, join(canonicalMoved, ".forgerelay"));
   assert.equal(afterMove.localConfigDir, first.localConfigDir);
 });
 
@@ -144,6 +147,7 @@ test("non-Git Project identity is bound to canonical root in ForgeRelay-private 
   await mkdir(project);
   await writeFile(join(project, "file.txt"), "hello\n");
   if (process.platform !== "win32") await symlink(project, alias, "dir");
+  const canonicalProject = await realpath(project);
 
   const resolver = new ProjectContextResolver(configDir);
   const first = await resolver.resolve(project);
@@ -151,15 +155,16 @@ test("non-Git Project identity is bound to canonical root in ForgeRelay-private 
 
   assert.equal(first.kind, "non-git");
   assert.equal(first.id, same.id);
-  assert.equal(first.canonicalRoot, resolve(project));
+  assert.equal(first.canonicalRoot, canonicalProject);
   assert.equal(first.localConfigDir, join(configDir, "projects", first.id));
-  assert.equal(first.sharedConfigDir, join(project, ".forgerelay"));
+  assert.equal(first.sharedConfigDir, join(canonicalProject, ".forgerelay"));
   assert.deepEqual((await readdir(project)).sort(), ["file.txt"]);
 
   await rename(project, moved);
+  const canonicalMoved = await realpath(moved);
   const afterMove = await resolver.resolve(moved);
   assert.notEqual(afterMove.id, first.id);
-  assert.equal(afterMove.canonicalRoot, resolve(moved));
+  assert.equal(afterMove.canonicalRoot, canonicalMoved);
 
   const identityIndex = join(configDir, "projects", "non-git-identities.json");
   const persisted = JSON.parse(await readFile(identityIndex, "utf8")) as {
@@ -167,7 +172,7 @@ test("non-Git Project identity is bound to canonical root in ForgeRelay-private 
     projects: Record<string, string>;
   };
   assert.equal(persisted.version, 1);
-  assert.equal(persisted.projects[resolve(moved)], afterMove.id);
+  assert.equal(persisted.projects[canonicalMoved], afterMove.id);
 });
 
 test("Project Local JSON sources load from Project-owned private storage and outrank project-shared sources", async (t) => {

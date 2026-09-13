@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.0-rc.2] - 2026-09-13
+
+### Fixed
+
+- Made generated Config schema freshness checks line-ending independent so Windows CRLF checkouts do not falsely report all `schemas/v1/*.schema.json` files as stale while semantic schema changes still fail the gate.
+- Made Project identity regression assertions compare canonical realpaths, matching ForgeRelay's existing canonical Project-root contract on macOS `/var` → `/private/var` aliases.
+
 ## [1.2.0-rc.1] - 2026-09-13
 
 ### Added

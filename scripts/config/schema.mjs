@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_DEFINITION_CATALOG } from "../../src/runtime/config/definition/catalog.ts";
 import { generateConfigSchemaFiles } from "../../src/runtime/config/definition/schema.ts";
+import { generatedSchemaTextMatches } from "./schema-text.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const command = process.argv[2] ?? "check";
@@ -33,7 +34,7 @@ if (command === "write") {
     } catch {
       actual = undefined;
     }
-    if (actual !== entry.content) mismatches.push(entry.relativePath);
+    if (!generatedSchemaTextMatches(actual, entry.content)) mismatches.push(entry.relativePath);
   }
   const expected = new Set(generated.map((entry) => entry.relativePath));
   for (const path of await currentMajorSchemaPaths()) {
