@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
-import express from "express";
+import express, { type Response } from "express";
 import type { AddressInfo } from "node:net";
 import type { OAuthServerProvider } from "./auth-protocol.js";
 import { createForgeRelayAuthRouter } from "./router.js";
@@ -93,6 +93,56 @@ test("OAuth metadata preserves an instance path prefix", async (t) => {
   const resourceMetadata = await resourceMetadataResponse.json() as Record<string, unknown>;
   assert.equal(resourceMetadata.resource, "https://babelbeast.com/forgerelay/debug/mcp");
   assert.deepEqual(resourceMetadata.authorization_servers, ["https://babelbeast.com/forgerelay/debug"]);
+});
+
+test("OAuth authorization callback includes the advertised issuer", async (t) => {
+  const callbackUrl = "https://chatgpt.com/connector_platform_oauth_redirect";
+  const provider = {
+    clientsStore: {
+      getClient: async () => ({
+        client_id: "chatgpt-client",
+        client_id_issued_at: 1,
+        client_name: "ChatGPT",
+        redirect_uris: [callbackUrl],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+      }),
+    },
+    authorize: async (_client: unknown, params: { redirectUri: string; state?: string }, res: Response) => {
+      const redirect = new URL(params.redirectUri);
+      redirect.searchParams.set("code", "code-test");
+      if (params.state) redirect.searchParams.set("state", params.state);
+      res.redirect(302, redirect.href);
+    },
+  } as unknown as OAuthServerProvider;
+  const issuerUrl = new URL("https://babelbeast.com/forgerelay/main");
+  const app = express();
+  app.use(createForgeRelayAuthRouter({
+    provider,
+    issuerUrl,
+    resourceServerUrl: publicEndpointUrl(issuerUrl, "mcp"),
+    scopesSupported: ["forgerelay"],
+  }));
+
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  const authorizeUrl = new URL(`http://127.0.0.1:${port}/forgerelay/main/authorize`);
+  authorizeUrl.searchParams.set("client_id", "chatgpt-client");
+  authorizeUrl.searchParams.set("redirect_uri", callbackUrl);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("code_challenge", "test-challenge");
+  authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  authorizeUrl.searchParams.set("state", "oauth-state");
+
+  const response = await fetch(authorizeUrl, { redirect: "manual" });
+  assert.equal(response.status, 302);
+  const location = new URL(response.headers.get("location")!);
+  assert.equal(location.searchParams.get("code"), "code-test");
+  assert.equal(location.searchParams.get("state"), "oauth-state");
+  assert.equal(location.searchParams.get("iss"), issuerUrl.href);
 });
 
 

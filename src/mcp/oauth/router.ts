@@ -101,7 +101,7 @@ export function createForgeRelayAuthRouter(options: ForgeRelayAuthRouterOptions)
       res.status(200).json({ ...tokens, ...(instanceId ? { instance_id: instanceId } : {}) });
     });
   }
-  router.use(authorizationPaths, authorizationHandler({ provider }));
+  router.use(authorizationPaths, authorizationHandler({ provider, issuerUrl }));
   router.use(tokenPaths, tokenHandler({ provider }));
 
   if (provider.clientsStore.registerClient && registrationEndpoint) {
