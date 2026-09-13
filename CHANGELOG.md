@@ -33,6 +33,8 @@ All notable ForgeRelay changes are documented here.
 
 - Made generated Config schema freshness checks line-ending independent so Windows CRLF checkouts do not falsely report generated schemas as stale while real schema drift still fails the gate.
 - Made Project-root regression and packaged-acceptance assertions use the same canonical realpath semantics as the runtime, covering macOS `/var` aliases and Windows short-path aliases such as `RUNNER~1` without changing Project identity behavior.
+- Hardened cross-process `auth.json` updates on Windows by retrying only transient atomic-replace failures while the existing file lock remains held, preserving concurrent remote-auth records without weakening serialization.
+- Updated optional LSP interoperability coverage to construct Code Intelligence through the Config v2 runtime seam, so installed servers such as `clangd` exercise the same resolver path as production.
 
 ## [1.1.2] - 2026-09-11
 

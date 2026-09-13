@@ -7,6 +7,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import {
+  rename as renameAsync,
+  rm as rmAsync,
+  writeFile as writeFileAsync,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { withFileLock } from "../state/lock/file-lock.js";
@@ -147,8 +152,8 @@ export async function writeForgeRelayAuth(
 ): Promise<string> {
   const filePath = forgerelayAuthPath(env);
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  return withFileLock(`${filePath}.lock`, () => {
-    writeJsonFile(filePath, auth, 0o600);
+  return withFileLock(`${filePath}.lock`, async () => {
+    await writeAuthJsonFile(filePath, auth, 0o600);
     return filePath;
   });
 }
@@ -267,11 +272,41 @@ async function updateForgeRelayAuth(
 ): Promise<string> {
   const filePath = forgerelayAuthPath(env);
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  return withFileLock(`${filePath}.lock`, () => {
+  return withFileLock(`${filePath}.lock`, async () => {
     const auth = existsSync(filePath) ? readJsonFile<ForgeRelayAuthConfig>(filePath) : {};
-    writeJsonFile(filePath, update(auth), 0o600);
+    await writeAuthJsonFile(filePath, update(auth), 0o600);
     return filePath;
   });
+}
+
+async function writeAuthJsonFile(filePath: string, value: unknown, mode: number): Promise<void> {
+  const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await writeFileAsync(tempPath, JSON.stringify(value, null, 2) + "\n", { mode });
+    await replaceAuthFile(tempPath, filePath);
+  } finally {
+    await rmAsync(tempPath, { force: true });
+  }
+}
+
+async function replaceAuthFile(tempPath: string, filePath: string): Promise<void> {
+  const maxAttempts = process.platform === "win32" ? 40 : 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await renameAsync(tempPath, filePath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = process.platform === "win32"
+        && ["EACCES", "EBUSY", "EEXIST", "EPERM"].includes(code ?? "");
+      if (!retryable || attempt === maxAttempts) throw error;
+      await delay(25);
+    }
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function writeJsonFile(filePath: string, value: unknown, mode: number): void {

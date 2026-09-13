@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CodeIntelligenceManager } from "../../dist/lsp/runtime/manager.js";
+import { ConfigRuntime } from "../../dist/runtime/config/runtime/config-runtime.js";
 import { findExecutable, probeExecutable } from "./interop-support.mjs";
 
 const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -121,8 +122,10 @@ for (const fixture of fixtures) {
 
   const root = join(interopRoot, fixture.id);
   fixture.setup(root);
+  const configDir = join(root, ".forgerelay-user");
+  mkdirSync(configDir, { recursive: true });
   const manager = new CodeIntelligenceManager(
-    { languageServers: {} },
+    { configDir, configRuntime: new ConfigRuntime() },
     {
       startTimeoutMs: 30_000,
       requestTimeoutMs: 30_000,
