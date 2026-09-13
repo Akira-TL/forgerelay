@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
@@ -14,7 +15,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 void test("mcp list resolves Project scope from a nested cwd and --global excludes Project entries", async (t) => {
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   const nested = join(context.projectRoot, "src", "nested");
   mkdirSync(nested, { recursive: true });
   writeJson(join(context.configDir, "mcp.json"), {
@@ -33,7 +34,7 @@ void test("mcp list resolves Project scope from a nested cwd and --global exclud
   const project = await runCli(["mcp", "list"], context.env, nested);
   assert.equal(project.status, 0, project.stderr);
   assert.match(project.stdout, /Scope: project/);
-  assert.match(project.stdout, new RegExp(`Project: ${escapeRegExp(realpathSync(context.projectRoot))}`));
+  assert.match(project.stdout, new RegExp(`Project: ${escapeRegExp(context.projectRoot)}`));
   assert.match(project.stdout, /project[\s\S]*source: project[\s\S]*transport: stdio/);
   assert.match(project.stdout, /shared[\s\S]*source: project[\s\S]*status: disabled/);
   assert.match(project.stdout, /global[\s\S]*source: global/);
@@ -46,7 +47,7 @@ void test("mcp list resolves Project scope from a nested cwd and --global exclud
 });
 
 void test("mcp list returns a nonzero exit for invalid config and explains last-known-good runtime behavior", async (t) => {
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   writeFileSync(
     join(context.projectRoot, ".forgerelay", "mcp.json"),
     '{"servers":{"secret":"INVALID-CONTENT-SENTINEL"',
@@ -61,7 +62,7 @@ void test("mcp list returns a nonzero exit for invalid config and explains last-
 
 void test("mcp test reports protocol, tool count, and ready status for a reachable server", async (t) => {
   const fixture = await startMcpFixture(t);
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: {
       ready: { transport: "streamable-http", url: fixture.url },
@@ -86,7 +87,7 @@ void test("mcp test persists and reports auth-required with a concrete human nex
   });
   await listen(unauthorized);
   t.after(() => close(unauthorized));
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   const url = `http://127.0.0.1:${(unauthorized.address() as AddressInfo).port}/mcp`;
   writeJson(join(context.configDir, "mcp.json"), {
     servers: { secure: { transport: "streamable-http", url } },
@@ -101,7 +102,7 @@ void test("mcp test persists and reports auth-required with a concrete human nex
 });
 
 void test("mcp test distinguishes unreachable transport from tool discovery failure", async (t) => {
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: { unreachable: { transport: "streamable-http", url: "http://127.0.0.1:1/mcp" } },
   });
@@ -123,7 +124,7 @@ void test("mcp test distinguishes unreachable transport from tool discovery fail
 });
 
 void test("doctor reports External MCP passively without starting configured stdio servers", async (t) => {
-  const context = createCliContext(t);
+  const context = await createCliContext(t);
   const marker = join(context.root, "doctor-started-stdio.txt");
   writeJson(join(context.configDir, "mcp.json"), {
     servers: {
@@ -151,24 +152,26 @@ interface CliContext {
   env: NodeJS.ProcessEnv;
 }
 
-function createCliContext(t: TestContext): CliContext {
-  const root = mkdtempSync(join(tmpdir(), "forgerelay-mcp-diagnostics-"));
+async function createCliContext(t: TestContext): Promise<CliContext> {
+  const rawRoot = mkdtempSync(join(tmpdir(), "forgerelay-mcp-diagnostics-"));
+  const root = await realpath(rawRoot);
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const configDir = join(root, "config");
   const projectRoot = join(root, "project");
   mkdirSync(configDir, { recursive: true });
   mkdirSync(join(projectRoot, ".forgerelay"), { recursive: true });
-  writeJson(join(configDir, "config.json"), { allowedRoots: [projectRoot] });
+  const canonicalProjectRoot = await realpath(projectRoot);
+  writeJson(join(configDir, "config.json"), { allowedRoots: [canonicalProjectRoot] });
   writeJson(join(configDir, "auth.json"), { ownerToken: "diagnostics-owner-token-0123456789" });
   const { FORGERELAY_WORKSPACE_ROOT: _workspaceRoot, ...baseEnv } = process.env;
   return {
     root,
     configDir,
-    projectRoot,
+    projectRoot: canonicalProjectRoot,
     env: {
       ...baseEnv,
       FORGERELAY_CONFIG_DIR: configDir,
-      FORGERELAY_ALLOWED_ROOTS: projectRoot,
+      FORGERELAY_ALLOWED_ROOTS: canonicalProjectRoot,
     },
   };
 }
