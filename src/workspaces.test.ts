@@ -116,14 +116,17 @@ test("Project identity is rehydrated on Workspace resume and Project Local state
   firstStore.close();
 
   const secondStore = new SqliteWorkspaceStore(stateDir);
-  t.after(() => secondStore.close());
-  const secondRegistry = new WorkspaceRegistry(context.config, secondStore);
-  const resumed = await secondRegistry.openWorkspace({ workspaceId });
-  assert.equal(resumed.workspace.project?.id, project.id);
-  assert.equal(resumed.workspace.project?.localConfigDir, project.localConfigDir);
+  try {
+    const secondRegistry = new WorkspaceRegistry(context.config, secondStore);
+    const resumed = await secondRegistry.openWorkspace({ workspaceId });
+    assert.equal(resumed.workspace.project?.id, project.id);
+    assert.equal(resumed.workspace.project?.localConfigDir, project.localConfigDir);
 
-  secondRegistry.deleteWorkspace(workspaceId);
-  assert.equal(await readFile(projectLocalConfig, "utf8"), JSON.stringify({ $schema: "project-local" }));
+    secondRegistry.deleteWorkspace(workspaceId);
+    assert.equal(await readFile(projectLocalConfig, "utf8"), JSON.stringify({ $schema: "project-local" }));
+  } finally {
+    secondStore.close();
+  }
 });
 
 test("WorkspaceOpen hook runs once when a workspace session is created", async (t) => {
