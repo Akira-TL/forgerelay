@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-13
+
+### Changed
+
+- Promoted the accepted Config System v2 release candidate to stable `1.2.0` without changing product behavior from `1.2.0-rc.1`; stable publication reuses the same cross-platform verified-artifact release path and moves the npm stable channel to `latest` only after fresh, upgrade, migration, and packaged-runtime acceptance pass.
+
 ## [1.2.0-rc.1] - 2026-09-13
 
 ### Added
