@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-13
+
 ### Fixed
 
 - Reconstruct relayed and Composite Workspace Panel presentation from durable Workspace state across modern/stateless MCP requests, preventing the ChatGPT Activity Panel from remaining on `Waiting...` after a relayed `open_workspace`; closed Workspaces remain non-renderable.
