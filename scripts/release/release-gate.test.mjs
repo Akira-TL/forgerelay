@@ -62,27 +62,22 @@ test("Config schemas and ForgeRelay-owned runtime resources are gated in package
   assert.match(pack, /release:pack omitted ForgeRelay-owned runtime resources/);
 });
 
-test("cross-platform cloud CI delegates to one shell-free verification entrypoint", async () => {
+test("cross-platform cloud CI splits shared tests from bounded platform acceptance", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
-  assert.match(workflow, /node-version-file:\s*\.nvmrc/);
-  assert.match(workflow, /run:\s*npm ci/);
-  assert.match(workflow, /run:\s*npm run ci:verify/);
+  assert.match(workflow, /core-contract:/);
+  assert.match(workflow, /core-tests:/);
+  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+    assert.match(workflow, new RegExp(`\\b${shard}\\b`));
+  }
+  assert.match(workflow, /run:\s*npm run ci:contract/);
+  assert.match(workflow, /run:\s*npm run ci:test-shard -- \$\{\{ matrix\.shard \}\}/);
+  assert.match(workflow, /macos-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
+  assert.match(workflow, /windows-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
+  assert.match(workflow, /windows-platform:[\s\S]*timeout-minutes:\s*25/);
+  assert.doesNotMatch(workflow, /run:\s*npm run ci:verify/);
+  assert.doesNotMatch(workflow, /run:\s*npm test/);
   assert.doesNotMatch(workflow, /shell:/);
   assert.doesNotMatch(workflow, /run:\s*\|/);
-  for (const duplicatedCommand of [
-    "npm run release:check",
-    "npm run typecheck",
-    "npm test",
-    "npm run build",
-    "npm run lsp:interop",
-    "node dist/cli.js doctor",
-  ]) {
-    assert.equal(
-      workflow.includes(`run: ${duplicatedCommand}`),
-      false,
-      `cloud CI must delegate ${duplicatedCommand} through ci:verify`,
-    );
-  }
 });
 
 test("architecture gate treats versioned public contract directories as explicit flat-path exceptions", async () => {
@@ -135,9 +130,6 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   const nodeVersion = (await readFile(resolve(repoRoot, ".nvmrc"), "utf8")).trim();
   assert.equal(nodeVersion, "22.19.0");
 
-  const pkg = await readJson("package.json");
-  assert.equal(pkg.scripts["ci:verify"], "node scripts/ci/verify.mjs");
-
   const source = await readFile(resolve(repoRoot, "scripts/release-parity.mjs"), "utf8");
   assert.match(source, /readFileSync\(join\(repoRoot, "\.nvmrc"\), "utf8"\)/);
   assert.match(source, /const NPM_VERSION = "11\.19\.1"/);
@@ -145,19 +137,59 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   const ciWorkflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
   assert.match(ciWorkflow, /npm install --global npm@11\.19\.1/);
   assert.ok(source.includes('["npm", "ci", "--no-audit", "--no-fund"]'));
-  assert.ok(source.includes('["npm", "run", "ci:verify"]'));
+  assert.ok(source.includes('["npm", "run", "ci:contract"]'));
+  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+    assert.match(source, new RegExp(`\\"${shard}\\"`));
+  }
+  assert.ok(source.includes('["npm", "run", "build"]'));
+  assert.ok(source.includes('["npm", "run", "traffic:audit"]'));
+  assert.ok(source.includes('["npm", "run", "lsp:interop"]'));
   assert.ok(source.includes('["npm", "run", "release:pack"]'));
-  assert.doesNotMatch(source, /\["npm", "run", "typecheck"\]/);
+  assert.ok(source.includes('["npm", "run", "config:product-accept"]'));
+  assert.match(source, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*"\.release-artifacts"/);
+  assert.doesNotMatch(source, /\["npm", "run", "ci:verify"\]/);
   assert.doesNotMatch(source, /\["npm", "test"\]/);
 });
 
-test("cloud verification produces one reusable npm package on Linux", async () => {
+test("cloud verification builds one npm artifact and reuses it across platform acceptance", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
-  assert.match(workflow, /if:\s*runner\.os == 'Linux'[\s\S]*run:\s*npm run release:pack/);
-  assert.match(workflow, /uses:\s*actions\/upload-artifact@v7/);
+  assert.match(workflow, /package:[\s\S]*needs:\s*core-contract[\s\S]*run:\s*npm run build[\s\S]*run:\s*npm run traffic:audit[\s\S]*run:\s*npm run lsp:interop[\s\S]*run:\s*npm run release:pack/);
+  assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
+  assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
+  assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 3);
+  assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-package/);
+  assert.match(workflow, /windows-platform:[\s\S]*FORGERELAY_ACCEPTANCE_PREFIX:\s*\.release-installed/);
+  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 1);
+  assert.equal((workflow.match(/run:\s*npm run traffic:audit/g) ?? []).length, 1);
+  assert.equal((workflow.match(/run:\s*npm run lsp:interop/g) ?? []).length, 1);
   assert.match(workflow, /name:\s*npm-package/);
   assert.match(workflow, /include-hidden-files:\s*true/);
   assert.match(workflow, /overwrite:\s*true/);
+});
+
+test("packaged acceptance scripts can consume the one downloaded release artifact", async () => {
+  const helper = await readFile(resolve(repoRoot, "scripts/ci/gates/acceptance-artifact.mjs"), "utf8");
+  assert.match(helper, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR/);
+  assert.match(helper, /FORGERELAY_ACCEPTANCE_PREFIX/);
+  assert.match(helper, /exactly one \.tgz package/);
+
+  const prepareWindows = await readFile(
+    resolve(repoRoot, "scripts/ci/gates/prepare-windows-product.mjs"),
+    "utf8",
+  );
+  assert.match(prepareWindows, /resolveAcceptancePrefix/);
+  assert.match(prepareWindows, /"install", "--global", "--prefix"/);
+
+  for (const relativePath of [
+    "scripts/ci/config-v2-product-acceptance.mjs",
+    "scripts/ci/windows-product-acceptance.mjs",
+    "scripts/ci/pwsh-acceptance.mjs",
+    "scripts/ci/powershell51-acceptance.mjs",
+    "scripts/ci/cmd-acceptance.mjs",
+  ]) {
+    const source = await readFile(resolve(repoRoot, relativePath), "utf8");
+    assert.match(source, /resolveAcceptanceTarball/);
+  }
 });
 
 test("release workflow is tag-only and promotes the verified npm artifact without rebuilding", async () => {
@@ -181,6 +213,10 @@ test("manual Windows shell acceptance can never publish a release", async () => 
   );
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /runs-on:\s*windows-2022/);
+  assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-artifacts/);
+  assert.match(workflow, /FORGERELAY_ACCEPTANCE_PREFIX:\s*\.release-installed/);
+  assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
+  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 1);
   assert.match(workflow, /run:\s*npm run pwsh:accept/);
   assert.doesNotMatch(workflow, /release:publish/);
   assert.doesNotMatch(workflow, /npm publish/);

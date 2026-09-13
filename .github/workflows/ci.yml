@@ -4,49 +4,58 @@ on:
   workflow_call:
 
 jobs:
-  smoke:
-    name: Smoke (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          # better-sqlite3 native installation still relies on node-gyp, which Node 22/npm currently cannot discover on the VS18 windows-latest image.
-          - windows-2022
-
-    env:
-      FORGERELAY_ALLOWED_ROOTS: ${{ github.workspace }}
-      FORGERELAY_OAUTH_OWNER_TOKEN: ci-owner-token-that-is-long-enough
-      FORGERELAY_PUBLIC_BASE_URL: http://127.0.0.1:7676
-
+  core-contract:
+    name: Core contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - run: npm run ci:contract
 
-      - name: Use pinned verification npm
-        run: npm install --global npm@11.19.1
+  core-tests:
+    name: Core tests (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [runtime-config, workspace-mcp, lsp, subagent-ui-cli]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - run: npm run ci:test-shard -- ${{ matrix.shard }}
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify
-        run: npm run ci:verify
-
-      - name: Pack verified npm artifact
-        if: runner.os == 'Linux'
-        run: npm run release:pack
-
-      - name: Upload verified npm artifact
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
+  package:
+    name: Build verified npm artifact
+    needs: core-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - run: npm run build
+      - run: npm run traffic:audit
+        timeout-minutes: 8
+      - run: npm run lsp:interop
+        timeout-minutes: 5
+      - run: npm run release:pack
+      - uses: actions/upload-artifact@v7
         with:
           name: npm-package
           path: .release-artifacts/*.tgz
@@ -54,3 +63,84 @@ jobs:
           include-hidden-files: true
           overwrite: true
           retention-days: 7
+
+  linux-product:
+    name: Linux product acceptance
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-package
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-package
+          path: .release-package
+      - run: npm run config:product-accept
+        timeout-minutes: 8
+
+  macos-platform:
+    name: macOS platform acceptance
+    needs: package
+    runs-on: macos-latest
+    timeout-minutes: 18
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-package
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-package
+          path: .release-package
+      - run: npm run ci:platform-tests
+        timeout-minutes: 8
+      - run: npm run config:product-accept
+        timeout-minutes: 8
+
+  windows-platform:
+    name: Windows platform acceptance
+    needs: package
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-package
+      FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-package
+          path: .release-package
+      - run: npm run ci:prepare-windows-product
+        timeout-minutes: 5
+      - run: npm run build
+        timeout-minutes: 5
+      - run: npm run ci:platform-tests
+        timeout-minutes: 8
+      - run: npm run windows:product-accept
+        timeout-minutes: 8
+      - run: npm run pwsh:accept
+        timeout-minutes: 5
+      - run: npm run powershell51:accept
+        timeout-minutes: 5
+      - run: npm run cmd:accept
+        timeout-minutes: 5

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import { resolveAcceptancePrefix, resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
 
 if (process.platform !== "win32") {
   console.log("Windows packaged product acceptance skipped outside Windows.");
@@ -22,7 +23,8 @@ const root = await import("node:fs/promises").then(({ mkdtemp }) =>
 
 try {
   const artifactDir = join(root, "artifact");
-  const prefix = join(root, "prefix");
+  const sharedPrefix = resolveAcceptancePrefix(process.cwd());
+  const prefix = sharedPrefix ?? join(root, "prefix");
   const projectRoot = join(root, "project");
   await Promise.all([
     mkdir(artifactDir, { recursive: true }),
@@ -31,14 +33,12 @@ try {
   ]);
   await writeFile(join(projectRoot, "README.md"), "Windows product acceptance workspace\n", "utf8");
 
-  const packed = runNpm(["pack", "--json", "--pack-destination", artifactDir]);
-  const packResult = JSON.parse(packed.stdout);
-  const filename = packResult?.[0]?.filename;
-  if (!filename) throw new Error(`npm pack did not report a package filename: ${packed.stdout}`);
-  const tarball = join(artifactDir, filename);
-  assert.ok(existsSync(tarball), `packed artifact is missing: ${tarball}`);
-
-  runNpm(["install", "--global", "--prefix", prefix, tarball]);
+  if (!sharedPrefix) {
+    const tarball = resolveAcceptanceTarball({ repoRoot: process.cwd(), artifactDir, npmCli });
+    runNpm(["install", "--global", "--prefix", prefix, tarball]);
+  } else {
+    console.log(`Using prepared acceptance install: ${prefix}`);
+  }
   const shim = join(prefix, "forgerelay.cmd");
   assert.ok(existsSync(shim), `npm did not create the Windows launcher shim: ${shim}`);
 

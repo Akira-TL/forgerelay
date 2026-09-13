@@ -10,6 +10,9 @@ jobs:
   windows-shell:
     name: Windows shell runtime acceptance
     runs-on: windows-2022
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-artifacts
+      FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
 
     steps:
       - name: Checkout
@@ -30,8 +33,14 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Command runtime tests
-        run: npm test
+      - name: Pack acceptance artifact
+        run: npm run release:pack
+
+      - name: Prepare shared Windows product install
+        run: npm run ci:prepare-windows-product
+
+      - name: Platform-sensitive tests
+        run: npm run ci:platform-tests
 
       - name: PowerShell 7 acceptance
         run: npm run pwsh:accept

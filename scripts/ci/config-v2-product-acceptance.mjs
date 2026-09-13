@@ -16,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pty from "node-pty";
+import { resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
 
 const npmCli = process.env.npm_execpath;
 if (!npmCli) {
@@ -35,7 +36,7 @@ try {
     mkdir(home, { recursive: true }),
   ]);
 
-  const tarball = packProduct(artifactDir);
+  const tarball = resolveAcceptanceTarball({ repoRoot, artifactDir, npmCli });
   installProduct(prefix, tarball);
   const installedRoot = join(prefix, "node_modules", "@akira-tl", "forgerelay");
   const installedCli = join(installedRoot, "dist", "cli.js");
@@ -57,16 +58,6 @@ try {
   );
 } finally {
   await rm(root, { recursive: true, force: true });
-}
-
-function packProduct(artifactDir) {
-  const result = runNpm(["pack", "--json", "--pack-destination", artifactDir], repoRoot, process.env, 120_000);
-  const report = JSON.parse(result.stdout);
-  const filename = report?.[0]?.filename;
-  if (!filename) throw new Error(`npm pack did not report a package filename: ${result.stdout}`);
-  const tarball = join(artifactDir, filename);
-  assert.ok(existsSync(tarball), `packed artifact is missing: ${tarball}`);
-  return tarball;
 }
 
 function installProduct(prefix, tarball) {
@@ -138,6 +129,9 @@ async function acceptFreshInit({ installedCli, root, home }) {
   const check = runInstalledCli(installedCli, ["config", "check", "--global", "--json"], env);
   assert.equal(check.status, 0, check.stderr || check.stdout);
   assert.equal(JSON.parse(check.stdout).summary.errors, 0);
+
+  const doctor = runInstalledCli(installedCli, ["doctor"], env);
+  assert.equal(doctor.status, 0, doctor.stderr || doctor.stdout);
 }
 
 async function acceptLegacyUpgradeAndMigration({ installedRoot, installedCli, probePath, root, home }) {

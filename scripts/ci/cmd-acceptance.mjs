@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { resolveAcceptancePrefix, resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
 
 if (process.platform !== "win32") {
   console.log("cmd.exe packaged acceptance skipped outside Windows.");
@@ -181,7 +182,8 @@ async function exercisePtyLifecycle(runtime) {
 
 async function exercisePackagedCmdShim(cmd) {
   const artifactDir = join(root, "artifact");
-  const prefix = join(root, "prefix");
+  const sharedPrefix = resolveAcceptancePrefix(process.cwd());
+  const prefix = sharedPrefix ?? join(root, "prefix");
   const configDir = join(root, "config");
   const stateDir = join(root, "state");
   await Promise.all([
@@ -191,14 +193,12 @@ async function exercisePackagedCmdShim(cmd) {
     mkdir(stateDir, { recursive: true }),
   ]);
 
-  const packed = runNpm(["pack", "--json", "--pack-destination", artifactDir]);
-  const packResult = JSON.parse(packed.stdout);
-  const filename = packResult?.[0]?.filename;
-  if (!filename) throw new Error(`npm pack did not report a package filename: ${packed.stdout}`);
-  const tarball = join(artifactDir, filename);
-  assert.ok(existsSync(tarball), `packed artifact is missing: ${tarball}`);
-
-  runNpm(["install", "--global", "--prefix", prefix, tarball]);
+  if (!sharedPrefix) {
+    const tarball = resolveAcceptanceTarball({ repoRoot: process.cwd(), artifactDir, npmCli });
+    runNpm(["install", "--global", "--prefix", prefix, tarball]);
+  } else {
+    console.log(`Using prepared acceptance install: ${prefix}`);
+  }
   const shim = join(prefix, "forgerelay.cmd");
   assert.ok(existsSync(shim), `npm did not create the cmd launcher shim: ${shim}`);
 

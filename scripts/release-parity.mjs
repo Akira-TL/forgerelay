@@ -28,11 +28,28 @@ try {
     ["npm", "ci", "--no-audit", "--no-fund"],
     `Node ${NODE_VERSION} / npm ${NPM_VERSION} install`,
   );
-  runNodeNpm(sandbox, env, ["npm", "run", "ci:verify"], "Cloud verification entrypoint");
+  runNodeNpm(sandbox, env, ["npm", "run", "ci:contract"], "Cloud core contract");
+  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+    runNodeNpm(
+      sandbox,
+      env,
+      ["npm", "run", "ci:test-shard", "--", shard],
+      `Cloud core test shard: ${shard}`,
+    );
+  }
+  runNodeNpm(sandbox, env, ["npm", "run", "build"], "Cloud package build");
+  runNodeNpm(sandbox, env, ["npm", "run", "traffic:audit"], "Cloud traffic audit");
+  runNodeNpm(sandbox, env, ["npm", "run", "lsp:interop"], "Cloud LSP interoperability");
   runNodeNpm(sandbox, env, ["npm", "run", "release:pack"], "Cloud release packaging");
+  runNodeNpm(
+    sandbox,
+    { ...env, FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: ".release-artifacts" },
+    ["npm", "run", "config:product-accept"],
+    "Cloud Linux packaged product acceptance",
+  );
 
   console.log(
-    `Release parity passed through ci:verify and release:pack on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
+    `Release parity passed through the split Linux cloud gates and release artifact acceptance on Node ${NODE_VERSION} / npm ${NPM_VERSION}.`,
   );
 } finally {
   rmSync(sandbox, {
