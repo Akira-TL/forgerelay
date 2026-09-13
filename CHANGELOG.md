@@ -11,6 +11,7 @@ All notable ForgeRelay changes are documented here.
 - 修复带路径前缀的 `publicBaseUrl` 在 MCP SDK v2 下被 Origin 校验错误拒绝的问题；ForgeRelay 现在只从 canonical public URL 派生允许的 Origin hostname，同时继续拒绝 foreign / malformed Origin。
 - OAuth authorization callback 现在带回 metadata 中公布的 `iss`，使 routed public URL 的现代 OAuth 流程保持 issuer 一致。
 - MCP App 的 CSP `resourceDomains` / `connectDomains` 现在使用 URL Origin，而不是包含部署路径的完整 `publicBaseUrl`，避免 path-prefix 部署下 Activity Panel 只停留在 `Waiting for Activity Panel state.`。
+- Skill 默认发现范围收敛为 Project `.agents/skills`、Project `.forgerelay/skills` 与 active ForgeRelay config `skills`；不再自动扫描全局 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`，显式 `FORGERELAY_SKILL_PATHS` 仍作为用户附加来源。
 
 ## [1.2.1] - 2026-09-13
 

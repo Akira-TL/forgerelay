@@ -207,7 +207,7 @@ test("open_workspace hides skill filesystem paths and read loads skills through 
   ].join("\n"));
   await writeFile(join(skillDir, "reference.md"), "skill reference body\n");
 
-  const duplicateSkillDir = join(context.config.agentDir, "skills", "hidden-path-skill");
+  const duplicateSkillDir = join(context.project, ".forgerelay", "skills", "hidden-path-skill");
   await mkdir(duplicateSkillDir, { recursive: true });
   await writeFile(join(duplicateSkillDir, "SKILL.md"), [
     "---",

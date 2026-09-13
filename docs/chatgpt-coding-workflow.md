@@ -189,7 +189,8 @@ instructions before the requested file content. Side-effecting file tools and sh
 commands discover instructions before execution; if new local instructions are
 found, ForgeRelay returns them and requires the Agent to retry, so the side effect
 does not occur before the relevant instructions are known. `FORGERELAY_AGENT_DIR`
-is not an instruction source; it remains only a compatibility skill-discovery path.
+is neither an instruction source nor an automatic Skill-discovery source; it remains
+an integration runtime directory for supported Agent tooling.
 
 ## MCP capability loading
 
@@ -232,17 +233,16 @@ force the Host to discard a cached tool schema.
 
 ## Agent Skills
 
-ForgeRelay discovers standard Agent Skills in precedence order from:
+ForgeRelay discovers Skills in precedence order from:
 
 - project `.agents/skills`
-- `~/.agents/skills`
-- the active ForgeRelay config directory's `skills` folder
-- `FORGERELAY_AGENT_DIR/skills` (defaults to `~/.codex/skills`)
-- paths from `FORGERELAY_SKILL_PATHS`
+- project `.forgerelay/skills`
+- the active ForgeRelay config directory's `skills` folder (`~/.forgerelay/skills` by default)
+- paths explicitly added through `FORGERELAY_SKILL_PATHS`
 
-These paths are discovery sources, not one shared ownership domain. `.agents/skills` is the open Agent Skills ecosystem and may contain files or symlinks managed by other Agent tooling. ForgeRelay-owned Skills remain private to the active ForgeRelay config directory (`~/.forgerelay/skills` by default) and are never migrated into `~/.agents/skills`.
+These paths are discovery sources, not one shared ownership domain. Project `.agents/skills` is the open Agent Skills ecosystem and may contain files or symlinks managed by other Agent tooling. ForgeRelay-owned project/system Skills stay under `.forgerelay/skills` and the active ForgeRelay config directory. ForgeRelay does not automatically scan global Agent runtime Skill directories such as `~/.agents/skills` or `FORGERELAY_AGENT_DIR/skills`.
 
-Same-named collisions use the first source, so project Skills override global Skills.
+Same-named collisions use the first source: project Agent Skills override project ForgeRelay Skills, which override system ForgeRelay Skills and explicit additional paths.
 
 When a task matches an advertised skill, read its `SKILL.md` before using other
 files in the skill directory.

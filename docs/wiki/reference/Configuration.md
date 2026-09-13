@@ -335,17 +335,16 @@ Skill discovery 常见来源：
 
 ```text
 <project>/.agents/skills
-~/.agents/skills
+<project>/.forgerelay/skills
 ~/.forgerelay/skills
-FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
 
 这些来源不是同一个 ownership domain：
 
-- `.agents/skills` 是开放 Agent Skills 生态，可以包含其他工具安装或软链接的 Skill；
-- ForgeRelay 自己管理的 Skill 保留在 active config directory 的 `skills/`，默认 `~/.forgerelay/skills`；
-- ForgeRelay 不把自己的 Skill 安装或迁移到 `~/.agents/skills`。
+- Project `.agents/skills` 是开放 Agent Skills 生态，可以包含其他工具安装或软链接的 Skill；
+- ForgeRelay 自己管理的 Project/System Skill 分别保留在 `<project>/.forgerelay/skills` 与 active config directory 的 `skills/`（默认 `~/.forgerelay/skills`）；
+- ForgeRelay 不自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
 
 ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime resource，和通用 Agent Skill 不同；v1.2 fresh init 默认关闭，只有显式 opt-in 才启用。
 

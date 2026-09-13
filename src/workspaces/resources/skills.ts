@@ -68,9 +68,8 @@ const FRONTMATTER_DELIMITER = "---";
 export function effectiveSkillPaths(config: ServerConfig, cwd: string): string[] {
   const defaultPathCandidates = [
     resolve(cwd, ".agents", "skills"),
-    join(homedir(), ".agents", "skills"),
+    resolve(cwd, ".forgerelay", "skills"),
     config.configSkillsDir,
-    join(config.agentDir, "skills"),
   ];
   const defaultPaths = defaultPathCandidates.filter(
     (path): path is string => path !== undefined && existsSync(path),

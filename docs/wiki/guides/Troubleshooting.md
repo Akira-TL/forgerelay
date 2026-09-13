@@ -293,13 +293,12 @@ FORGERELAY_SKILLS=1 forgerelay serve
 
 ```text
 <project>/.agents/skills
-~/.agents/skills
+<project>/.forgerelay/skills
 <forgerelay-config>/skills
-FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
 
-如果排查 ForgeRelay 自己管理的 Skill，优先检查 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。`.agents/skills` 属于开放 Agent Skills 生态，可能包含其他工具创建的文件或软链接；ForgeRelay 不应把自己的私有 Skill 迁移到那里。
+如果排查 ForgeRelay 自己管理的 Skill，优先检查 `<project>/.forgerelay/skills` 与 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。Project `.agents/skills` 属于开放 Agent Skills 生态，可能包含其他工具创建的文件或软链接；ForgeRelay 不再自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
 
 发现到的 Skill 应通过 `open_workspace` 向 Agent 暴露 `name + description`。Skill 和 ForgeRelay Capability Guide 是两个系统。
 

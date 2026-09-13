@@ -22,12 +22,18 @@ try {
   const explicitSkills = join(root, "explicit-skills");
   const globalAgentsSkills = join(root, ".agents", "skills");
   const projectAgentsSkills = join(projectRoot, ".agents", "skills");
+  const projectForgeRelaySkills = join(projectRoot, ".forgerelay", "skills");
+  const configSkillsDir = join(root, ".forgerelay", "skills");
   const globalClaudeSkills = join(root, ".claude", "skills");
   const projectClaudeSkills = join(projectRoot, ".claude", "skills");
   await mkdir(join(globalAgentsSkills, "agent-global-skill"), { recursive: true });
   await mkdir(join(globalAgentsSkills, "shared-skill"), { recursive: true });
   await mkdir(join(projectAgentsSkills, "agent-project-skill"), { recursive: true });
   await mkdir(join(projectAgentsSkills, "shared-skill"), { recursive: true });
+  await mkdir(join(projectForgeRelaySkills, "forgerelay-project-skill"), { recursive: true });
+  await mkdir(join(projectForgeRelaySkills, "shared-skill"), { recursive: true });
+  await mkdir(join(configSkillsDir, "forgerelay-system-skill"), { recursive: true });
+  await mkdir(join(configSkillsDir, "shared-skill"), { recursive: true });
   await mkdir(join(globalClaudeSkills, "claude-global-skill"), { recursive: true });
   await mkdir(join(projectClaudeSkills, "claude-project-skill"), { recursive: true });
   await mkdir(join(projectRoot, ".pi", "skills", "project-skill"), { recursive: true });
@@ -79,6 +85,50 @@ try {
       "---",
       "",
       "# Project Shared Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(projectForgeRelaySkills, "forgerelay-project-skill", "SKILL.md"),
+    [
+      "---",
+      "name: forgerelay-project-skill",
+      "description: ForgeRelay project skill description.",
+      "---",
+      "",
+      "# ForgeRelay Project Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(projectForgeRelaySkills, "shared-skill", "SKILL.md"),
+    [
+      "---",
+      "name: shared-skill",
+      "description: ForgeRelay project shared skill.",
+      "---",
+      "",
+      "# ForgeRelay Project Shared Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(configSkillsDir, "forgerelay-system-skill", "SKILL.md"),
+    [
+      "---",
+      "name: forgerelay-system-skill",
+      "description: ForgeRelay system skill description.",
+      "---",
+      "",
+      "# ForgeRelay System Skill",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(configSkillsDir, "shared-skill", "SKILL.md"),
+    [
+      "---",
+      "name: shared-skill",
+      "description: ForgeRelay system shared skill.",
+      "---",
+      "",
+      "# ForgeRelay System Shared Skill",
     ].join("\n"),
   );
   await writeFile(
@@ -189,8 +239,15 @@ try {
     PORT: "1",
   });
   const loaded = loadWorkspaceSkills(config, projectRoot);
-  assert.equal(loaded.skills.some((skill) => skill.name === "agent-global-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "agent-global-skill"), false);
   assert.equal(loaded.skills.some((skill) => skill.name === "agent-project-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-project-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-system-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "duplicate-skill"), true);
+  assert.equal(
+    loaded.skills.some((skill) => skill.filePath.startsWith(join(agentDir, "skills"))),
+    false,
+  );
   assert.equal(
     loaded.skills.find((skill) => skill.name === "shared-skill")?.description,
     "Project shared skill.",
@@ -208,12 +265,18 @@ try {
     (diagnostic) => diagnostic.collision?.name === "shared-skill",
   )?.collision;
   assert.equal(projectGlobalCollision?.winnerPath, join(projectAgentsSkills, "shared-skill", "SKILL.md"));
-  assert.equal(projectGlobalCollision?.loserPath, join(globalAgentsSkills, "shared-skill", "SKILL.md"));
+  assert.equal(projectGlobalCollision?.loserPath, join(projectForgeRelaySkills, "shared-skill", "SKILL.md"));
+  assert.equal(
+    loaded.diagnostics.some(
+      (diagnostic) => diagnostic.collision?.loserPath === join(globalAgentsSkills, "shared-skill", "SKILL.md"),
+    ),
+    false,
+  );
   assert.equal(
     loaded.diagnostics.some(
       (diagnostic) => diagnostic.collision?.name === "subagent-delegation",
     ),
-    true,
+    false,
   );
 
   const cleanAgentDir = join(root, "clean-agent");
@@ -246,7 +309,7 @@ try {
     loadWorkspaceSkills(experimentalConfig, projectRoot).skills.some(
       (skill) => skill.name === "subagent-delegation",
     ),
-    true,
+    false,
   );
 
   const duplicateConfig = loadConfig({
@@ -256,10 +319,12 @@ try {
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
     PORT: "1",
   });
-  assert.equal(
-    effectiveSkillPaths(duplicateConfig, projectRoot).filter((path) => path === projectAgentsSkills).length,
-    1,
-  );
+  const duplicatePaths = effectiveSkillPaths(duplicateConfig, projectRoot);
+  assert.equal(duplicatePaths.filter((path) => path === projectAgentsSkills).length, 1);
+  assert.equal(duplicatePaths.includes(projectForgeRelaySkills), true);
+  assert.equal(duplicatePaths.includes(configSkillsDir), true);
+  assert.equal(duplicatePaths.includes(globalAgentsSkills), false);
+  assert.equal(duplicatePaths.includes(join(agentDir, "skills")), false);
 
   const legacyPiConfig = loadConfig({
     FORGERELAY_ALLOWED_ROOTS: projectRoot,

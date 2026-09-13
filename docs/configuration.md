@@ -910,20 +910,19 @@ select a global instruction file; its `skills` child is an additional Agent Skil
 | --- | --- |
 | `FORGERELAY_SKILLS` | Set to `0` to hide skills. Enabled by default. |
 | `FORGERELAY_SUBAGENTS` | Set to `1` to expose configured subagent profiles. |
-| `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; its `skills` child is included as an additional Skill source. |
+| `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; used by supported Agent integrations, not as an automatic Skill source. |
 | `FORGERELAY_SKILL_PATHS` | Optional comma-separated additional skill directories. |
 
-Standard Agent Skills are discovered in precedence order from:
+Skills are discovered in precedence order from:
 
 - project `.agents/skills`
-- `~/.agents/skills`
-- the active ForgeRelay config directory's `skills` folder
-- `FORGERELAY_AGENT_DIR/skills`
-- paths from `FORGERELAY_SKILL_PATHS`
+- project `.forgerelay/skills`
+- the active ForgeRelay config directory's `skills` folder (`~/.forgerelay/skills` by default)
+- paths explicitly added through `FORGERELAY_SKILL_PATHS`
 
-The ownership boundaries are different even though all of these are readable Skill sources. Project/global `.agents/skills` belong to the open Agent Skills ecosystem and may contain files or symlinks installed by other Agent tooling. ForgeRelay-owned Skills stay under the active ForgeRelay config directory (`~/.forgerelay/skills` by default); ForgeRelay does not migrate or install its private Skills into `~/.agents/skills`.
+Project `.agents/skills` belongs to the open Agent Skills ecosystem and may contain files or symlinks installed by other Agent tooling. ForgeRelay-owned project/system Skills stay under `.forgerelay/skills` and the active ForgeRelay config directory. Global Agent runtime directories such as `~/.agents/skills` and `FORGERELAY_AGENT_DIR/skills` are not scanned automatically.
 
-When the same Skill name appears in more than one source, the first source wins. Project Skills therefore override same-named global `~/.agents/skills` entries, matching ForgeRelay's project-over-global configuration model.
+When the same Skill name appears in more than one source, the first source wins: project Agent Skills override project ForgeRelay Skills, which override system ForgeRelay Skills and explicit additional paths.
 
 When subagents are enabled, canonical v1.2 profiles are discovered from:
 

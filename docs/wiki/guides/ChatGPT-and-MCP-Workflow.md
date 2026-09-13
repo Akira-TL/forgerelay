@@ -77,15 +77,14 @@ Skill 按优先级从以下来源发现：
 
 ```text
 <project>/.agents/skills
-~/.agents/skills
+<project>/.forgerelay/skills
 <forgerelay-config>/skills
-FORGERELAY_AGENT_DIR/skills
 FORGERELAY_SKILL_PATHS
 ```
 
-这些位置只共享 discovery contract，不共享所有权。`.agents/skills` 是开放 Agent Skills 目录，可以由其他 Agent 工具安装或软链接；ForgeRelay-owned Skill 保持在 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`），ForgeRelay 不把自己的 Skill 安装或迁移进 `~/.agents/skills`。
+这些位置只共享 discovery contract，不共享所有权。Project `.agents/skills` 是开放 Agent Skills 目录，可以由其他 Agent 工具安装或软链接；ForgeRelay-owned 的 Project/System Skill 分别保持在 `<project>/.forgerelay/skills` 与 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。ForgeRelay 不再自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
 
-同名 Skill 只保留优先级最高的来源，因此 Project Skill 会覆盖同名的全局 Skill。
+同名 Skill 只保留优先级最高的来源，因此 Project Agent Skill 会覆盖 Project ForgeRelay Skill，后者再覆盖系统 ForgeRelay Skill和显式附加路径。
 
 ForgeRelay 只负责发现，并把 `name + description` 暴露给 Agent。任务匹配由 Agent 自己判断；真正需要时再读取：
 
