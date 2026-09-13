@@ -287,6 +287,65 @@ test("activity_panel reconstructs lightweight Workspace UI metadata on a fresh M
   assert.ok(workspace?.skills?.every((skill) => skill.description === undefined));
 });
 
+test("activity_panel reconstructs Composite Workspace presentation on a fresh MCP connection", async (t) => {
+  const context = await fixture(t);
+  const opened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { kind: "composite", name: "panel-composite" },
+  });
+  assert.equal(opened.isError, undefined, allResponseText(opened));
+  const workspaceId = String(structuredContent(opened).workspaceId);
+
+  const secondServer = createMcpServer(
+    context.config,
+    context.workspaces,
+    createReviewCheckpointManager(),
+    context.processSessions,
+    [],
+    [],
+    context.codeIntelligence,
+    context.activityLifecycle,
+    context.bashOutputStore,
+    context.activityQueries,
+  );
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const secondClient = new Client({ name: "composite-panel-fallback-client", version: "1.0.0" });
+  await Promise.all([
+    secondClient.connect(clientTransport),
+    secondServer.connect(serverTransport),
+  ]);
+  t.after(async () => {
+    await secondClient.close();
+    await secondServer.close();
+  });
+
+  const panel = await secondClient.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.equal(panel.isError, undefined, allResponseText(panel));
+  assert.match(String(structuredContent(panel).turnId), /^turn_/);
+  const workspace = (panel._meta as Record<string, unknown> | undefined)?.[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; kind?: string; name?: string; members?: unknown[] } | undefined;
+  assert.equal(workspace?.workspaceId, workspaceId);
+  assert.equal(workspace?.kind, "composite");
+  assert.equal(workspace?.name, "panel-composite");
+  assert.deepEqual(workspace?.members, []);
+
+  const closed = await secondClient.callTool({
+    name: "close_workspace",
+    arguments: { workspaceId },
+  });
+  assert.equal(closed.isError, undefined, allResponseText(closed));
+  const closedPanel = await secondClient.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.equal(closedPanel.isError, true);
+  assert.match(allResponseText(closedPanel), /No Workspace presentation|closed/i);
+});
+
 test("transport session scopes Activity when openai/session metadata is absent", async (t) => {
   const context = await fixture(t);
   await writeFile(join(context.project, "transport-scope.txt"), "transport scoped activity\n");

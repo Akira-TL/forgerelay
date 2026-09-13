@@ -44,7 +44,10 @@ import { formatPathForPrompt } from "./workspaces/resources/skills.js";
 import { WorkspaceTaskReminderTracker } from "./workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspaces/tasks/workspace-tasks.js";
 import { WorkspaceCheckpointStore } from "./workspaces/state/workspace-checkpoints.js";
-import { compactWorkspacePresentation } from "./workspaces/presentation/workspace-presentation.js";
+import {
+  compactCompositeWorkspacePresentation, compactRelayedWorkspacePresentation,
+  compactWorkspacePresentation,
+} from "./workspaces/presentation/workspace-presentation.js";
 import { formatAgentsPath, WorkspaceRegistry, type Workspace, type WorkspaceBootstrapComponent } from "./workspaces.js";
 import { summarizeSubagentProfile } from "./subagents/profiles.js";
 import { formatSubagentProviderAvailabilitySummary, type SubagentProviderAvailability } from "./subagents/providers/availability.js";
@@ -555,8 +558,23 @@ export function createMcpServer(
   };
   const workspacePanelState = async (workspaceId: string): Promise<Record<string, unknown> | undefined> => {
     const remembered = workspacePanelStates.get(workspaceId);
-    if (remoteWorkspaces.has(workspaceId) || compositeWorkspaces.has(workspaceId)) {
-      return remembered;
+    if (compositeWorkspaces.has(workspaceId)) {
+      if (remembered) return remembered;
+      const composite = compositeWorkspaces.get(workspaceId);
+      return composite.status === "active"
+        ? compactCompositeWorkspacePresentation(composite)
+        : undefined;
+    }
+    if (remoteWorkspaces.has(workspaceId)) {
+      if (remembered) return remembered;
+      try {
+        const inspected = await remoteWorkspaces.inspectWorkspace(workspaceId);
+        return inspected.status === "closed" || inspected.state === "closed"
+          ? undefined
+          : compactRelayedWorkspacePresentation(inspected);
+      } catch {
+        return undefined;
+      }
     }
     try {
       const workspace = workspaces.getWorkspace(workspaceId);

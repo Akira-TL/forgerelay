@@ -321,6 +321,7 @@ void test("Composite members preserve execution shell identity across Linux, cmd
     allowedRoot: cmdRoot,
     ownerToken: "remote-cmd-shell-owner-token-long-enough",
     instanceId: "forge-relay-shell-cmd",
+    shellInstructions: true,
     executionRuntime: {
       platform: "win32",
       commandShellRuntime: {
@@ -343,6 +344,7 @@ void test("Composite members preserve execution shell identity across Linux, cmd
     allowedRoot: pwshRoot,
     ownerToken: "remote-pwsh-shell-owner-token-long-enough",
     instanceId: "forge-relay-shell-pwsh",
+    shellInstructions: true,
     executionRuntime: {
       platform: "win32",
       commandShellRuntime: {

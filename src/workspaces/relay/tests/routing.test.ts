@@ -504,6 +504,19 @@ void test("relayed workspace routes survive a new gateway instance", async (t) =
     configDir: gatewayConfigDir,
     stateDir: gatewayStateDir,
   });
+  const panelAfterRestart = await restartedClient.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.equal(panelAfterRestart.isError, undefined, resultText(panelAfterRestart));
+  assert.match(String(structuredContent(panelAfterRestart).turnId), /^turn_/);
+  const panelWorkspace = (panelAfterRestart._meta as Record<string, unknown> | undefined)?.[
+    "forgerelay/activityPanelWorkspace"
+  ] as { workspaceId?: string; root?: string; mode?: string } | undefined;
+  assert.equal(panelWorkspace?.workspaceId, workspaceId);
+  assert.equal(panelWorkspace?.root, remoteRoot);
+  assert.equal(panelWorkspace?.mode, "checkout");
+
   const readAfterRestart = await restartedClient.callTool({
     name: "read",
     arguments: { workspaceId, path: "restart.txt" },
@@ -530,6 +543,19 @@ void test("relayed workspace routes survive a new gateway instance", async (t) =
     arguments: { workspaceId },
   });
   assert.equal(closed.isError, undefined, resultText(closed));
+
+  const closedClient = await startGatewayClient(t, {
+    root: join(root, "gateway-third"),
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+    stateDir: gatewayStateDir,
+  });
+  const closedPanel = await closedClient.callTool({
+    name: "activity_panel",
+    arguments: { workspaceId },
+  });
+  assert.equal(closedPanel.isError, true);
+  assert.match(resultText(closedPanel), /No Workspace presentation|closed/i);
   t.after(() => rm(root, { recursive: true, force: true }));
 });
 void test("concurrent gateway sessions preserve every relayed workspace route", async (t) => {

@@ -92,6 +92,7 @@ export async function startForge(
     taskReminderInterval?: number;
     mediaMaxBytes?: number;
     mcpServers?: ForgeRelayUserConfig["mcpServers"];
+    shellInstructions?: boolean;
     executionRuntime?: TestExecutionRuntime;
   },
 ): Promise<RunningForge> {
@@ -115,6 +116,7 @@ export async function startForge(
     ...(options.taskReminderInterval !== undefined ? { taskReminderInterval: options.taskReminderInterval } : {}),
     ...(options.mediaMaxBytes !== undefined ? { mediaMaxBytes: options.mediaMaxBytes } : {}),
     ...(options.mcpServers ? { mcpServers: options.mcpServers } : {}),
+    ...(options.shellInstructions !== undefined ? { shellInstructions: options.shellInstructions } : {}),
     ...(options.hooks ? { hooks: options.hooks } : {}),
   }, null, 2));
 

@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { debugRoot, repoRoot } from "../runtime.mjs";
 
 export function relayAcceptanceTopology() {
@@ -168,6 +169,37 @@ export function toolText(result) {
     .filter((entry) => entry.type === "text")
     .map((entry) => entry.text)
     .join("\n");
+}
+
+export async function assertStatelessRelayPanel({ mcpUrl, accessToken, executionCheckout, expectedWorkspaceId }) {
+  const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
+    requestInit: { headers: { authorization: `Bearer ${accessToken}` } },
+  });
+  const client = new Client(
+    { name: "forgerelay-relay-stateless-acceptance", version: "1.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+  );
+  try {
+    await client.connect(transport);
+    assert.equal(transport.sessionId, undefined);
+    const opened = await client.callTool({
+      name: "open_workspace",
+      arguments: { path: executionCheckout, relay: "execution", context: "none" },
+    });
+    assertToolOk(opened, "open relayed checkout over stateless HTTP");
+    assert.equal(opened.structuredContent.workspaceId, expectedWorkspaceId);
+    const panel = await client.callTool({
+      name: "activity_panel",
+      arguments: { workspaceId: expectedWorkspaceId },
+      _meta: { "dev.forgerelay/conversation": "relay-stateless-panel-acceptance" },
+    });
+    assertToolOk(panel, "render relayed Activity Panel over stateless HTTP");
+    assert.match(String(panel.structuredContent.turnId), /^turn_/);
+    assert.equal(panel._meta?.["forgerelay/activityPanelWorkspace"]?.workspaceId, expectedWorkspaceId);
+  } finally {
+    await client.close().catch(() => undefined);
+  }
+  pass("relay stateless Panel", "relayed open_workspace and activity_panel succeeded across modern stateless MCP requests");
 }
 
 export function pass(label, detail) {

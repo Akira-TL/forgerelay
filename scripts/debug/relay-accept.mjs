@@ -2,23 +2,19 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { connect } from "node:net";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { debugRoot, repoRoot } from "./runtime.mjs";
-import { relayAcceptanceTopology, assertPortsFree, setupGitProject, runGit, taskStateFiles, findTaskStateFile, assertTaskBodyAbsentFromGateway, assertSafeRelayInspection, installRelayImageFixture, assertRelayedImageResult, assertToolOk, toolText, pass } from "./relay-accept/support.mjs";
-
+import { repoRoot } from "./runtime.mjs";
+import { relayAcceptanceTopology, assertPortsFree, setupGitProject, findTaskStateFile, assertTaskBodyAbsentFromGateway, assertSafeRelayInspection, installRelayImageFixture, assertRelayedImageResult, assertStatelessRelayPanel, assertToolOk, toolText, pass } from "./relay-accept/support.mjs";
 const {
-  gatewayPort, executionPort, gatewayBaseUrl, gatewayMcpUrl, executionBaseUrl,
-  acceptanceRoot, gatewayConfigDir, gatewayStateDir, gatewayWorktreeRoot,
-  gatewayProjects, gatewayLocalProject, executionConfigDir, executionStateDir,
-  executionWorktreeRoot, executionProjects, executionCheckout, executionWorktreeSource,
-  bootstrapSecret, checkoutTaskBody, worktreeTaskBody, compositeMemberTaskBody, compositeTaskBody,
+  gatewayPort, executionPort, gatewayBaseUrl, gatewayMcpUrl, executionBaseUrl, acceptanceRoot,
+  gatewayConfigDir, gatewayStateDir, gatewayWorktreeRoot, gatewayProjects, gatewayLocalProject,
+  executionConfigDir, executionStateDir, executionWorktreeRoot, executionProjects, executionCheckout,
+  executionWorktreeSource, bootstrapSecret, checkoutTaskBody, worktreeTaskBody, compositeMemberTaskBody, compositeTaskBody,
 } = relayAcceptanceTopology();
 const gatewayOwnerToken = randomBytes(32).toString("base64url");
 const executionOwnerToken = randomBytes(32).toString("base64url");
-
 await assertPortsFree([gatewayPort, executionPort]);
 rmSync(acceptanceRoot, { recursive: true, force: true });
 mkdirSync(gatewayLocalProject, { recursive: true });
@@ -30,10 +26,8 @@ writeFileSync(join(gatewayLocalProject, "sentinel.txt"), "gateway-local-content\
 writeFileSync(join(executionCheckout, "sentinel.txt"), "execution-remote-content\n");
 writeFileSync(join(executionCheckout, "AGENTS.md"), `${bootstrapSecret}\n`);
 setupGitProject(executionWorktreeSource);
-
 writeAuthFile(gatewayConfigDir, gatewayOwnerToken, "relay-acceptance-gateway");
 writeAuthFile(executionConfigDir, executionOwnerToken, "relay-acceptance-execution");
-
 const executionEnv = instanceEnv({
   port: executionPort,
   baseUrl: executionBaseUrl,
@@ -105,6 +99,13 @@ try {
   assertToolOk(openedB, "open relayed checkout B");
   assert.equal(openedB.structuredContent.workspaceId, checkoutRelayId);
   pass("relay persistent identity", `two Gateway conversations reused ${checkoutRelayId}`);
+
+  await assertStatelessRelayPanel({
+    mcpUrl: gatewayMcpUrl,
+    accessToken: oauth.accessToken,
+    executionCheckout,
+    expectedWorkspaceId: checkoutRelayId,
+  });
 
   assertRelayedImageResult(callTool(gatewayMcpUrl, oauth.accessToken, sessionB, nextId(), "read", {
     workspaceId: checkoutRelayId, path: "relay-image.png",

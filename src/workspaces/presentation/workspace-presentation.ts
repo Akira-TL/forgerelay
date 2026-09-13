@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import type { CompositeWorkspaceRecord } from "../composite/composite-workspaces.js";
+import type { RelayedWorkspaceInspection } from "../relay/types.js";
 
 const PRESENTATION_FIELDS = [
   "workspaceId",
@@ -63,6 +65,33 @@ export function compactWorkspacePresentation(
   );
   presentation.presentationRevision = presentationRevision(card, presentation);
   return presentation;
+}
+
+export function compactCompositeWorkspacePresentation(
+  composite: CompositeWorkspaceRecord,
+): Record<string, unknown> {
+  return compactWorkspacePresentation({
+    workspaceId: composite.id,
+    kind: "composite",
+    name: composite.name,
+    path: composite.name,
+    members: composite.members,
+    summary: { members: composite.members.length, status: composite.status },
+  });
+}
+
+export function compactRelayedWorkspacePresentation(
+  inspected: RelayedWorkspaceInspection,
+): Record<string, unknown> {
+  return compactWorkspacePresentation({
+    workspaceId: inspected.workspaceId,
+    kind: inspected.kind,
+    root: inspected.root,
+    path: inspected.root,
+    mode: inspected.mode,
+    sourceRoot: inspected.sourceRoot,
+    summary: { mode: inspected.mode, relay: inspected.relay },
+  });
 }
 
 function projectExecutionContext(value: unknown): Record<string, unknown> | undefined {
