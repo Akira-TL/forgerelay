@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,7 +13,7 @@ import {
 } from "./status.js";
 
 void test("External MCP CLI scope resolves ancestor Project config and explicit global scope", async (t) => {
-  const context = createStatusContext(t);
+  const context = await createStatusContext(t);
   const nested = join(context.projectRoot, "src", "nested");
   mkdirSync(nested, { recursive: true });
   writeJson(join(context.configDir, "mcp.json"), {
@@ -59,7 +60,7 @@ void test("External MCP CLI scope resolves ancestor Project config and explicit 
 });
 
 void test("External MCP list and doctor expose status without credential or static-header secrets", async (t) => {
-  const context = createStatusContext(t);
+  const context = await createStatusContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: {
       authenticated: { transport: "streamable-http", url: "https://auth.example/mcp" },
@@ -132,7 +133,7 @@ void test("External MCP list and doctor expose status without credential or stat
 });
 
 void test("External MCP invalid live edit reports last-known-good status without exposing invalid content", async (t) => {
-  const context = createStatusContext(t);
+  const context = await createStatusContext(t);
   const globalPath = join(context.configDir, "mcp.json");
   writeJson(globalPath, {
     servers: {
@@ -153,7 +154,7 @@ void test("External MCP invalid live edit reports last-known-good status without
 });
 
 void test("External MCP status reports an invalid credential store without echoing persisted secret content", async (t) => {
-  const context = createStatusContext(t);
+  const context = await createStatusContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: {
       secure: { transport: "streamable-http", url: "https://secure.example/mcp" },
@@ -169,19 +170,19 @@ void test("External MCP status reports an invalid credential store without echoi
   assert.doesNotMatch(list, /CREDENTIAL-SECRET-SENTINEL/);
 });
 
-function createStatusContext(t: test.TestContext): {
+async function createStatusContext(t: test.TestContext): Promise<{
   root: string;
   configDir: string;
   projectRoot: string;
   env: NodeJS.ProcessEnv;
-} {
+}> {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-mcp-status-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const configDir = join(root, "config");
   const projectRoot = join(root, "project");
   mkdirSync(configDir, { recursive: true });
   mkdirSync(join(projectRoot, ".forgerelay"), { recursive: true });
-  const canonicalProjectRoot = realpathSync(projectRoot);
+  const canonicalProjectRoot = await realpath(projectRoot);
   writeJson(join(configDir, "config.json"), { allowedRoots: [canonicalProjectRoot] });
   writeJson(join(configDir, "auth.json"), { ownerToken: "status-test-owner-token-0123456789" });
   return {
@@ -191,7 +192,7 @@ function createStatusContext(t: test.TestContext): {
     env: {
       ...process.env,
       FORGERELAY_CONFIG_DIR: configDir,
-      FORGERELAY_ALLOWED_ROOTS: projectRoot,
+      FORGERELAY_ALLOWED_ROOTS: canonicalProjectRoot,
       FORGERELAY_WORKSPACE_ROOT: undefined,
     },
   };

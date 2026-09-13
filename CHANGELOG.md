@@ -4,19 +4,6 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
-## [1.2.0-rc.3] - 2026-09-13
-
-### Fixed
-
-- Canonicalized CLI Project-path regression fixtures before asserting resolved Project roots, covering macOS `/var` aliases and Windows short-path aliases such as `RUNNER~1` without changing the runtime Project identity contract.
-
-## [1.2.0-rc.2] - 2026-09-13
-
-### Fixed
-
-- Made generated Config schema freshness checks line-ending independent so Windows CRLF checkouts do not falsely report all `schemas/v1/*.schema.json` files as stale while semantic schema changes still fail the gate.
-- Made Project identity regression assertions compare canonical realpaths, matching ForgeRelay's existing canonical Project-root contract on macOS `/var` → `/private/var` aliases.
-
 ## [1.2.0-rc.1] - 2026-09-13
 
 ### Added
@@ -41,6 +28,11 @@ All notable ForgeRelay changes are documented here.
 
 - Separated allowed-root filesystem authority from Project Trust. Project Hooks, stdio External MCP, Project Language Servers, and Project Subagent Profiles now pass through one project-execution trust seam; v1.2.0 intentionally uses a compatibility-allow policy and does not claim a full interactive Project Trust approval UI.
 - Kept credentials outside the ordinary Config Resolver, limited environment interpolation to definition-approved fields, and kept resolved sensitive values out of normal provenance and diagnostic output.
+
+### Fixed
+
+- Made generated Config schema freshness checks line-ending independent so Windows CRLF checkouts do not falsely report generated schemas as stale while real schema drift still fails the gate.
+- Made Project-root regression and packaged-acceptance assertions use the same canonical realpath semantics as the runtime, covering macOS `/var` aliases and Windows short-path aliases such as `RUNNER~1` without changing Project identity behavior.
 
 ## [1.1.2] - 2026-09-11
 

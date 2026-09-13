@@ -9,6 +9,7 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -22,7 +23,7 @@ if (!npmCli) {
 }
 
 const repoRoot = process.cwd();
-const root = await mkdtemp(join(tmpdir(), "forgerelay-config-v2-product-"));
+const root = await realpath(await mkdtemp(join(tmpdir(), "forgerelay-config-v2-product-")));
 
 try {
   const artifactDir = join(root, "artifact");
@@ -82,7 +83,8 @@ async function acceptFreshInit({ installedCli, root, home }) {
   const configDir = join(root, "fresh-config");
   const stateDir = join(root, "fresh-state");
   await mkdir(projectRoot, { recursive: true });
-  await writeFile(join(projectRoot, "README.md"), "fresh packaged config acceptance\n", "utf8");
+  const canonicalProjectRoot = await realpath(projectRoot);
+  await writeFile(join(canonicalProjectRoot, "README.md"), "fresh packaged config acceptance\n", "utf8");
 
   const env = acceptanceEnv({ configDir, home, stateDir });
   const child = pty.spawn(process.execPath, [installedCli, "init"], {
@@ -124,7 +126,7 @@ async function acceptFreshInit({ installedCli, root, home }) {
 
   const config = await readJson(join(configDir, "config.json"));
   assert.deepEqual(Object.keys(config).sort(), ["$schema", "allowedRoots"]);
-  assert.deepEqual(config.allowedRoots, [projectRoot]);
+  assert.deepEqual(config.allowedRoots, [canonicalProjectRoot]);
   assert.match(String(config.$schema), /schemas\/v1\/config\.user\.schema\.json$/);
   const auth = await readJson(join(configDir, "auth.json"));
   assert.equal(typeof auth.ownerToken, "string");

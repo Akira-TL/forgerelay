@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -133,12 +134,12 @@ test("config check validates every global Config v2 domain without starting conf
   assert.ok(output.diagnostics.some((diagnostic) => diagnostic.code === "missing_environment"));
 });
 
-test("project config check is read-only and does not create Project identity state", () => {
+test("project config check is read-only and does not create Project identity state", async () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-check-project-readonly-"));
   const configDir = join(root, "config");
   const project = join(root, "project");
   mkdirSync(join(project, ".forgerelay"), { recursive: true });
-  const canonicalProject = realpathSync(project);
+  const canonicalProject = await realpath(project);
   writeFileSync(join(canonicalProject, ".forgerelay", "config.json"), JSON.stringify({ port: "not-a-port" }));
 
   const result = runCli(configDir, ["config", "check", "--project", canonicalProject, "--json"]);
