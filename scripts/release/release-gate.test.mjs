@@ -192,6 +192,12 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
   }
 });
 
+test("Windows product acceptance uses the supported Skills environment seam rather than a removed config key", async () => {
+  const source = await readFile(resolve(repoRoot, "scripts/ci/windows-product-acceptance.mjs"), "utf8");
+  assert.match(source, /FORGERELAY_SKILLS:\s*"0"/);
+  assert.doesNotMatch(source, /skillsEnabled\s*:/);
+});
+
 test("release workflow is tag-only and promotes the verified npm artifact without rebuilding", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
   assert.doesNotMatch(workflow, /workflow_dispatch:/);

@@ -105,7 +105,6 @@ async function exercisePackagedRuntime({ family, executable, doctorIdentity, roo
         executable,
       },
       shellInstructions: true,
-      skillsEnabled: false,
     }, null, 2),
     "utf8",
   );
