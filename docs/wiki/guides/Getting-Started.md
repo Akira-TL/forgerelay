@@ -33,7 +33,15 @@ npx @akira-tl/forgerelay serve
 forgerelay init
 ```
 
-初始化时会配置 allowed roots、监听端口、可选的公网地址和路由前缀，也会让你选择 Command Shell Runtime 以及其他可选能力。
+基础初始化只询问首次使用需要的内容：allowed project roots，以及 Host 通过 local / SSH relay / LAN / HTTPS proxy 中哪种方式连接。只有所选连接方式需要时，才继续询问公网 URL 或 LAN 信息。
+
+常用但非必需的设置放在：
+
+```bash
+forgerelay init --advanced
+```
+
+`--advanced` 才配置 port、Command Shell Runtime、Runtime Shell Instructions opt-in、ForgeRelay-managed Language Servers，以及是否允许 Agent 按需安装 managed Language Server。Runtime Shell Instructions 默认不启用。
 
 新安装默认写入：
 
@@ -42,7 +50,9 @@ forgerelay init
 ~/.forgerelay/auth.json
 ```
 
-`auth.json` 包含 Owner password，把它当凭据保存。
+`auth.json` 包含 Owner password，把它当凭据保存。初始化完成时 ForgeRelay 会直接给出实际 MCP URL、bind/connection 信息、Owner password 与 credential 文件位置；SSH relay 模式还会给出对应 relay guidance。
+
+`init --force` 只更新 setup-owned 字段，不会删除其他高级配置，也不会迁移旧格式。旧配置迁移必须显式执行 `forgerelay config migrate`。
 
 ### Allowed roots
 
@@ -110,11 +120,14 @@ localhost
 
 ```bash
 forgerelay doctor
+forgerelay config check
+forgerelay config sources
+forgerelay config explain <logical-path>
 ```
 
-`doctor` 会显示实际解析后的配置目录、Node / Git / 平台信息、runtime privilege、Command Shell Runtime、public URL、allowed hosts、SQLite 原生依赖、tool mode、widget mode，以及 artifact、subagent、Skills 等可选能力状态。
+`doctor` 汇总运行环境和主要配置；`config check` 验证 Config v2 的全部已选 scope；`config sources` 查看参与解析的 sources；`config explain` 解释某个 logical path 的 winner、shadowing、reload policy 与 execution effect。它们不会为了检查而执行 Hook、启动 Language Server/stdio MCP 或连接 HTTP MCP，敏感 effective value 也不会明文输出。
 
-连接有问题时，先看 `doctor`，再决定要改哪项配置。`doctor` 也会被动汇总 External MCP 配置和认证状态，但不会主动连接外部 Server；需要测试时使用 `forgerelay mcp test <server>`。External MCP 配置与人工 OAuth 见 [External MCP](External-MCP)。
+连接有问题时先看 `doctor`；配置来源或 precedence 有疑问时用三条 `config` 诊断命令。External MCP 的主动连通性测试仍使用 `forgerelay mcp test <server>`。完整配置和迁移说明见 [配置指南](Configuration)。
 
 ## 8. 第一次打开项目
 

@@ -28,6 +28,25 @@ forgerelay doctor
 
 “配置明明写了但没生效”经常只是当前进程读了另一套配置目录或环境变量。
 
+Config v2 的定位顺序建议是：
+
+```bash
+forgerelay config check --project /path/to/project
+forgerelay config sources --project /path/to/project
+forgerelay config explain <logical-path> --project /path/to/project
+```
+
+`check` 先找结构/环境变量/schema 问题，`sources` 看 User / Project / Project Local / runtime 来源，`explain` 看最终 winner、shadowing、reload policy 和 execution effect。敏感 effective value 会 redaction；离线 CLI 也不会伪造另一个运行进程的内存 LKG 或 applied restart-required state。
+
+ForgeRelay 启动不会自动迁移或重写旧配置。需要迁移时先运行：
+
+```bash
+forgerelay config migrate --dry-run --global
+forgerelay config migrate --dry-run --project /path/to/project
+```
+
+确认后再去掉 `--dry-run`。迁移会保留 backup 并使用原子写入；v1.2.x 继续兼容 ForgeRelay-owned legacy sources，v1.3.x 加强 removal warning，legacy parser/path 在 v1.4.0 移除。
+
 ## `forgerelay: command not found`
 
 可以直接用 `npx`：
@@ -292,12 +311,15 @@ FORGERELAY_SKILL_PATHS
 FORGERELAY_SUBAGENTS=1 forgerelay serve
 ```
 
-常见 profile 位置：
+Canonical profile 位置：
 
 ```text
-~/.forgerelay/agents/*.md
-<project>/.forgerelay/agents/*.md
+~/.forgerelay/subagents/*.md
+<project>/.forgerelay/subagents/*.md
+~/.forgerelay/projects/<project-id>/subagents/*.md
 ```
+
+旧 `agents/*.md` 在 v1.2.x 仍兼容读取并给出 deprecation diagnostic，计划在 v1.4.0 移除 legacy path。
 
 `forgerelay agents ls` 主要查看 Subagent Session，不等于列出所有 profile definition。Host 的 compact profile catalog 走自己的 discovery 路径。
 
@@ -342,10 +364,10 @@ Runtime 不会自己打开浏览器。SSH/headless 环境会打印授权 URL，�
 配置优先级是：
 
 ```text
-Project .forgerelay/mcp.json > ~/.forgerelay/mcp.json > legacy config.json.mcpServers
+Project Local > Project > User > legacy config.json.mcpServers
 ```
 
-同名 Project entry 可能覆盖 global；`disabled: true` 会显式屏蔽下层配置。删掉 Project entry 后，下层 Server 会重新生效。
+Project Local 位于 ForgeRelay 私有 `projects/<project-id>/mcp.json`，不写进 checkout。同名高 scope entry 会覆盖低 scope；`disabled: true` 会显式屏蔽下层配置。删掉高 scope entry 后，下层 Server 会重新生效。
 
 如果 `mcp list` 报 `invalid` / `last-known-good`，先修对应 `mcp.json`。已经加载过合法配置的运行中 ForgeRelay 会继续使用整份上一版本；一个新启动的 CLI 进程无法继承另一个进程内存中的 LKG snapshot，所以它只能报告当前文件无效。
 
@@ -366,7 +388,7 @@ forgerelay hooks check --project /path/to/project
 
 确认文件是 `*.json`、event 正确、matcher 匹配 ForgeRelay 收到的 request，并且没有把脚本内部命令误当成新的 MCP request。
 
-项目 Hook 每次 event 重新读取；全局 Hook 修改后需要重启 Server。
+v1.2 canonical User / Project / Project Local Hook 都按需热刷新，不要求因为 Hook 文件变化重启 Server。已成功加载的单个 Hook 文件后来写坏时，运行进程保留该文件的 LKG；删除文件会清除对应 contribution。
 
 ## Hook 报错但 Tool 还是完成了
 

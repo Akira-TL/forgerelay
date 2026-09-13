@@ -8,7 +8,7 @@ projects through ForgeRelay.
 - Node `>=22.19 <27`
 - npm
 - Git
-- Bash, including Git Bash or WSL on Windows
+- a supported Command Shell Runtime: Bash/zsh/POSIX sh on Unix-like systems, or PowerShell 7 / Windows PowerShell 5.1 / `cmd.exe` on Windows
 - a public HTTPS URL when the MCP host cannot connect directly to localhost
 
 ForgeRelay does not create the public tunnel for you. Use Cloudflare Tunnel,
@@ -22,8 +22,11 @@ Run:
 npx @akira-tl/forgerelay init
 ```
 
-The setup flow asks for the allowed project roots, local port, public domains,
-and an optional routed path prefix.
+Basic setup asks only for the allowed project roots and how clients reach this ForgeRelay instance (local, SSH relay, direct LAN, or HTTPS proxy/tunnel). It asks connection-specific details only when that mode requires them.
+
+Use `npx @akira-tl/forgerelay init --advanced` for the small set of common advanced choices: port, Command Shell Runtime, Runtime Shell Instructions opt-in, ForgeRelay-managed Language Servers, and whether Agents may install managed Language Servers on demand. Runtime Shell Instructions are disabled unless explicitly enabled.
+
+`init --force` updates setup-owned fields only. It does not migrate legacy configuration or erase unrelated advanced settings.
 
 ### Project roots
 
@@ -123,12 +126,14 @@ Keep `auth.json` private.
 
 ```bash
 npx @akira-tl/forgerelay doctor
+npx @akira-tl/forgerelay config check
+npx @akira-tl/forgerelay config sources
+npx @akira-tl/forgerelay config explain <logical-path>
 ```
 
-The doctor command reports the resolved config, Node runtime, platform, Git,
-Bash, public URL, allowed hosts, native SQLite dependency status, and the MCP
-shape ForgeRelay will expose: tool mode, widget mode, one-hop proxy trust, and
-whether optional artifact, subagent, and Skill capabilities are enabled.
+`doctor` reports the runtime and deployment summary. Config v2's `check`, `sources`, and `explain` commands validate the selected scope and show provenance without executing Hooks, starting Language Servers/stdio MCP servers, or exposing resolved sensitive values.
+
+ForgeRelay never rewrites old configuration during startup. Preview an explicit migration with `forgerelay config migrate --dry-run --global` or `--project <path>` before applying it. ForgeRelay-owned legacy sources remain compatible in v1.2.x and are removed in v1.4.0.
 
 ## Running from a local checkout
 

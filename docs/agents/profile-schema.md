@@ -6,12 +6,17 @@ runtime to use and what prompt prefix/configuration to apply.
 
 ## Locations
 
-Locations:
+Canonical v1.2 locations:
 
 ```text
-~/.forgerelay/agents/*.md
-.forgerelay/agents/*.md
+~/.forgerelay/subagents/*.md
+<project>/.forgerelay/subagents/*.md
+~/.forgerelay/projects/<project-id>/subagents/*.md
 ```
+
+The third path is Project Local: machine-private ForgeRelay state keyed by canonical Project identity and never written into the checkout. Resolution follows `Project Local > Project > User` for same-named profiles.
+
+Legacy `agents/*.md` remains read-compatible with deprecation diagnostics in v1.2.x, receives stronger removal warnings in v1.3.x, and is removed in v1.4.0. ForgeRelay does not import private profile/config directories from Codex, Claude, Cursor, or other providers.
 
 ## Example
 

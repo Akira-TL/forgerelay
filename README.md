@@ -59,7 +59,12 @@ http://127.0.0.1:7676/mcp
 
 ```bash
 forgerelay doctor
+forgerelay config check
+forgerelay config sources
+forgerelay config explain <logical-path>
 ```
+
+v1.2 的 Config System 统一解析 User、Project 和机器私有 Project Local 配置，统一优先级是 `runtime > project-local > project > user > built-in`。External MCP、Language Servers、Hooks 和 Subagent Profiles 支持按需热刷新与 last-known-good；需要重启的 General 配置会区分 configured / applied，不会自动重启 Server。Canonical JSON 可以引用 npm package 中的 `schemas/v1/*` `$schema`，受支持的敏感字段可用 `${ENV_NAME}`，诊断不会输出解析后的 secret。ForgeRelay 启动不会自动重写旧配置，需要迁移时使用 `forgerelay config migrate --dry-run ...` 先预览。
 
 ### ChatGPT 访问不到 localhost？
 
@@ -120,6 +125,8 @@ ForgeRelay 给 Agent 的是真实本机执行权限，不是模拟环境。
 
 文件工具受 Workspace 和 allowed roots 限制；Shell 命令使用启动 ForgeRelay 的本地用户权限执行，**Shell 不是 OS sandbox**。因此只连接你信任的 MCP Host，只开放确实需要的项目目录，并保护好 Owner password。
 
+Allowed roots 是文件系统 / Workspace authority，不等于 Project Trust approval。v1.2.0 已把项目中的可执行配置统一接入 Project execution trust seam，但首个稳定策略是 compatibility-allow；完整的交互式 Project Trust approval UI 不是 v1.2.0 已实现功能。
+
 ForgeRelay 默认拒绝 elevated / administrator 启动。只有你显式选择高权限运行时才会继续，并会提示系统级修改可能不可逆。
 
 完整边界见 [安全模型](https://github.com/Akira-TL/forgerelay/wiki/Security)。
@@ -173,7 +180,12 @@ To see the configuration and Command Shell Runtime ForgeRelay actually resolved:
 
 ```bash
 forgerelay doctor
+forgerelay config check
+forgerelay config sources
+forgerelay config explain <logical-path>
 ```
+
+Config System v2 in v1.2 resolves User, Project, and machine-private Project Local sources using `runtime > project-local > project > user > built-in`. External MCP, Language Servers, Hooks, and Subagent Profiles refresh on demand with last-known-good protection; restart-required General settings keep configured and applied values distinct and never auto-restart the server. Canonical JSON can point at the packaged `schemas/v1/*` `$schema` files, supported sensitive fields may use `${ENV_NAME}`, and diagnostics do not expose resolved secrets. Startup never rewrites legacy configuration automatically; preview an explicit migration with `forgerelay config migrate --dry-run ...` first.
 
 ### Host cannot reach localhost?
 
@@ -233,6 +245,8 @@ By default, ForgeRelay works in the checkout you already have. It does not silen
 ForgeRelay gives an Agent real local execution capability.
 
 Filesystem tools are constrained by the opened Workspace and configured allowed roots. Shell commands run with the authority of the local user running ForgeRelay; **the shell is not an OS sandbox**. Connect only MCP hosts you trust, expose only project roots you want an Agent to access, and keep the Owner password private.
+
+Allowed roots grant filesystem/Workspace authority; they are not a Project Trust approval. v1.2.0 routes executable project configuration through a shared Project execution trust seam, but its initial policy is compatibility-allow. A full interactive Project Trust approval UI is not claimed for v1.2.0.
 
 Elevated / administrator startup is rejected by default. It only proceeds after explicit opt-in, with a warning that system-level AI-driven changes may be irreversible.
 

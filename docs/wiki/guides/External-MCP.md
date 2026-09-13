@@ -15,18 +15,24 @@ ForgeRelay 可以把你已经配置好的其他 MCP Server 通过现有 `mcp.ext
 项目级配置：
 
 ```text
-<workspace>/.forgerelay/mcp.json
+<project>/.forgerelay/mcp.json
 ```
 
-如果使用了 `FORGERELAY_CONFIG_DIR`，机器级 `mcp.json` 和 OAuth credential store 也跟随那个目录。
+Project Local（机器私有，不写进 checkout）：
+
+```text
+~/.forgerelay/projects/<project-id>/mcp.json
+```
+
+如果使用了 `FORGERELAY_CONFIG_DIR`，机器级、Project Local 配置和 OAuth credential store 都跟随那个目录。
 
 优先级按 server name 计算：
 
 ```text
-Project mcp.json > global mcp.json > legacy config.json.mcpServers
+Project Local > Project > User > legacy config.json.mcpServers
 ```
 
-旧的 `config.json.mcpServers` 仍兼容读取，但新配置应该写到独立 `mcp.json`。
+旧的 `config.json.mcpServers` 在 v1.2.x 仍兼容读取并带 deprecation diagnostic，但新配置写到独立 `mcp.json`。v1.3.x 会加强 removal warning，legacy parser/path 计划在 v1.4.0 移除。
 
 ## 最小配置
 
@@ -61,7 +67,7 @@ Server name 使用稳定的小写名称，例如 `github`、`renderer`、`my-mcp
 
 ## Project override 和 `disabled`
 
-Project 可以覆盖机器级同名 Server。只想在某个 Project 屏蔽机器级 Server 时：
+Project Local 可以覆盖 Project/User，Project 可以覆盖 User。只想在某个更高 scope 屏蔽继承 Server 时：
 
 ```json
 {
@@ -73,7 +79,7 @@ Project 可以覆盖机器级同名 Server。只想在某个 Project 屏蔽机�
 }
 ```
 
-默认就是启用，不需要写 `disabled: false`。删掉 Project 里的这个 entry 后，下层 global/legacy 配置会重新生效。
+默认就是启用，不需要写 `disabled: false`。删掉更高 scope 的这个 entry 后，下层 Project/User/legacy 配置会重新生效。
 
 ## 热加载
 
@@ -199,7 +205,9 @@ Gateway ForgeRelay 不会替你复制 External MCP credential。远端 Workspace
 
 ## 安全边界
 
-Project `.forgerelay/mcp.json` 可以定义 stdio command，因此它和 Project Hook 一样属于可执行项目配置。允许并打开一个 Project root 后，不会再为每个 stdio Server弹第二次信任确认。
+Project `.forgerelay/mcp.json` 可以定义 stdio command，因此它和 Project Hook、Project Language Server、Project Subagent Profile 一样属于**可执行项目配置**。allowed roots 只授予文件/Workspace authority，不等于 Project Trust approval。
+
+v1.2.0 已把这些执行入口统一路由到 Project execution trust seam，但首个稳定版的 policy 是 **compatibility-allow**：不会新增交互式 Project Trust approval UI，也不会为每台 stdio Server弹第二次确认。这个 seam 是后续 v1.2.x 强化 approval/enforcement 的接入点；文档不能把 v1.2.0 描述成已经实现完整 Project Trust UX。
 
 External MCP 返回的 path、URL、`resource_link` 等仍只是引用。ForgeRelay 不会因为它看起来像图片或文件就自动下载、`read` 或创建 Artifact。
 

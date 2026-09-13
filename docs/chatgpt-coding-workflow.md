@@ -251,12 +251,15 @@ files in the skill directory.
 
 ## Local subagent profiles
 
-With `FORGERELAY_SUBAGENTS=1`, profiles are discovered from the active ForgeRelay
-global config directory plus:
+With `FORGERELAY_SUBAGENTS=1`, canonical v1.2 profiles are discovered from:
 
 ```text
-.forgerelay/agents/*.md
+~/.forgerelay/subagents/*.md
+<project>/.forgerelay/subagents/*.md
+~/.forgerelay/projects/<project-id>/subagents/*.md
 ```
+
+Same-named profiles resolve `Project Local > Project > User`. Legacy `agents/*.md` remains read-compatible in v1.2.x with deprecation diagnostics and is removed in v1.4.0. ForgeRelay does not import private provider profile/config directories.
 
 The workspace result exposes only compact profile metadata so the host can
 choose a provider/profile without loading full provider launch details. Read the

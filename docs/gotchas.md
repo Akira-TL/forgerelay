@@ -120,6 +120,20 @@ Regenerate setup intentionally with:
 forgerelay init --force
 ```
 
+## Config v2 says a value is invalid, shadowed, or missing
+
+Use the Config v2 inspection surface before editing files by guesswork:
+
+```bash
+forgerelay config check --project /path/to/project
+forgerelay config sources --project /path/to/project
+forgerelay config explain <logical-path> --project /path/to/project
+```
+
+Project Local sources are machine-private under the ForgeRelay config directory and can override Project/User sources without appearing in the checkout. Running ForgeRelay may keep an in-memory last-known-good value for a hot-reload source that has since become invalid; a fresh offline CLI process cannot reconstruct another process's LKG.
+
+Startup does not rewrite old formats. Preview migration with `forgerelay config migrate --dry-run --global` or `--project <path>`, then run the same command without `--dry-run` only after reviewing the backup-preserving plan. ForgeRelay-owned legacy parsers/paths remain in v1.2.x, warn more strongly in v1.3.x, and are removed in v1.4.0.
+
 ## Unknown `workspaceId`
 
 Reopen the project with `open_workspace` and use the returned ID. Active
@@ -196,12 +210,15 @@ Enable subagents:
 FORGERELAY_SUBAGENTS=1 forgerelay serve
 ```
 
-New profile locations include:
+Canonical v1.2 profile locations are:
 
 ```text
-~/.forgerelay/agents/*.md
-.forgerelay/agents/*.md
+~/.forgerelay/subagents/*.md
+<project>/.forgerelay/subagents/*.md
+~/.forgerelay/projects/<project-id>/subagents/*.md
 ```
+
+Legacy `agents/*.md` remains read-compatible in v1.2.x with deprecation diagnostics and is removed in v1.4.0.
 
 `forgerelay agents ls` lists sessions, not profile definitions. The compact
 profile catalog is returned through `open_workspace`.

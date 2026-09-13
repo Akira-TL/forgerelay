@@ -39,6 +39,17 @@ Capability Guides are ForgeRelay-owned, versioned package documentation. Their
 paths are surfaced by the running server rather than guessed by the Agent. This
 keeps progressive disclosure from becoming a general arbitrary-file read escape.
 
+Allowed roots are filesystem/Workspace authority, not a Project Trust approval.
+They determine which projects ForgeRelay may open; they do not by themselves mean
+that executable project configuration has passed a separate trust prompt.
+
+v1.2.0 routes executable Project Hooks, stdio External MCP entries, Project
+Language Servers, and Project Subagent Profiles through one Project execution
+trust seam. The initial policy is deliberately **compatibility-allow**: v1.2.0
+does not ship a full interactive Project Trust approval UI. Later v1.2.x work can
+strengthen approval/enforcement at this seam without giving each execution
+subsystem a different trust model.
+
 ## Owner-password OAuth
 
 New installations store local configuration in:
@@ -149,9 +160,9 @@ policy because they are lifecycle gates rather than user-command execution.
 
 ## External MCP configuration and credentials
 
-External MCP extends the same local-authority model rather than creating a sandbox. Machine-wide servers live in the ForgeRelay config directory's `mcp.json`; Project servers may live in `<workspace>/.forgerelay/mcp.json`. A Project stdio entry can launch a configured executable with the same operating-system user authority as ForgeRelay, so Project MCP configuration is executable project configuration. ForgeRelay does not add a second per-server approval prompt after the operator has allowed and opened that project root.
+External MCP extends the same local-authority model rather than creating a sandbox. Machine-wide servers live in the ForgeRelay config directory's `mcp.json`; Project servers may live in `<workspace>/.forgerelay/mcp.json`, while Project Local servers stay under ForgeRelay-private `projects/<project-id>/mcp.json`. A Project stdio entry can launch a configured executable with the same operating-system user authority as ForgeRelay, so Project MCP configuration is executable project configuration. In v1.2.0 it passes through the shared Project trust seam under compatibility-allow; ForgeRelay does not add a second per-server prompt, and this must not be confused with a full Project Trust approval UX.
 
-Static HTTP headers and stdio environment values are user-managed configuration. Do not commit secrets in Project `mcp.json`; v1.1.1 does not automatically extract project-defined secrets into a secret manager.
+Static HTTP headers and stdio environment values are user-managed configuration. Do not commit secrets in Project `mcp.json`. Config v2 supports definition-controlled `${ENV_NAME}` references for supported sensitive fields, but it does not turn project-defined secrets into a general secret manager.
 
 Interactive External MCP OAuth credentials are different. They are kept in the machine-private ForgeRelay config directory:
 
@@ -169,7 +180,7 @@ External MCP result references are not implicitly dereferenced. Paths, URLs and 
 
 Hook command 是本地代码执行，使用与 ForgeRelay 相同的操作系统用户权限并继承进程环境。
 
-Hooks v1 有两个自动作用域：当前 ForgeRelay 配置目录中的 `hooks/<hook-name>.json` 全局规则，以及 workspace 根目录的 `.forgerelay/hooks/<hook-name>.json` 项目规则。项目规则不需要额外批准；打开允许根目录中的项目时，ForgeRelay 会把这些 Hook 当作该开发环境的执行约定直接使用，`WorkspaceOpen` 也可以立即触发命令。因此 allowed roots 不只是文件访问边界，也界定了你愿意让 ForgeRelay 操作的本地项目环境。
+Hooks v1.2 有三个 canonical scope：当前 ForgeRelay 配置目录中的 `hooks/<hook-name>.json` User 规则、Project 根目录的 `.forgerelay/hooks/<hook-name>.json`，以及 ForgeRelay-private `projects/<project-id>/hooks/<hook-name>.json` Project Local 规则。Project Hook 属于可执行项目配置；v1.2.0 通过统一 Project trust seam 后采用 compatibility-allow。Allowed roots 仍只是文件系统/Workspace authority，不能描述成 Project Trust approval。
 
 每个独立 Hook 文件只声明一个 event、可选 matcher 和一个 command，以及 timeout/report。文件名只决定 Hook 名和排序，不能扩大 allowed roots、修改 OAuth 配置或删除全局规则。全局与项目规则采用组合关系。若某个项目 Hook 文件损坏，ForgeRelay 返回可见 diagnostic、跳过该无效文件并继续加载其他有效 Hook，同时保持工具可用，便于 Agent 修复。旧聚合格式仍兼容。
 

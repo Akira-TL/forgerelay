@@ -19,7 +19,7 @@ ForgeRelay 会把不同 Language Server 的原始响应整理成稳定的 locati
 
 Language Server 仍然是独立进程。
 
-`forgerelay init` 可以把 TypeScript / JavaScript (`typescript-language-server` + TypeScript) 和 Pyright 安装到 ForgeRelay 私有配置目录，不会写进全局 npm。
+`forgerelay init --advanced` 可以把 TypeScript / JavaScript (`typescript-language-server` + TypeScript) 和 Pyright 安装到 ForgeRelay 私有配置目录，不会写进全局 npm。基础 `forgerelay init` 不会默认安装 Language Server。
 
 `rust-analyzer`、`gopls` 和 `clangd` 继续由系统或对应 toolchain 提供，ForgeRelay 只负责发现。
 
@@ -40,13 +40,23 @@ Code Intelligence 适合找真实定义、类型、语义引用、symbols 和 La
 
 ## 配置优先级
 
-Language Server definition 按以下顺序解析：
+v1.2 canonical Language Server 配置使用独立 `language-servers.json`，按统一 Config v2 precedence 解析：
 
-1. 项目 `.forgerelay/language-servers.json`；
-2. `~/.forgerelay/config.json` 中的 `languageServers`；
-3. ForgeRelay built-in discovery。
+```text
+Project Local > Project > User > built-in
+```
 
-项目配置覆盖全局配置，两者都覆盖 built-in defaults。显式关闭某个 definition：
+对应路径：
+
+```text
+~/.forgerelay/projects/<project-id>/language-servers.json
+<project>/.forgerelay/language-servers.json
+~/.forgerelay/language-servers.json
+```
+
+旧的 `config.json.languageServers` 在 v1.2.x 仍可读取并带 deprecation diagnostic，但不再是新配置入口；计划在 v1.4.0 移除 legacy parser/path。Project Local 是机器私有配置，不写进 checkout。
+
+更高 scope 的同名 definition 覆盖更低 scope；显式关闭某个 definition：
 
 ```json
 {

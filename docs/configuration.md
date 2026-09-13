@@ -1,7 +1,54 @@
 # Configuration Reference
 
 ForgeRelay can be configured through `forgerelay init`, persisted config files,
-or environment variables.
+or environment variables. ForgeRelay v1.2 uses one Config System v2 model for General Config, External MCP, Language Servers, Lifecycle Hooks, and Subagent Profiles.
+
+## Config System v2
+
+Canonical precedence is:
+
+```text
+runtime > project-local > project > user > built-in
+```
+
+Runtime CLI overrides environment values. A field participates only in scopes allowed by its Config Definition. Project Local is machine-private ForgeRelay state keyed by canonical Project identity; it is separate from Workspace identity and is not written into the checkout.
+
+Canonical v1.2 sources are:
+
+| Domain | User | Project | Project Local |
+| --- | --- | --- | --- |
+| General | `~/.forgerelay/config.json` | `<project>/.forgerelay/config.json` | `~/.forgerelay/projects/<project-id>/config.json` |
+| External MCP | `~/.forgerelay/mcp.json` | `<project>/.forgerelay/mcp.json` | `~/.forgerelay/projects/<project-id>/mcp.json` |
+| Language Servers | `~/.forgerelay/language-servers.json` | `<project>/.forgerelay/language-servers.json` | `~/.forgerelay/projects/<project-id>/language-servers.json` |
+| Lifecycle Hooks | `~/.forgerelay/hooks/*.json` | `<project>/.forgerelay/hooks/*.json` | `~/.forgerelay/projects/<project-id>/hooks/*.json` |
+| Subagent Profiles | `~/.forgerelay/subagents/*.md` | `<project>/.forgerelay/subagents/*.md` | `~/.forgerelay/projects/<project-id>/subagents/*.md` |
+
+The active config directory replaces `~/.forgerelay` when `FORGERELAY_CONFIG_DIR` is set. Credentials such as `auth.json` and `mcp-auth.json` are separate from ordinary Config Resolver precedence.
+
+Use the packaged v1 schemas under `schemas/v1/` for canonical JSON files. Supported sensitive fields may reference environment variables with `${ENV_NAME}`; interpolation is definition-controlled, not arbitrary string templating. Secret-safe diagnostics retain configured references where useful but redact resolved sensitive values.
+
+Canonical MCP, Language Server, Hook, and Subagent sources refresh on demand from content fingerprints rather than mtime. A previously valid source that becomes invalid keeps its in-process last-known-good value until repaired; deleting the source clears that contribution. Restart-required General settings expose configured-versus-applied state and never auto-restart ForgeRelay.
+
+Startup never rewrites legacy configuration. Inspect configuration with:
+
+```bash
+forgerelay config check
+forgerelay config sources
+forgerelay config explain <logical-path>
+```
+
+Use `--global`, `--project <path>`, and `--json` as needed. Explicit migration is separate:
+
+```bash
+forgerelay config migrate --dry-run --global
+forgerelay config migrate --dry-run --project /path/to/project
+forgerelay config migrate --global
+forgerelay config migrate --project /path/to/project
+```
+
+Migration is limited to ForgeRelay-owned legacy formats, creates backups, uses atomic writes, and preserves canonical shadowing/effective behavior. It does not import private Claude, Codex, Cursor, or other product configuration, and it does not move ForgeRelay-owned Skills into `.agents/skills`.
+
+Legacy ForgeRelay-owned parsers/paths remain readable with deprecation diagnostics through v1.2.x, receive stronger removal warnings in v1.3.x, and are removed in v1.4.0.
 
 ## Config directory
 
@@ -34,6 +81,10 @@ FORGERELAY_CONFIG_DIR=/path/to/config npx @akira-tl/forgerelay serve
 npx @akira-tl/forgerelay init
 npx @akira-tl/forgerelay serve
 npx @akira-tl/forgerelay doctor
+npx @akira-tl/forgerelay config check
+npx @akira-tl/forgerelay config sources
+npx @akira-tl/forgerelay config explain <logical-path>
+npx @akira-tl/forgerelay config migrate --dry-run --global
 npx @akira-tl/forgerelay config get
 npx @akira-tl/forgerelay config set publicBaseUrl https://forge.example.com/forgerelay/main,https://forge-alt.example.com/relay
 npx @akira-tl/forgerelay mcp list
@@ -184,13 +235,19 @@ New configuration uses a dedicated `mcp.json` file. The machine-wide registry is
 ~/.forgerelay/mcp.json
 ```
 
-or the equivalent path below `FORGERELAY_CONFIG_DIR`. A Workspace may add or override servers in:
+or the equivalent path below `FORGERELAY_CONFIG_DIR`. A Project may add or override servers in:
 
 ```text
-<workspace>/.forgerelay/mcp.json
+<project>/.forgerelay/mcp.json
 ```
 
-Both files use this shape:
+Machine-private Project Local overrides live in:
+
+```text
+~/.forgerelay/projects/<project-id>/mcp.json
+```
+
+All canonical MCP files use this shape:
 
 ```json
 {
@@ -213,8 +270,10 @@ Server names are stable lowercase identifiers matching `^[a-z][a-z0-9._-]{0,63}$
 Effective configuration is merged by server name in this order:
 
 ```text
-Project mcp.json > global mcp.json > legacy config.json.mcpServers
+Project Local > Project > User > legacy config.json.mcpServers
 ```
+
+Project Local lives under the ForgeRelay-private `projects/<project-id>/mcp.json` path and is never written into the checkout.
 
 A Project entry may explicitly hide an inherited server:
 
@@ -228,15 +287,15 @@ A Project entry may explicitly hide an inherited server:
 }
 ```
 
-`disabled` defaults to `false` and normally does not need to be written. Removing the Project entry exposes the lower-precedence global/legacy server again. A complete server entry may also contain `"disabled": true`; ForgeRelay validates the entry but does not activate it.
+`disabled` defaults to `false` and normally does not need to be written. Removing a higher-scope entry exposes the lower-precedence Project/User/legacy server again. A complete server entry may also contain `"disabled": true`; ForgeRelay validates the entry but does not activate it.
 
-The historical `config.json -> mcpServers` object remains a deprecated read-compatible source. New configuration and documentation use `mcp.json`; the legacy source is retained for at least the next two feature-release compatibility windows and should not be used for new setups.
+The historical `config.json -> mcpServers` object remains a deprecated read-compatible source. New configuration and documentation use `mcp.json`. It remains readable with deprecation diagnostics in v1.2.x, receives stronger removal warnings in v1.3.x, and its legacy parser/path is removed in v1.4.0.
 
-ForgeRelay reloads global and Project `mcp.json` on demand before External MCP operations. A valid changed file becomes visible to the next `servers`, `tools`, or `call` operation without restarting ForgeRelay. Each operation uses one immutable snapshot, so an in-flight call is not switched underneath itself. If a previously valid source becomes invalid, that running ForgeRelay process keeps the whole previous valid source as last-known-good and reports a bounded diagnostic; no partially parsed subset is activated. A fresh CLI process cannot reconstruct another process's in-memory last-known-good snapshot, so it reports the invalid source while noting that an existing runtime may still be using its prior valid snapshot.
+ForgeRelay reloads canonical User, Project, and Project Local `mcp.json` sources on demand before External MCP operations. A valid changed file becomes visible to the next `servers`, `tools`, or `call` operation without restarting ForgeRelay. Each operation uses one immutable snapshot, so an in-flight call is not switched underneath itself. If a previously valid source becomes invalid, that running ForgeRelay process keeps the whole previous valid source as last-known-good and reports a bounded diagnostic; no partially parsed subset is activated. A fresh CLI process cannot reconstruct another process's in-memory last-known-good snapshot, so it reports the invalid source while noting that an existing runtime may still be using its prior valid snapshot.
 
 ### External MCP transports and authentication
 
-A stdio server supports `command`, optional `args`, `env`, and `cwd`. It is launched directly, not through a shell. Its process still runs with the operating-system authority of the user running ForgeRelay. A Project `.forgerelay/mcp.json` can therefore introduce executable project configuration; opening an allowed project is the trust boundary, and ForgeRelay does not add a second per-server approval prompt.
+A stdio server supports `command`, optional `args`, `env`, and `cwd`. It is launched directly, not through a shell. Its process still runs with the operating-system authority of the user running ForgeRelay. A Project `.forgerelay/mcp.json` can therefore introduce executable project configuration. Allowed roots grant filesystem/Workspace authority, not Project Trust approval. v1.2.0 routes this execution through the shared Project trust seam under compatibility-allow; there is no second per-server prompt and no claim of a complete interactive Project Trust UX.
 
 A Streamable HTTP server supports `url` and optional static `headers`:
 
@@ -260,7 +319,7 @@ ForgeRelay does not require every HTTP MCP server to use OAuth. The effective mo
 - static credentials: user-managed `headers` for HTTP or `env` for stdio;
 - interactive OAuth: explicitly initiated by a human through the CLI.
 
-Do not commit static secrets in Project `mcp.json`. ForgeRelay does not move project-defined header/env secrets into a separate secret manager in v1.1.1.
+Do not commit static secrets in Project `mcp.json`. Config v2 supports definition-controlled `${ENV_NAME}` references in supported sensitive fields, but ForgeRelay does not turn arbitrary project-defined header/env values into a separate secret manager.
 
 Interactive OAuth state is stored only in the machine-private:
 
@@ -319,7 +378,7 @@ forgerelay mcp test <server>
 forgerelay doctor
 ```
 
-`mcp list` is passive: it reports the resolved Project/global/legacy sources, disabled entries, authentication state, credential-store health, and invalid/last-known-good configuration diagnostics. With no explicit scope it uses the active Workspace root when supplied by ForgeRelay, otherwise walks upward from the current directory for the nearest `.forgerelay/mcp.json`; `--project` selects a Project explicitly and `--global` excludes Project configuration.
+`mcp list` is passive: it reports the resolved Project Local/Project/User/legacy sources, disabled entries, authentication state, credential-store health, and invalid/last-known-good configuration diagnostics. With no explicit scope it uses the active Workspace root when supplied by ForgeRelay, otherwise walks upward from the current directory for the nearest `.forgerelay/mcp.json`; `--project` selects a Project explicitly and `--global` excludes Project and Project Local configuration.
 
 `mcp test` is the active probe. It connects to the selected server and performs tool discovery, reporting source, transport, auth state, negotiated MCP era/version, tool count, and actionable failures such as authentication required, unreachable transport, or tool discovery failure.
 
@@ -458,12 +517,14 @@ while semantic work is active. Debug `runtime_resources` telemetry includes only
 aggregate Language-service/process/request/document/diagnostic/stderr counts; it
 does not log source contents or source paths.
 
-Effective Language-server definitions resolve in this order:
+Effective Language-server definitions resolve through Config v2 in this order:
 
-1. project configuration in `.forgerelay/language-servers.json`;
-2. global definitions from the `languageServers` object in
-   `~/.forgerelay/config.json`;
-3. built-in discovery for known executables.
+1. Project Local `projects/<project-id>/language-servers.json`;
+2. Project `.forgerelay/language-servers.json`;
+3. User `language-servers.json` in the active ForgeRelay config directory;
+4. built-in discovery for known executables.
+
+Legacy `config.json.languageServers` remains read-compatible with deprecation diagnostics in v1.2.x and is removed in v1.4.0.
 
 A project configuration file is an object keyed by definition name. Definitions
 use structured process launch and never go through a shell:
@@ -487,25 +548,11 @@ use structured process launch and never go through a shell:
 }
 ```
 
-Global configuration uses the same definition shape under `languageServers`. ForgeRelay can also keep optional npm-managed Language Servers under its private config directory. Agent-triggered installation is disabled by default and must be explicitly enabled:
+User configuration uses the same definition shape in the active config directory's `language-servers.json`. ForgeRelay can also keep optional npm-managed Language Servers under its private config directory. Agent-triggered installation is disabled by default and must be explicitly enabled through General Config, for example `"allowAgentLanguageServerInstall": false` in `config.json`.
 
-```json
-{
-  "languageServers": {
-    "typescript": {
-      "command": "/absolute/path/to/typescript-language-server",
-      "args": ["--stdio"]
-    }
-  },
-  "allowAgentLanguageServerInstall": false
-}
-```
+`forgerelay init --advanced` can manage TypeScript/JavaScript and Pyright installations without touching global npm. Basic `forgerelay init` does not install Language Servers. When `allowAgentLanguageServerInstall` is `true`, an Agent may use `code.intelligence` operations `managed.status` and `managed.install`; successful installs become discoverable by the same running ForgeRelay process on the next semantic request, with no restart required. Rust Analyzer, `gopls`, and `clangd` remain external toolchain/system installations.
 
-`forgerelay init` can manage TypeScript/JavaScript and Pyright installations without touching global npm. When `allowAgentLanguageServerInstall` is `true`, an Agent may use `code.intelligence` operations `managed.status` and `managed.install`; successful installs become discoverable by the same running ForgeRelay process on the next semantic request, with no restart required. Rust Analyzer, `gopls`, and `clangd` remain external toolchain/system installations.
-
-Explicit configuration can set `"enabled": false` to suppress the matching
-built-in definition. Project values override global values, and both override
-built-in defaults. ForgeRelay resolves a Language project by walking ancestors of
+Explicit legacy configuration can still normalize historical `"enabled": false`; canonical keyed definitions use the current Config v2 shape and scope semantics. Project Local overrides Project, Project overrides User, and all canonical explicit definitions override built-in defaults. ForgeRelay resolves a Language project by walking ancestors of
 the requested source file according to that definition's `projectMarkers`; it does
 not recursively scan the Workspace.
 
@@ -703,7 +750,7 @@ change the Activity snapshot/query contract.
 
 ## Lifecycle hooks
 
-Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；命中后 ForgeRelay 直接执行，不再增加批准步骤。
+Hooks v1.2 是自动生命周期规则。规则由用户或 Agent 主动写入；Project Hook 属于 executable project configuration，并在 v1.2.0 通过统一 Project execution trust seam 后按 compatibility-allow 执行。当前版本没有完整交互式 Project Trust approval UI。
 
 首选格式是 **一个 Hook 一个 JSON 文件**。全局 Hook 放在当前 ForgeRelay 配置目录的 `hooks/` 下，新安装通常是：
 
@@ -711,15 +758,21 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 ~/.forgerelay/hooks/<hook-name>.json
 ```
 
-项目 Hook 放在工作区根目录：
+Project Hook 放在项目根目录：
 
 ```text
-<workspace>/.forgerelay/hooks/<hook-name>.json
+<project>/.forgerelay/hooks/<hook-name>.json
+```
+
+Project Local Hook 位于机器私有：
+
+```text
+~/.forgerelay/projects/<project-id>/hooks/<hook-name>.json
 ```
 
 文件名去掉 `.json` 后就是 Hook 名，也是日志和 Agent-visible report 中显示的名称。例如 `release-tag-gate.json` 会显示为 `release-tag-gate`。目录内按文件名字典序执行；需要显式排序时可以使用 `10-release-verify.json`、`20-package-inspection.json` 这样的前缀。ForgeRelay 只读取普通 `*.json` 文件，所以临时停用某条 Hook 时可以把扩展名改掉。
 
-全局 Hook 在 server 启动时读取，修改后需要重启 ForgeRelay；项目目录在每次事件时重新读取，所以 Agent 修改项目 Hook 后不需要重启。全局规则先执行，项目规则随后执行，两边都只做追加，不互相覆盖。
+Canonical User / Project / Project Local Hook sources all refresh on demand in v1.2. Changes do not require a ForgeRelay restart. Resolution follows Config v2 scope precedence, while directory entries keep deterministic file ordering. A previously valid Hook file that becomes invalid keeps its per-file in-process last-known-good until repaired; deleting the file removes that contribution.
 
 每个独立 Hook 文件只描述一条规则：
 
@@ -750,7 +803,7 @@ Hooks v1 是自动生命周期规则。规则由用户或 Agent 主动写入；�
 
 独立文件不写 `name`：文件名就是唯一的 Hook 名。一个逻辑 Hook 如果需要多个独立步骤，拆成多个文件；这样可以单独启停、重命名、排序和审查每一步。
 
-为兼容已有配置，ForgeRelay 仍接受旧的 `config.json -> hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式。执行顺序是旧配置在前、`hooks/*.json` 独立文件在后。新配置应优先使用独立文件。
+为兼容已有配置，ForgeRelay 在 v1.2.x 仍接受旧的 `config.json -> hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式，并通过同一个 Config Resolver 规范化后产生 deprecation diagnostics；canonical `hooks/*.json` 在同 scope 下优先于对应 legacy source。v1.3.x 会加强 removal warning，legacy parser/path 在 v1.4.0 移除。新配置应只使用独立文件。
 
 若某个项目 Hook 文件 JSON 或 schema 无效，ForgeRelay 会返回 `Project hooks config` diagnostic，同时继续加载其他有效项目 Hook，并保持 workspace/tool 可用，让 Agent 可以直接修复出错文件。
 
@@ -872,10 +925,13 @@ The ownership boundaries are different even though all of these are readable Ski
 
 When the same Skill name appears in more than one source, the first source wins. Project Skills therefore override same-named global `~/.agents/skills` entries, matching ForgeRelay's project-over-global configuration model.
 
-When subagents are enabled, profiles are discovered from:
+When subagents are enabled, canonical v1.2 profiles are discovered from:
 
-- the active ForgeRelay config directory's `agents/*.md`;
-- project `.forgerelay/agents/*.md`.
+- the active ForgeRelay config directory's `subagents/*.md`;
+- project `.forgerelay/subagents/*.md`;
+- machine-private Project Local `projects/<project-id>/subagents/*.md`.
+
+Legacy `agents/*.md` remains read-compatible in v1.2.x with deprecation diagnostics and is scheduled for removal in v1.4.0. ForgeRelay does not import provider-private profile/config directories.
 
 
 ForgeRelay does not install or bundle coding-agent executors. Subagent providers

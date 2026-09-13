@@ -1,183 +1,245 @@
 # 配置指南
 
-这里列日常最常用的 ForgeRelay 配置。完整字段和低频选项见主仓库 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
+ForgeRelay v1.2 使用统一的 Config System v2。日常使用不需要理解内部实现，但有几条规则很重要：配置按明确 scope 合并，Project Local 与项目仓库分离，可热加载的配置使用 last-known-good 保护，启动不会偷偷改写旧配置。
 
-## 配置来源
+主仓库的完整字段参考见 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
 
-运行行为可以同时来自 `forgerelay init` 写入的持久配置、环境变量和项目级 `.forgerelay/` 文件。
+## 先记住这几个命令
 
-新安装默认目录：
+```bash
+forgerelay doctor
+forgerelay config check
+forgerelay config sources
+forgerelay config explain <logical-path>
+```
+
+指定作用域或机器可读输出：
+
+```bash
+forgerelay config check --global --json
+forgerelay config check --project /path/to/project
+forgerelay config sources --project /path/to/project --json
+forgerelay config explain mcp.servers.renderer --project /path/to/project --json
+```
+
+`config check` 只解析配置，不会为了检查而启动 Hook、Language Server 或 stdio MCP，也不会主动连接 HTTP MCP。`config sources` 用来回答“这个值从哪里来”，`config explain` 用来回答“为什么最后是这个值”。敏感配置的解析后 secret 不会输出；`${ENV_NAME}` 这类安全的 configured reference 可以保留用于排障。
+
+这些 CLI 是离线检查工具。它们不会假装知道另一个正在运行的 ForgeRelay 进程当前保留的内存 LKG 或已经 applied 的 restart-required 值。运行进程自己的 actionable config 状态会出现在 Activity Panel 的配置状态里。
+
+## Canonical 配置域
+
+默认 ForgeRelay config directory 是：
 
 ```text
-~/.forgerelay/config.json
+~/.forgerelay
+```
+
+可用 `FORGERELAY_CONFIG_DIR` 改到其他位置。
+
+v1.2 的 canonical 配置域如下：
+
+| Domain | User | Project | Project Local |
+| --- | --- | --- | --- |
+| General | `~/.forgerelay/config.json` | `<project>/.forgerelay/config.json` | `~/.forgerelay/projects/<project-id>/config.json` |
+| External MCP | `~/.forgerelay/mcp.json` | `<project>/.forgerelay/mcp.json` | `~/.forgerelay/projects/<project-id>/mcp.json` |
+| Language Servers | `~/.forgerelay/language-servers.json` | `<project>/.forgerelay/language-servers.json` | `~/.forgerelay/projects/<project-id>/language-servers.json` |
+| Lifecycle Hooks | `~/.forgerelay/hooks/*.json` | `<project>/.forgerelay/hooks/*.json` | `~/.forgerelay/projects/<project-id>/hooks/*.json` |
+| Subagent Profiles | `~/.forgerelay/subagents/*.md` | `<project>/.forgerelay/subagents/*.md` | `~/.forgerelay/projects/<project-id>/subagents/*.md` |
+
+上表中的 `~/.forgerelay` 表示当前 active config directory；如果设置了 `FORGERELAY_CONFIG_DIR`，User 和 Project Local 路径都会跟着变化。
+
+Project Local 是 ForgeRelay 机器私有状态，绑定 canonical Project identity，不写进项目 checkout，也不应该提交到 Git。Workspace identity 与 Project identity 是不同概念：同一 Project 的持久私有配置不依赖某一次 conversation 或某一个 Workspace backing。
+
+## Credentials 不属于普通 Config Resolver
+
+Credential 使用独立存储，例如：
+
+```text
 ~/.forgerelay/auth.json
-~/.forgerelay/mcp.json       # 可选 External MCP 配置
-~/.forgerelay/mcp-auth.json  # External MCP OAuth 状态存在时创建
+~/.forgerelay/mcp-auth.json
 ```
 
-项目还可以使用：
+它们不按普通 Config precedence 合并，也不应该写进 Project 配置。
+
+External MCP 的静态 `headers` / stdio `env` 如果直接写在配置里，仍然是普通配置内容；推荐用受支持字段里的 `${ENV_NAME}` 引用环境变量，而不是把真实 token 提交进项目。
+
+## Precedence
+
+统一 precedence 是：
 
 ```text
-<workspace>/.forgerelay/mcp.json
+runtime > project-local > project > user > built-in
 ```
 
-常用命令：
+其中 runtime CLI override 高于 runtime environment。只有某个字段允许的 scope 才参与解析；不是所有 General 字段都可以由 Project 覆盖。
+
+对于 keyed domain（External MCP、Hooks、Language Servers、Subagent Profiles），同名 entry 由更高 scope 决定。支持 tombstone 的 canonical entry 使用：
+
+```json
+{
+  "disabled": true
+}
+```
+
+来屏蔽下层同名定义。删除高层 tombstone 后，下层定义可以重新显现。
+
+用 `config explain` 查看实际 winner、shadow chain、reload policy 和 execution effect，而不是靠猜。
+
+## `$schema`
+
+v1.2 npm package 自带 versioned JSON Schemas：
+
+```text
+schemas/v1/config.user.schema.json
+schemas/v1/config.project.schema.json
+schemas/v1/config.project-local.schema.json
+schemas/v1/mcp.*.schema.json
+schemas/v1/language-servers.*.schema.json
+schemas/v1/hooks.*.schema.json
+```
+
+Canonical JSON 可以带 `$schema`，便于编辑器补全和校验。`$schema` 是 editor metadata，不改变 Config precedence。一个过期或不符合当前 scope 的 `$schema` 会产生 warning，不会因为 URL 本身不同就直接阻止运行；真正的配置结构错误仍会报 error。
+
+Subagent Profile 是 Markdown + YAML frontmatter，因此没有单独生成 JSON Schema 文件。
+
+## 环境变量引用与 secrets
+
+受支持的敏感字段可以写：
+
+```json
+{
+  "headers": {
+    "Authorization": "Bearer ${MCP_TOKEN}"
+  }
+}
+```
+
+插值只发生在 Config Definition 明确允许的字段，不是任意字符串模板系统。缺失环境变量会产生 diagnostic。
+
+`config explain` 对敏感 effective value 做 redaction；它可以显示 `${MCP_TOKEN}` 这样的配置引用，但不会打印解析后的 token。不要依靠普通日志作为 secret manager。
+
+## Hot reload、LKG 与 deletion
+
+Canonical External MCP、Language Server、Hook 和 Subagent Profile sources 使用 demand-driven content refresh。ForgeRelay 比较内容 fingerprint，而不是依赖 mtime 作为正确性来源。
+
+当一个已经成功加载的 source 被临时写坏：
+
+1. 当前操作看到 diagnostic；
+2. 运行中的 ForgeRelay 保留这个 source 上一次完整合法的 last-known-good；
+3. 不会把“部分合法字段”与坏版本混合起来；
+4. 修复文件后，后续安全操作边界自动切换到新版本；
+5. 删除 source 会清除该 source 的 LKG contribution，而不是永久保留幽灵配置。
+
+目录型 domain（Hooks、Subagent Profiles）按文件独立维护 LKG，所以一个坏文件不会让所有 sibling 文件一起失效。
+
+长生命周期资源（例如 Language Service）在 effective config fingerprint 改变时使用 generation retirement：新工作进入新 generation，已有工作先完成，不会在一次语义操作中途被替换。
+
+## Restart-required General 配置
+
+某些 General 字段（例如 bind host/port）需要 restart 才能真正 applied。ForgeRelay 不会因为文件变化自动重启自己。
+
+运行进程可以同时知道：
+
+- configured value：配置现在写的是什么；
+- applied value：当前进程实际用的是什么。
+
+离线 `config check` 无法知道另一个进程已经 applied 的值，所以会明确标记 live state unknown，而不是伪造答案。
+
+## 初始化
+
+基础初始化：
 
 ```bash
 forgerelay init
-forgerelay serve
-forgerelay doctor
-forgerelay config get
-forgerelay config set publicBaseUrl https://forge.example.com
-forgerelay mcp list
-forgerelay mcp test <server>
-forgerelay mcp auth <server>
-forgerelay mcp logout <server>
 ```
 
-不确定最终生效值时，直接跑：
+只询问首次使用真正需要的内容：
+
+- allowed project roots；
+- client 如何连接这个 ForgeRelay（local / SSH relay / LAN / HTTPS proxy，并按选择补必要连接信息）。
+
+它会创建 `config.json` / `auth.json`，并在 setup handoff 时显示 MCP URL、bind/connection 信息、Owner password 和 credential 文件位置。
+
+常用高级项使用：
 
 ```bash
-forgerelay doctor
+forgerelay init --advanced
 ```
 
-## 常用环境变量
+高级初始化只处理一小组常用设置：
 
-| Variable | 用途 |
+- port；
+- Command Shell Runtime；
+- ForgeRelay Runtime Shell Instructions（默认不启用，用户显式 opt-in）；
+- ForgeRelay-managed Language Servers；
+- 是否允许 Agent 按需安装 managed Language Server。
+
+`forgerelay init --force` 只更新 setup-owned 字段。它不会把所有默认值快照进配置，不会删除无关高级配置，也**不会执行 legacy migration**。
+
+## 显式迁移
+
+ForgeRelay 启动时不会自动重写旧配置。v1.2 支持旧 ForgeRelay-owned 格式作为 compatibility adapter，并给出 deprecation diagnostics。
+
+先 dry-run：
+
+```bash
+forgerelay config migrate --dry-run --global
+forgerelay config migrate --dry-run --project /path/to/project
+```
+
+确认后再迁移：
+
+```bash
+forgerelay config migrate --global
+forgerelay config migrate --project /path/to/project
+```
+
+Migration 会：
+
+- 只处理 ForgeRelay 自己拥有的旧格式；
+- 在修改前创建 backup；
+- 使用原子写入/替换；
+- 把 legacy source 规范化到 canonical domain；
+- 保留迁移前后的 effective behavior，包括已有 canonical shadowing；
+- 不移动 ForgeRelay-owned `~/.forgerelay/skills` 到 `.agents/skills`。
+
+Migration **不会**读取或导入 Claude、Codex、Cursor 等其他产品的私有配置目录。`.agents/skills` 是开放 Agent Skills 生态来源，不是 ForgeRelay 私有配置的迁移目标。
+
+Legacy 计划：
+
+```text
+v1.2.x  继续读取，带 deprecation warning
+v1.3.x  继续兼容，但给出更强 removal warning
+v1.4.0  移除这些 legacy parser/path
+```
+
+因此升级到 v1.2 不要求立即 migrate，但建议在 v1.4 前显式迁移并清理 warning。
+
+## Legacy compatibility 对照
+
+| Legacy source | Canonical v1.2 source |
 | --- | --- |
-| `HOST` | 本地 bind host，默认 `127.0.0.1` |
-| `PORT` | 本地端口，默认 `7676` |
-| `FORGERELAY_ALLOWED_ROOTS` | 允许打开 Workspace 的 project roots |
-| `FORGERELAY_PUBLIC_BASE_URL` | 一个或多个公网基础 URL |
-| `FORGERELAY_ALLOWED_HOSTS` | 可选 Host-header allowlist override |
-| `FORGERELAY_OAUTH_OWNER_TOKEN` | Owner password，至少 16 字符 |
-| `FORGERELAY_STATE_DIR` | ForgeRelay SQLite state 目录 |
-| `FORGERELAY_WORKTREE_ROOT` | Managed Worktree 根目录 |
-| `FORGERELAY_TOOL_MODE` | MCP tool surface mode |
-| `FORGERELAY_WIDGETS` | MCP Apps UI mode |
+| `config.json -> mcpServers` | `mcp.json` |
+| `config.json -> languageServers` | `language-servers.json` |
+| `config.json -> hooks` | `hooks/*.json` |
+| `~/.forgerelay/hooks.json` / `<project>/.forgerelay/hooks.json` | `hooks/*.json` |
+| `~/.forgerelay/agents/*.md` / `<project>/.forgerelay/agents/*.md` | `subagents/*.md` |
 
-## Public Base URL
-
-`publicBaseUrl` 写到 MCP endpoint 之前。
-
-```text
-https://forge.example.com/forgerelay/main
-```
-
-Host 实际连接：
-
-```text
-https://forge.example.com/forgerelay/main/mcp
-```
-
-不要把最后的 `/mcp` 写进 `publicBaseUrl`。
-
-可以配置多个入口：
-
-```json
-{
-  "publicBaseUrl": [
-    "https://forge.example.com/forgerelay/main",
-    "https://forge-alt.example.com/relay"
-  ]
-}
-```
-
-第一个 URL 是 canonical，用于生成 OAuth / MCP metadata 和链接。每个显式配置 URL 的 pathname 都会成为可接受的入站 route boundary。
-
-例如只有 `https://forge.example.com/forgerelay/main` 时，MCP、OAuth 操作、health 和 MCP App assets 都位于 `/forgerelay/main/*` 下，不会同时暴露裸 `/mcp`、`/authorize`、`/token`、`/healthz`。标准 discovery metadata 仍按规范使用对应的 `/.well-known/...` 路径。
-
-所有配置 hostname 都参与 derived Host-header allowlist。
-
-环境变量中用逗号分隔多个入口：
-
-```bash
-FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com/main,https://forge-alt.example.com/relay"
-```
-
-## Tool mode
-
-默认 `minimal` 和兼容值 `full` 都使用同一套 canonical 9-tool surface：
-
-```text
-open_workspace
-capability
-close_workspace
-read
-write
-edit
-rename
-delete
-bash
-```
-
-目录和文本搜索直接通过 `bash` 使用系统 `rg`、`find`、`ls` 等工具。
-
-`codex` 是实验性的 Codex-shaped compatibility adapter，不代表 ForgeRelay 的长期 canonical interface。
-
-## Widget mode
-
-```text
-FORGERELAY_WIDGETS=full
-FORGERELAY_WIDGETS=changes
-FORGERELAY_WIDGETS=off
-```
-
-`full` 使用常规 ForgeRelay Panel；`changes` 在同一 Panel 上启用 change-review checkpoint 行为；`off` 关闭 Widget UI metadata。
-
-Activity Panel 默认在第一次 Activity 出现后折叠。需要新 Host Turn 默认展开：
-
-```bash
-FORGERELAY_ACTIVITY_PANEL_EXPANDED=1
-```
-
-持久配置：
-
-```json
-{
-  "activityPanelExpanded": true
-}
-```
-
-## Workspace Task reminder
-
-默认每 30 次成功的语义 Workspace 操作检查一次：如果 active Task List 仍有 unfinished Task，而 Agent 长时间没有更新 Task，就附加 reminder。
-
-```bash
-FORGERELAY_TASK_REMINDER_INTERVAL=30
-```
-
-设为 `0` 关闭。Task 本身是持久数据，Server restart 只会重置 reminder counter。
-
-## LSP Code Intelligence
-
-Language Server definition 按以下优先级解析：
-
-```text
-<project>/.forgerelay/language-servers.json
-~/.forgerelay/config.json -> languageServers
-ForgeRelay-managed private npm executables
-inherited PATH built-in discovery
-```
-
-`forgerelay init` 可以把 TypeScript / JavaScript 和 Pyright Language Server 安装到 ForgeRelay 私有目录。Agent 按需安装默认关闭；只有 `allowAgentLanguageServerInstall: true` 时，`code.intelligence` 的 `managed.install` 才能下载并持久化安装。
-
-安装完成后，下一次 semantic request 即可使用，不需要重启 Server。
-
-详见 [代码智能](Code-Intelligence)。
+Legacy adapters 只负责把旧输入规范化进同一个 Config Resolver；它们不是另一套 precedence/reload 架构。
 
 ## External MCP
 
-External MCP 使用独立配置：
+Canonical：
 
 ```text
 ~/.forgerelay/mcp.json
-<workspace>/.forgerelay/mcp.json
+<project>/.forgerelay/mcp.json
+<project-local>/mcp.json
 ```
 
-同名 Server 的优先级是 `Project > global > legacy config.json.mcpServers`。Project 可用 `"disabled": true` 屏蔽继承的 Server；合法修改会热加载，不需要重启。已经成功加载过的 source 后来写坏时，运行中的 ForgeRelay 保留整份 last-known-good，而不是半加载新配置。
+Project / Project Local 可以覆盖 User 同名 Server，`disabled:true` 可以屏蔽低层 entry。配置 hot reload，并带 source-level LKG。
 
-日常检查和认证：
+日常命令：
 
 ```bash
 forgerelay mcp list
@@ -186,22 +248,49 @@ forgerelay mcp auth <server>
 forgerelay mcp logout <server>
 ```
 
-`list` 和 `doctor` 是被动检查；`test` 才会真正连接 MCP。OAuth credential 保存在机器私有的 `mcp-auth.json`，Project credential 不写进项目目录，也不会因为复制相同配置就跨 Project 自动共享。
+`mcp list` / `doctor` 是被动检查；`mcp test` 才会主动连接 upstream。OAuth credential 保存在机器私有 `mcp-auth.json`。
 
-完整配置、OAuth/headless、CIMD、Relay ownership 和安全边界见 [External MCP](External-MCP)。
+详见 [External MCP](External-MCP)。
+
+## Language Servers
+
+Canonical：
+
+```text
+~/.forgerelay/language-servers.json
+<project>/.forgerelay/language-servers.json
+<project-local>/language-servers.json
+```
+
+Project Local > Project > User > built-in discovery。Canonical disable 使用：
+
+```json
+{
+  "typescript": {
+    "disabled": true
+  }
+}
+```
+
+旧 `config.json.languageServers` 和其中历史 `enabled:false` 仍在 compatibility window 内规范化；新配置不要继续写旧形状。
+
+Language Server config hot reload。effective executable/config fingerprint 变化时，旧 Language Service generation 会退休，新请求使用新配置。
+
+详见 [代码智能](Code-Intelligence)。
 
 ## Lifecycle Hooks
 
-推荐文件位置：
+Canonical：
 
 ```text
 ~/.forgerelay/hooks/<hook-name>.json
-<workspace>/.forgerelay/hooks/<hook-name>.json
+<project>/.forgerelay/hooks/<hook-name>.json
+<project-local>/hooks/<hook-name>.json
 ```
 
-项目 Hook 每次事件重新读取；全局 Hook 修改后需要重启 Server。
+Canonical Hook 文件全部按需刷新；User Hook 不再要求为了普通配置修改而重启 Server。一个文件损坏时，该文件保留自己的 LKG，其他 Hook 文件继续正常解析。
 
-检查配置：
+检查：
 
 ```bash
 forgerelay hooks list
@@ -212,133 +301,87 @@ forgerelay hooks check --project /path/to/project
 
 详见 [生命周期 Hooks](Lifecycle-Hooks)。
 
-## System Instructions
+## Subagent Profiles
 
-ForgeRelay 默认加载一个全局 system-instructions 文件：
-
-```text
-~/.agents/AGENTS.md
-```
-
-更换路径：
-
-```bash
-FORGERELAY_SYSTEM_INSTRUCTIONS_PATH=/path/to/AGENTS.md
-```
-
-项目 root 的 `AGENTS.md` / `CLAUDE.md` 仍然单独加载，更深目录按访问路径懒发现。
-
-`FORGERELAY_AGENT_DIR` 不是 system-instructions 路径，它只保留 Agent Skill 兼容用途。
-
-## Agent Skills
-
-Skills 默认启用。关闭 discovery：
-
-```bash
-FORGERELAY_SKILLS=0
-```
-
-标准发现位置：
+Canonical：
 
 ```text
-<project>/.agents/skills
-~/.agents/skills
-<forgerelay-config>/skills
-FORGERELAY_AGENT_DIR/skills
-FORGERELAY_SKILL_PATHS
+~/.forgerelay/subagents/*.md
+<project>/.forgerelay/subagents/*.md
+<project-local>/subagents/*.md
 ```
 
-这些目录只是发现来源，不代表同一个所有权域。`.agents/skills` 属于开放 Agent Skills 生态，可以包含其他 Agent 工具安装或软链接进去的 Skill；ForgeRelay 自己管理的 Skill 保留在 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`），不会迁移或安装到 `~/.agents/skills`。
+旧 `agents/*.md` 是 v1.2 compatibility source，不是新 profile 的推荐路径。Profile 目录同样使用按文件 hot reload / LKG。
 
-发现到的 Skill 会向 Agent 暴露 `name + description`；Agent 需要时再通过 `skills://<name>` 加载正文。
-
-## Subagents
-
-启用：
+启用 Subagent Session：
 
 ```bash
 FORGERELAY_SUBAGENTS=1
 ```
 
-常见 profile 位置：
+`forgerelay agents ls` 主要查看 Session，不等于列出所有 profile definition。Host 的 compact profile catalog 使用 Config v2 profile resolver。
+
+## Instructions 与 Agent Skills ownership
+
+通用 `AGENTS.md` / Agent Skills 遵循 Agent 生态约定，不被伪装成 ForgeRelay Config domain。
+
+全局 Agent Instructions 默认：
 
 ```text
-~/.forgerelay/agents/*.md
-<project>/.forgerelay/agents/*.md
+~/.agents/AGENTS.md
 ```
 
-本地诊断：
+Skill discovery 常见来源：
 
-```bash
-forgerelay agents ls
-forgerelay agents run <profile-or-provider-or-id> "<prompt>"
-forgerelay agents show <id>
+```text
+<project>/.agents/skills
+~/.agents/skills
+~/.forgerelay/skills
+FORGERELAY_AGENT_DIR/skills
+FORGERELAY_SKILL_PATHS
 ```
 
-正常 MCP 委派应使用运行版本提供的 Subagent Capability Guide，而不是把 CLI 当成长期 Host interface。
+这些来源不是同一个 ownership domain：
 
-## Native Artifact Download
+- `.agents/skills` 是开放 Agent Skills 生态，可以包含其他工具安装或软链接的 Skill；
+- ForgeRelay 自己管理的 Skill 保留在 active config directory 的 `skills/`，默认 `~/.forgerelay/skills`；
+- ForgeRelay 不把自己的 Skill 安装或迁移到 `~/.agents/skills`。
 
-默认关闭。启用：
+ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime resource，和通用 Agent Skill 不同；v1.2 fresh init 默认关闭，只有显式 opt-in 才启用。
 
-```bash
-FORGERELAY_ARTIFACTS=1
-```
+## 常用环境变量
 
-启用后才会 advertise `artifact.download` Capability。单文件默认最大 100 MiB。
-
-它接受 Host 提供的受支持 native file transport，不接受随意替换成 URL、本地路径、base64 或 embedded credential。
-
-## Logging
-
-| Variable | 默认 |
+| Variable | 用途 |
 | --- | --- |
-| `FORGERELAY_LOG_LEVEL` | `info` |
-| `FORGERELAY_LOG_FORMAT` | `pretty` |
-| `FORGERELAY_LOG_REQUESTS` | `pretty: 0`, `json: 1` |
-| `FORGERELAY_LOG_ASSETS` | `0` |
-| `FORGERELAY_LOG_TOOL_CALLS` | `1` |
-| `FORGERELAY_LOG_SHELL_COMMANDS` | `pretty: 1`, `json: 0` |
+| `HOST` | bind host，默认 `127.0.0.1` |
+| `PORT` | bind port，默认 `7676` |
+| `FORGERELAY_ALLOWED_ROOTS` | 可打开的 Project roots |
+| `FORGERELAY_PUBLIC_BASE_URL` | 一个或多个 public base URL |
+| `FORGERELAY_ALLOWED_HOSTS` | Host-header allowlist override |
+| `FORGERELAY_OAUTH_OWNER_TOKEN` | Owner password |
+| `FORGERELAY_STATE_DIR` | durable SQLite state directory |
+| `FORGERELAY_WORKTREE_ROOT` | managed worktree directory |
+| `FORGERELAY_ACTIVITY_PANEL_EXPANDED` | Activity Panel 默认展开状态 |
+| `FORGERELAY_TASK_REMINDER_INTERVAL` | Workspace Task reminder interval |
+| `FORGERELAY_SUBAGENTS` | Subagent Session 开关 |
+| `FORGERELAY_ARTIFACTS` | native Artifact capability 开关 |
 
-`pretty` 适合本地查看，会显示截断后的 Shell command preview。命令参数可能带 secret 时关闭它：
+环境变量属于 runtime scope，通常高于持久文件。要解释某个具体值为什么生效，使用 `config explain`。
 
-```bash
-FORGERELAY_LOG_SHELL_COMMANDS=0
+## Public Base URL
+
+`publicBaseUrl` 写到最终 `/mcp` 之前。例如：
+
+```text
+https://forge.example.com/forgerelay/main
 ```
 
-`json` 更适合机器收集，默认保留 request log，并关闭 Shell command preview。
+Host 连接：
 
-## Proxy trust
-
-ForgeRelay bind 在 loopback、同时配置了非 loopback public URL 时，只 trust loopback proxy source，不按 hop 数信任任意来源。
-
-`forgerelay init` 的 HTTPS reverse proxy / tunnel 模式固定 bind `127.0.0.1`；Direct LAN 模式固定 bind `0.0.0.0`，默认不信任 proxy。
-
-关闭自动 loopback trust：
-
-```bash
-FORGERELAY_TRUST_PROXY=0
+```text
+https://forge.example.com/forgerelay/main/mcp
 ```
 
-旧的 `FORGERELAY_TRUST_PROXY=1` 只允许用于 loopback bind。
+可以配置多个 public base URL；第一个是 canonical URL，各自 pathname 都是独立 route boundary。
 
-LAN + reverse proxy 这类高级拓扑应明确写真实 proxy IP / CIDR：
-
-```bash
-FORGERELAY_TRUSTED_PROXIES="127.0.0.1,10.20.30.0/24" forgerelay serve
-```
-
-也可以在 `config.json` 中保存 `trustedProxies` 数组。全局 / wildcard trust 会被拒绝；不要在 LAN bind 上使用 `trust proxy=true`。
-
-## 纯环境变量示例
-
-```bash
-FORGERELAY_OAUTH_OWNER_TOKEN="$(openssl rand -base64 32)" \
-FORGERELAY_ALLOWED_ROOTS="$HOME/personal,$HOME/work" \
-FORGERELAY_PUBLIC_BASE_URL="https://forge.example.com" \
-FORGERELAY_WORKTREE_ROOT="$HOME/.forgerelay/worktrees" \
-FORGERELAY_ARTIFACTS="1" \
-FORGERELAY_TOOL_MODE="minimal" \
-FORGERELAY_WIDGETS="full" \
-npx @akira-tl/forgerelay serve
-```
+完整网络/OAuth 初始化见 [快速开始](Getting-Started)。

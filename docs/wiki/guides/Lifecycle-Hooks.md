@@ -15,17 +15,23 @@ Lifecycle Hook 是 ForgeRelay 自动执行的本地规则。适合把测试、�
 项目：
 
 ```text
-<workspace>/.forgerelay/hooks/<hook-name>.json
+<project>/.forgerelay/hooks/<hook-name>.json
 ```
 
-文件名去掉 `.json` 就是 Hook 名，也会出现在日志和 Agent-visible report 中。目录按文件名字典序执行，需要顺序时可以加数字前缀：
+Project Local（机器私有，不写进 checkout）：
+
+```text
+~/.forgerelay/projects/<project-id>/hooks/<hook-name>.json
+```
+
+同名 Hook 按 `Project Local > Project > User` 解析。文件名去掉 `.json` 就是 Hook 名，也会出现在日志和 Agent-visible report 中。目录按文件名字典序执行，需要顺序时可以加数字前缀：
 
 ```text
 .forgerelay/hooks/10-release-verify.json
 .forgerelay/hooks/20-package-inspection.json
 ```
 
-全局 Hook 在 Server 启动时读取，修改后需要重启。项目 Hook 在事件发生时重新读取，通常不用重启 ForgeRelay。
+v1.2 canonical Hook sources 都按需热刷新，不要求因为 User / Project / Project Local Hook 文件变化而重启 ForgeRelay。每次操作使用稳定 snapshot；已成功加载的单个 Hook 文件后来写坏时，运行进程保留该文件的 last-known-good，修复后自动切换，删除文件则清除对应 LKG contribution。
 
 ## 最小规则
 
@@ -167,6 +173,6 @@ Hook command 和 ForgeRelay 使用同一个本地 OS user 权限。
 
 `BeforeTool` 很适合做稳定 tag push 前的快速 release gate；`BeforeWorktreeClose` 可以在 fast-forward 集成前检查测试或生成文件；`AfterFileChange` 可以做轻量项目收尾；`SubagentStart` / `SubagentStop` 可以记录本地 worker 生命周期。
 
-旧的 inline `config.json -> hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式仍兼容，但新配置建议使用独立 `hooks/*.json` 文件。
+旧的 inline `config.json -> hooks`、全局 `hooks.json` 和项目 `.forgerelay/hooks.json` 聚合格式在 v1.2.x 仍兼容读取并产生 deprecation diagnostic；新配置使用独立 `hooks/*.json`。v1.3.x 会加强 removal warning，legacy parser/path 计划在 v1.4.0 移除。可先运行 `forgerelay config migrate --dry-run --global` 或 `--project <path>` 查看显式迁移计划。
 
 完整字段见 [Configuration Reference — Lifecycle hooks](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md#lifecycle-hooks)。
