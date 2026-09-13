@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -181,12 +181,13 @@ function createStatusContext(t: test.TestContext): {
   const projectRoot = join(root, "project");
   mkdirSync(configDir, { recursive: true });
   mkdirSync(join(projectRoot, ".forgerelay"), { recursive: true });
-  writeJson(join(configDir, "config.json"), { allowedRoots: [projectRoot] });
+  const canonicalProjectRoot = realpathSync(projectRoot);
+  writeJson(join(configDir, "config.json"), { allowedRoots: [canonicalProjectRoot] });
   writeJson(join(configDir, "auth.json"), { ownerToken: "status-test-owner-token-0123456789" });
   return {
     root,
     configDir,
-    projectRoot,
+    projectRoot: canonicalProjectRoot,
     env: {
       ...process.env,
       FORGERELAY_CONFIG_DIR: configDir,

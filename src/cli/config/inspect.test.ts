@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -138,20 +138,21 @@ test("project config check is read-only and does not create Project identity sta
   const configDir = join(root, "config");
   const project = join(root, "project");
   mkdirSync(join(project, ".forgerelay"), { recursive: true });
-  writeFileSync(join(project, ".forgerelay", "config.json"), JSON.stringify({ port: "not-a-port" }));
+  const canonicalProject = realpathSync(project);
+  writeFileSync(join(canonicalProject, ".forgerelay", "config.json"), JSON.stringify({ port: "not-a-port" }));
 
-  const result = runCli(configDir, ["config", "check", "--project", project, "--json"]);
+  const result = runCli(configDir, ["config", "check", "--project", canonicalProject, "--json"]);
   assert.equal(result.status, 1, result.stderr || result.stdout);
   const output = JSON.parse(result.stdout) as {
     scope: { mode: string; projectRoot?: string };
     diagnostics: Array<{ domain: string; source: { scope: string; location?: string } }>;
   };
   assert.equal(output.scope.mode, "project");
-  assert.equal(output.scope.projectRoot, project);
+  assert.equal(output.scope.projectRoot, canonicalProject);
   assert.ok(output.diagnostics.some((diagnostic) =>
     diagnostic.domain === "config" &&
     diagnostic.source.scope === "project" &&
-    diagnostic.source.location === join(project, ".forgerelay", "config.json")
+    diagnostic.source.location === join(canonicalProject, ".forgerelay", "config.json")
   ));
   assert.equal(existsSync(join(configDir, "projects")), false);
 });

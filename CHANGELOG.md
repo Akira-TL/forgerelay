@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.0-rc.3] - 2026-09-13
+
+### Fixed
+
+- Canonicalized CLI Project-path regression fixtures before asserting resolved Project roots, covering macOS `/var` aliases and Windows short-path aliases such as `RUNNER~1` without changing the runtime Project identity contract.
+
 ## [1.2.0-rc.2] - 2026-09-13
 
 ### Fixed

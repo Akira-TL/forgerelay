@@ -1,6 +1,6 @@
 {
   "name": "@akira-tl/forgerelay",
-  "version": "1.2.0-rc.2",
+  "version": "1.2.0-rc.3",
   "description": "Local development control plane for MCP coding agents.",
   "type": "module",
   "homepage": "https://github.com/Akira-TL/forgerelay#readme",
