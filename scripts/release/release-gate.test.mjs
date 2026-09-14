@@ -247,6 +247,20 @@ test("release workflow is tag-only and promotes the verified npm artifact withou
   assert.doesNotMatch(workflow, /shell:\s*bash/);
 });
 
+test("manual Cloud CI verification can never publish a release", async () => {
+  const workflow = await readFile(
+    resolve(repoRoot, ".github/workflows/cloud-ci-verification.yml"),
+    "utf8",
+  );
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /uses:\s*\.\/\.github\/workflows\/ci\.yml/);
+  assert.match(workflow, /permissions:[\s\S]*contents:\s*read/);
+  assert.doesNotMatch(workflow, /release:publish/);
+  assert.doesNotMatch(workflow, /npm publish/);
+  assert.doesNotMatch(workflow, /contents:\s*write/);
+  assert.doesNotMatch(workflow, /id-token:\s*write/);
+});
+
 test("manual Windows shell acceptance can never publish a release", async () => {
   const workflow = await readFile(
     resolve(repoRoot, ".github/workflows/windows-shell-acceptance.yml"),

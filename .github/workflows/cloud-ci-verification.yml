@@ -1,0 +1,14 @@
+name: Cloud CI Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Cloud CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
