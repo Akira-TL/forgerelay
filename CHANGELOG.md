@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-09-14
+
+### Fixed
+
+- MCP App 静态资源现在在 API Origin validation 之前进入专用静态资源路由，使 ChatGPT `*.web-sandbox.oaiusercontent.com` iframe 可以跨域加载 JavaScript/CSS；MCP、OAuth 与其他 API 路由仍继续拒绝未授权 Origin，不扩大 API 信任边界。
+- 交互式 `7677` debug 实例现在复用生产 ForgeRelay 的 Skill source（默认 `~/.forgerelay/skills`），同时继续隔离 debug 的 config、auth、state 与端口，使 Activity Panel / Workspace Skill 展示与生产发现语义一致。
+
 ## [1.2.2] - 2026-09-13
 
 ### Fixed
