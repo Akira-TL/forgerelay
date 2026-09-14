@@ -10,6 +10,8 @@ if (!npmCli) throw new Error("ci:test-shard must run through npm so npm_execpath
 const shard = process.argv[2];
 const allowed = new Set([
   "runtime-config",
+  "workspace-relay-auth",
+  "workspace-relay",
   "workspace-lifecycle",
   "workspace-state",
   "mcp-core",
@@ -37,9 +39,10 @@ console.log(`CI test shard ${shard} passed.`);
 function classify(command) {
   if (command === "npm run build:app") return "mcp-server-ui";
   if (command.includes("src/lsp/")) return "lsp";
+  if (command.includes("src/workspaces/relay/auth/")) return "workspace-relay-auth";
+  if (command.includes("src/workspaces/relay/tests/")) return "workspace-relay";
   if (
-    command.includes("src/workspaces/relay/")
-    || command.includes("src/workspaces/conversation-")
+    command.includes("src/workspaces/conversation-")
     || command.includes("src/workspaces/git/")
     || command.includes("src/workspaces.test")
   ) return "workspace-lifecycle";

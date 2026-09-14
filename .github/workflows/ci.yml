@@ -27,6 +27,8 @@ jobs:
       matrix:
         shard:
           - runtime-config
+          - workspace-relay-auth
+          - workspace-relay
           - workspace-lifecycle
           - workspace-state
           - mcp-core

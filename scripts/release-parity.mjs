@@ -31,6 +31,8 @@ try {
   runNodeNpm(sandbox, env, ["npm", "run", "ci:contract"], "Cloud core contract");
   for (const shard of [
     "runtime-config",
+    "workspace-relay-auth",
+    "workspace-relay",
     "workspace-lifecycle",
     "workspace-state",
     "mcp-core",

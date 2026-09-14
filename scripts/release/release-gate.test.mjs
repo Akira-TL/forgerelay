@@ -68,6 +68,8 @@ test("cross-platform cloud CI splits shared tests from bounded platform acceptan
   assert.match(workflow, /core-tests:/);
   for (const shard of [
     "runtime-config",
+    "workspace-relay-auth",
+    "workspace-relay",
     "workspace-lifecycle",
     "workspace-state",
     "mcp-core",
@@ -161,6 +163,8 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   assert.ok(source.includes('["npm", "run", "ci:contract"]'));
   for (const shard of [
     "runtime-config",
+    "workspace-relay-auth",
+    "workspace-relay",
     "workspace-lifecycle",
     "workspace-state",
     "mcp-core",
