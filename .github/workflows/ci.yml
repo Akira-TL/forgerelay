@@ -158,9 +158,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm install --global npm@11.19.1
-      - run: npm ci
-      - run: npm run ci:platform-tests -- ${{ matrix.shard }}
+      - id: windows-platform-deps
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: windows-platform-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1-${{ hashFiles('package-lock.json') }}
+      - if: steps.windows-platform-deps.outputs.cache-hit != 'true'
+        run: npx --yes npm@11.19.1 ci --no-audit --no-fund
+      - run: npx --yes npm@11.19.1 run ci:platform-tests -- ${{ matrix.shard }}
         timeout-minutes: 8
 
   windows-product:

@@ -58,14 +58,19 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Use pinned verification npm
-        run: npm install --global npm@11.19.1
+      - name: Restore Windows platform dependencies
+        id: windows-platform-deps
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: windows-platform-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
-        run: npm ci
+        if: steps.windows-platform-deps.outputs.cache-hit != 'true'
+        run: npx --yes npm@11.19.1 ci --no-audit --no-fund
 
       - name: Platform-sensitive tests
-        run: npm run ci:platform-tests -- ${{ matrix.shard }}
+        run: npx --yes npm@11.19.1 run ci:platform-tests -- ${{ matrix.shard }}
 
   windows-product:
     name: Windows product acceptance
