@@ -89,9 +89,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Use pinned verification npm
-        run: npm install --global npm@11.19.1
-
       - name: Download acceptance artifact
         uses: actions/download-artifact@v7
         with:
@@ -99,10 +96,10 @@ jobs:
           path: .release-artifacts
 
       - name: Prepare Windows product install
-        run: npm run ci:prepare-windows-product
+        run: npx --yes npm@11.19.1 run ci:prepare-windows-product
 
       - name: Packaged Windows product acceptance
-        run: npm run windows:product-accept
+        run: npx --yes npm@11.19.1 run windows:product-accept
 
   windows-shell:
     name: Windows shell acceptance (${{ matrix.name }})
@@ -131,9 +128,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Use pinned verification npm
-        run: npm install --global npm@11.19.1
-
       - name: Download acceptance artifact
         uses: actions/download-artifact@v7
         with:
@@ -141,7 +135,7 @@ jobs:
           path: .release-artifacts
 
       - name: Prepare Windows product install
-        run: npm run ci:prepare-windows-product
+        run: npx --yes npm@11.19.1 run ci:prepare-windows-product
 
       - name: Shell acceptance
-        run: npm run ${{ matrix.script }}
+        run: npx --yes npm@11.19.1 run ${{ matrix.script }}

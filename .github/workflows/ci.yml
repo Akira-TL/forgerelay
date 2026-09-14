@@ -182,14 +182,13 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm install --global npm@11.19.1
       - uses: actions/download-artifact@v7
         with:
           name: npm-package
           path: .release-package
-      - run: npm run ci:prepare-windows-product
+      - run: npx --yes npm@11.19.1 run ci:prepare-windows-product
         timeout-minutes: 5
-      - run: npm run windows:product-accept
+      - run: npx --yes npm@11.19.1 run windows:product-accept
         timeout-minutes: 8
 
   windows-shell:
@@ -216,12 +215,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm install --global npm@11.19.1
       - uses: actions/download-artifact@v7
         with:
           name: npm-package
           path: .release-package
-      - run: npm run ci:prepare-windows-product
+      - run: npx --yes npm@11.19.1 run ci:prepare-windows-product
         timeout-minutes: 5
-      - run: npm run ${{ matrix.script }}
+      - run: npx --yes npm@11.19.1 run ${{ matrix.script }}
         timeout-minutes: 5
