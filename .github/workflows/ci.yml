@@ -165,9 +165,16 @@ jobs:
         with:
           path: node_modules
           key: windows-platform-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1-${{ hashFiles('package-lock.json') }}
+      - id: windows-npm-cli
+        uses: actions/cache@v4
+        with:
+          path: .ci-npm-global
+          key: windows-npm-cli-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1
+      - if: steps.windows-npm-cli.outputs.cache-hit != 'true'
+        run: npm install --global --prefix .ci-npm-global npm@11.19.1 --no-audit --no-fund --prefer-offline
       - if: steps.windows-platform-deps.outputs.cache-hit != 'true'
-        run: npx --yes npm@11.19.1 ci --no-audit --no-fund
-      - run: npx --yes npm@11.19.1 run ci:platform-tests -- ${{ matrix.shard }}
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js ci --no-audit --no-fund
+      - run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:platform-tests -- ${{ matrix.shard }}
         timeout-minutes: 8
 
   windows-product:
