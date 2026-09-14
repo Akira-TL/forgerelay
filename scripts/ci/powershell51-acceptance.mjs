@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { resolveAcceptancePrefix, resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
+import { acceptanceRuntimeModuleUrl } from "./gates/acceptance-runtime.mjs";
 
 if (process.platform !== "win32") {
   console.log("Windows PowerShell 5.1 packaged acceptance skipped outside Windows.");
@@ -26,7 +27,9 @@ try {
   assert.equal(major, 5, `Windows PowerShell acceptance requires major version 5; got ${version}`);
   assert.equal(minor, 1, `Windows PowerShell acceptance requires version 5.1; got ${version}`);
 
-  const { resolveConfiguredCommandShellRuntime } = await import("../../dist/runtime/shell/command-shell-runtime.js");
+  const { resolveConfiguredCommandShellRuntime } = await import(
+    acceptanceRuntimeModuleUrl(process.cwd(), "dist/runtime/shell/command-shell-runtime.js")
+  );
   const resolvedRuntime = resolveConfiguredCommandShellRuntime({
     mode: "pinned",
     family: "powershell",
@@ -77,8 +80,8 @@ function powerShellVersion(executable) {
 
 async function exerciseAgentRuntime(runtime) {
   const [{ ProcessManager }, { BashOutputStore }] = await Promise.all([
-    import("../../dist/mcp/process/process-sessions.js"),
-    import("../../dist/activity/history/bash-output-store.js"),
+    import(acceptanceRuntimeModuleUrl(process.cwd(), "dist/mcp/process/process-sessions.js")),
+    import(acceptanceRuntimeModuleUrl(process.cwd(), "dist/activity/history/bash-output-store.js")),
   ]);
   const durableStateDir = join(root, "durable-output-state");
   const outputStore = new BashOutputStore(durableStateDir, {

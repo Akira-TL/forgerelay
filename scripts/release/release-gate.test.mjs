@@ -66,17 +66,26 @@ test("cross-platform cloud CI splits shared tests from bounded platform acceptan
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
   assert.match(workflow, /core-contract:/);
   assert.match(workflow, /core-tests:/);
-  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+  for (const shard of [
+    "runtime-config",
+    "workspace-lifecycle",
+    "workspace-state",
+    "mcp-core",
+    "mcp-server-ui",
+    "lsp",
+    "subagent",
+    "ui-cli",
+  ]) {
     assert.match(workflow, new RegExp(`\\b${shard}\\b`));
   }
   assert.match(workflow, /run:\s*npm run ci:contract/);
   assert.match(workflow, /run:\s*npm run ci:test-shard -- \$\{\{ matrix\.shard \}\}/);
   assert.match(workflow, /macos-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
-  assert.match(workflow, /windows-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
-  assert.match(workflow, /windows-platform:[\s\S]*timeout-minutes:\s*25/);
+  assert.match(workflow, /windows-platform:[\s\S]*runtime-process[\s\S]*workspace-filesystem/);
+  assert.match(workflow, /windows-platform:[\s\S]*run:\s*npm run ci:platform-tests -- \$\{\{ matrix\.shard \}\}/);
   assert.doesNotMatch(workflow, /run:\s*npm run ci:verify/);
   assert.doesNotMatch(workflow, /run:\s*npm test/);
-  assert.doesNotMatch(workflow, /shell:/);
+  assert.doesNotMatch(workflow, /^\s*shell:/m);
   assert.doesNotMatch(workflow, /run:\s*\|/);
 });
 
@@ -138,7 +147,16 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   assert.match(ciWorkflow, /npm install --global npm@11\.19\.1/);
   assert.ok(source.includes('["npm", "ci", "--no-audit", "--no-fund"]'));
   assert.ok(source.includes('["npm", "run", "ci:contract"]'));
-  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+  for (const shard of [
+    "runtime-config",
+    "workspace-lifecycle",
+    "workspace-state",
+    "mcp-core",
+    "mcp-server-ui",
+    "lsp",
+    "subagent",
+    "ui-cli",
+  ]) {
     assert.match(source, new RegExp(`\\"${shard}\\"`));
   }
   assert.ok(source.includes('["npm", "run", "build"]'));
@@ -151,15 +169,21 @@ test("release runtime and local parity share the checked-in Node contract", asyn
   assert.doesNotMatch(source, /\["npm", "test"\]/);
 });
 
-test("cloud verification builds one npm artifact and reuses it across platform acceptance", async () => {
+test("cloud verification builds one npm artifact while independent gates start immediately", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
-  assert.match(workflow, /package:[\s\S]*needs:\s*core-contract[\s\S]*run:\s*npm run build[\s\S]*run:\s*npm run traffic:audit[\s\S]*run:\s*npm run lsp:interop[\s\S]*run:\s*npm run release:pack/);
+  assert.match(workflow, /package:[\s\S]*run:\s*npm run build[\s\S]*run:\s*npm run lsp:interop[\s\S]*run:\s*npm run release:pack/);
+  assert.doesNotMatch(workflow, /package:[\s\S]*needs:\s*core-contract/);
+  assert.match(workflow, /traffic-audit:[\s\S]*run:\s*npm run build:app[\s\S]*run:\s*npm run traffic:audit/);
+  assert.match(workflow, /macos-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
+  assert.match(workflow, /macos-product:[\s\S]*needs:\s*package[\s\S]*run:\s*npm run config:product-accept/);
+  assert.match(workflow, /windows-platform:[\s\S]*runtime-process[\s\S]*workspace-filesystem/);
+  assert.match(workflow, /windows-product:[\s\S]*needs:\s*package[\s\S]*run:\s*npm run windows:product-accept/);
+  assert.match(workflow, /windows-shell:[\s\S]*needs:\s*package[\s\S]*run:\s*npm run \$\{\{ matrix\.script \}\}/);
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
-  assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 3);
+  assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 4);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-package/);
-  assert.match(workflow, /windows-platform:[\s\S]*FORGERELAY_ACCEPTANCE_PREFIX:\s*\.release-installed/);
-  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 1);
+  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 2);
   assert.equal((workflow.match(/run:\s*npm run traffic:audit/g) ?? []).length, 1);
   assert.equal((workflow.match(/run:\s*npm run lsp:interop/g) ?? []).length, 1);
   assert.match(workflow, /name:\s*npm-package/);
@@ -180,6 +204,14 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
   assert.match(prepareWindows, /resolveAcceptancePrefix/);
   assert.match(prepareWindows, /"install", "--global", "--prefix"/);
 
+  const acceptanceRuntime = await readFile(
+    resolve(repoRoot, "scripts/ci/gates/acceptance-runtime.mjs"),
+    "utf8",
+  );
+  assert.match(acceptanceRuntime, /resolveAcceptancePrefix/);
+  assert.match(acceptanceRuntime, /node_modules/);
+  assert.match(acceptanceRuntime, /dist", "cli\.js"/);
+
   for (const relativePath of [
     "scripts/ci/config-v2-product-acceptance.mjs",
     "scripts/ci/windows-product-acceptance.mjs",
@@ -189,6 +221,9 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
   ]) {
     const source = await readFile(resolve(repoRoot, relativePath), "utf8");
     assert.match(source, /resolveAcceptanceTarball/);
+    if (relativePath.endsWith("acceptance.mjs") && !relativePath.includes("product-acceptance")) {
+      assert.match(source, /acceptanceRuntimeModuleUrl/);
+    }
   }
 });
 
@@ -222,8 +257,13 @@ test("manual Windows shell acceptance can never publish a release", async () => 
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-artifacts/);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_PREFIX:\s*\.release-installed/);
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
-  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 1);
-  assert.match(workflow, /run:\s*npm run pwsh:accept/);
+  assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
+  assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 2);
+  assert.equal((workflow.match(/run:\s*npm run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.match(workflow, /script:\s*pwsh:accept/);
+  assert.match(workflow, /script:\s*powershell51:accept/);
+  assert.match(workflow, /script:\s*cmd:accept/);
+  assert.match(workflow, /run:\s*npm run \$\{\{ matrix\.script \}\}/);
   assert.doesNotMatch(workflow, /release:publish/);
   assert.doesNotMatch(workflow, /npm publish/);
   assert.doesNotMatch(workflow, /contents:\s*write/);

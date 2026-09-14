@@ -29,7 +29,16 @@ try {
     `Node ${NODE_VERSION} / npm ${NPM_VERSION} install`,
   );
   runNodeNpm(sandbox, env, ["npm", "run", "ci:contract"], "Cloud core contract");
-  for (const shard of ["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]) {
+  for (const shard of [
+    "runtime-config",
+    "workspace-lifecycle",
+    "workspace-state",
+    "mcp-core",
+    "mcp-server-ui",
+    "lsp",
+    "subagent",
+    "ui-cli",
+  ]) {
     runNodeNpm(
       sandbox,
       env,

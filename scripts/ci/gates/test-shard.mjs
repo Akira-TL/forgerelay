@@ -8,7 +8,16 @@ const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error("ci:test-shard must run through npm so npm_execpath is available");
 
 const shard = process.argv[2];
-const allowed = new Set(["runtime-config", "workspace-mcp", "lsp", "subagent-ui-cli"]);
+const allowed = new Set([
+  "runtime-config",
+  "workspace-lifecycle",
+  "workspace-state",
+  "mcp-core",
+  "mcp-server-ui",
+  "lsp",
+  "subagent",
+  "ui-cli",
+]);
 if (!allowed.has(shard)) {
   throw new Error(`Unknown CI test shard '${shard ?? ""}'. Expected one of: ${[...allowed].join(", ")}`);
 }
@@ -26,18 +35,28 @@ for (const command of selected) runCommand(command);
 console.log(`CI test shard ${shard} passed.`);
 
 function classify(command) {
-  if (command === "npm run build:app") return "workspace-mcp";
+  if (command === "npm run build:app") return "mcp-server-ui";
   if (command.includes("src/lsp/")) return "lsp";
   if (
-    command.includes("src/workspaces/")
+    command.includes("src/workspaces/relay/")
+    || command.includes("src/workspaces/conversation-")
+    || command.includes("src/workspaces/git/")
     || command.includes("src/workspaces.test")
-    || command.includes("src/mcp/")
-    || command.includes("src/activity/")
-  ) return "workspace-mcp";
+  ) return "workspace-lifecycle";
+  if (command.includes("src/workspaces/") || command.includes("src/activity/")) {
+    return "workspace-state";
+  }
+  if (
+    command.includes("src/mcp/server")
+    || command.includes("src/mcp/panel/")
+    || command.includes("src/mcp/process/server.test.ts")
+  ) return "mcp-server-ui";
+  if (command.includes("src/mcp/")) return "mcp-core";
   if (command.includes("src/runtime/") || command.startsWith("node --test scripts/")) {
     return "runtime-config";
   }
-  return "subagent-ui-cli";
+  if (command.includes("src/subagents/")) return "subagent";
+  return "ui-cli";
 }
 
 function runCommand(command) {

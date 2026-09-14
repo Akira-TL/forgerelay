@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { resolveAcceptancePrefix, resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
+import { acceptanceRuntimeModuleUrl } from "./gates/acceptance-runtime.mjs";
 
 if (process.platform !== "win32") {
   console.log("cmd.exe packaged acceptance skipped outside Windows.");
@@ -44,8 +45,8 @@ function resolveCmd() {
 
 async function exercisePtyLifecycle(runtime) {
   const [{ ProcessManager }, { BashOutputStore }] = await Promise.all([
-    import("../../dist/mcp/process/process-sessions.js"),
-    import("../../dist/activity/history/bash-output-store.js"),
+    import(acceptanceRuntimeModuleUrl(process.cwd(), "dist/mcp/process/process-sessions.js")),
+    import(acceptanceRuntimeModuleUrl(process.cwd(), "dist/activity/history/bash-output-store.js")),
   ]);
   const durableStateDir = join(root, "durable-output-state");
   const outputStore = new BashOutputStore(durableStateDir, {

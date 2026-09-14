@@ -7,13 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  windows-product:
-    name: Windows product acceptance
-    runs-on: windows-2022
-    env:
-      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-artifacts
-      FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
-
+  package:
+    name: Build acceptance npm artifact
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -36,17 +32,76 @@ jobs:
       - name: Pack acceptance artifact
         run: npm run release:pack
 
-      - name: Prepare shared Windows product install
-        run: npm run ci:prepare-windows-product
+      - name: Upload acceptance artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-acceptance-package
+          path: .release-artifacts/*.tgz
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  windows-platform:
+    name: Windows platform tests (${{ matrix.shard }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [runtime-process, workspace-filesystem]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Use pinned verification npm
+        run: npm install --global npm@11.19.1
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Platform-sensitive tests
-        run: npm run ci:platform-tests
+        run: npm run ci:platform-tests -- ${{ matrix.shard }}
+
+  windows-product:
+    name: Windows product acceptance
+    needs: package
+    runs-on: windows-2022
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-artifacts
+      FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Use pinned verification npm
+        run: npm install --global npm@11.19.1
+
+      - name: Download acceptance artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-acceptance-package
+          path: .release-artifacts
+
+      - name: Prepare Windows product install
+        run: npm run ci:prepare-windows-product
 
       - name: Packaged Windows product acceptance
         run: npm run windows:product-accept
 
   windows-shell:
     name: Windows shell acceptance (${{ matrix.name }})
+    needs: package
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -61,7 +116,6 @@ jobs:
     env:
       FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-artifacts
       FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -75,14 +129,11 @@ jobs:
       - name: Use pinned verification npm
         run: npm install --global npm@11.19.1
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Pack acceptance artifact
-        run: npm run release:pack
+      - name: Download acceptance artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: windows-acceptance-package
+          path: .release-artifacts
 
       - name: Prepare Windows product install
         run: npm run ci:prepare-windows-product
