@@ -189,13 +189,15 @@ test("cloud verification builds one npm artifact while independent gates start i
   assert.match(workflow, /macos-platform:[\s\S]*run:\s*npm run ci:platform-tests/);
   assert.match(workflow, /macos-product:[\s\S]*needs:\s*package[\s\S]*run:\s*npm run config:product-accept/);
   assert.match(workflow, /windows-platform:[\s\S]*runtime-process[\s\S]*workspace-filesystem/);
-  assert.match(workflow, /windows-product:[\s\S]*needs:\s*package[\s\S]*run:\s*npx --yes npm@11\.19\.1 run windows:product-accept/);
-  assert.match(workflow, /windows-shell:[\s\S]*needs:\s*package[\s\S]*run:\s*npx --yes npm@11\.19\.1 run \$\{\{ matrix\.script \}\}/);
+  assert.match(workflow, /windows-product:[\s\S]*needs:\s*package[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run windows:product-accept/);
+  assert.match(workflow, /windows-shell:[\s\S]*needs:\s*package[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run \$\{\{ matrix\.script \}\}/);
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 4);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-package/);
-  assert.equal((workflow.match(/run:\s*npx --yes npm@11\.19\.1 run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.match(workflow, /key:\s*windows-npm-cli-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ hashFiles\('\.nvmrc'\) \}\}-npm-11\.19\.1/);
+  assert.match(workflow, /npm install --global --prefix \.ci-npm-global npm@11\.19\.1 --no-audit --no-fund --prefer-offline/);
   assert.equal((workflow.match(/run:\s*npm run traffic:audit/g) ?? []).length, 1);
   assert.equal((workflow.match(/run:\s*npm run lsp:interop/g) ?? []).length, 1);
   assert.match(workflow, /name:\s*npm-package/);
@@ -286,7 +288,8 @@ test("manual Windows shell acceptance can never publish a release", async () => 
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 2);
-  assert.equal((workflow.match(/run:\s*npx --yes npm@11\.19\.1 run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.match(workflow, /key:\s*windows-npm-cli-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ hashFiles\('\.nvmrc'\) \}\}-npm-11\.19\.1/);
   const windowsPlatform = workflow.match(/  windows-platform:[\s\S]*?(?=\n  windows-product:)/)?.[0];
   assert.ok(windowsPlatform, "manual Windows platform job must remain present");
   assert.match(windowsPlatform, /uses:\s*actions\/cache@v4/);
@@ -296,7 +299,7 @@ test("manual Windows shell acceptance can never publish a release", async () => 
   assert.match(workflow, /script:\s*pwsh:accept/);
   assert.match(workflow, /script:\s*powershell51:accept/);
   assert.match(workflow, /script:\s*cmd:accept/);
-  assert.match(workflow, /run:\s*npx --yes npm@11\.19\.1 run \$\{\{ matrix\.script \}\}/);
+  assert.match(workflow, /run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run \$\{\{ matrix\.script \}\}/);
   assert.doesNotMatch(workflow, /release:publish/);
   assert.doesNotMatch(workflow, /npm publish/);
   assert.doesNotMatch(workflow, /contents:\s*write/);

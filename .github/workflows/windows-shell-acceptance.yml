@@ -89,6 +89,17 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Restore pinned Windows npm
+        id: windows-npm-cli
+        uses: actions/cache@v4
+        with:
+          path: .ci-npm-global
+          key: windows-npm-cli-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1
+
+      - name: Install pinned Windows npm
+        if: steps.windows-npm-cli.outputs.cache-hit != 'true'
+        run: npm install --global --prefix .ci-npm-global npm@11.19.1 --no-audit --no-fund --prefer-offline
+
       - name: Download acceptance artifact
         uses: actions/download-artifact@v7
         with:
@@ -96,10 +107,10 @@ jobs:
           path: .release-artifacts
 
       - name: Prepare Windows product install
-        run: npx --yes npm@11.19.1 run ci:prepare-windows-product
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-product
 
       - name: Packaged Windows product acceptance
-        run: npx --yes npm@11.19.1 run windows:product-accept
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run windows:product-accept
 
   windows-shell:
     name: Windows shell acceptance (${{ matrix.name }})
@@ -128,6 +139,17 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Restore pinned Windows npm
+        id: windows-npm-cli
+        uses: actions/cache@v4
+        with:
+          path: .ci-npm-global
+          key: windows-npm-cli-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1
+
+      - name: Install pinned Windows npm
+        if: steps.windows-npm-cli.outputs.cache-hit != 'true'
+        run: npm install --global --prefix .ci-npm-global npm@11.19.1 --no-audit --no-fund --prefer-offline
+
       - name: Download acceptance artifact
         uses: actions/download-artifact@v7
         with:
@@ -135,7 +157,7 @@ jobs:
           path: .release-artifacts
 
       - name: Prepare Windows product install
-        run: npx --yes npm@11.19.1 run ci:prepare-windows-product
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-product
 
       - name: Shell acceptance
-        run: npx --yes npm@11.19.1 run ${{ matrix.script }}
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ${{ matrix.script }}

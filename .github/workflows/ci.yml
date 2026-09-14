@@ -182,13 +182,20 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - id: windows-npm-cli
+        uses: actions/cache@v4
+        with:
+          path: .ci-npm-global
+          key: windows-npm-cli-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1
+      - if: steps.windows-npm-cli.outputs.cache-hit != 'true'
+        run: npm install --global --prefix .ci-npm-global npm@11.19.1 --no-audit --no-fund --prefer-offline
       - uses: actions/download-artifact@v7
         with:
           name: npm-package
           path: .release-package
-      - run: npx --yes npm@11.19.1 run ci:prepare-windows-product
+      - run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-product
         timeout-minutes: 5
-      - run: npx --yes npm@11.19.1 run windows:product-accept
+      - run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run windows:product-accept
         timeout-minutes: 8
 
   windows-shell:
@@ -215,11 +222,18 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - id: windows-npm-cli
+        uses: actions/cache@v4
+        with:
+          path: .ci-npm-global
+          key: windows-npm-cli-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1
+      - if: steps.windows-npm-cli.outputs.cache-hit != 'true'
+        run: npm install --global --prefix .ci-npm-global npm@11.19.1 --no-audit --no-fund --prefer-offline
       - uses: actions/download-artifact@v7
         with:
           name: npm-package
           path: .release-package
-      - run: npx --yes npm@11.19.1 run ci:prepare-windows-product
+      - run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-product
         timeout-minutes: 5
-      - run: npx --yes npm@11.19.1 run ${{ matrix.script }}
+      - run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ${{ matrix.script }}
         timeout-minutes: 5
