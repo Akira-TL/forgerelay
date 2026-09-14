@@ -110,11 +110,11 @@ jobs:
       - run: npm run config:product-accept
         timeout-minutes: 8
 
-  windows-platform:
-    name: Windows platform acceptance
+  windows-product:
+    name: Windows product acceptance
     needs: package
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 18
     env:
       FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-package
       FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
@@ -138,9 +138,40 @@ jobs:
         timeout-minutes: 8
       - run: npm run windows:product-accept
         timeout-minutes: 8
-      - run: npm run pwsh:accept
+
+  windows-shell:
+    name: Windows shell acceptance (${{ matrix.name }})
+    needs: package
+    runs-on: windows-2022
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: PowerShell 7
+            script: pwsh:accept
+          - name: Windows PowerShell 5.1
+            script: powershell51:accept
+          - name: cmd.exe
+            script: cmd:accept
+    env:
+      FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-package
+      FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-package
+          path: .release-package
+      - run: npm run build
         timeout-minutes: 5
-      - run: npm run powershell51:accept
+      - run: npm run ci:prepare-windows-product
         timeout-minutes: 5
-      - run: npm run cmd:accept
+      - run: npm run ${{ matrix.script }}
         timeout-minutes: 5
