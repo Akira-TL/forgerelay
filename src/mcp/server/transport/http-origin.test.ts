@@ -121,6 +121,34 @@ test("routed public MCP enforces the canonical public Origin before OAuth", asyn
   });
 });
 
+test("public MCP App assets accept ChatGPT sandbox origins without broadening MCP Origin access", async () => {
+  await withTestServer("https://babelbeast.com/forgerelay/main", async (endpoint) => {
+    const sandboxOrigin = "https://babelbeast-com.web-sandbox.oaiusercontent.com";
+    const assetResponse = await fetch(
+      `${endpoint}/forgerelay/main/mcp-app-assets/assets/activity-panel-app.js`,
+      {
+        method: "OPTIONS",
+        headers: {
+          host: "babelbeast.com",
+          origin: sandboxOrigin,
+          "access-control-request-method": "GET",
+        },
+      },
+    );
+    assert.equal(assetResponse.status, 204);
+    assert.equal(assetResponse.headers.get("access-control-allow-origin"), "*");
+    assert.equal(assetResponse.headers.get("cross-origin-resource-policy"), "cross-origin");
+
+    const { response, body } = await requestMcp(endpoint, {
+      host: "babelbeast.com",
+      origin: sandboxOrigin,
+      path: "/forgerelay/main/mcp",
+    });
+    assert.equal(response.status, 403, body);
+    assert.match(body, /Invalid Origin: babelbeast-com\.web-sandbox\.oaiusercontent\.com/);
+  });
+});
+
 test("local-only MCP keeps localhost browser origins compatible", async () => {
   await withTestServer(undefined, async (endpoint) => {
     const { response, body } = await requestMcp(endpoint, {

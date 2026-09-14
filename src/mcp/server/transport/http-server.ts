@@ -9,8 +9,10 @@ import {
   type McpServer,
 } from "@modelcontextprotocol/server";
 import {
-  createMcpExpressApp,
   getOAuthProtectedResourceMetadataUrl,
+  hostHeaderValidation,
+  localhostHostValidation,
+  originValidation,
   requireBearerAuth,
 } from "@modelcontextprotocol/express";
 import {
@@ -50,7 +52,7 @@ const MAX_MCP_TRANSPORT_SESSIONS = 64;
 const MCP_TRANSPORT_CLEANUP_INTERVAL_MS = 5 * 60 * 1_000;
 
 export interface RunningServer {
-  app: ReturnType<typeof createMcpExpressApp>;
+  app: ReturnType<typeof express>;
   config: ServerConfig;
   subagentProviders: SubagentProviderAvailability[];
   close(): Promise<void>;
@@ -93,11 +95,13 @@ export function createHttpServer(
     ...localhostAllowedOrigins(),
     ...routeBaseUrls.map((baseUrl) => baseUrl.hostname),
   ]));
-  const app = createMcpExpressApp({
-    host: config.host,
-    ...(allowedHosts ? { allowedHosts } : {}),
-    allowedOrigins,
-  });
+  const app = express();
+  app.use(express.json());
+  if (allowedHosts) {
+    app.use(hostHeaderValidation(allowedHosts));
+  } else if (["127.0.0.1", "localhost", "::1"].includes(config.host)) {
+    app.use(localhostHostValidation());
+  }
   const transports = new McpTransportRegistry<Transport>({
     maxTransports: MAX_MCP_TRANSPORT_SESSIONS,
   });
@@ -275,19 +279,10 @@ export function createHttpServer(
     next();
   });
 
-  app.use(
-    createForgeRelayAuthRouter({
-      provider: oauthProvider,
-      cliAuthenticationProvider: oauthProvider,
-      instanceId: config.instanceId,
-      issuerUrl: new URL(config.publicBaseUrl),
-      resourceServerUrl,
-      routeBaseUrls,
-      scopesSupported: config.oauth.scopes,
-      resourceName: "ForgeRelay",
-    }),
-  );
-
+  // MCP App assets are intentionally public, cross-origin resources. ChatGPT
+  // renders an app on a dedicated `*.web-sandbox.oaiusercontent.com` origin,
+  // so these routes must run before MCP/API Origin validation. Host validation
+  // still applies above, while MCP, OAuth, and health routes remain protected.
   app.options(activityPanelAssetsPaths.map((assetPath) => `${assetPath}/{*asset}`), (_req, res) => {
     setActivityPanelAssetHeaders(res);
     res.sendStatus(204);
@@ -300,6 +295,21 @@ export function createHttpServer(
       maxAge: "1y",
       fallthrough: false,
       setHeaders: setActivityPanelAssetHeaders,
+    }),
+  );
+
+  app.use(originValidation(allowedOrigins));
+
+  app.use(
+    createForgeRelayAuthRouter({
+      provider: oauthProvider,
+      cliAuthenticationProvider: oauthProvider,
+      instanceId: config.instanceId,
+      issuerUrl: new URL(config.publicBaseUrl),
+      resourceServerUrl,
+      routeBaseUrls,
+      scopesSupported: config.oauth.scopes,
+      resourceName: "ForgeRelay",
     }),
   );
 
