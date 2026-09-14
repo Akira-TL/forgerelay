@@ -67,6 +67,16 @@ export function createInteractiveDebugEnvironment({
   const configDir = interactiveDebugConfigDir({ env, home });
   const ownerToken = interactiveDebugOwnerToken(configDir);
   const { baseUrl, mcpUrl } = interactiveDebugUrls(configDir);
+  const productConfigDir = env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR
+    ? resolve(env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR.startsWith("~/")
+      ? join(home, env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR.slice(2))
+      : env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR)
+    : resolve(join(home, ".forgerelay"));
+  const productSkillPaths = [
+    join(productConfigDir, "skills"),
+    env.FORGERELAY_SKILL_PATHS,
+  ].filter((value) => typeof value === "string" && value.trim());
+  const productSkillsEnabled = env.FORGERELAY_SKILLS;
   mkdirSync(debugRoot, { recursive: true });
 
   const debugEnv = { ...env };
@@ -84,6 +94,10 @@ export function createInteractiveDebugEnvironment({
     }
   }
   debugEnv.FORGERELAY_CONFIG_DIR = configDir;
+  debugEnv.FORGERELAY_SKILL_PATHS = productSkillPaths.join(",");
+  if (productSkillsEnabled !== undefined) {
+    debugEnv.FORGERELAY_SKILLS = productSkillsEnabled;
+  }
 
   return { ownerToken, configDir, baseUrl, mcpUrl, env: debugEnv };
 }

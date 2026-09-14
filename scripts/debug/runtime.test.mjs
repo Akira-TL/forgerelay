@@ -40,6 +40,8 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
       FORGERELAY_ALLOWED_HOSTS: "wrong.example.test",
       FORGERELAY_OAUTH_OWNER_TOKEN: "wrong-owner-password-123456",
       FORGERELAY_WIDGETS: "off",
+      FORGERELAY_SKILL_PATHS: "/extra/product/skills",
+      FORGERELAY_SKILLS: "1",
       FORGERELAY_LOG_LEVEL: "debug",
     },
     home,
@@ -62,6 +64,11 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.env.FORGERELAY_ALLOWED_HOSTS, undefined);
   assert.equal(result.env.FORGERELAY_OAUTH_OWNER_TOKEN, undefined);
   assert.equal(result.env.FORGERELAY_WIDGETS, undefined);
+  assert.equal(
+    result.env.FORGERELAY_SKILL_PATHS,
+    [join(home, ".forgerelay", "skills"), "/extra/product/skills"].join(","),
+  );
+  assert.equal(result.env.FORGERELAY_SKILLS, "1");
   assert.equal(result.env.FORGERELAY_LOG_LEVEL, "debug");
 });
 
@@ -80,8 +87,12 @@ test("interactive debug config directory may be explicitly relocated without fal
   await writeFile(join(customDir, "config.json"), JSON.stringify({ host: "127.0.0.1", port: 6768 }) + "\n");
   await writeFile(join(customDir, "auth.json"), JSON.stringify({ ownerToken: "custom-debug-password-123456" }) + "\n");
 
+  const productConfigDir = join(home, "custom-product-config");
   const result = createInteractiveDebugEnvironment({
-    env: { FORGERELAY_DEBUG_CONFIG_DIR: customDir },
+    env: {
+      FORGERELAY_DEBUG_CONFIG_DIR: customDir,
+      FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR: productConfigDir,
+    },
     home,
   });
 
@@ -90,4 +101,5 @@ test("interactive debug config directory may be explicitly relocated without fal
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, customDir);
   assert.equal(result.baseUrl, "http://127.0.0.1:6768");
   assert.equal(result.mcpUrl, "http://127.0.0.1:6768/mcp");
+  assert.equal(result.env.FORGERELAY_SKILL_PATHS, join(productConfigDir, "skills"));
 });
