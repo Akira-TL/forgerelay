@@ -129,6 +129,7 @@ jobs:
     env:
       FORGERELAY_ACCEPTANCE_ARTIFACT_DIR: .release-artifacts
       FORGERELAY_ACCEPTANCE_PREFIX: .release-installed
+      FORGERELAY_ACCEPTANCE_RUNTIME_ROOT: .release-runtime
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -138,6 +139,13 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+
+      - name: Restore Windows shell dependencies
+        id: windows-shell-deps
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: windows-platform-${{ runner.os }}-${{ runner.arch }}-node-${{ hashFiles('.nvmrc') }}-npm-11.19.1-${{ hashFiles('package-lock.json') }}
 
       - name: Restore pinned Windows npm
         id: windows-npm-cli
@@ -156,7 +164,12 @@ jobs:
           name: windows-acceptance-package
           path: .release-artifacts
 
-      - name: Prepare Windows product install
+      - name: Prepare shell runtime from package
+        if: steps.windows-shell-deps.outputs.cache-hit == 'true'
+        run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-shell-runtime
+
+      - name: Prepare Windows product install fallback
+        if: steps.windows-shell-deps.outputs.cache-hit != 'true'
         run: node .ci-npm-global/node_modules/npm/bin/npm-cli.js run ci:prepare-windows-product
 
       - name: Shell acceptance

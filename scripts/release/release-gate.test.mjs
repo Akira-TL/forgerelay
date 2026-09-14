@@ -190,12 +190,16 @@ test("cloud verification builds one npm artifact while independent gates start i
   assert.match(workflow, /macos-product:[\s\S]*needs:\s*package[\s\S]*run:\s*npm run config:product-accept/);
   assert.match(workflow, /windows-platform:[\s\S]*runtime-process[\s\S]*workspace-filesystem/);
   assert.match(workflow, /windows-product:[\s\S]*needs:\s*package[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run windows:product-accept/);
-  assert.match(workflow, /windows-shell:[\s\S]*needs:\s*package[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run \$\{\{ matrix\.script \}\}/);
+  assert.match(workflow, /windows-shell:[\s\S]*needs:\s*package[\s\S]*FORGERELAY_ACCEPTANCE_RUNTIME_ROOT:\s*\.release-runtime[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run \$\{\{ matrix\.script \}\}/);
+  assert.match(workflow, /windows-shell:[\s\S]*id:\s*windows-shell-deps[\s\S]*path:\s*node_modules/);
+  assert.match(workflow, /if:\s*steps\.windows-shell-deps\.outputs\.cache-hit == 'true'[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-shell-runtime/);
+  assert.match(workflow, /if:\s*steps\.windows-shell-deps\.outputs\.cache-hit != 'true'[\s\S]*run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-product/);
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 4);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-package/);
   assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-shell-runtime/g) ?? []).length, 1);
   assert.match(workflow, /key:\s*windows-npm-cli-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ hashFiles\('\.nvmrc'\) \}\}-npm-11\.19\.1/);
   assert.match(workflow, /npm install --global --prefix \.ci-npm-global npm@11\.19\.1 --no-audit --no-fund --prefer-offline/);
   assert.equal((workflow.match(/run:\s*npm run traffic:audit/g) ?? []).length, 1);
@@ -218,10 +222,19 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
   assert.match(prepareWindows, /resolveAcceptancePrefix/);
   assert.match(prepareWindows, /"install", "--global", "--prefix"/);
 
+  const prepareShellRuntime = await readFile(
+    resolve(repoRoot, "scripts/ci/gates/prepare-windows-shell-runtime.mjs"),
+    "utf8",
+  );
+  assert.match(prepareShellRuntime, /resolveAcceptanceTarball/);
+  assert.match(prepareShellRuntime, /--strip-components=1/);
+  assert.match(prepareShellRuntime, /FORGERELAY_ACCEPTANCE_RUNTIME_ROOT/);
+
   const acceptanceRuntime = await readFile(
     resolve(repoRoot, "scripts/ci/gates/acceptance-runtime.mjs"),
     "utf8",
   );
+  assert.match(acceptanceRuntime, /FORGERELAY_ACCEPTANCE_RUNTIME_ROOT/);
   assert.match(acceptanceRuntime, /resolveAcceptancePrefix/);
   assert.match(acceptanceRuntime, /node_modules/);
   assert.match(acceptanceRuntime, /dist", "cli\.js"/);
@@ -229,17 +242,26 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
   for (const relativePath of [
     "scripts/ci/config-v2-product-acceptance.mjs",
     "scripts/ci/windows-product-acceptance.mjs",
+  ]) {
+    const source = await readFile(resolve(repoRoot, relativePath), "utf8");
+    assert.match(source, /resolveAcceptanceTarball/);
+  }
+
+  for (const relativePath of [
     "scripts/ci/pwsh-acceptance.mjs",
     "scripts/ci/powershell51-acceptance.mjs",
     "scripts/ci/cmd-acceptance.mjs",
   ]) {
     const source = await readFile(resolve(repoRoot, relativePath), "utf8");
-    assert.match(source, /resolveAcceptanceTarball/);
-    if (relativePath.endsWith("acceptance.mjs") && !relativePath.includes("product-acceptance")) {
-      assert.match(source, /acceptanceRuntimeModuleUrl/);
-      assert.doesNotMatch(source, /import\("\.\.\/\.\.\/dist\//);
-    }
+    assert.match(source, /acceptanceRuntimeModuleUrl/);
+    assert.doesNotMatch(source, /resolveAcceptanceTarball/);
+    assert.doesNotMatch(source, /resolveAcceptancePrefix/);
+    assert.doesNotMatch(source, /import\("\.\.\/\.\.\/dist\//);
   }
+
+  const windowsProduct = await readFile(resolve(repoRoot, "scripts/ci/windows-product-acceptance.mjs"), "utf8");
+  assert.match(windowsProduct, /forgerelay\.ps1/);
+  assert.match(windowsProduct, /Command shell source: launcher/);
 });
 
 test("Windows product acceptance uses the supported Skills environment seam rather than a removed config key", async () => {
@@ -285,10 +307,13 @@ test("manual Windows shell acceptance can never publish a release", async () => 
   assert.match(workflow, /runs-on:\s*windows-2022/);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_ARTIFACT_DIR:\s*\.release-artifacts/);
   assert.match(workflow, /FORGERELAY_ACCEPTANCE_PREFIX:\s*\.release-installed/);
+  assert.match(workflow, /FORGERELAY_ACCEPTANCE_RUNTIME_ROOT:\s*\.release-runtime/);
   assert.equal((workflow.match(/run:\s*npm run release:pack/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/upload-artifact@v7/g) ?? []).length, 1);
   assert.equal((workflow.match(/uses:\s*actions\/download-artifact@v7/g) ?? []).length, 2);
   assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-product/g) ?? []).length, 2);
+  assert.equal((workflow.match(/run:\s*node \.ci-npm-global\/node_modules\/npm\/bin\/npm-cli\.js run ci:prepare-windows-shell-runtime/g) ?? []).length, 1);
+  assert.match(workflow, /id:\s*windows-shell-deps[\s\S]*path:\s*node_modules/);
   assert.match(workflow, /key:\s*windows-npm-cli-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ hashFiles\('\.nvmrc'\) \}\}-npm-11\.19\.1/);
   const windowsPlatform = workflow.match(/  windows-platform:[\s\S]*?(?=\n  windows-product:)/)?.[0];
   assert.ok(windowsPlatform, "manual Windows platform job must remain present");

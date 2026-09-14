@@ -6,16 +6,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { resolveAcceptancePrefix, resolveAcceptanceTarball } from "./gates/acceptance-artifact.mjs";
 import { acceptanceRuntimeModuleUrl } from "./gates/acceptance-runtime.mjs";
 
 if (process.platform !== "win32") {
   console.log("cmd.exe packaged acceptance skipped outside Windows.");
   process.exit(0);
 }
-
-const npmCli = process.env.npm_execpath;
-if (!npmCli) throw new Error("cmd acceptance must run through npm so npm_execpath is available");
 
 const root = await mkdtemp(join(tmpdir(), "forgerelay-cmd-acceptance-"));
 try {
@@ -28,7 +24,6 @@ try {
   };
 
   await exercisePtyLifecycle(runtime);
-  await exercisePackagedCmdShim(cmd);
 
   console.log(`cmd.exe acceptance passed with ${cmd}.`);
 } finally {
@@ -179,84 +174,6 @@ async function exercisePtyLifecycle(runtime) {
     manager.shutdown();
     outputStore.close();
   }
-}
-
-async function exercisePackagedCmdShim(cmd) {
-  const artifactDir = join(root, "artifact");
-  const sharedPrefix = resolveAcceptancePrefix(process.cwd());
-  const prefix = sharedPrefix ?? join(root, "prefix");
-  const configDir = join(root, "config");
-  const stateDir = join(root, "state");
-  await Promise.all([
-    mkdir(artifactDir, { recursive: true }),
-    mkdir(prefix, { recursive: true }),
-    mkdir(configDir, { recursive: true }),
-    mkdir(stateDir, { recursive: true }),
-  ]);
-
-  if (!sharedPrefix) {
-    const tarball = resolveAcceptanceTarball({ repoRoot: process.cwd(), artifactDir, npmCli });
-    runNpm(["install", "--global", "--prefix", prefix, tarball]);
-  } else {
-    console.log(`Using prepared acceptance install: ${prefix}`);
-  }
-  const shim = join(prefix, "forgerelay.cmd");
-  assert.ok(existsSync(shim), `npm did not create the cmd launcher shim: ${shim}`);
-
-  await writeFile(
-    join(configDir, "config.json"),
-    JSON.stringify({
-      host: "127.0.0.1",
-      port: 7678,
-      allowedRoots: [process.cwd()],
-      stateDir,
-      worktreeRoot: join(root, "worktrees"),
-      commandShell: {
-        mode: "follow-launcher",
-        family: "cmd",
-        executable: cmd,
-      },
-      shellInstructions: false,
-    }, null, 2),
-    "utf8",
-  );
-
-  const launcherEnv = {
-    ...process.env,
-    FORGERELAY_CONFIG_DIR: configDir,
-    FORGERELAY_OAUTH_OWNER_TOKEN: "cmd-acceptance-owner-token-that-is-long-enough",
-  };
-  delete launcherEnv.npm_lifecycle_event;
-  delete launcherEnv.FORGERELAY_COMMAND_SHELL;
-
-  const result = spawnSync(
-    cmd,
-    ["/d", "/s", "/c", `"\"${shim}\" doctor"`],
-    {
-      cwd: process.cwd(),
-      env: launcherEnv,
-      encoding: "utf8",
-      windowsHide: true,
-      windowsVerbatimArguments: true,
-    },
-  );
-  if (result.error || result.status !== 0) {
-    throw new Error(`Packaged cmd launcher failed: ${result.error?.message ?? result.stderr ?? result.status}`);
-  }
-  assert.match(result.stdout ?? "", /Command shell: cmd \(.+; launcher\)/);
-}
-
-function runNpm(args) {
-  const result = spawnSync(process.execPath, [npmCli, ...args], {
-    cwd: process.cwd(),
-    env: process.env,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  if (result.error || result.status !== 0) {
-    throw new Error(`npm ${args.join(" ")} failed: ${result.error?.message ?? result.stderr ?? result.status}`);
-  }
-  return result;
 }
 
 async function waitForFile(path, timeoutMs = 5_000) {

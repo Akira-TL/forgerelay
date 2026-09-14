@@ -6,8 +6,21 @@ import { resolveAcceptancePrefix } from "./acceptance-artifact.mjs";
 const PACKAGE_PATH = ["@akira-tl", "forgerelay"];
 
 export function resolveAcceptanceRuntimeRoot(repoRoot) {
+  const configuredRoot = process.env.FORGERELAY_ACCEPTANCE_RUNTIME_ROOT?.trim();
+  if (configuredRoot) {
+    const runtimeRoot = resolve(repoRoot, configuredRoot);
+    if (existsSync(join(runtimeRoot, "dist", "cli.js"))) return runtimeRoot;
+  }
+
   const prefix = resolveAcceptancePrefix(repoRoot);
-  if (!prefix) return resolve(repoRoot);
+  if (!prefix) {
+    if (configuredRoot) {
+      throw new Error(
+        `Prepared acceptance runtime is missing dist/cli.js: ${resolve(repoRoot, configuredRoot)}. Run ci:prepare-windows-shell-runtime before shell acceptance.`,
+      );
+    }
+    return resolve(repoRoot);
+  }
 
   const candidates = [
     join(prefix, "node_modules", ...PACKAGE_PATH),

@@ -60,6 +60,7 @@
     "ci:test-shard": "node scripts/ci/gates/test-shard.mjs",
     "ci:platform-tests": "node scripts/ci/gates/platform-tests.mjs",
     "ci:prepare-windows-product": "node scripts/ci/gates/prepare-windows-product.mjs",
+    "ci:prepare-windows-shell-runtime": "node scripts/ci/gates/prepare-windows-shell-runtime.mjs",
     "ci:verify": "node scripts/ci/verify.mjs",
     "release:parity": "node scripts/release-parity.mjs",
     "release:pack": "node scripts/release/pack.mjs",

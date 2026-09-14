@@ -40,7 +40,9 @@ try {
     console.log(`Using prepared acceptance install: ${prefix}`);
   }
   const shim = join(prefix, "forgerelay.cmd");
+  const powershellShim = join(prefix, "forgerelay.ps1");
   assert.ok(existsSync(shim), `npm did not create the Windows launcher shim: ${shim}`);
+  assert.ok(existsSync(powershellShim), `npm did not create the PowerShell launcher shim: ${powershellShim}`);
 
   const installedRoot = join(prefix, "node_modules", "@akira-tl", "forgerelay");
   assert.ok(existsSync(join(installedRoot, "dist", "cli.js")), `installed package is missing dist/cli.js: ${installedRoot}`);
@@ -67,6 +69,14 @@ try {
       installedRoot,
       workspaceProbe,
     });
+    if (runtime.family !== "cmd") {
+      await exercisePackagedPowerShellLauncher({
+        ...runtime,
+        root,
+        projectRoot,
+        powershellShim,
+      });
+    }
   }
 
   await exercisePackagedElevationContract(installedRoot, { root, projectRoot, shim, cmd });
@@ -146,6 +156,51 @@ async function exercisePackagedRuntime({ family, executable, doctorIdentity, roo
   assert.equal(opened.instructionPath, instructionPath);
   assert.match(opened.instructionContent ?? "", new RegExp(instructionMarker));
   assert.equal(opened.instructionStatus, "loaded", `${family} shell Instructions were not advertised as loaded`);
+}
+
+async function exercisePackagedPowerShellLauncher({ family, executable, doctorIdentity, root, projectRoot, powershellShim }) {
+  const configDir = join(root, `config-launcher-${family}`);
+  const stateDir = join(root, `state-launcher-${family}`);
+  await Promise.all([
+    mkdir(configDir, { recursive: true }),
+    mkdir(stateDir, { recursive: true }),
+  ]);
+  await writeFile(
+    join(configDir, "config.json"),
+    JSON.stringify({
+      host: "127.0.0.1",
+      port: 7678,
+      allowedRoots: [projectRoot],
+      stateDir,
+      worktreeRoot: join(root, `worktrees-launcher-${family}`),
+      commandShell: {
+        mode: "follow-launcher",
+        family,
+        executable,
+      },
+      shellInstructions: false,
+    }, null, 2),
+    "utf8",
+  );
+
+  const result = spawnSync(
+    executable,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", powershellShim, "doctor"],
+    {
+      cwd: process.cwd(),
+      env: cleanAcceptanceEnv(configDir),
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10_000,
+    },
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Packaged PowerShell launcher failed for ${family}: ${result.error?.message ?? result.stderr ?? result.status}`,
+    );
+  }
+  assert.match(result.stdout ?? "", doctorIdentity);
+  assert.match(result.stdout ?? "", /Command shell source: launcher/);
 }
 
 async function exercisePackagedElevationContract(installedRoot, { root, projectRoot, shim, cmd }) {
