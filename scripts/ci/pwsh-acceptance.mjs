@@ -302,7 +302,9 @@ async function exercisePtyLifecycle(manager, outputStore, node) {
 }
 
 async function exerciseHookRuntime(runtime) {
-  const { HookRunner, parseHookConfig } = await import("../../dist/mcp/hooks/hooks.js");
+  const { HookRunner, parseHookConfig } = await import(
+    acceptanceRuntimeModuleUrl(process.cwd(), "dist/mcp/hooks/hooks.js"),
+  );
   const logging = {
     level: "silent",
     format: "json",

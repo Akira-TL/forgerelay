@@ -223,6 +223,7 @@ test("packaged acceptance scripts can consume the one downloaded release artifac
     assert.match(source, /resolveAcceptanceTarball/);
     if (relativePath.endsWith("acceptance.mjs") && !relativePath.includes("product-acceptance")) {
       assert.match(source, /acceptanceRuntimeModuleUrl/);
+      assert.doesNotMatch(source, /import\("\.\.\/\.\.\/dist\//);
     }
   }
 });
