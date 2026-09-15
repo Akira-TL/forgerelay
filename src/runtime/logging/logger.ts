@@ -1,6 +1,7 @@
 import type { Request } from "express";
 import { basename } from "node:path";
 import { styleText, type InspectColor } from "node:util";
+import { workspaceColorFor, type WorkspaceColorSlot } from "../../workspace-colors.js";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -38,14 +39,14 @@ const LEVEL_STYLE: Record<Exclude<LogLevel, "silent">, InspectColor> = {
   debug: "gray",
 };
 
-const WORKSPACE_PROJECT_COLORS: readonly InspectColor[] = [
-  "cyanBright",
-  "greenBright",
-  "yellowBright",
-  "magentaBright",
-  "blueBright",
-  "whiteBright",
-];
+const WORKSPACE_PROJECT_COLORS: Record<WorkspaceColorSlot, InspectColor> = {
+  cyan: "cyanBright",
+  green: "greenBright",
+  yellow: "yellowBright",
+  magenta: "magentaBright",
+  blue: "blueBright",
+  white: "whiteBright",
+};
 
 export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silent">): boolean {
   return LEVEL_WEIGHT[config.level] >= LEVEL_WEIGHT[level];
@@ -273,17 +274,8 @@ function formatPrettySource(source: string, options: PrettyFormatOptions): strin
 
   const project = source.slice(0, separator);
   const workspace = source.slice(separator + 1);
-  const projectColor = WORKSPACE_PROJECT_COLORS[stableColorIndex(project)];
+  const projectColor = WORKSPACE_PROJECT_COLORS[workspaceColorFor(project)];
   return `${style([projectColor, "bold"], project, options)}/${style(["cyan", "underline"], workspace, options)}`;
-}
-
-function stableColorIndex(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) % WORKSPACE_PROJECT_COLORS.length;
 }
 
 function formatRuntimeResources(entry: LogFields): string {

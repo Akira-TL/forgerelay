@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { basename } from "node:path";
+import { workspaceColorFor } from "../../workspace-colors.js";
 import type { CompositeWorkspaceRecord } from "../composite/composite-workspaces.js";
 import type { RelayedWorkspaceInspection } from "../relay/types.js";
 
@@ -11,6 +13,7 @@ const PRESENTATION_FIELDS = [
   "path",
   "mode",
   "sourceRoot",
+  "workspaceColor",
   "workspaceReused",
   "includeBootstrapContext",
   "worktree",
@@ -24,6 +27,12 @@ export function compactWorkspacePresentation(
   for (const field of PRESENTATION_FIELDS) {
     const value = card[field];
     if (value !== undefined) presentation[field] = value;
+  }
+  if (presentation.workspaceColor === undefined) {
+    const root = typeof card.root === "string" ? card.root : undefined;
+    const name = typeof card.name === "string" ? card.name : undefined;
+    const identity = root ? basename(root) : name;
+    if (identity) presentation.workspaceColor = workspaceColorFor(identity);
   }
   const executionContext = projectExecutionContext(card.executionContext);
   if (executionContext) presentation.executionContext = executionContext;

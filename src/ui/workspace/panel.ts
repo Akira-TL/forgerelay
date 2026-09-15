@@ -102,7 +102,10 @@ export class WorkspacePanelController {
   }
 
   private renderPanel(card: WorkspacePanelCard): HTMLElement {
-    const section = element("section", "workspace-panel");
+    const section = element(
+      "section",
+      `workspace-panel${card.workspaceColor ? ` workspace-color-${card.workspaceColor}` : ""}`,
+    );
     const header = element("div", "workspace-panel-header");
     const icon = element("span", "workspace-panel-icon");
     icon.setAttribute("aria-hidden", "true");

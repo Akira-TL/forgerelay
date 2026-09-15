@@ -42,6 +42,7 @@ export interface ToolResultCard {
   path?: string;
   root?: string;
   workspaceReused?: boolean;
+  workspaceColor?: "cyan" | "green" | "yellow" | "magenta" | "blue" | "white";
   includeBootstrapContext?: boolean;
   presentationRevision?: string;
   mode?: "checkout" | "worktree";

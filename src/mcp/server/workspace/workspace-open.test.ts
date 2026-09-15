@@ -37,6 +37,7 @@ import {
 } from "../../../runtime/testing/server-fixture.js";
 import { SqliteWorkspaceStore } from "../../../workspaces/state/workspace-store.js";
 import { WorkspaceRegistry } from "../../../workspaces.js";
+import { WORKSPACE_COLOR_SLOTS } from "../../../workspace-colors.js";
 
 const execFileAsync = promisify(execFile);
 const packageJson = JSON.parse(await readFile(new URL("../../../../package.json", import.meta.url), "utf8")) as {
@@ -141,8 +142,10 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(repeatedText, /do not query it mechanically on every open/i);
   assert.match(repeatedText, /not repeated here/);
 
+  const firstCard = responseCard(first) as { workspaceColor?: string };
   const card = responseCard(repeated) as {
     workspaceReused?: boolean;
+    workspaceColor?: string;
     includeBootstrapContext?: boolean;
     presentationRevision?: string;
     agentsFiles?: Array<{ path?: string; content?: string }>;
@@ -152,6 +155,9 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
     agents?: Array<{ name?: string }>;
   };
   assert.equal(card.workspaceReused, true);
+  assert.equal(typeof firstCard.workspaceColor, "string");
+  assert.ok((WORKSPACE_COLOR_SLOTS as readonly string[]).includes(firstCard.workspaceColor ?? ""));
+  assert.equal(card.workspaceColor, firstCard.workspaceColor);
   assert.equal(card.includeBootstrapContext, false);
   assert.equal(typeof card.presentationRevision, "string");
   assert.ok((card.agentsFiles?.length ?? 0) > 0);

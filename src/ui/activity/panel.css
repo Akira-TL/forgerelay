@@ -8,8 +8,33 @@
 }
 
 .workspace-panel {
+  --workspace-identity-accent: var(--tool-accent);
   width: 100%;
   background: var(--tool-card-header-bg);
+}
+
+.workspace-panel.workspace-color-cyan {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #06b6d4 72%);
+}
+
+.workspace-panel.workspace-color-green {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #22c55e 72%);
+}
+
+.workspace-panel.workspace-color-yellow {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 26%, #eab308 74%);
+}
+
+.workspace-panel.workspace-color-magenta {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #d946ef 72%);
+}
+
+.workspace-panel.workspace-color-blue {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 30%, #3b82f6 70%);
+}
+
+.workspace-panel.workspace-color-white {
+  --workspace-identity-accent: var(--color-text-primary, #f5f5f6);
 }
 
 .workspace-panel-header {
@@ -27,8 +52,8 @@
   height: 22px;
   place-items: center;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--tool-accent) 9%, transparent);
-  color: color-mix(in srgb, var(--tool-accent) 72%, var(--color-text-tertiary, #a3a3aa));
+  background: color-mix(in srgb, var(--workspace-identity-accent) 9%, transparent);
+  color: color-mix(in srgb, var(--workspace-identity-accent) 72%, var(--color-text-tertiary, #a3a3aa));
 }
 
 .workspace-panel-icon-svg {

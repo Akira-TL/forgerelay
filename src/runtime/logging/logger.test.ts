@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatPrettyLogEntry, workspaceLogLabel } from "./logger.js";
+import { WORKSPACE_COLOR_SLOTS, WorkspaceColorAllocator } from "../../workspace-colors.js";
 
 const timestamp = new Date(2026, 7, 9, 20, 41, 3).toISOString();
 
@@ -216,6 +217,20 @@ test("pretty shutdown logs summarize closed MCP transport sessions", () => {
 
   assert.match(line, /\| 4 transport sessions closed$/);
   assert.doesNotMatch(line, /sessionIdPrefix/);
+});
+
+test("workspace project colors stay unique until the six-color palette is exhausted", () => {
+  const allocator = new WorkspaceColorAllocator();
+  const projects = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
+  const assigned = projects.map((project) => allocator.colorFor(project));
+
+  assert.equal(new Set(assigned).size, WORKSPACE_COLOR_SLOTS.length);
+  assert.deepEqual(new Set(assigned), new Set(WORKSPACE_COLOR_SLOTS));
+  assert.equal(allocator.colorFor("alpha"), assigned[0]);
+
+  const overflow = allocator.colorFor("golf");
+  assert.ok(WORKSPACE_COLOR_SLOTS.includes(overflow));
+  assert.equal(new Set([...assigned, overflow]).size, WORKSPACE_COLOR_SLOTS.length);
 });
 
 test("pretty workspace sources color project names while keeping workspace ids visible", () => {
