@@ -235,7 +235,7 @@ open_workspace(action="list")
 
 ## Worktree mode 创建失败
 
-检查当前目录是不是 Git repository、至少有一个 commit、source checkout 是否在 attached local branch、显式 `baseRef` 是否指向 local branch，以及 worktree root 是否可写。
+检查当前目录是不是 Git repository、至少有一个 commit、显式 `baseRef` 是否能解析到 commit、最终 `targetBranch` 是否是现有本地 branch，以及 worktree root 是否可写。source checkout 处于 detached HEAD 时，如果 `baseRef` 本身不能提供本地 target，必须显式传 `targetBranch`。
 
 Source checkout 的 uncommitted changes 不会自动复制进新 worktree。
 

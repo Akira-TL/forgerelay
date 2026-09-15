@@ -162,7 +162,7 @@ export interface WorkspaceInventoryEntry {
   status: string;
   state: WorkspaceInventoryState;
   mode: WorkspaceMode;
-  sourceRoot?: string;
+  sourceRoot?: string; baseRef?: string; baseSha?: string;
   branch?: string;
   targetBranch?: string;
   managed: boolean;
@@ -182,7 +182,7 @@ export interface WorkspaceInspection {
   status: string;
   state: WorkspaceInventoryState;
   mode: WorkspaceMode;
-  sourceRoot?: string;
+  sourceRoot?: string; baseRef?: string; baseSha?: string;
   branch?: string;
   targetBranch?: string;
   managed: boolean;

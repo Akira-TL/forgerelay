@@ -121,11 +121,17 @@ The worktree normally lives under:
 Existing configured/legacy roots remain supported.
 
 The recorded target branch is the local branch that should receive completed
-work. An explicit `baseRef` must identify a local branch.
+work. `baseRef` independently selects the starting commit for the managed branch
+and may be a local branch, tag, commit SHA, or another ref that resolves to a
+commit. `targetBranch` may be supplied explicitly; otherwise ForgeRelay uses a
+local-branch `baseRef` when available, then the source checkout's current local
+branch. A detached source therefore needs an explicit local target when the base
+does not itself identify one.
 
-By default, a repeated worktree request for the same source/target reuses the
-existing managed worktree. An explicit new-worktree request creates another
-parallel branch/worktree.
+By default, a repeated branch-following request for the same source/target reuses
+the existing managed worktree. Explicit historical bases also include their
+resolved `baseSha` in reuse identity so distinct pinned bases cannot alias each
+other. An explicit new-worktree request creates another parallel branch/worktree.
 
 `open_workspace` also returns known managed worktree paths and branch metadata
 so a specific existing worktree can be reopened directly.
@@ -154,9 +160,11 @@ placed into a merge-conflict state.
 A successful managed close now preserves the Workspace identity as `closed` even
 though the physical worktree and managed branch are removed. Reopen that Workspace
 with `open_workspace(workspaceId="ws_...")`; ForgeRelay creates fresh worktree
-backing from the recorded source/target relationship and returns the same Workspace
-ID. If the source checkout or target branch can no longer provide valid backing, the
-open fails and the durable Workspace record remains closed.
+backing from the current recorded target branch and returns the same Workspace ID.
+An original historical `baseRef` applies only to the backing that was created from
+it; reopen does not pin the persistent Workspace back to that old commit. If the
+source checkout or target branch can no longer provide valid backing, the open
+fails and the durable Workspace record remains closed.
 
 `close_workspace(action="delete")` is never an implicit discard for active isolated
 work. An active managed worktree still requires `commitMessage` and completes the

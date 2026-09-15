@@ -88,6 +88,53 @@ test("closing a managed worktree preserves identity and reopen recreates physica
   await registry.closeWorktree(first.workspace.id, "test: final worktree cleanup");
 });
 
+test("pinned managed-worktree Workspace reopens from the current target branch", async (t) => {
+  const { project, registry, store } = await fixture(t, { git: true });
+  const targetBranch = await gitOutput(project, ["branch", "--show-current"]);
+  const historicalSha = await gitOutput(project, ["rev-parse", "HEAD"]);
+  await writeFile(join(project, "target-before-open.txt"), "target before open\n");
+  await git(project, ["add", "target-before-open.txt"]);
+  await git(project, ["commit", "-m", "Advance target before pinned open"]);
+
+  const opened = await registry.openWorkspace({ path: project, mode: "worktree", baseRef: historicalSha });
+  const workspaceId = opened.workspace.id;
+  const oldRoot = opened.workspace.root;
+  await writeFile(join(oldRoot, "pinned-work.txt"), "pinned work\n");
+  await git(oldRoot, ["add", "pinned-work.txt"]);
+  await git(oldRoot, ["commit", "-m", "Pinned work"]);
+  await git(oldRoot, ["rebase", targetBranch]);
+
+  const activeInspection = await registry.inspectWorkspace(workspaceId);
+  assert.equal(activeInspection.baseRef, historicalSha);
+  assert.equal(activeInspection.baseSha, historicalSha);
+  assert.equal(activeInspection.targetBranch, targetBranch);
+
+  await registry.closeWorktree(workspaceId, "test: close pinned worktree");
+  assert.equal(store.getSession(workspaceId)?.status, "closed");
+  const closedInspection = await registry.inspectWorkspace(workspaceId);
+  assert.equal(closedInspection.baseRef, historicalSha);
+  assert.equal(closedInspection.baseSha, historicalSha);
+
+  await writeFile(join(project, "target-after-close.txt"), "target after close\n");
+  await git(project, ["add", "target-after-close.txt"]);
+  await git(project, ["commit", "-m", "Advance target after pinned close"]);
+  const latestTargetSha = await gitOutput(project, ["rev-parse", "HEAD"]);
+
+  const reopened = await registry.openWorkspace({ workspaceId });
+  assert.equal(reopened.workspace.id, workspaceId);
+  assert.notEqual(reopened.workspace.root, oldRoot);
+  assert.equal(reopened.workspace.worktree?.baseRef, targetBranch);
+  assert.equal(reopened.workspace.worktree?.baseSha, latestTargetSha);
+  assert.notEqual(reopened.workspace.worktree?.baseSha, historicalSha);
+  assert.equal(reopened.workspace.worktree?.targetBranch, targetBranch);
+
+  const reopenedInspection = await registry.inspectWorkspace(workspaceId);
+  assert.equal(reopenedInspection.baseRef, targetBranch);
+  assert.equal(reopenedInspection.baseSha, latestTargetSha);
+  assert.equal(reopenedInspection.targetBranch, targetBranch);
+  await registry.closeWorktree(workspaceId, "test: cleanup reopened pinned Workspace");
+});
+
 test("concurrent managed-worktree reopen paths share one fresh backing", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const opened = await registry.openWorkspace({ path: project, mode: "worktree" });

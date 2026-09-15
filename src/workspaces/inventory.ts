@@ -127,6 +127,8 @@ export class WorkspaceInventoryService {
       state,
       mode: session.mode,
       sourceRoot: session.sourceRoot,
+      baseRef: session.baseRef,
+      baseSha: session.baseSha,
       branch: session.branch,
       targetBranch: session.targetBranch,
       managed: session.managed,

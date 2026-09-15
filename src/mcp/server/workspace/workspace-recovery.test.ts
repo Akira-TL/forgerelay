@@ -97,6 +97,40 @@ test("workspace.recovery repairs missing managed-worktree backing from the survi
   assert.equal(lists[0]?.id, taskListId);
 });
 
+test("workspace.recovery preserves pinned base and target metadata while repairing backing", async (t) => {
+  const context = await fixture(t, { git: true });
+  const baseSha = await gitOutput(context.project, ["rev-parse", "HEAD"]);
+  const opened = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { path: context.project, mode: "worktree", baseRef: baseSha },
+  });
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const worktree = structuredContent(opened).worktree as Record<string, unknown>;
+  const oldRoot = String(worktree.path);
+  const targetBranch = String(worktree.targetBranch);
+  const targetHeadBefore = await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]);
+
+  await rm(oldRoot, { recursive: true, force: true });
+  const status = await recoveryCall(context.client, workspaceId, "status");
+  assert.equal((structuredContent(status).result as Record<string, unknown>).repaired, false);
+
+  const repaired = await recoveryCall(context.client, workspaceId, "repair");
+  const repairedResult = structuredContent(repaired).result as Record<string, unknown>;
+  assert.equal(repairedResult.repaired, true);
+  assert.equal(repairedResult.targetBranch, targetBranch);
+  assert.equal(await gitOutput(context.project, ["rev-parse", `refs/heads/${targetBranch}`]), targetHeadBefore);
+
+  const inspected = await context.client.callTool({
+    name: "open_workspace",
+    arguments: { action: "inspect", workspaceId },
+  });
+  const inspection = structuredContent(inspected).inspection as Record<string, unknown>;
+  assert.equal(inspection.baseRef, baseSha);
+  assert.equal(inspection.baseSha, baseSha);
+  assert.equal(inspection.targetBranch, targetBranch);
+  assert.equal((inspection.recovery as Record<string, unknown>).classification, "healthy");
+});
+
 test("workspace.recovery refuses repair when the managed branch is missing", async (t) => {
   const context = await fixture(t, { git: true });
   const opened = await callOpen(context.client, context.project, "chat-recovery-refuse", "worktree");

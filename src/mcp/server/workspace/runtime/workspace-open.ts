@@ -138,7 +138,7 @@ async function handleOpenWorkspace(
         if (
           memberAction !== undefined || member !== undefined || kind !== undefined || name !== undefined ||
           memberName !== undefined || path !== undefined || relay !== undefined || mode !== undefined ||
-          baseRef !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
+          baseRef !== undefined || targetBranch !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
           root !== undefined || status !== undefined || state !== undefined || staleOnly !== undefined ||
           offset !== undefined || limit !== undefined
         ) {

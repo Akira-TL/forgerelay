@@ -34,11 +34,11 @@ forgerelay/project-<id>
 
 ## Target branch
 
-Managed Worktree 会记录最终接收结果的本地 target branch。
+Managed Worktree 会分别记录起始 `baseRef` / `baseSha` 与最终接收结果的本地 `targetBranch`。
 
-如果显式传 `baseRef`，它必须指向本地 branch。任意 commit 或 tag 不能作为未来 finalize 的 target branch。
+`baseRef` 只决定 managed branch 从哪个 commit 开始，可以是本地 branch、tag、commit SHA 或其他能解析到 commit 的 ref。`targetBranch` 则必须是本地 branch；可以显式传入，也可以由本地 branch `baseRef` 或 source checkout 当前本地 branch 推导。source checkout 处于 detached HEAD 且无法推导 target 时，需要显式传 `targetBranch`。
 
-对相同 source/target 再次请求 worktree 时，ForgeRelay 可以复用已有 managed worktree。只有确实需要另一个并行隔离单元时，才创建新的 worktree。
+普通 branch-following 请求仍按相同 source/target 复用已有 managed worktree；显式固定到历史 commit 的请求还会按解析后的 `baseSha` 区分，避免不同历史基线错误复用同一个 backing。只有确实需要另一个并行隔离单元时，才使用 `newWorktree` 创建新的 worktree。
 
 ## 主 checkout 的未提交修改
 
@@ -98,7 +98,7 @@ Workspace identity 和物理 worktree backing 是分开的。
 open_workspace(workspaceId="ws_...")
 ```
 
-ForgeRelay 会根据记录的 source/target 关系重新创建 backing，并继续使用原来的 `workspaceId`。
+ForgeRelay 会从当前记录的 `targetBranch` 重新创建 backing，并继续使用原来的 `workspaceId`。最初用于某一轮 backing 的历史 `baseRef` 不会把 persistent Workspace 永久钉在旧 commit 上。
 
 ## Delete 不是 discard
 

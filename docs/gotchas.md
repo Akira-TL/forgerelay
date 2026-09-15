@@ -148,8 +148,8 @@ Managed worktrees require:
 
 - Git;
 - a repository with at least one commit;
-- an attached local source branch;
-- a local `baseRef` when one is explicitly supplied.
+- a `baseRef` that resolves to a commit when one is explicitly supplied;
+- an existing local `targetBranch` for final integration. ForgeRelay normally derives it from a local-branch `baseRef` or the attached source branch; a detached source must supply one explicitly when it cannot otherwise be derived.
 
 New managed branches use:
 

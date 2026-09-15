@@ -20,7 +20,7 @@ export function stringField(
 export function copyStringField(
   source: Record<string, unknown>,
   target: RelayedWorkspaceInspection,
-  field: "status" | "sourceRoot" | "branch" | "targetBranch" | "createdAt" | "lastUsedAt",
+  field: "status" | "sourceRoot" | "baseRef" | "baseSha" | "branch" | "targetBranch" | "createdAt" | "lastUsedAt",
 ): void {
   const value = source[field];
   if (typeof value === "string") target[field] = value;

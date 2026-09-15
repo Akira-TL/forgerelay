@@ -15,8 +15,10 @@
 
 - 默认 `mode="checkout"`，直接使用用户已有 checkout；
 - 只有明确需要隔离/并行 Git 工作时才选 `mode="worktree"`；
-- `baseRef` 只用于 managed worktree，默认取 source checkout 当前分支；
-- 已有 `workspaceId` 用于恢复同一个逻辑 workspace；
+- `baseRef` 只用于 managed worktree，表示新 managed branch 的起始 commit-ish；可以是本地 branch、tag、commit SHA 等可解析到 commit 的 ref，默认使用 source checkout 当前 `HEAD`；
+- `targetBranch` 表示最终允许 `close_workspace` fast-forward 的本地 branch；未显式指定时，本地 branch `baseRef` 自身优先作为 target，否则使用 source checkout 当前本地 branch；detached source 无法推导 target 时必须显式提供；
+- 显式固定到历史 base 的请求按解析后的 `baseSha` 区分复用身份，不会与同一 target 上另一历史 base 或普通 branch-following backing 混用；
+- 已有 `workspaceId` 用于恢复同一个逻辑 workspace；closed managed-worktree Workspace reopen 时从当前持久化 `targetBranch` 建立新 backing，不重新钉回最初的历史 `baseRef`；
 - `newWorkspace` 只创建新的逻辑 handle；
 - `newWorktree` 才表示同一项目再创建一个独立物理 worktree。
 

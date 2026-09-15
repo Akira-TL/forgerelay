@@ -36,6 +36,8 @@ export interface RelayedWorkspaceInspection {
   state?: "active" | "stale" | "invalid" | "closed";
   mode: "checkout" | "worktree";
   sourceRoot?: string;
+  baseRef?: string;
+  baseSha?: string;
   branch?: string;
   targetBranch?: string;
   managed?: boolean;

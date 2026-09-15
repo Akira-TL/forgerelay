@@ -114,6 +114,8 @@ export class RemoteWorkspaceRelay {
       projection.state = state;
     }
     copyStringField(remoteInspection, projection, "sourceRoot");
+    copyStringField(remoteInspection, projection, "baseRef");
+    copyStringField(remoteInspection, projection, "baseSha");
     copyStringField(remoteInspection, projection, "branch");
     copyStringField(remoteInspection, projection, "targetBranch");
     copyBooleanField(remoteInspection, projection, "managed");
