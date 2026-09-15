@@ -4,6 +4,21 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-09-15
+
+### Added
+
+- Managed worktrees can now start from arbitrary Git commit-ish refs while keeping their integration target branch independent, so a pinned historical baseline no longer has to be a local branch.
+
+### Changed
+
+- Release verification now splits more independent CI work in parallel and reuses pinned npm / packaged shell runtime state where safe, reducing repeated setup in the cross-platform release matrix.
+
+### Fixed
+
+- Pinned-base managed worktrees now preserve their baseline metadata across reuse, reopen, recovery, rebase, and close, while still integrating into the configured target branch; pinned workspaces with different immutable baselines no longer collapse onto one reuse identity.
+- Workspace Panel long paths now wrap instead of truncating important Root / checkout details, and Workspace identity color is shared consistently between pretty logs and Panel SVG icons. The identity palette now uses 14 normal/bright terminal color slots, avoids duplicates for the first 14 distinct Workspace names in one process, and normalizes both POSIX and Windows-style paths consistently.
+
 ## [1.2.3] - 2026-09-14
 
 ### Fixed
