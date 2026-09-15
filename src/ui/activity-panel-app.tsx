@@ -8,6 +8,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { HostContext } from "./core/card-types.js";
 import { ActivityPanelController } from "./activity/panel.js";
 import { WorkspacePanelController } from "./workspace/panel.js";
+import "./activity/panel.css";
 import "./workspace/panel.css";
 import "./review/panel.css";
 
