@@ -33,9 +33,7 @@ export class WorkspaceColorAllocator {
       return slot;
     }
 
-    const fallback = WORKSPACE_COLOR_SLOTS[preferredIndex] ?? WORKSPACE_COLOR_SLOTS[0];
-    this.assignments.set(value, fallback);
-    return fallback;
+    return WORKSPACE_COLOR_SLOTS[preferredIndex] ?? WORKSPACE_COLOR_SLOTS[0];
   }
 }
 
