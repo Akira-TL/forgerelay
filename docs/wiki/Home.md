@@ -4,6 +4,8 @@ ForgeRelay 是一个自托管 MCP Server，让 ChatGPT、Claude 等支持 MCP �
 
 Host 负责对话和推理，ForgeRelay 负责真实本地执行。普通开发默认使用现有 checkout；需要隔离时再创建 Managed Worktree。Workspace identity 可以跨 conversation 保留，远端执行和 Composite Workspace 也不会把不同机器的文件、Git 或进程状态混在一起。
 
+当前稳定版的重点不是“再加一套 Agent runtime”，而是把本机开发环境可靠地交给 Host：持久 Workspace、渐进式上下文、真实 Shell/Git、Config v2、Language Server、External MCP，以及可安全 finalize 的 branch-backed worktree。
+
 > Wiki 主要面向日常使用和排障。精确配置字段、版本化协议约束与架构决策仍以主仓库 `docs/`、`CONTEXT.md` 和 ADR 为准。
 
 ## 从这里开始
@@ -25,9 +27,11 @@ Host 负责对话和推理，ForgeRelay 负责真实本地执行。普通开发�
 
 ## 几条先记住的规则
 
-普通任务保持 checkout-first。换一个 conversation 不需要新 Workspace；真正需要并行隔离时才创建 Managed Worktree。
+普通任务保持 checkout-first。换一个 conversation 不需要新 Workspace；真正需要并行隔离时才创建 Managed Worktree。Worktree 的起始 `baseRef` 可以是 branch、tag 或历史 commit，最终集成目标由本地 `targetBranch` 独立确定。
 
 Workspace close 不等于 delete。Close 只是暂时停用，identity 和 Task List 等 ForgeRelay-owned state 仍然保留。
+
+Agent Skills 的 ownership 要分清：项目 `.agents/skills` 属于开放 Agent Skills 生态，ForgeRelay 自己的 Project/System Skills 位于 `.forgerelay/skills` 和 active config directory。ForgeRelay 不会自动扫描全局 `~/.agents/skills`。
 
 Shell 命令使用启动 ForgeRelay 的本地用户权限，不受文件工具的 Workspace path boundary 限制。只连接你信任的 Host，并只开放确实需要访问的 roots。
 

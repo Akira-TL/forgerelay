@@ -64,7 +64,7 @@ forgerelay config sources
 forgerelay config explain <logical-path>
 ```
 
-v1.2 的 Config System 统一解析 User、Project 和机器私有 Project Local 配置，统一优先级是 `runtime > project-local > project > user > built-in`。External MCP、Language Servers、Hooks 和 Subagent Profiles 支持按需热刷新与 last-known-good；需要重启的 General 配置会区分 configured / applied，不会自动重启 Server。Canonical JSON 可以引用 npm package 中的 `schemas/v1/*` `$schema`，受支持的敏感字段可用 `${ENV_NAME}`，诊断不会输出解析后的 secret。ForgeRelay 启动不会自动重写旧配置，需要迁移时使用 `forgerelay config migrate --dry-run ...` 先预览。
+ForgeRelay 的 Config System 统一解析 User、Project 和机器私有 Project Local 配置，优先级是 `runtime > project-local > project > user > built-in`。External MCP、Language Servers、Hooks 和 Subagent Profiles 支持按需刷新与 last-known-good；启动不会自动重写旧配置。需要深入配置、迁移或排查来源时，直接看 [配置指南](https://github.com/Akira-TL/forgerelay/wiki/Configuration)。
 
 ### ChatGPT 访问不到 localhost？
 
@@ -100,9 +100,9 @@ bash(command="npm test")
 bash(command="git status --short")
 ```
 
-ForgeRelay 不会默认为每个任务创建 worktree。只有你明确要求隔离或并行开发时，才使用 managed worktree。
+ForgeRelay 不会默认为每个任务创建 worktree。只有你明确要求隔离或并行开发时，才使用 managed worktree。Worktree 可以从本地 branch、tag 或历史 commit SHA 启动，同时把最终集成的本地 `targetBranch` 单独记录；不需要为了历史基线先造一个临时 branch。
 
-长命令也不会要求 Agent 高频轮询。命令超过当前等待窗口时会返回稳定的 `processId`，后续继续等待或中断同一个进程即可。
+长命令也不会要求 Agent 高频轮询。命令超过当前等待窗口时会返回稳定的 `processId`，后续继续等待、交互或中断同一个进程即可。
 
 ## 主要能力
 
@@ -110,8 +110,9 @@ ForgeRelay 不会默认为每个任务创建 worktree。只有你明确要求隔
 - Linux / macOS 可以用 Bash、zsh、POSIX sh；Windows 原生支持 PowerShell 7、Windows PowerShell 5.1 和 `cmd.exe`。
 - 同一个 checkout 会保留自己的 Workspace 身份。换一次对话，不需要重新创建工作区。
 - `code.intelligence` 可以查 definition、hover、references、symbols 和 diagnostics。
-- 项目里的 `AGENTS.md`、`CLAUDE.md` 和 Agent Skills 按需加载，不会每次都把整套说明重新塞进上下文。
-- 需要并行开发时可以创建真实 Git worktree；集成回主分支时只接受安全的 fast-forward，不自动制造 merge conflict。
+- 项目里的 `AGENTS.md`、`CLAUDE.md` 和 Agent Skills 按需加载，不会每次都把整套说明重新塞进上下文。Skill 来自项目级 `.agents/skills`、项目/系统 ForgeRelay Skills 和显式附加路径；不会自动扫描全局 `~/.agents/skills`。
+- 需要并行开发时可以创建真实 Git worktree；起始 commit 与最终 `targetBranch` 独立，集成仍只接受安全的 fast-forward，不自动制造 merge conflict。
+- 支持 MCP Apps 的 Host 会显示 Workspace Summary / Activity Panel；Workspace 身份色在 Panel 与 pretty log 中保持一致，长路径会在详情区正常换行。
 - Workspace Relay 可以把执行放到另一台 ForgeRelay；Composite Workspace 可以同时协调几个独立环境。
 - `read` 可以直接把 PNG、JPEG、WebP 和 GIF 作为临时 MCP Media content 返回；外部 MCP 通过独立的 global/Project `mcp.json` 热加载到 `mcp.external` Capability，并支持人工 OAuth 认证，而不会自动打开它返回的路径或 URL。
 
@@ -125,7 +126,7 @@ ForgeRelay 给 Agent 的是真实本机执行权限，不是模拟环境。
 
 文件工具受 Workspace 和 allowed roots 限制；Shell 命令使用启动 ForgeRelay 的本地用户权限执行，**Shell 不是 OS sandbox**。因此只连接你信任的 MCP Host，只开放确实需要的项目目录，并保护好 Owner password。
 
-Allowed roots 是文件系统 / Workspace authority，不等于 Project Trust approval。v1.2.0 已把项目中的可执行配置统一接入 Project execution trust seam，但首个稳定策略是 compatibility-allow；完整的交互式 Project Trust approval UI 不是 v1.2.0 已实现功能。
+Allowed roots 是文件系统 / Workspace authority，不等于 Project Trust approval。项目中的可执行配置已经统一接入 Project execution trust seam；当前稳定策略仍是 compatibility-allow，完整的交互式 Project Trust approval UI 尚未实现。
 
 ForgeRelay 默认拒绝 elevated / administrator 启动。只有你显式选择高权限运行时才会继续，并会提示系统级修改可能不可逆。
 
@@ -135,6 +136,8 @@ ForgeRelay 默认拒绝 elevated / administrator 启动。只有你显式选择�
 
 - [快速开始](https://github.com/Akira-TL/forgerelay/wiki/Getting-Started)
 - [配置](https://github.com/Akira-TL/forgerelay/wiki/Configuration)
+- [Managed Worktree](https://github.com/Akira-TL/forgerelay/wiki/Managed-Worktrees)
+- [ChatGPT 与 MCP 工作流](https://github.com/Akira-TL/forgerelay/wiki/ChatGPT-and-MCP-Workflow)
 - [External MCP](https://github.com/Akira-TL/forgerelay/wiki/External-MCP)
 - [安全模型](https://github.com/Akira-TL/forgerelay/wiki/Security)
 - [故障排查](https://github.com/Akira-TL/forgerelay/wiki/Troubleshooting)
@@ -185,7 +188,7 @@ forgerelay config sources
 forgerelay config explain <logical-path>
 ```
 
-Config System v2 in v1.2 resolves User, Project, and machine-private Project Local sources using `runtime > project-local > project > user > built-in`. External MCP, Language Servers, Hooks, and Subagent Profiles refresh on demand with last-known-good protection; restart-required General settings keep configured and applied values distinct and never auto-restart the server. Canonical JSON can point at the packaged `schemas/v1/*` `$schema` files, supported sensitive fields may use `${ENV_NAME}`, and diagnostics do not expose resolved secrets. Startup never rewrites legacy configuration automatically; preview an explicit migration with `forgerelay config migrate --dry-run ...` first.
+ForgeRelay's Config System resolves User, Project, and machine-private Project Local sources using `runtime > project-local > project > user > built-in`. External MCP, Language Servers, Hooks, and Subagent Profiles refresh on demand with last-known-good protection, and startup never rewrites legacy configuration automatically. See [Configuration](https://github.com/Akira-TL/forgerelay/wiki/Configuration) for scopes, migration, schemas, and diagnostics.
 
 ### Host cannot reach localhost?
 
@@ -221,7 +224,7 @@ bash(command="npm test")
 bash(command="git status --short")
 ```
 
-ForgeRelay does not create a worktree for every task. Managed worktrees are for cases where you explicitly want isolation or parallel development.
+ForgeRelay does not create a worktree for every task. Managed worktrees are for cases where you explicitly want isolation or parallel development. A worktree may start from a local branch, tag, or historical commit SHA while keeping the eventual local `targetBranch` separate, so a temporary baseline branch is unnecessary.
 
 Long commands do not require tight polling either. Once the current wait window expires, ForgeRelay returns a stable `processId`; later calls wait on, interact with, or interrupt that same process.
 
@@ -231,8 +234,9 @@ Long commands do not require tight polling either. Once the current wait window 
 - Linux/macOS can use Bash, zsh, or POSIX sh. Windows has native PowerShell 7, Windows PowerShell 5.1, and `cmd.exe` support.
 - Reopening the same checkout reuses the same Workspace identity instead of creating another one for every conversation.
 - `code.intelligence` provides definition, hover, references, symbols, and diagnostics.
-- `AGENTS.md`, `CLAUDE.md`, and Agent Skills are loaded as needed instead of being resent in full on every open.
-- Managed worktrees provide real Git isolation when you ask for parallel work, with fast-forward-only finalization.
+- `AGENTS.md`, `CLAUDE.md`, and Agent Skills are loaded as needed instead of being resent in full on every open. Skills come from project `.agents/skills`, project/system ForgeRelay Skill directories, and explicit extra paths; global `~/.agents/skills` is not scanned automatically.
+- Managed worktrees provide real Git isolation when you ask for parallel work. Starting commit and local `targetBranch` are tracked independently, while finalization remains fast-forward-only.
+- MCP Apps-capable hosts can render the Workspace Summary / Activity Panel. Workspace identity colors stay consistent between the panel and pretty logs, and long paths wrap in detail rows instead of hiding their tail.
 - Workspace Relay runs work on another ForgeRelay instance; Composite Workspaces coordinate several independent environments from one Host.
 - `read` can return PNG, JPEG, WebP, and GIF directly as transient MCP Media content; external MCP servers hot-reload from standalone global/Project `mcp.json` files into the `mcp.external` Capability, with explicit human OAuth when needed and no automatic dereferencing of returned paths or URLs.
 
@@ -246,7 +250,7 @@ ForgeRelay gives an Agent real local execution capability.
 
 Filesystem tools are constrained by the opened Workspace and configured allowed roots. Shell commands run with the authority of the local user running ForgeRelay; **the shell is not an OS sandbox**. Connect only MCP hosts you trust, expose only project roots you want an Agent to access, and keep the Owner password private.
 
-Allowed roots grant filesystem/Workspace authority; they are not a Project Trust approval. v1.2.0 routes executable project configuration through a shared Project execution trust seam, but its initial policy is compatibility-allow. A full interactive Project Trust approval UI is not claimed for v1.2.0.
+Allowed roots grant filesystem/Workspace authority; they are not a Project Trust approval. Executable project configuration is routed through a shared Project execution trust seam; the current stable policy remains compatibility-allow, and a full interactive Project Trust approval UI is not implemented yet.
 
 Elevated / administrator startup is rejected by default. It only proceeds after explicit opt-in, with a warning that system-level AI-driven changes may be irreversible.
 
@@ -256,6 +260,8 @@ See the [Security model](https://github.com/Akira-TL/forgerelay/wiki/Security) f
 
 - [Getting Started](https://github.com/Akira-TL/forgerelay/wiki/Getting-Started)
 - [Configuration](https://github.com/Akira-TL/forgerelay/wiki/Configuration)
+- [Managed Worktrees](https://github.com/Akira-TL/forgerelay/wiki/Managed-Worktrees)
+- [ChatGPT and MCP Workflow](https://github.com/Akira-TL/forgerelay/wiki/ChatGPT-and-MCP-Workflow)
 - [External MCP](https://github.com/Akira-TL/forgerelay/wiki/External-MCP)
 - [Security model](https://github.com/Akira-TL/forgerelay/wiki/Security)
 - [Troubleshooting](https://github.com/Akira-TL/forgerelay/wiki/Troubleshooting)
@@ -276,3 +282,5 @@ npm run build
 ```
 
 `npm run dev` uses the 7677 debug runtime. Product port 7676 is kept separate from development acceptance.
+
+Release tags are created only after a developer has manually exercised and explicitly accepted the exact release-ready state. Automated verification and the Linux/macOS/Windows release matrix remain additional gates; they do not replace manual acceptance.

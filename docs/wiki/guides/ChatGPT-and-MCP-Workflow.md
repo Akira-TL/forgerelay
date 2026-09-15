@@ -84,7 +84,7 @@ FORGERELAY_SKILL_PATHS
 
 这些位置只共享 discovery contract，不共享所有权。Project `.agents/skills` 是开放 Agent Skills 目录，可以由其他 Agent 工具安装或软链接；ForgeRelay-owned 的 Project/System Skill 分别保持在 `<project>/.forgerelay/skills` 与 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。ForgeRelay 不再自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
 
-同名 Skill 只保留优先级最高的来源，因此 Project Agent Skill 会覆盖 Project ForgeRelay Skill，后者再覆盖系统 ForgeRelay Skill和显式附加路径。
+同名 Skill 只保留优先级最高的来源，因此 Project Agent Skill 会覆盖 Project ForgeRelay Skill，后者再覆盖系统 ForgeRelay Skill 和显式附加路径。
 
 ForgeRelay 只负责发现，并把 `name + description` 暴露给 Agent。任务匹配由 Agent 自己判断；真正需要时再读取：
 
@@ -129,11 +129,13 @@ bash(action="process", processId=...)
 
 后台进程结束后，completion notice 可以在同一 Workspace 后续结果中交付一次。完整输出短时间保留，之后压缩成有界的 head/tail record。
 
-## Activity Panel
+## Workspace Summary 与 Activity Panel
 
-Host 支持 MCP Apps UI 时，ForgeRelay 可以显示 Workspace Summary 和 Activity Panel。
+Host 支持 MCP Apps UI 时，ForgeRelay 会显示 Workspace Summary；只有当前 Host Turn 真正产生 Activity 后，Activity 区域才出现。
 
-Activity Panel 展示当前 Host Turn 的 ForgeRelay operations。Composite Workspace 可以聚合多个 member 的 Activity，但底层 audit facts 仍归各 member Workspace 所有。
+Workspace Summary 用来快速确认当前 Workspace 的 root、mode、instructions、Skills 等状态。Workspace 的 identity color 会同时用于 Panel 中的相关图标和 pretty log，方便多个 Workspace / Relay member 同时工作时保持视觉一致；详情中的长路径会正常换行，不再为了卡片宽度隐藏路径尾部。
+
+Activity Panel 展示当前 Host Turn 的 ForgeRelay operations。对同一个长 Bash 进程继续等待、输入或中断会更新同一个语义 Activity。Composite Workspace 可以聚合多个 member 的 Activity，但底层 audit facts 仍归各 member Workspace 所有。
 
 UI 是呈现层，不是执行事实的唯一真源。
 

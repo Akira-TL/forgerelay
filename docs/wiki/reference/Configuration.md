@@ -1,6 +1,6 @@
 # 配置指南
 
-ForgeRelay v1.2 使用统一的 Config System v2。日常使用不需要理解内部实现，但有几条规则很重要：配置按明确 scope 合并，Project Local 与项目仓库分离，可热加载的配置使用 last-known-good 保护，启动不会偷偷改写旧配置。
+ForgeRelay 1.2.x 使用统一的 Config System v2。日常使用不需要理解内部实现，但有几条规则很重要：配置按明确 scope 合并，Project Local 与项目仓库分离，可热加载的配置使用 last-known-good 保护，启动不会偷偷改写旧配置。
 
 主仓库的完整字段参考见 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
 
@@ -36,7 +36,7 @@ forgerelay config explain mcp.servers.renderer --project /path/to/project --json
 
 可用 `FORGERELAY_CONFIG_DIR` 改到其他位置。
 
-v1.2 的 canonical 配置域如下：
+当前 canonical 配置域如下：
 
 | Domain | User | Project | Project Local |
 | --- | --- | --- | --- |
@@ -346,7 +346,7 @@ FORGERELAY_SKILL_PATHS
 - ForgeRelay 自己管理的 Project/System Skill 分别保留在 `<project>/.forgerelay/skills` 与 active config directory 的 `skills/`（默认 `~/.forgerelay/skills`）；
 - ForgeRelay 不自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
 
-ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime resource，和通用 Agent Skill 不同；v1.2 fresh init 默认关闭，只有显式 opt-in 才启用。
+ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime resource，和通用 Agent Skill 不同；fresh init 默认关闭，只有显式 opt-in 才启用。
 
 ## 常用环境变量
 

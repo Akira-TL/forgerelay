@@ -18,7 +18,7 @@ File-oriented tools 会把访问限制在 Workspace，并对已有 path segment 
 
 **Allowed roots 是文件系统 / Workspace authority，不是 Project Trust approval。** 它回答“ForgeRelay 可以打开哪些项目”，不回答“项目里的可执行配置是否已经经过独立信任确认”。
 
-v1.2.0 已把 Project Hooks、stdio External MCP、Project Language Server 和 Project Subagent Profile 等可执行配置统一路由到 Project execution trust seam，但当前稳定策略是 **compatibility-allow**。也就是说 v1.2.0 不提供完整的交互式 Project Trust approval UI；打开 allowed root 内的 Project 时，这些配置仍按兼容策略被允许执行。后续 v1.2.x 可以在同一 seam 上增加真正的 approval/enforcement，而不需要改写各执行子系统。
+Project Hooks、stdio External MCP、Project Language Server 和 Project Subagent Profile 等可执行配置已经统一路由到 Project execution trust seam，但当前稳定策略仍是 **compatibility-allow**。也就是说当前版本还没有完整的交互式 Project Trust approval UI；打开 allowed root 内的 Project 时，这些配置仍按兼容策略被允许执行。后续可以在同一 seam 上增加真正的 approval/enforcement，而不需要改写各执行子系统。
 
 ## OS Temp 目录
 
@@ -117,7 +117,7 @@ External MCP 也运行在真实本机权限边界里。机器级 Server 写在 F
 <workspace>/.forgerelay/mcp.json
 ```
 
-定义或覆盖 Server。stdio entry 可以启动本地 executable，因此 Project MCP 配置和 Project Hook 一样属于**可执行项目配置**。在 v1.2.0，它们通过统一 Project execution trust seam 后采用 compatibility-allow，不会再为每台 stdio MCP 弹第二层确认；这不等于已经有完整 Project Trust approval UX。
+定义或覆盖 Server。stdio entry 可以启动本地 executable，因此 Project MCP 配置和 Project Hook 一样属于**可执行项目配置**。它们通过统一 Project execution trust seam 后采用 compatibility-allow，不会再为每台 stdio MCP 弹第二层确认；这不等于已经有完整 Project Trust approval UX。
 
 静态 HTTP header / stdio env 由用户自己管理。如果把 secret 写进 Project `mcp.json`，就必须自行避免提交到 Git。
 
@@ -147,7 +147,7 @@ Hook 也使用 ForgeRelay 的本地用户权限，所以 Hook 本身就是可信
 <workspace>/.forgerelay/hooks/*.json
 ```
 
-不是纯展示配置。`WorkspaceOpen`、`BeforeTool` 等事件可以让它们自动执行本地 command。v1.2.0 对这些项目执行入口同样走统一 trust seam + compatibility-allow，而不是把 allowed roots 本身误当成独立信任批准。
+不是纯展示配置。`WorkspaceOpen`、`BeforeTool` 等事件可以让它们自动执行本地 command。这些项目执行入口同样走统一 trust seam + compatibility-allow，而不是把 allowed roots 本身误当成独立信任批准。
 
 详见 [生命周期 Hooks](Lifecycle-Hooks)。
 

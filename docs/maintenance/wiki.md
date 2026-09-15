@@ -20,10 +20,12 @@ GitHub Wiki 的浏览体验仍然保留，但网页上直接编辑的内容会�
 docs/wiki/
 ├── Home.md
 ├── _Sidebar.md
-└── <Page>.md
+├── core/
+├── guides/
+└── reference/
 ```
 
-当前同步器只接受 Wiki 根目录中的 Markdown 页面。不要在 GitHub Wiki 仓库中单独保存未进入 `docs/wiki/` 的页面或附件。
+Source 可以按主题放进子目录，但所有 Markdown basename 必须唯一。发布到 GitHub Wiki 时目录会被扁平化，例如 `docs/wiki/core/Managed-Worktrees.md` 会发布成 `Managed-Worktrees.md`。不要在 GitHub Wiki 仓库中单独保存未进入 `docs/wiki/` 的页面或附件。
 
 Wiki 面向用户提供路径式使用说明；精确 schema、架构决策、release 规范和 Agent 内部资料继续保留在主仓库现有文档中，不复制成第二套 authoritative reference。
 

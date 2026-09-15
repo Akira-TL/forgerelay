@@ -20,6 +20,14 @@ Linux / macOS 主要以 Bash 作为 POSIX compatibility target，也可以显式
 npm install -g @akira-tl/forgerelay
 ```
 
+升级现有安装：
+
+```bash
+npm install -g @akira-tl/forgerelay@latest
+```
+
+升级后如果 Host 仍显示旧 tool schema，刷新或重连 MCP integration，让 Host 重新读取 `tools/list`；反复重装 ForgeRelay 本身不会清掉 Host 侧缓存。
+
 不想全局安装也可以直接用 `npx`：
 
 ```bash
@@ -145,4 +153,17 @@ ForgeRelay 会返回稳定的 `workspaceId`。后续文件、Shell 和 Capabilit
 open_workspace(path="~/project", mode="worktree")
 ```
 
-接下来可以看 [核心概念](Core-Concepts) 和 [Workspace 生命周期](Workspace-Lifecycle)。完整字段见主仓库 [Setup Guide](https://github.com/Akira-TL/forgerelay/blob/main/docs/setup.md) 与 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
+需要从历史版本开始工作时，不用先创建临时 branch。可以把起始 commit-ish 与最终本地 integration target 分开指定：
+
+```text
+open_workspace(
+  path="~/project",
+  mode="worktree",
+  baseRef="v1.2.3",
+  targetBranch="main"
+)
+```
+
+`baseRef` 也可以是 commit SHA；finalize 仍然只允许安全的 fast-forward 集成。详见 [Managed Worktree](Managed-Worktrees)。
+
+接下来可以看 [核心概念](Core-Concepts)、[Workspace 生命周期](Workspace-Lifecycle) 和 [ChatGPT 与 MCP 工作流](ChatGPT-and-MCP-Workflow)。完整字段见主仓库 [Setup Guide](https://github.com/Akira-TL/forgerelay/blob/main/docs/setup.md) 与 [Configuration Reference](https://github.com/Akira-TL/forgerelay/blob/main/docs/configuration.md)。
