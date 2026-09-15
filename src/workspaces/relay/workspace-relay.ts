@@ -134,6 +134,7 @@ export class RemoteWorkspaceRelay {
       path: string;
       mode?: "checkout" | "worktree";
       baseRef?: string;
+      targetBranch?: string;
       newWorktree?: boolean;
       newWorkspace?: boolean;
       context?: "auto" | "full" | "none";
@@ -147,6 +148,7 @@ export class RemoteWorkspaceRelay {
         path: input.path,
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.baseRef ? { baseRef: input.baseRef } : {}),
+        ...(input.targetBranch ? { targetBranch: input.targetBranch } : {}),
         ...(input.newWorktree !== undefined ? { newWorktree: input.newWorktree } : {}),
         ...(input.newWorkspace !== undefined ? { newWorkspace: input.newWorkspace } : {}),
         ...(input.context !== undefined ? { context: input.context } : {}),

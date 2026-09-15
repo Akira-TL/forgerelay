@@ -15,6 +15,13 @@ import {
   git,
 } from "./conversation-test-support.js";
 
+const execFileAsync = promisify(execFile);
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout.trim();
+}
+
 test("a physical worktree has one canonical Workspace identity and cannot be released without close_worktree", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const first = await registry.openWorkspace(
@@ -143,6 +150,88 @@ test("managed-worktree reopen stays closed when context bootstrap fails after ba
   assert.equal(store.getSession(workspaceId)?.root, closedRoot);
   assert.throws(() => failingRegistry.getWorkspace(workspaceId), /Unknown workspaceId/);
   assert.deepEqual(await readdir(config.worktreeRoot), []);
+});
+
+test("managed worktree can start from a raw commit and fast-forward its local target branch", async (t) => {
+  const { project, registry } = await fixture(t, { git: true });
+  const targetBranch = await gitOutput(project, ["branch", "--show-current"]);
+  const baseSha = await gitOutput(project, ["rev-parse", "HEAD"]);
+
+  const opened = await registry.openWorkspace({
+    path: project,
+    mode: "worktree",
+    baseRef: baseSha,
+  });
+
+  assert.equal(opened.workspace.worktree?.baseRef, baseSha);
+  assert.equal(opened.workspace.worktree?.baseSha, baseSha);
+  assert.equal(opened.workspace.worktree?.targetBranch, targetBranch);
+  assert.match(opened.workspace.worktree?.branch ?? "", /^forgerelay\//);
+  assert.notEqual(await gitOutput(opened.workspace.root, ["branch", "--show-current"]), "");
+
+  await writeFile(join(opened.workspace.root, "raw-base.txt"), "created from raw base\n");
+  const closed = await registry.closeWorktree(opened.workspace.id, "test: close raw-base worktree");
+
+  assert.equal(closed.targetBranch, targetBranch);
+  assert.equal(await gitOutput(project, ["rev-parse", "HEAD"]), closed.mergedSha);
+  assert.equal((await stat(join(project, "raw-base.txt"))).isFile(), true);
+});
+
+test("historical raw commit preserves fast-forward-only close safety", async (t) => {
+  const { project, registry } = await fixture(t, { git: true });
+  const targetBranch = await gitOutput(project, ["branch", "--show-current"]);
+  const historicalSha = await gitOutput(project, ["rev-parse", "HEAD"]);
+  await writeFile(join(project, "target-only.txt"), "target advanced\n");
+  await git(project, ["add", "target-only.txt"]);
+  await git(project, ["commit", "-m", "Advance target"]);
+  const targetHead = await gitOutput(project, ["rev-parse", "HEAD"]);
+
+  const opened = await registry.openWorkspace({
+    path: project,
+    mode: "worktree",
+    baseRef: historicalSha,
+  });
+  assert.equal(opened.workspace.worktree?.targetBranch, targetBranch);
+  assert.equal(opened.workspace.worktree?.baseSha, historicalSha);
+  await writeFile(join(opened.workspace.root, "historical-work.txt"), "isolated change\n");
+
+  await assert.rejects(
+    registry.closeWorktree(opened.workspace.id, "test: reject divergent historical base"),
+    /advanced independently|fast-forward|diverged/i,
+  );
+  assert.equal(await gitOutput(project, ["rev-parse", "HEAD"]), targetHead);
+});
+
+test("detached source requires an explicit local target branch for managed worktree creation", async (t) => {
+  const { project, registry } = await fixture(t, { git: true });
+  const targetBranch = await gitOutput(project, ["branch", "--show-current"]);
+  const baseSha = await gitOutput(project, ["rev-parse", "HEAD"]);
+  await git(project, ["switch", "--detach", baseSha]);
+
+  await assert.rejects(
+    registry.openWorkspace({ path: project, mode: "worktree", baseRef: "HEAD" }),
+    /detached|target branch/i,
+  );
+
+  const opened = await registry.openWorkspace({
+    path: project,
+    mode: "worktree",
+    baseRef: "HEAD",
+    targetBranch,
+  });
+  assert.equal(opened.workspace.worktree?.baseSha, baseSha);
+  assert.equal(opened.workspace.worktree?.targetBranch, targetBranch);
+
+  await assert.rejects(
+    registry.openWorkspace({
+      path: project,
+      mode: "worktree",
+      baseRef: baseSha,
+      targetBranch: "missing-target",
+      newWorktree: true,
+    }),
+    /target branch|local branch/i,
+  );
 });
 
 test("worktree requests reuse the same worktree without replacing the checkout", async (t) => {

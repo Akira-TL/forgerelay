@@ -15,6 +15,7 @@ export class GitWorktreeError extends Error {
       | "GIT_REPOSITORY_NOT_FOUND"
       | "GIT_REPOSITORY_HAS_NO_COMMITS"
       | "GIT_INVALID_BASE_REF"
+      | "GIT_INVALID_TARGET_BRANCH"
       | "GIT_WORKTREE_SOURCE_DETACHED"
       | "GIT_WORKTREE_CREATE_FAILED"
       | "GIT_WORKTREE_CLOSE_FAILED"
@@ -54,6 +55,7 @@ export interface ClosedManagedWorktree {
 export async function createManagedWorktree(input: {
   sourcePath: string;
   baseRef?: string;
+  targetBranch?: string;
   config: ServerConfig;
 }): Promise<ManagedWorktree> {
   const sourcePath = assertAllowedPath(input.sourcePath, input.config.allowedRoots);
@@ -266,11 +268,12 @@ export async function closeManagedWorktree(input: {
 export async function resolveManagedWorktreeBase(input: {
   sourcePath: string;
   baseRef?: string;
+  targetBranch?: string;
   config: ServerConfig;
 }): Promise<{ sourceRoot: string; baseRef: string; baseSha: string; targetBranch: string }> {
   const sourcePath = assertAllowedPath(input.sourcePath, input.config.allowedRoots);
   const sourceRoot = await resolveGitRoot(sourcePath, input.config.allowedRoots);
-  const resolved = await resolveWorktreeBase(sourceRoot, input.baseRef);
+  const resolved = await resolveWorktreeBase(sourceRoot, input.baseRef, input.targetBranch);
   return { sourceRoot, ...resolved };
 }
 
@@ -315,37 +318,78 @@ async function assertGitRootAllowed(gitRoot: string, allowedRoots: string[]): Pr
 async function resolveWorktreeBase(
   sourceRoot: string,
   requestedBaseRef: string | undefined,
+  requestedTargetBranch: string | undefined,
 ): Promise<{ baseRef: string; baseSha: string; targetBranch: string }> {
-  const targetBranch = requestedBaseRef && requestedBaseRef !== "HEAD"
-    ? normalizeLocalBranchName(requestedBaseRef)
-    : await currentBranch(sourceRoot);
+  const sourceBranch = await currentBranch(sourceRoot);
+  const localBase = requestedBaseRef && requestedBaseRef !== "HEAD"
+    ? await resolveLocalBranch(sourceRoot, requestedBaseRef)
+    : undefined;
+  const targetBranch = requestedTargetBranch
+    ? normalizeLocalBranchName(requestedTargetBranch)
+    : localBase?.branch ?? sourceBranch;
 
   if (!targetBranch) {
     throw new GitWorktreeError(
       "GIT_WORKTREE_SOURCE_DETACHED",
-      "Cannot create a managed worktree from a detached source checkout. Switch the source checkout to the branch that should receive the finished work first.",
+      "Cannot create a managed worktree from a detached source checkout without a local target branch. Supply targetBranch or use a local branch as baseRef so ForgeRelay knows which branch may receive the finished work.",
     );
   }
 
   try {
-    const baseSha = (await git(["rev-parse", "--verify", `refs/heads/${targetBranch}^{commit}`], sourceRoot)).trim();
-    return {
-      baseRef: requestedBaseRef ?? "HEAD",
-      baseSha,
-      targetBranch,
-    };
+    await git(["rev-parse", "--verify", `refs/heads/${targetBranch}^{commit}`], sourceRoot);
   } catch {
-    if (!requestedBaseRef || requestedBaseRef === "HEAD") {
+    if (!requestedTargetBranch && (!requestedBaseRef || requestedBaseRef === "HEAD")) {
       throw new GitWorktreeError(
         "GIT_REPOSITORY_HAS_NO_COMMITS",
         "Cannot open workspace in worktree mode because the current branch has no commits yet. Create an initial commit first, or use checkout mode.",
       );
     }
-
     throw new GitWorktreeError(
-      "GIT_INVALID_BASE_REF",
-      `Cannot create a managed worktree because baseRef ${JSON.stringify(requestedBaseRef)} is not a local branch. Managed worktrees must start from the local branch they will eventually merge back into.`,
+      "GIT_INVALID_TARGET_BRANCH",
+      `Cannot create a managed worktree because targetBranch ${JSON.stringify(targetBranch)} is not an existing local branch.`,
     );
+  }
+
+  let baseSha: string;
+  if (!requestedBaseRef || requestedBaseRef === "HEAD") {
+    try {
+      baseSha = (await git(["rev-parse", "--verify", "HEAD^{commit}"], sourceRoot)).trim();
+    } catch {
+      throw new GitWorktreeError(
+        "GIT_REPOSITORY_HAS_NO_COMMITS",
+        "Cannot open workspace in worktree mode because the source checkout has no commits yet. Create an initial commit first, or use checkout mode.",
+      );
+    }
+  } else if (localBase) {
+    baseSha = localBase.sha;
+  } else {
+    try {
+      baseSha = (await git(["rev-parse", "--verify", "--end-of-options", `${requestedBaseRef}^{commit}`], sourceRoot)).trim();
+    } catch {
+      throw new GitWorktreeError(
+        "GIT_INVALID_BASE_REF",
+        `Cannot create a managed worktree because baseRef ${JSON.stringify(requestedBaseRef)} does not resolve to a commit.`,
+      );
+    }
+  }
+
+  return {
+    baseRef: requestedBaseRef ?? "HEAD",
+    baseSha,
+    targetBranch,
+  };
+}
+
+async function resolveLocalBranch(
+  sourceRoot: string,
+  ref: string,
+): Promise<{ branch: string; sha: string } | undefined> {
+  const branch = normalizeLocalBranchName(ref);
+  try {
+    const sha = (await git(["rev-parse", "--verify", `refs/heads/${branch}^{commit}`], sourceRoot)).trim();
+    return { branch, sha };
+  } catch {
+    return undefined;
   }
 }
 

@@ -67,7 +67,7 @@ async function handleOpenWorkspace(
   } = options;
   const {
     action = "open", memberAction, member, kind, name, memberName, path, relay, workspaceId, mode, baseRef,
-    newWorktree, newWorkspace, context, root, status, state, staleOnly, offset, limit,
+    targetBranch, newWorktree, newWorkspace, context, root, status, state, staleOnly, offset, limit,
   } = input;
       const startedAt = performance.now();
       const conversationScopeId = contextDeliveryScopeIdFor(requestContext);
@@ -216,7 +216,7 @@ async function handleOpenWorkspace(
         }
         if (
           kind !== undefined || name !== undefined || memberName !== undefined || path !== undefined || relay !== undefined || mode !== undefined ||
-          baseRef !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
+          baseRef !== undefined || targetBranch !== undefined || newWorktree !== undefined || newWorkspace !== undefined || context !== undefined ||
           root !== undefined || status !== undefined || state !== undefined || staleOnly !== undefined ||
           offset !== undefined || limit !== undefined
         ) {
@@ -238,9 +238,9 @@ async function handleOpenWorkspace(
             }
             if (
               member.relay !== undefined || member.mode !== undefined || member.baseRef !== undefined ||
-              member.newWorktree !== undefined || member.newWorkspace !== undefined
+              member.targetBranch !== undefined || member.newWorktree !== undefined || member.newWorkspace !== undefined
             ) {
-              throw new Error("member.workspaceId cannot be combined with relay/mode/baseRef/newWorktree/newWorkspace.");
+              throw new Error("member.workspaceId cannot be combined with relay/mode/baseRef/targetBranch/newWorktree/newWorkspace.");
             }
             if (!remoteWorkspaces.has(targetWorkspaceId)) workspaces.getWorkspace(targetWorkspaceId);
             return targetWorkspaceId;
@@ -250,6 +250,7 @@ async function handleOpenWorkspace(
               path: member.path!,
               ...(member.mode ? { mode: member.mode } : {}),
               ...(member.baseRef ? { baseRef: member.baseRef } : {}),
+              ...(member.targetBranch ? { targetBranch: member.targetBranch } : {}),
               ...(member.newWorktree !== undefined ? { newWorktree: member.newWorktree } : {}),
               ...(member.newWorkspace !== undefined ? { newWorkspace: member.newWorkspace } : {}),
               context: "none",
@@ -261,6 +262,7 @@ async function handleOpenWorkspace(
               path: member.path,
               ...(member.mode ? { mode: member.mode } : {}),
               ...(member.baseRef ? { baseRef: member.baseRef } : {}),
+              ...(member.targetBranch ? { targetBranch: member.targetBranch } : {}),
               ...(member.newWorktree !== undefined ? { newWorktree: member.newWorktree } : {}),
               ...(member.newWorkspace !== undefined ? { newWorkspace: member.newWorkspace } : {}),
               context: "none",
@@ -286,8 +288,8 @@ async function handleOpenWorkspace(
         } else if (memberAction === "update") {
           const targetFieldsPresent =
             member.workspaceId !== undefined || member.path !== undefined || member.relay !== undefined ||
-            member.mode !== undefined || member.baseRef !== undefined || member.newWorktree !== undefined ||
-            member.newWorkspace !== undefined;
+            member.mode !== undefined || member.baseRef !== undefined || member.targetBranch !== undefined ||
+            member.newWorktree !== undefined || member.newWorkspace !== undefined;
           if (member.newName === undefined && member.purpose === undefined && !targetFieldsPresent) {
             throw new Error("Updating a Composite Workspace member requires newName, purpose, or a replacement Workspace target.");
           }
@@ -303,7 +305,7 @@ async function handleOpenWorkspace(
           if (
             member.newName !== undefined || member.purpose !== undefined || member.workspaceId !== undefined || member.path !== undefined ||
             member.relay !== undefined || member.mode !== undefined || member.baseRef !== undefined ||
-            member.newWorktree !== undefined || member.newWorkspace !== undefined
+            member.targetBranch !== undefined || member.newWorktree !== undefined || member.newWorkspace !== undefined
           ) {
             throw new Error("Removing a Composite Workspace member accepts only member.name.");
           }
@@ -363,11 +365,11 @@ async function handleOpenWorkspace(
 
       if (action === "list") {
         if (
-          path !== undefined || relay !== undefined || name !== undefined || memberName !== undefined || baseRef !== undefined || newWorktree !== undefined ||
-          newWorkspace !== undefined || context !== undefined
+          path !== undefined || relay !== undefined || name !== undefined || memberName !== undefined || baseRef !== undefined || targetBranch !== undefined ||
+          newWorktree !== undefined || newWorkspace !== undefined || context !== undefined
         ) {
           throw new Error(
-            "open_workspace action=list does not accept path, relay, name, memberName, baseRef, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
+            "open_workspace action=list does not accept path, relay, name, memberName, baseRef, targetBranch, newWorktree, newWorkspace, or context. Use kind/root/workspaceId/mode/status/state/staleOnly for inventory filters.",
           );
         }
         const compositeInventory = () => compositeWorkspaces.list()
@@ -471,7 +473,7 @@ async function handleOpenWorkspace(
       const openingComposite = kind === "composite" ||
         (workspaceId !== undefined && compositeWorkspaces.has(workspaceId));
       if (openingComposite) {
-        if (relay !== undefined || path !== undefined || mode !== undefined || baseRef !== undefined ||
+        if (relay !== undefined || path !== undefined || mode !== undefined || baseRef !== undefined || targetBranch !== undefined ||
           newWorktree !== undefined || newWorkspace !== undefined) {
           throw new Error(
             "Composite Workspace open accepts name/workspaceId/context only; members are attached separately and keep their own Workspace definitions.",
@@ -562,7 +564,7 @@ async function handleOpenWorkspace(
       }
       if (workspaceId !== undefined && remoteWorkspaces.has(workspaceId)) {
         if (
-          path !== undefined || relay !== undefined || mode !== undefined || baseRef !== undefined ||
+          path !== undefined || relay !== undefined || mode !== undefined || baseRef !== undefined || targetBranch !== undefined ||
           newWorktree !== undefined || newWorkspace !== undefined
         ) {
           throw new Error("Resuming a relayed Workspace by workspaceId accepts context only.");
@@ -581,6 +583,7 @@ async function handleOpenWorkspace(
           path,
           mode,
           baseRef,
+          targetBranch,
           newWorktree,
           newWorkspace,
           context,

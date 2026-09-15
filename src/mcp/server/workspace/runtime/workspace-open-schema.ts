@@ -38,6 +38,7 @@ export const openWorkspaceToolDefinition =
       relay: z.string().optional().describe("Optional registered remote ForgeRelay alias for a path-backed member."),
       mode: z.enum(["checkout", "worktree"]).optional(),
       baseRef: z.string().optional(),
+      targetBranch: z.string().optional(),
       newWorktree: z.boolean().optional(),
       newWorkspace: z.boolean().optional(),
     }).optional().describe("Composite member definition used by action=member."),
@@ -80,7 +81,11 @@ export const openWorkspaceToolDefinition =
     baseRef: z
       .string()
       .optional()
-      .describe("Local branch to base a managed worktree on and eventually merge back into. Only used with mode=\"worktree\". Defaults to the source checkout's current branch."),
+      .describe("Commit-ish to base a managed worktree on. Only used with mode=\"worktree\"; may be a local branch, tag, commit SHA, or other ref that resolves to a commit. Defaults to HEAD."),
+    targetBranch: z
+      .string()
+      .optional()
+      .describe("Existing local branch that close_workspace may fast-forward when finalizing the managed worktree. Only used with mode=\"worktree\". Defaults to baseRef when baseRef names a local branch, otherwise the source checkout's current local branch."),
     newWorktree: z
       .boolean()
       .optional()

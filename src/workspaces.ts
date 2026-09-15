@@ -126,7 +126,7 @@ export interface OpenWorkspaceInput {
   path?: string;
   workspaceId?: string;
   mode?: WorkspaceMode;
-  baseRef?: string;
+  baseRef?: string; targetBranch?: string;
   newWorktree?: boolean;
   newWorkspace?: boolean;
   context?: WorkspaceBootstrapContextMode;
@@ -608,14 +608,14 @@ export class WorkspaceRegistry {
 
     const resolvedBase = await resolveManagedWorktreeBase({
       sourcePath: path,
-      baseRef: input.baseRef,
+      baseRef: input.baseRef, targetBranch: input.targetBranch,
       config: this.config,
     });
     const sourceKey = await canonicalPath(resolvedBase.sourceRoot);
     const targetKey = JSON.stringify(["worktree", sourceKey, resolvedBase.targetBranch]);
 
     if (input.newWorktree) {
-      const context = await this.openWorktreeWorkspace(path, input.baseRef);
+      const context = await this.openWorktreeWorkspace(path, input.baseRef, input.targetBranch);
       return this.sessions.withConversationContext(
         context,
         conversationScopeId,
@@ -642,7 +642,7 @@ export class WorkspaceRegistry {
         sourceKey,
         resolvedBase.targetBranch,
       );
-      return reusableContext ?? this.openWorktreeWorkspace(path, input.baseRef);
+      return reusableContext ?? this.openWorktreeWorkspace(path, input.baseRef, input.targetBranch);
     });
     return this.sessions.withConversationContext(
       context,
@@ -697,10 +697,9 @@ export class WorkspaceRegistry {
     return this.createWorkspaceContext({ root, mode: "checkout" });
   }
 
-  private async openWorktreeWorkspace(path: string, baseRef: string | undefined): Promise<WorkspaceContext> {
+  private async openWorktreeWorkspace(path: string, baseRef: string | undefined, targetBranch: string | undefined): Promise<WorkspaceContext> {
     const worktree = await createManagedWorktree({
-      sourcePath: path,
-      baseRef,
+      sourcePath: path, baseRef, targetBranch,
       config: this.config,
     });
 

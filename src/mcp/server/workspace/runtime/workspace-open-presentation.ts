@@ -48,7 +48,7 @@ export async function presentLocalWorkspaceOpen(
     config, forgerelayVersion: FORGERELAY_VERSION, workspaces, workspaceTasks, reviewCheckpoints,
     capabilityRegistry, subagentProviders, hooks, rememberWorkspacePanelState,
   } = options;
-  const { path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context } = input;
+  const { path, workspaceId, mode, baseRef, targetBranch, newWorktree, newWorkspace, context } = input;
   const { conversationScopeId, protectedWorkspaceIds, startedAt, sessionId } = contextData;
       const {
         workspace,
@@ -59,7 +59,7 @@ export async function presentLocalWorkspaceOpen(
         bootstrapContextComponents,
         contextFingerprint,
       } = await workspaces.openWorkspace(
-        { path, workspaceId, mode, baseRef, newWorktree, newWorkspace, context },
+        { path, workspaceId, mode, baseRef, targetBranch, newWorktree, newWorkspace, context },
         {
           conversationScopeId,
           protectedWorkspaceIds,
