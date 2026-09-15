@@ -1,7 +1,10 @@
 import type { Request } from "express";
-import { basename } from "node:path";
 import { styleText, type InspectColor } from "node:util";
-import { workspaceColorFor, type WorkspaceColorSlot } from "../../workspace-colors.js";
+import {
+  workspaceColorFor,
+  workspaceIdentityName,
+  type WorkspaceColorSlot,
+} from "../../workspace-colors.js";
 
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
 export type LogFormat = "json" | "pretty";
@@ -98,7 +101,7 @@ export function transportSessionIdPrefix(
 export const sessionIdPrefix = transportSessionIdPrefix;
 
 export function workspaceLogLabel(root: string, workspaceId: string): string {
-  return `${basename(root)}/${workspaceId}`;
+  return `${workspaceIdentityName(root)}/${workspaceId}`;
 }
 
 export function commandPreview(command: string): string {

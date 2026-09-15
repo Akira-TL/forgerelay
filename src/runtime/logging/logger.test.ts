@@ -14,6 +14,10 @@ test("workspace log labels preserve the complete workspaceId", () => {
     workspaceLogLabel("/tmp/example", "custom-workspace-id"),
     "example/custom-workspace-id",
   );
+  assert.equal(
+    workspaceLogLabel("C:\\Users\\Akira\\Projects\\forgerelay", "ws_windows"),
+    "forgerelay/ws_windows",
+  );
 });
 
 test("pretty tool logs emphasize workspace, operation, target, and result", () => {

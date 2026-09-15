@@ -9,6 +9,13 @@ export const WORKSPACE_COLOR_SLOTS = [
 
 export type WorkspaceColorSlot = (typeof WORKSPACE_COLOR_SLOTS)[number];
 
+export function workspaceIdentityName(value: string): string {
+  const trimmed = value.replace(/[\\/]+$/g, "");
+  if (!trimmed) return value;
+  const parts = trimmed.split(/[\\/]/);
+  return parts.at(-1) || value;
+}
+
 export class WorkspaceColorAllocator {
   private readonly assignments = new Map<string, WorkspaceColorSlot>();
   private readonly uniqueOwners = new Map<WorkspaceColorSlot, string>();

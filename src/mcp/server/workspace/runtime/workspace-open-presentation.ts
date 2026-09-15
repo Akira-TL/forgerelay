@@ -14,8 +14,7 @@ import { capabilityContextFor } from "../../core/capability-support.js";
 import { redactSkillDiagnosticPaths } from "../../core/schemas.js";
 import { logToolCall, workspaceLogContext, type ToolContent } from "../../core/tool-support.js";
 import { buildExecutionShellContext } from "../../../server-instructions.js";
-import { basename } from "node:path";
-import { workspaceColorFor } from "../../../../workspace-colors.js";
+import { workspaceColorFor, workspaceIdentityName } from "../../../../workspace-colors.js";
 import type { OpenWorkspaceToolInput } from "./workspace-open-schema.js";
 
 export const workspaceTaskUsageInstruction =
@@ -243,7 +242,7 @@ export async function presentLocalWorkspaceOpen(
         kind: "workspace" as const,
         root: workspace.root,
         path: workspace.root,
-        workspaceColor: workspaceColorFor(basename(workspace.root)),
+        workspaceColor: workspaceColorFor(workspaceIdentityName(workspace.root)),
         mode: workspace.mode,
         workspaceReused,
         includeBootstrapContext: effectiveIncludeBootstrapContext,

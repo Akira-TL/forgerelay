@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
-import { workspaceColorFor } from "../../workspace-colors.js";
+import { workspaceColorFor, workspaceIdentityName } from "../../workspace-colors.js";
 import type { CompositeWorkspaceRecord } from "../composite/composite-workspaces.js";
 import type { RelayedWorkspaceInspection } from "../relay/types.js";
 
@@ -31,7 +30,11 @@ export function compactWorkspacePresentation(
   if (presentation.workspaceColor === undefined) {
     const root = typeof card.root === "string" ? card.root : undefined;
     const name = typeof card.name === "string" ? card.name : undefined;
-    const identity = root ? basename(root) : name;
+    const identity = root
+      ? workspaceIdentityName(root)
+      : name
+        ? workspaceIdentityName(name)
+        : undefined;
     if (identity) presentation.workspaceColor = workspaceColorFor(identity);
   }
   const executionContext = projectExecutionContext(card.executionContext);

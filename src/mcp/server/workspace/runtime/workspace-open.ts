@@ -1,5 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import { basename } from "node:path";
 import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import * as z from "zod/v4";
 import { loadCapabilityGuides } from "../../core/capabilities.js";
@@ -17,7 +16,7 @@ import { compositeCapabilityContext } from "../../core/capability-support.js";
 import { workspaceInspectionOutputSchema } from "../../core/schemas.js";
 import { compositeWorkspaceLogContext, logToolCall, textBlock } from "../../core/tool-support.js";
 import { openWorkspaceToolDefinition, type OpenWorkspaceToolInput } from "./workspace-open-schema.js";
-import { workspaceColorFor } from "../../../../workspace-colors.js";
+import { workspaceColorFor, workspaceIdentityName } from "../../../../workspace-colors.js";
 import {
   presentLocalWorkspaceOpen,
   workspaceTaskUsageInstruction,
@@ -533,7 +532,7 @@ async function handleOpenWorkspace(
               kind: "composite" as const,
               name: composite.name,
               path: composite.name,
-              workspaceColor: workspaceColorFor(composite.name),
+              workspaceColor: workspaceColorFor(workspaceIdentityName(composite.name)),
               members: composite.members,
               instruction,
               summary: { members: composite.members.length, status: composite.status },
@@ -619,7 +618,7 @@ async function handleOpenWorkspace(
               kind: "workspace" as const,
               root: opened.root,
               path: opened.root,
-              workspaceColor: workspaceColorFor(basename(opened.root)),
+              workspaceColor: workspaceColorFor(workspaceIdentityName(opened.root)),
               mode: opened.mode,
               relay,
               instruction: opened.instruction,
