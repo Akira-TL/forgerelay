@@ -234,6 +234,31 @@ test("detached source requires an explicit local target branch for managed workt
   );
 });
 
+test("pinned managed-worktree reuse includes the resolved base commit", async (t) => {
+  const { project, registry } = await fixture(t, { git: true });
+  const firstBase = await gitOutput(project, ["rev-parse", "HEAD"]);
+  await writeFile(join(project, "second-base.txt"), "second base\n");
+  await git(project, ["add", "second-base.txt"]);
+  await git(project, ["commit", "-m", "Second base"]);
+  const secondBase = await gitOutput(project, ["rev-parse", "HEAD"]);
+  await writeFile(join(project, "target-head.txt"), "target head\n");
+  await git(project, ["add", "target-head.txt"]);
+  await git(project, ["commit", "-m", "Advance target head"]);
+
+  const first = await registry.openWorkspace({ path: project, mode: "worktree", baseRef: firstBase });
+  const repeatedFirst = await registry.openWorkspace({ path: project, mode: "worktree", baseRef: firstBase });
+  const second = await registry.openWorkspace({ path: project, mode: "worktree", baseRef: secondBase });
+  const branchFollowing = await registry.openWorkspace({ path: project, mode: "worktree" });
+
+  assert.equal(repeatedFirst.workspace.id, first.workspace.id);
+  assert.notEqual(second.workspace.id, first.workspace.id);
+  assert.notEqual(second.workspace.root, first.workspace.root);
+  assert.notEqual(branchFollowing.workspace.id, first.workspace.id);
+  assert.notEqual(branchFollowing.workspace.id, second.workspace.id);
+  assert.equal(first.workspace.worktree?.baseSha, firstBase);
+  assert.equal(second.workspace.worktree?.baseSha, secondBase);
+});
+
 test("worktree requests reuse the same worktree without replacing the checkout", async (t) => {
   const { project, registry } = await fixture(t, { git: true });
   const worktreeInput = { path: project, mode: "worktree" as const };
@@ -242,6 +267,9 @@ test("worktree requests reuse the same worktree without replacing the checkout",
   const firstWorktree = await registry.openWorkspace(worktreeInput, {
     conversationScopeId: "chat-1",
   });
+  await writeFile(join(project, "target-advanced-after-open.txt"), "target advanced\n");
+  await git(project, ["add", "target-advanced-after-open.txt"]);
+  await git(project, ["commit", "-m", "Advance target after worktree open"]);
   const secondWorktree = await registry.openWorkspace(worktreeInput, {
     conversationScopeId: "chat-1",
   });

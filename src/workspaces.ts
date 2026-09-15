@@ -612,7 +612,7 @@ export class WorkspaceRegistry {
       config: this.config,
     });
     const sourceKey = await canonicalPath(resolvedBase.sourceRoot);
-    const targetKey = JSON.stringify(["worktree", sourceKey, resolvedBase.targetBranch]);
+    const { targetKey, pinnedBaseSha } = this.sessions.worktreeReuseIdentity(sourceKey, resolvedBase);
 
     if (input.newWorktree) {
       const context = await this.openWorktreeWorkspace(path, input.baseRef, input.targetBranch);
@@ -632,15 +632,15 @@ export class WorkspaceRegistry {
         session.mode === "worktree" &&
         session.sourceRoot !== undefined &&
         await canonicalPath(session.sourceRoot) === sourceKey &&
-        session.targetBranch === resolvedBase.targetBranch,
+        session.targetBranch === resolvedBase.targetBranch &&
+        this.sessions.worktreeSessionMatchesReuseBase(session, pinnedBaseSha),
       bootstrapContext,
     );
     if (boundContext) return boundContext;
 
     const context = await this.sessions.openOnce(targetKey, async () => {
       const reusableContext = await this.sessions.findReusableWorktreeContextBySource(
-        sourceKey,
-        resolvedBase.targetBranch,
+        sourceKey, resolvedBase.targetBranch, pinnedBaseSha,
       );
       return reusableContext ?? this.openWorktreeWorkspace(path, input.baseRef, input.targetBranch);
     });

@@ -6,6 +6,7 @@ import type { ServerConfig } from "../runtime/config/config.js";
 import {
   createManagedWorktree,
   discardFreshManagedWorktree,
+  managedWorktreeUsesPinnedBase,
 } from "./git/git-worktrees.js";
 import {
   cleanupManagedWorktreeState,
@@ -67,17 +68,40 @@ export class WorkspaceSessionService {
     }
   }
 
+  worktreeReuseIdentity(
+    sourceKey: string,
+    worktree: { baseRef: string; baseSha: string; targetBranch: string },
+  ): { targetKey: string; pinnedBaseSha?: string } {
+    const pinnedBaseSha = managedWorktreeUsesPinnedBase(worktree.baseRef, worktree.targetBranch)
+      ? worktree.baseSha
+      : undefined;
+    return {
+      targetKey: JSON.stringify(pinnedBaseSha
+        ? ["worktree", sourceKey, worktree.targetBranch, pinnedBaseSha]
+        : ["worktree", sourceKey, worktree.targetBranch]),
+      ...(pinnedBaseSha ? { pinnedBaseSha } : {}),
+    };
+  }
+
+  worktreeSessionMatchesReuseBase(session: WorkspaceSession, pinnedBaseSha: string | undefined): boolean {
+    const sessionPinnedBaseSha = managedWorktreeUsesPinnedBase(session.baseRef, session.targetBranch)
+      ? session.baseSha
+      : undefined;
+    return sessionPinnedBaseSha === pinnedBaseSha;
+  }
+
   async workspaceTargetKeys(workspace: Workspace): Promise<string[]> {
     if (workspace.mode === "checkout") {
       return [JSON.stringify(["checkout", await canonicalPath(workspace.root), null])];
     }
     const keys = [JSON.stringify(["worktree-path", await canonicalPath(workspace.root)])];
     if (workspace.sourceRoot && workspace.worktree?.targetBranch) {
-      keys.push(JSON.stringify([
-        "worktree",
-        await canonicalPath(workspace.sourceRoot),
-        workspace.worktree.targetBranch,
-      ]));
+      const sourceKey = await canonicalPath(workspace.sourceRoot);
+      keys.push(this.worktreeReuseIdentity(sourceKey, {
+        baseRef: workspace.worktree.baseRef,
+        baseSha: workspace.worktree.baseSha,
+        targetBranch: workspace.worktree.targetBranch,
+      }).targetKey);
     }
     return keys;
   }
@@ -271,6 +295,7 @@ export class WorkspaceSessionService {
   async findReusableWorktreeContextBySource(
     sourceKey: string,
     targetBranch: string,
+    pinnedBaseSha?: string,
   ): Promise<WorkspaceContext | undefined> {
     const sessions = this.store ? this.store.listSessions({ mode: "worktree" }) : this.activeSessions("worktree");
     const closedMatches: WorkspaceSession[] = [];
@@ -278,10 +303,11 @@ export class WorkspaceSessionService {
       if (!session.sourceRoot || session.targetBranch !== targetBranch) continue;
       if (await canonicalPath(session.sourceRoot) !== sourceKey) continue;
       if (session.status === "closed") {
-        if (session.managed) closedMatches.push(session);
+        if (pinnedBaseSha === undefined && session.managed) closedMatches.push(session);
         continue;
       }
       if (session.status !== "active") continue;
+      if (!this.worktreeSessionMatchesReuseBase(session, pinnedBaseSha)) continue;
       const root = await this.validSessionRoot(session);
       if (!root) continue;
       return this.reusedWorkspaceContext(this.workspaceFromSession(session, false));

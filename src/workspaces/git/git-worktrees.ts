@@ -401,6 +401,11 @@ async function currentBranch(cwd: string): Promise<string> {
   }
 }
 
+export function managedWorktreeUsesPinnedBase(baseRef: string | undefined, targetBranch: string | undefined): boolean {
+  if (!baseRef || baseRef === "HEAD" || !targetBranch) return false;
+  return normalizeLocalBranchName(baseRef) !== targetBranch;
+}
+
 function normalizeLocalBranchName(value: string): string {
   return value.startsWith("refs/heads/") ? value.slice("refs/heads/".length) : value;
 }
