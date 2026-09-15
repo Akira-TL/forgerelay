@@ -43,12 +43,20 @@ const LEVEL_STYLE: Record<Exclude<LogLevel, "silent">, InspectColor> = {
 };
 
 const WORKSPACE_PROJECT_COLORS: Record<WorkspaceColorSlot, InspectColor> = {
-  cyan: "cyanBright",
-  green: "greenBright",
-  yellow: "yellowBright",
-  magenta: "magentaBright",
-  blue: "blueBright",
-  white: "whiteBright",
+  red: "red",
+  green: "green",
+  yellow: "yellow",
+  blue: "blue",
+  magenta: "magenta",
+  cyan: "cyan",
+  white: "white",
+  redBright: "redBright",
+  greenBright: "greenBright",
+  yellowBright: "yellowBright",
+  blueBright: "blueBright",
+  magentaBright: "magentaBright",
+  cyanBright: "cyanBright",
+  whiteBright: "whiteBright",
 };
 
 export function shouldLog(config: LoggingConfig, level: Exclude<LogLevel, "silent">): boolean {

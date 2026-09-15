@@ -223,16 +223,24 @@ test("pretty shutdown logs summarize closed MCP transport sessions", () => {
   assert.doesNotMatch(line, /sessionIdPrefix/);
 });
 
-test("workspace project colors stay unique until the six-color palette is exhausted", () => {
+test("workspace project colors stay unique until the fourteen-color palette is exhausted", () => {
   const allocator = new WorkspaceColorAllocator();
-  const projects = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
+  const projects = Array.from(
+    { length: WORKSPACE_COLOR_SLOTS.length },
+    (_, index) => `project-${index}`,
+  );
   const assigned = projects.map((project) => allocator.colorFor(project));
 
+  assert.equal(WORKSPACE_COLOR_SLOTS.length, 14);
+  assert.deepEqual(WORKSPACE_COLOR_SLOTS, [
+    "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+    "redBright", "greenBright", "yellowBright", "blueBright", "magentaBright", "cyanBright", "whiteBright",
+  ]);
   assert.equal(new Set(assigned).size, WORKSPACE_COLOR_SLOTS.length);
   assert.deepEqual(new Set(assigned), new Set(WORKSPACE_COLOR_SLOTS));
-  assert.equal(allocator.colorFor("alpha"), assigned[0]);
+  assert.equal(allocator.colorFor(projects[0]!), assigned[0]);
 
-  const overflow = allocator.colorFor("golf");
+  const overflow = allocator.colorFor("project-overflow");
   assert.ok(WORKSPACE_COLOR_SLOTS.includes(overflow));
   assert.equal(new Set([...assigned, overflow]).size, WORKSPACE_COLOR_SLOTS.length);
 });

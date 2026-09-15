@@ -1,10 +1,18 @@
 export const WORKSPACE_COLOR_SLOTS = [
-  "cyan",
+  "red",
   "green",
   "yellow",
-  "magenta",
   "blue",
+  "magenta",
+  "cyan",
   "white",
+  "redBright",
+  "greenBright",
+  "yellowBright",
+  "blueBright",
+  "magentaBright",
+  "cyanBright",
+  "whiteBright",
 ] as const;
 
 export type WorkspaceColorSlot = (typeof WORKSPACE_COLOR_SLOTS)[number];

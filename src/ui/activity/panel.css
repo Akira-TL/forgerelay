@@ -13,27 +13,59 @@
   background: var(--tool-card-header-bg);
 }
 
-.workspace-panel.workspace-color-cyan {
-  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #06b6d4 72%);
+.workspace-panel.workspace-color-red {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 18%, #b84a4a 82%);
 }
 
 .workspace-panel.workspace-color-green {
-  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #22c55e 72%);
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 18%, #4f9b62 82%);
 }
 
 .workspace-panel.workspace-color-yellow {
-  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 26%, #eab308 74%);
-}
-
-.workspace-panel.workspace-color-magenta {
-  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 28%, #d946ef 72%);
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 16%, #b58a2a 84%);
 }
 
 .workspace-panel.workspace-color-blue {
-  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 30%, #3b82f6 70%);
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 20%, #3f6eb5 80%);
+}
+
+.workspace-panel.workspace-color-magenta {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 18%, #9a55b5 82%);
+}
+
+.workspace-panel.workspace-color-cyan {
+  --workspace-identity-accent: color-mix(in srgb, var(--color-text-primary, #f5f5f6) 18%, #348f9f 82%);
 }
 
 .workspace-panel.workspace-color-white {
+  --workspace-identity-accent: var(--color-text-secondary, #c7c7ce);
+}
+
+.workspace-panel.workspace-color-redBright {
+  --workspace-identity-accent: #ff7b7b;
+}
+
+.workspace-panel.workspace-color-greenBright {
+  --workspace-identity-accent: #6fda83;
+}
+
+.workspace-panel.workspace-color-yellowBright {
+  --workspace-identity-accent: #f2c94c;
+}
+
+.workspace-panel.workspace-color-blueBright {
+  --workspace-identity-accent: #60a5fa;
+}
+
+.workspace-panel.workspace-color-magentaBright {
+  --workspace-identity-accent: #e879f9;
+}
+
+.workspace-panel.workspace-color-cyanBright {
+  --workspace-identity-accent: #67e8f9;
+}
+
+.workspace-panel.workspace-color-whiteBright {
   --workspace-identity-accent: var(--color-text-primary, #f5f5f6);
 }
 
