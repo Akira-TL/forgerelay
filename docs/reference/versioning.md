@@ -86,13 +86,20 @@ npm run release:verify
 ```
 
 `release:verify` runs the same focused parity checks in an isolated Node 22.19.0 sandbox
-and records a local proof under `.git/forgerelay/` for debugging/audit purposes. It is
-not a prerequisite for pushing a release tag. The authoritative release verification
-is the tag-triggered GitHub Actions matrix on Linux, macOS, and Windows.
+and records a local proof under `.git/forgerelay/` for debugging/audit purposes. The
+authoritative automated release verification is the tag-triggered GitHub Actions matrix
+on Linux, macOS, and Windows.
+
+Automated verification does not authorize publication by itself. Every release, including
+release candidates, must first be manually exercised by a developer through the relevant
+real user-facing path and explicitly accepted for the exact release-ready state. No Agent,
+script, local proof, packaged acceptance, or green cloud matrix may infer or replace that
+human approval. Until developer manual acceptance is explicitly recorded as passed, do not
+create or push the release tag.
 
 Cloud verification and the publication job are pinned to Node 22.19.0, the minimum
 supported Node release. The optional local parity tool uses the same runtime so a cloud
-failure can be reproduced locally without making local execution part of the release gate.
+failure can be reproduced locally without replacing the developer manual-acceptance gate.
 
 Validate a specific tag with:
 
@@ -168,14 +175,15 @@ npm publishing token.
    command.
 4. Review the generated version and changelog diff, then commit the release-ready code and metadata.
 5. Run `npm run release:verify` on the committed release HEAD, then run `npm run release:push-ready`. This is the only normal release-ready branch push entrypoint: it requires a proof for the current HEAD, atomically advances `origin/main` plus the current `release/*` branch when applicable, rejects a local `main` with real unique patches, and synchronizes the local `main` ref after the remote push succeeds.
-6. Create the exact version tag, for example:
+6. Have a developer manually exercise the exact release-ready state through the relevant real product path (normally the isolated `7677` / `7678` acceptance topology, plus any host- or platform-specific path materially affected by the release). The developer must explicitly report acceptance as passed. Do not infer approval from silence, automated success, or earlier testing of a different commit.
+7. Only after that explicit developer acceptance, create and push the exact version tag, for example:
 
    ```bash
    git tag v0.2.0
    git push origin v0.2.0
    ```
 
-The tag push is the publication action. The release workflow publishes npm only after cloud CI passes, then extracts the matching `CHANGELOG.md` release section as the GitHub Release body. Keep `Unreleased` user-facing and structured (`Added`, `Changed`, `Fixed`, `Security`) because those notes are what users see on the Release page.
+The tag push is the publication action and must never precede developer manual acceptance. The release workflow publishes npm only after cloud CI passes, then extracts the matching `CHANGELOG.md` release section as the GitHub Release body. Keep `Unreleased` user-facing and structured (`Added`, `Changed`, `Fixed`, `Security`) because those notes are what users see on the Release page.
 
 Project release Hooks match the stable tag-push command as a substring of the ForgeRelay shell request. A compound command is allowed: when `commandRegex` matches `git push origin vX.Y.Z`, the Hook receives that matched command as `FORGERELAY_HOOK_PAYLOAD.command` and retains the complete shell request as `originalCommand` when they differ. The release Hook is intentionally lightweight: it rejects force/deletion forms, requires a clean working tree including untracked files, requires the tag to match the package version, and requires the local tag to resolve to current HEAD. It does not run or require local CI. The pushed tag then starts the authoritative Linux/macOS/Windows cloud verification; publication cannot run unless that matrix succeeds.
 
