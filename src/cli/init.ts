@@ -1,7 +1,6 @@
-import { resolve } from "node:path";
 import * as prompts from "@clack/prompts";
 import { publicEndpointUrl } from "../mcp/oauth/public-url.js";
-import { expandHomePath } from "../mcp/filesystem/roots.js";
+import { normalizeAllowedRootPaths } from "../runtime/config/validation/paths.js";
 import {
   detectLauncherCommandShell,
   type CommandShellFamily,
@@ -72,10 +71,7 @@ export async function runInit({ force, advanced, version }: { force: boolean; ad
       defaultValue: defaultRoots,
       validate: (value) => value?.trim() ? undefined : "Enter at least one project root.",
     });
-    const allowedRoots = rootsAnswer
-      .split(",")
-      .map((root) => resolve(expandHomePath(root.trim())))
-      .filter(Boolean);
+    const allowedRoots = normalizeAllowedRootPaths(rootsAnswer.split(","));
 
     const defaultPort = String(files.config.port ?? 7676);
     const port = advanced

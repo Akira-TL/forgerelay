@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { expandHomePath } from "../../mcp/filesystem/roots.js";
+import { normalizeAllowedRootPaths } from "./validation/paths.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "../logging/logger.js";
 import type { OAuthConfig } from "../../mcp/oauth/oauth-provider.js";
 import {
@@ -90,19 +91,8 @@ export interface ServerConfig {
 }
 
 function parseAllowedRoots(value: string | string[] | undefined): string[] {
-  if (Array.isArray(value)) {
-    const roots = value.map((entry) => entry.trim()).filter(Boolean);
-    return (roots.length > 0 ? roots : [process.cwd()]).map((root) => resolve(expandHomePath(root)));
-  }
-
-  const rawRoots =
-    value
-      ?.split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean) ?? [];
-
-  const roots = rawRoots.length > 0 ? rawRoots : [process.cwd()];
-  return roots.map((root) => resolve(expandHomePath(root)));
+  const roots = Array.isArray(value) ? value : value?.split(",") ?? [];
+  return normalizeAllowedRootPaths(roots);
 }
 
 function parseAllowedHosts(value: string | string[] | undefined, derivedHosts: string[]): string[] {

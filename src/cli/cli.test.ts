@@ -24,6 +24,17 @@ const cleanProductEnv = Object.fromEntries(
   ),
 ) as NodeJS.ProcessEnv;
 
+function availableLoopbackPort(): number {
+  return Number(execFileSync(
+    "node",
+    [
+      "-e",
+      "const net=require('node:net');const server=net.createServer();server.listen(0,'127.0.0.1',()=>{console.log(server.address().port);server.close();});",
+    ],
+    { encoding: "utf8" },
+  ).trim());
+}
+
 assert.equal(classifyClientFacingBaseUrl("https://forge.example.com"), "secure");
 assert.equal(classifyClientFacingBaseUrl("http://192.168.1.20:7676"), "insecure-lan");
 assert.equal(classifyClientFacingBaseUrl("http://S256C:7676"), "insecure-lan");
@@ -60,6 +71,10 @@ const helpOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", "help"
   env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-help-test" },
 });
 assert.match(helpOutput, /forgerelay serve --allow-elevated/);
+assert.match(helpOutput, /forgerelay serve --host <host>/);
+assert.match(helpOutput, /forgerelay serve --port <port>/);
+assert.match(helpOutput, /forgerelay serve --root <path>/);
+assert.match(helpOutput, /forgerelay serve --public-url <url>/);
 assert.match(helpOutput, /Explicitly allow this invocation/);
 for (const flag of ["-h", "--help"]) {
   const aliasHelpOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
@@ -103,6 +118,116 @@ const invalidServeOption = spawnSync(
 );
 assert.equal(invalidServeOption.status, 1);
 assert.match(invalidServeOption.stderr, /Unknown serve option: --definitely-not-a-serve-option/);
+
+const duplicateServePort = spawnSync(
+  "node",
+  ["--import", "tsx", "src/cli.ts", "serve", "--port", "7781", "--port", "7782"],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-duplicate-serve-port-test" },
+  },
+);
+assert.equal(duplicateServePort.status, 1);
+assert.match(duplicateServePort.stderr, /--port may only be supplied once/);
+
+for (const [args, expected] of [
+  [["--host", "127.0.0.1", "--host", "localhost"], /--host may only be supplied once/],
+  [["--host", "http://127.0.0.1"], /Invalid --host: .*not a URL/],
+  [["--port", "0"], /Invalid --port: Enter a port between/],
+  [["--public-url", "http://203.0.113.8:7788"], /Invalid --public-url: Plain HTTP is allowed only/],
+  [["--root"], /Missing value for --root/],
+] as const) {
+  const result = spawnSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "serve", ...args],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-invalid-serve-value-test" },
+    },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, expected);
+}
+
+const serveOverrideRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-serve-overrides-test-"));
+try {
+  const configDir = join(serveOverrideRoot, ".forgerelay");
+  const stateDir = join(serveOverrideRoot, ".state");
+  const persistedRoot = join(serveOverrideRoot, "persisted-root");
+  const environmentRoot = join(serveOverrideRoot, "environment-root");
+  const cliRootA = join(serveOverrideRoot, "cli-root-a");
+  const cliRootB = join(serveOverrideRoot, "cli-root-b");
+  for (const directory of [configDir, stateDir, persistedRoot, environmentRoot, cliRootA, cliRootB]) {
+    mkdirSync(directory, { recursive: true });
+  }
+  const configPath = join(configDir, "config.json");
+  const authPath = join(configDir, "auth.json");
+  const persistedPort = availableLoopbackPort();
+  const environmentPort = availableLoopbackPort();
+  const cliPort = availableLoopbackPort();
+  const persistedConfig = JSON.stringify({
+    host: "localhost",
+    port: persistedPort,
+    allowedRoots: [persistedRoot],
+    publicBaseUrl: "https://persisted.example.com/base",
+    stateDir,
+  }, null, 2) + "\n";
+  const persistedAuth = JSON.stringify({
+    ownerToken: "test-owner-token-that-is-long-enough",
+    instanceId: "fr_cli_override_test",
+  }, null, 2) + "\n";
+  writeFileSync(configPath, persistedConfig);
+  writeFileSync(authPath, persistedAuth);
+
+  const result = spawnSync(
+    "node",
+    [
+      "--import",
+      "tsx",
+      "src/cli.ts",
+      "serve",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(cliPort),
+      "--root",
+      cliRootA,
+      "--root",
+      cliRootB,
+      "--public-url",
+      "https://cli-one.example.com/relay/",
+      "--public-url",
+      "https://cli-two.example.com/alternate/",
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: 2_500,
+      killSignal: "SIGTERM",
+      env: {
+        ...cleanProductEnv,
+        FORGERELAY_CONFIG_DIR: configDir,
+        FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+        HOST: "0.0.0.0",
+        PORT: String(environmentPort),
+        FORGERELAY_ALLOWED_ROOTS: environmentRoot,
+        FORGERELAY_PUBLIC_BASE_URL: "https://environment.example.com/base",
+      },
+    },
+  );
+
+  assert.match(result.stdout, new RegExp(`forgerelay listening on http://127\\.0\\.0\\.1:${cliPort}/relay/mcp`));
+  assert.match(result.stdout, /client-facing base url: https:\/\/cli-one\.example\.com\/relay/);
+  assert.ok(result.stdout.includes(`allowed roots: ${cliRootA}, ${cliRootB}`));
+  assert.match(result.stdout, /allowed hosts: .*cli-one\.example\.com.*cli-two\.example\.com/);
+  assert.doesNotMatch(result.stdout, /persisted\.example\.com|environment\.example\.com/);
+  assert.equal(readFileSync(configPath, "utf8"), persistedConfig);
+  assert.equal(readFileSync(authPath, "utf8"), persistedAuth);
+} finally {
+  rmSync(serveOverrideRoot, { recursive: true, force: true });
+}
 
 const legacyStartOption = spawnSync(
   "node",

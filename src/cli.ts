@@ -52,6 +52,7 @@ import {
   routeArguments,
   type CliCompatibilityHandler,
 } from "./cli/core/command-tree.js";
+import { parseServeCommandArgs } from "./cli/core/serve-options.js";
 import {
   authenticateRemote,
   defaultRemoteAlias,
@@ -130,7 +131,7 @@ async function runServeCommand(args: string[]): Promise<void> {
   assertRuntimePrivilegeAllowed(runtimePrivilege, serveOptions.allowElevated);
   if (serveOptions.allowElevated) console.warn(elevatedRuntimeWarning(runtimePrivilege));
   await ensureConfigured();
-  await serve(runtimePrivilege);
+  await serve(runtimePrivilege, serveOptions.runtimeOverrides);
 }
 
 async function runInitCommand(args: string[]): Promise<void> {
@@ -199,23 +200,6 @@ function parseInitCommandArgs(args: string[]): InitCommandOptions {
   return { force, advanced };
 }
 
-interface ServeCommandOptions {
-  allowElevated: boolean;
-}
-
-function parseServeCommandArgs(args: string[]): ServeCommandOptions {
-  let allowElevated = false;
-  for (const arg of args) {
-    if (arg === "--allow-elevated") {
-      if (allowElevated) throw new Error("--allow-elevated may only be supplied once.");
-      allowElevated = true;
-      continue;
-    }
-    throw new Error(`Unknown serve option: ${arg}`);
-  }
-  return { allowElevated };
-}
-
 async function ensureConfigured(): Promise<void> {
   const files = loadForgeRelayFiles();
   if (files.configExists && files.authExists) {
@@ -243,7 +227,10 @@ async function ensureConfigured(): Promise<void> {
   await runInit({ force: false, advanced: false, version: installedForgeRelayVersion() });
 }
 
-async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
+async function serve(
+  runtimePrivilege: RuntimePrivilegeState,
+  runtimeOverrides: Record<string, unknown> = {},
+): Promise<void> {
   const sqliteStatus = checkSqliteNative();
   if (sqliteStatus !== "ok") {
     throw new Error(
@@ -258,7 +245,7 @@ async function serve(runtimePrivilege: RuntimePrivilegeState): Promise<void> {
   }
 
   const { createServer } = await import("./server.js");
-  const config = loadConfig();
+  const config = loadConfig(process.env, { runtimeOverrides });
   config.runtimePrivilege = runtimePrivilege;
   const runtimeLease = acquireRuntimeLease(config.stateDir);
   let server: ReturnType<typeof createServer>;

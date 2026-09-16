@@ -71,6 +71,10 @@ export function renderCliRootHelp(): string {
     ),
     "",
     "Serve options:",
+    "  forgerelay serve --host <host>             Override the bind host for this invocation",
+    "  forgerelay serve --port <port>             Override the listen port for this invocation",
+    "  forgerelay serve --root <path>             Override allowed roots; repeat for multiple roots",
+    "  forgerelay serve --public-url <url>        Override client-facing base URLs; repeat for multiple URLs",
     "  forgerelay serve --allow-elevated",
     "                            Explicitly allow this invocation to run with elevated/unknown OS privilege",
   ].join("\n");
