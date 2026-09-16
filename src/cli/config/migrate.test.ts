@@ -51,6 +51,28 @@ test("config migrate dry-run reports paths without mutating or printing legacy s
   assert.ok(json(join(configDir, "config.json")).mcpServers);
 });
 
+test("config migrate shares the project/global scope contract", () => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-scope-"));
+  const configDir = join(root, "config");
+  const projectRoot = join(root, "project");
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(projectRoot, { recursive: true });
+
+  const defaultProject = runCli(configDir, ["config", "migrate", "--dry-run"], {
+    FORGERELAY_WORKSPACE_ROOT: projectRoot,
+  });
+  assert.equal(defaultProject.status, 0, defaultProject.stderr || defaultProject.stdout);
+  assert.match(defaultProject.stdout, /Project configuration at/);
+
+  const conflicting = runCli(configDir, ["config", "migrate", "--global", "--project", projectRoot]);
+  assert.equal(conflicting.status, 1, conflicting.stderr || conflicting.stdout);
+  assert.match(conflicting.stderr, /--global and --project cannot be used together/);
+
+  const projectLocal = runCli(configDir, ["config", "migrate", "--project-local"]);
+  assert.equal(projectLocal.status, 1, projectLocal.stderr || projectLocal.stdout);
+  assert.match(projectLocal.stderr, /--project-local is not a public configuration scope/);
+});
+
 test("config migrate refuses an invalid general config before writing canonical targets", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-invalid-general-"));
   const configDir = join(root, "config");

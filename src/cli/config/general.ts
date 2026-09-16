@@ -1,9 +1,9 @@
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   forgerelayConfigDir,
   loadForgeRelayFiles,
+  writeConfigJsonFile,
   writeForgeRelayConfig,
   type ForgeRelayUserConfig,
 } from "../../runtime/config/user-config.js";
@@ -128,18 +128,8 @@ function writeGeneralConfigTarget(target: GeneralConfigWriteTarget, value: Recor
     value,
   ) as Record<string, unknown>;
   mkdirSync(dirname(target.path), { recursive: true });
-  writeJsonAtomic(target.path, validated);
+  writeConfigJsonFile(target.path, validated, 0o600);
   return target.path;
-}
-
-function writeJsonAtomic(path: string, value: unknown): void {
-  const tempPath = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  try {
-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tempPath, path);
-  } finally {
-    rmSync(tempPath, { force: true });
-  }
 }
 
 function generalPathSegments(logicalPath: string): string[] {

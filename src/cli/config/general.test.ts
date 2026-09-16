@@ -125,6 +125,42 @@ try {
   assert.equal(readFileSync(join(configDir, "config.json"), "utf8"), beforeRejectedProjectWrite);
   assert.equal(existsSync(join(projectRoot, ".forgerelay", "config.json")), false);
 
+  const missingProjectWrite = spawnSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "config", "set", "config.port", "7767"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...cleanProductEnv,
+        FORGERELAY_CONFIG_DIR: configDir,
+        FORGERELAY_WORKSPACE_ROOT: join(root, "missing-project"),
+      },
+    },
+  );
+  assert.equal(missingProjectWrite.status, 1);
+  assert.match(missingProjectWrite.stderr, /ENOENT|no such file/i);
+  assert.equal(readFileSync(join(configDir, "config.json"), "utf8"), beforeRejectedProjectWrite);
+
+  const projectId = "proj_0123456789abcdefabcd";
+  const projectsDir = join(configDir, "projects");
+  const localConfigDir = join(projectsDir, projectId);
+  mkdirSync(localConfigDir, { recursive: true });
+  writeFileSync(join(projectsDir, "non-git-identities.json"), JSON.stringify({
+    version: 1,
+    projects: { [projectRoot]: projectId },
+  }, null, 2) + "\n");
+  const localConfigPath = join(localConfigDir, "config.json");
+  writeFileSync(localConfigPath, JSON.stringify({ port: 7799 }, null, 2) + "\n");
+  const projectLocalRead = spawnSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "config", "get", "--project", projectRoot],
+    { cwd: process.cwd(), encoding: "utf8", env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: configDir } },
+  );
+  assert.equal(projectLocalRead.status, 1);
+  assert.ok(projectLocalRead.stderr.includes(localConfigPath), projectLocalRead.stderr);
+  rmSync(localConfigPath, { force: true });
+
   const conflictingScope = spawnSync(
     "node",
     ["--import", "tsx", "src/cli.ts", "config", "get", "--global", "--project", projectRoot],

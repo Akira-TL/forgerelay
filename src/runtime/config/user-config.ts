@@ -149,7 +149,7 @@ export function writeForgeRelayConfig(
     config,
   ) as ForgeRelayUserConfig;
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  writeJsonFile(filePath, validated, 0o600);
+  writeConfigJsonFile(filePath, validated, 0o600);
   return filePath;
 }
 
@@ -316,7 +316,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function writeJsonFile(filePath: string, value: unknown, mode: number): void {
+export function writeConfigJsonFile(filePath: string, value: unknown, mode: number): void {
   const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", { mode });
