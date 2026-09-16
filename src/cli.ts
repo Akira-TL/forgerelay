@@ -47,6 +47,11 @@ import {
 import { formatCommandShellRuntime } from "./runtime/shell/command-shell-runtime.js";
 import { commandShellCompatibilityWarning } from "./cli/shell/setup.js";
 import {
+  renderCliRootHelp,
+  resolveCliRootRoute,
+  routeArguments,
+} from "./cli/core/command-tree.js";
+import {
   authenticateRemote,
   defaultRemoteAlias,
   isRemoteMcpUnauthorized,
@@ -69,52 +74,33 @@ import {
 } from "./cli/setup-support.js";
 
 
-type Command = "serve" | "init" | "doctor" | "config" | "hooks" | "agents" | "auth" | "mcp" | "maintenance" | "help" | "version";
 const require = createRequire(import.meta.url);
 
 async function main(argv: string[]): Promise<void> {
   assertSupportedNode();
 
   const [rawCommand, ...rest] = argv;
-  const defaultServeFlag = rawCommand === "--allow-elevated";
-  const command = defaultServeFlag ? "serve" : normalizeCommand(rawCommand);
-  const args = defaultServeFlag ? argv : rest;
+  const route = resolveCliRootRoute(rawCommand);
+  const args = routeArguments(route, rest);
 
-  switch (command) {
-    case "serve": {
-      const serveOptions = parseServeCommandArgs(args);
-      const runtimePrivilege = detectRuntimePrivilege();
-      assertRuntimePrivilegeAllowed(runtimePrivilege, serveOptions.allowElevated);
-      if (serveOptions.allowElevated) console.warn(elevatedRuntimeWarning(runtimePrivilege));
-      await ensureConfigured();
-      await serve(runtimePrivilege);
+  switch (route.handler) {
+    case "serve":
+      await runServeCommand(args);
       return;
-    }
-    case "init": {
-      const initOptions = parseInitCommandArgs(args);
-      await runInit({ ...initOptions, version: installedForgeRelayVersion() });
-      return;
-    }
-    case "doctor":
-      await runDoctor();
+    case "init":
+      await runInitCommand(args);
       return;
     case "config":
-      await runConfigCommand(args);
+      await runConfigRootCommand(args);
       return;
-    case "hooks":
-      await runHooksCommand(args);
+    case "connect":
+      await runConnectCommand(args);
+      return;
+    case "system":
+      await runSystemCommand(args);
       return;
     case "agents":
       await runAgentsCommand(args);
-      return;
-    case "auth":
-      await runAuthCommand(args);
-      return;
-    case "mcp":
-      await runExternalMcpCommand(args);
-      return;
-    case "maintenance":
-      runMaintenanceCommand(args);
       return;
     case "help":
       printHelp();
@@ -125,12 +111,62 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-function normalizeCommand(command: string | undefined): Command {
-  if (!command || command === "serve" || command === "start") return "serve";
-  if (command === "init" || command === "doctor" || command === "config" || command === "hooks" || command === "agents" || command === "auth" || command === "mcp" || command === "maintenance") return command;
-  if (command === "help" || command === "--help" || command === "-h") return "help";
-  if (command === "version" || command === "--version" || command === "-v") return "version";
-  throw new Error(`Unknown command: ${command}`);
+async function runServeCommand(args: string[]): Promise<void> {
+  const serveOptions = parseServeCommandArgs(args);
+  const runtimePrivilege = detectRuntimePrivilege();
+  assertRuntimePrivilegeAllowed(runtimePrivilege, serveOptions.allowElevated);
+  if (serveOptions.allowElevated) console.warn(elevatedRuntimeWarning(runtimePrivilege));
+  await ensureConfigured();
+  await serve(runtimePrivilege);
+}
+
+async function runInitCommand(args: string[]): Promise<void> {
+  const initOptions = parseInitCommandArgs(args);
+  await runInit({ ...initOptions, version: installedForgeRelayVersion() });
+}
+
+async function runConfigRootCommand(args: string[]): Promise<void> {
+  const [domain, ...rest] = args;
+  if (domain === "hooks") {
+    await runHooksCommand(rest);
+    return;
+  }
+  await runConfigCommand(args);
+}
+
+async function runConnectCommand(args: string[]): Promise<void> {
+  const [domain, ...rest] = args;
+  if (domain === "relay") {
+    await runAuthCommand(rest);
+    return;
+  }
+  if (domain === "mcp") {
+    await runExternalMcpCommand(rest);
+    return;
+  }
+  if (!domain || domain === "help" || domain === "--help" || domain === "-h") {
+    printConnectHelp();
+    return;
+  }
+  throw new Error(`Unknown connect command: ${domain}`);
+}
+
+async function runSystemCommand(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args;
+  if (subcommand === "doctor") {
+    if (rest.length > 0) throw new Error("forgerelay system doctor does not accept additional arguments.");
+    await runDoctor();
+    return;
+  }
+  if (subcommand === "inspect" || subcommand === "prune") {
+    runMaintenanceCommand([subcommand, ...rest]);
+    return;
+  }
+  if (!subcommand || subcommand === "help" || subcommand === "--help" || subcommand === "-h") {
+    printSystemHelp();
+    return;
+  }
+  throw new Error(`Unknown system command: ${subcommand}`);
 }
 
 interface InitCommandOptions {
@@ -512,47 +548,28 @@ async function runConfigCommand(args: string[]): Promise<void> {
 }
 
 function printHelp(): void {
-  console.log(
-    [
-      "ForgeRelay",
-      "",
-      "Usage:",
-      "  forgerelay                 Run first-time setup if needed, then start the server",
-      "  forgerelay serve           Start the server",
-      "  forgerelay serve --allow-elevated",
-      "                            Explicitly allow this invocation to run with elevated/unknown OS privilege",
-      "  forgerelay init            Run minimal first-time setup",
-      "  forgerelay init --advanced Configure common advanced runtime options",
-      "  forgerelay init --force     Update setup-owned fields without migrating legacy config",
-      "  forgerelay doctor          Show config, runtime, and native dependency status",
-      "  forgerelay config get      Print persisted config",
-      "  forgerelay config set publicBaseUrl <url[,url...]|null>",
-      "  forgerelay config check [--global|--project <path>] [--json]",
-      "  forgerelay config sources [--global|--project <path>] [--json]",
-      "  forgerelay config explain <logical-path> [--global|--project <path>] [--json]",
-      "  forgerelay config migrate [--dry-run] [--global|--project <path>]",
-      "  forgerelay hooks list [--project <path>]",
-      "  forgerelay hooks check [--project <path>]",
-      "  forgerelay agents ls       List subagent sessions",
-      "  forgerelay agents run <profile-or-provider-or-id> [--model <model>] <prompt>",
-      "  forgerelay agents show <id>",
-      "  forgerelay auth <target> [--alias <name>] [--token <owner-token>]",
-      "  forgerelay auth -J <ssh-route> <target> [--alias <name>] [--token <owner-token>|--ssh-auth]",
-      "  forgerelay auth list",
-      "  forgerelay auth test <alias>",
-      "  forgerelay auth rename <old-alias> <new-alias>",
-      "  forgerelay auth remove <alias>",
-      "  forgerelay mcp list [--project <path>|--global]",
-      "  forgerelay mcp test <server> [--project <path>|--global]",
-      "  forgerelay mcp auth <server> [--project <path>|--global]",
-      "  forgerelay mcp logout <server> [--project <path>|--global]",
-      "  forgerelay maintenance inspect [--json]",
-      "  forgerelay -v, --version   Print the installed version",
-      "",
-      "For temporary tunnels:",
-      "  FORGERELAY_PUBLIC_BASE_URL=https://example.trycloudflare.com/forgerelay/debug forgerelay serve",
-    ].join("\n"),
-  );
+  console.log(renderCliRootHelp());
+}
+
+function printConnectHelp(): void {
+  console.log([
+    "ForgeRelay connect",
+    "",
+    "Usage:",
+    "  forgerelay connect relay ...",
+    "  forgerelay connect mcp ...",
+  ].join("\n"));
+}
+
+function printSystemHelp(): void {
+  console.log([
+    "ForgeRelay system",
+    "",
+    "Usage:",
+    "  forgerelay system doctor",
+    "  forgerelay system inspect [--json]",
+    "  forgerelay system prune [--json]",
+  ].join("\n"));
 }
 
 async function runAgentsCommand(args: string[]): Promise<void> {

@@ -46,7 +46,7 @@ assert.match(validateLanClientFacingBaseUrls("https://forge.example.com") ?? "",
 assert.equal(validateHttpsProxyBaseUrls("https://forge.example.com/forgerelay/debug"), undefined);
 assert.match(validateHttpsProxyBaseUrls("http://192.168.1.20:7676") ?? "", /HTTPS/);
 
-for (const flag of ["-v", "--version"]) {
+for (const flag of ["version", "-v", "--version"]) {
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
     encoding: "utf8",
     env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-version-test" },
@@ -61,6 +61,36 @@ const helpOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", "help"
 });
 assert.match(helpOutput, /forgerelay serve --allow-elevated/);
 assert.match(helpOutput, /Explicitly allow this invocation/);
+for (const flag of ["-h", "--help"]) {
+  const aliasHelpOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", flag], {
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-help-alias-test" },
+  });
+  assert.equal(aliasHelpOutput, helpOutput);
+}
+for (const command of ["serve", "init", "config", "connect", "system", "help", "version"]) {
+  assert.match(helpOutput, new RegExp(`^  forgerelay ${command}\\b`, "m"));
+}
+for (const legacyCommand of ["start", "doctor", "hooks", "agents", "auth", "mcp", "maintenance"]) {
+  assert.doesNotMatch(helpOutput, new RegExp(`^  forgerelay ${legacyCommand}\\b`, "m"));
+}
+
+const bareRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-bare-help-test-"));
+try {
+  const configDir = join(bareRoot, ".forgerelay");
+  const bare = spawnSync("node", ["--import", "tsx", "src/cli.ts"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: configDir },
+  });
+  assert.equal(bare.status, 0);
+  assert.equal(bare.stderr, "");
+  assert.match(bare.stdout, /^ForgeRelay\n/m);
+  assert.match(bare.stdout, /forgerelay serve/);
+  assert.equal(existsSync(configDir), false);
+} finally {
+  rmSync(bareRoot, { recursive: true, force: true });
+}
 
 const invalidServeOption = spawnSync(
   "node",
@@ -73,6 +103,75 @@ const invalidServeOption = spawnSync(
 );
 assert.equal(invalidServeOption.status, 1);
 assert.match(invalidServeOption.stderr, /Unknown serve option: --definitely-not-a-serve-option/);
+
+const legacyStartOption = spawnSync(
+  "node",
+  ["--import", "tsx", "src/cli.ts", "start", "--definitely-not-a-serve-option"],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-legacy-start-test" },
+  },
+);
+assert.equal(legacyStartOption.status, 1);
+assert.match(legacyStartOption.stderr, /Unknown serve option: --definitely-not-a-serve-option/);
+
+const unknownCommand = spawnSync(
+  "node",
+  ["--import", "tsx", "src/cli.ts", "definitely-not-a-command"],
+  {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-unknown-command-test" },
+  },
+);
+assert.equal(unknownCommand.status, 1);
+assert.match(unknownCommand.stderr, /Unknown command: definitely-not-a-command/);
+
+const compatibilityRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-compatibility-test-"));
+try {
+  const configDir = join(compatibilityRoot, ".forgerelay");
+  const stateDir = join(compatibilityRoot, ".state");
+  const compatibilityEnv = {
+    ...cleanProductEnv,
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_STATE_DIR: stateDir,
+  };
+
+  const legacyRelayList = execFileSync("node", ["--import", "tsx", "src/cli.ts", "auth", "list"], {
+    cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv,
+  });
+  const canonicalRelayList = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "connect", "relay", "list"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  assert.equal(canonicalRelayList, legacyRelayList);
+
+  const legacyMcpHelp = execFileSync("node", ["--import", "tsx", "src/cli.ts", "mcp", "--help"], {
+    cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv,
+  });
+  const canonicalMcpHelp = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "connect", "mcp", "--help"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  assert.equal(canonicalMcpHelp, legacyMcpHelp);
+
+  const legacyMaintenance = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "maintenance", "inspect", "--json"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  const canonicalMaintenance = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "system", "inspect", "--json"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  assert.equal(canonicalMaintenance, legacyMaintenance);
+} finally {
+  rmSync(compatibilityRoot, { recursive: true, force: true });
+}
 
 const doctorRoot = mkdtempSync(join(tmpdir(), "forgerelay-cli-doctor-test-"));
 const doctorShell = process.platform === "win32"
@@ -111,18 +210,25 @@ try {
     }),
   );
 
+  const doctorEnv = {
+    ...cleanProductEnv,
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    FORGERELAY_TOOL_MODE: "minimal",
+    FORGERELAY_WIDGETS: "changes",
+    FORGERELAY_SKILLS: "0",
+  };
   const output = execFileSync("node", ["--import", "tsx", "src/cli.ts", "doctor"], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: {
-      ...cleanProductEnv,
-      FORGERELAY_CONFIG_DIR: configDir,
-      FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
-      FORGERELAY_TOOL_MODE: "minimal",
-      FORGERELAY_WIDGETS: "changes",
-      FORGERELAY_SKILLS: "0",
-    },
+    env: doctorEnv,
   });
+  const canonicalOutput = execFileSync("node", ["--import", "tsx", "src/cli.ts", "system", "doctor"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: doctorEnv,
+  });
+  assert.equal(canonicalOutput, output);
 
   assert.match(output, /Bind MCP URL: http:\/\/127\.0\.0\.1:7676\/base\/path\/mcp/);
   assert.match(
@@ -251,6 +357,13 @@ try {
     listed,
     /project 20-project-tests BeforeWorktreeClose .*timeout=30s report=false .*npm test/,
   );
+
+  const canonicalListed = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "config", "hooks", "list", "--project", projectRoot],
+    { cwd: process.cwd(), encoding: "utf8", env: hooksEnv },
+  );
+  assert.equal(canonicalListed, listed);
 
   const checked = execFileSync(
     "node",
