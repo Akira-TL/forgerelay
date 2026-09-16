@@ -4,6 +4,18 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-09-16
+
+### Changed
+
+- Config v2 现在把监听端口的支持范围统一为 `1`–`65535`，并让 JSON Schema、环境变量、`init --advanced`、持久化写入、迁移与运行时使用同一验证约束；External MCP OAuth `callbackPort` 继续保持独立的 `1024`–`65535` 范围。
+- 初始化只持久化用户真正选择的网络 override；HTTPS proxy 场景不再重复写入可从 loopback bind 与 public URL 安全推导的 `trustedProxies: ["loopback"]`。
+
+### Fixed
+
+- `config.json` 写入与 legacy migration 现在会在持久化前通过 Config v2 schema 校验，避免 CLI 或迁移先写出运行时随后拒绝的非法配置；迁移遇到非法 General Config 时会在创建 canonical target 或 backup 之前失败。
+- 明确 `host` / `port`、`publicBaseUrl`、`allowedHosts` 与 `trustedProxies` 的配置权威关系：显式用户值始终优先，派生值只在对应 override 缺失时生效。
+
 ## [1.2.4] - 2026-09-15
 
 ### Added
