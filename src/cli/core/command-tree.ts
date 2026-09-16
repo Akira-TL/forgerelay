@@ -4,16 +4,21 @@ export type CliRootHandler =
   | "config"
   | "connect"
   | "system"
-  | "agents"
   | "help"
   | "version";
 
-export interface CliRootRoute {
+export type CliCompatibilityHandler = "agents";
+
+interface CliRouteMetadata {
   command: string;
-  handler: CliRootHandler;
   argsPrefix?: readonly string[];
   publicSummary?: string;
 }
+
+export type CliRootRoute = CliRouteMetadata & (
+  | { handler: CliRootHandler; compatibilityHandler?: never }
+  | { compatibilityHandler: CliCompatibilityHandler; handler?: never }
+);
 
 export const CLI_ROOT_ROUTES: readonly CliRootRoute[] = [
   { command: "serve", handler: "serve", publicSummary: "Start the ForgeRelay runtime" },
@@ -32,7 +37,7 @@ export const CLI_ROOT_ROUTES: readonly CliRootRoute[] = [
   { command: "auth", handler: "connect", argsPrefix: ["relay"] },
   { command: "mcp", handler: "connect", argsPrefix: ["mcp"] },
   { command: "maintenance", handler: "system" },
-  { command: "agents", handler: "agents" },
+  { command: "agents", compatibilityHandler: "agents" },
   { command: "--help", handler: "help" },
   { command: "-h", handler: "help" },
   { command: "--version", handler: "version" },

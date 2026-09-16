@@ -50,6 +50,7 @@ import {
   renderCliRootHelp,
   resolveCliRootRoute,
   routeArguments,
+  type CliCompatibilityHandler,
 } from "./cli/core/command-tree.js";
 import {
   authenticateRemote,
@@ -82,6 +83,10 @@ async function main(argv: string[]): Promise<void> {
   const [rawCommand, ...rest] = argv;
   const route = resolveCliRootRoute(rawCommand);
   const args = routeArguments(route, rest);
+  if (route.compatibilityHandler) {
+    await runCompatibilityRootCommand(route.compatibilityHandler, args);
+    return;
+  }
 
   switch (route.handler) {
     case "serve":
@@ -99,14 +104,22 @@ async function main(argv: string[]): Promise<void> {
     case "system":
       await runSystemCommand(args);
       return;
-    case "agents":
-      await runAgentsCommand(args);
-      return;
     case "help":
       printHelp();
       return;
     case "version":
       printVersion();
+      return;
+  }
+}
+
+async function runCompatibilityRootCommand(
+  handler: CliCompatibilityHandler,
+  args: string[],
+): Promise<void> {
+  switch (handler) {
+    case "agents":
+      await runAgentsCommand(args);
       return;
   }
 }
