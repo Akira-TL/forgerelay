@@ -26,7 +26,7 @@
       }
     },
     "port": {
-      "description": "Local listening port.",
+      "description": "Local listening port (1-65535).",
       "type": "integer",
       "minimum": 1,
       "maximum": 65535,
@@ -431,7 +431,7 @@
       "x-forgerelay-sensitivity": "public",
       "x-forgerelay-interpolation": "none",
       "x-forgerelay-execution-effect": "none",
-      "x-forgerelay-computed-default": "Detected launcher shell with the recorded compatibility fallback used when needed."
+      "x-forgerelay-computed-default": "Platform compatibility default unless an explicit shell preference is recorded."
     },
     "shellInstructions": {
       "description": "Enable ForgeRelay-owned runtime shell instructions.",

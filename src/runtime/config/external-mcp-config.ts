@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { isIntegerPort, OAUTH_CALLBACK_PORT_MIN, PORT_MAX } from "./validation/ports.js";
 
 const MCP_SERVER_NAME_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
 const MAX_MCP_SERVERS = 32;
@@ -15,7 +16,7 @@ const clientMetadataUrlSchema = z.string().url().refine((value) => {
 }, "clientMetadataUrl must use https and contain a non-root path.");
 const oauthSourceSchema = z.object({
   clientMetadataUrl: clientMetadataUrlSchema,
-  callbackPort: z.number().int().min(1024).max(65535),
+  callbackPort: z.number().int().min(OAUTH_CALLBACK_PORT_MIN).max(PORT_MAX),
 }).strict();
 const stdioSourceSchema = z.object({
   transport: z.literal("stdio"),
@@ -181,8 +182,10 @@ function parseOAuthClientConfig(value: unknown, label: string): ExternalMcpOAuth
     throw new Error(`${label}.clientMetadataUrl must use https and contain a non-root path.`);
   }
   const callbackPort = value.callbackPort;
-  if (!Number.isInteger(callbackPort) || Number(callbackPort) < 1024 || Number(callbackPort) > 65535) {
-    throw new Error(`${label}.callbackPort must be an integer from 1024 to 65535.`);
+  if (!isIntegerPort(callbackPort, OAUTH_CALLBACK_PORT_MIN, PORT_MAX)) {
+    throw new Error(
+      `${label}.callbackPort must be an integer from ${OAUTH_CALLBACK_PORT_MIN} to ${PORT_MAX}.`,
+    );
   }
   return {
     clientMetadataUrl: parsed.toString(),

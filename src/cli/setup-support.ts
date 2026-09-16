@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { createRequire } from "node:module";
 import * as prompts from "@clack/prompts";
 import { satisfies } from "semver";
+import { isIntegerPort, LISTEN_PORT_MIN, PORT_MAX } from "../runtime/config/validation/ports.js";
 
 const SUPPORTED_NODE_RANGE = ">=20.12 <27";
 const require = createRequire(import.meta.url);
@@ -132,9 +133,9 @@ export async function textPrompt(options: TextPromptOptions): Promise<string> {
 
 export function validatePort(value: string | undefined): string | undefined {
   const port = Number(value);
-  return Number.isInteger(port) && port >= 1 && port <= 65535
+  return isIntegerPort(port, LISTEN_PORT_MIN, PORT_MAX)
     ? undefined
-    : "Enter a port between 1 and 65535.";
+    : `Enter a port between ${LISTEN_PORT_MIN} and ${PORT_MAX}.`;
 }
 
 export function isLoopbackBindAddress(value: string): boolean {

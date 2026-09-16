@@ -49,7 +49,7 @@ forgerelay init
 forgerelay init --advanced
 ```
 
-`--advanced` 才配置 port、Command Shell Runtime、Runtime Shell Instructions opt-in、ForgeRelay-managed Language Servers，以及是否允许 Agent 按需安装 managed Language Server。Runtime Shell Instructions 默认不启用。
+`--advanced` 才配置 port（`1`–`65535`，默认 `7676`）、Command Shell Runtime、Runtime Shell Instructions opt-in、ForgeRelay-managed Language Servers，以及是否允许 Agent 按需安装 managed Language Server。Runtime Shell Instructions 默认不启用。
 
 新安装默认写入：
 

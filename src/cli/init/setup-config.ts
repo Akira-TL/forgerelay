@@ -48,7 +48,6 @@ function applyNetworkSelection(config: ForgeRelayUserConfig, selection: SetupNet
     }
     config.publicBaseUrl = selection.publicBaseUrl;
   }
-  if (selection.mode === "proxy") config.trustedProxies = ["loopback"];
 }
 
 function applyAdvancedSelection(config: ForgeRelayUserConfig, selection: AdvancedSetupSelection): void {

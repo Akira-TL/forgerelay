@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { shellInstructionPath } from "../instructions/shell-instructions.js";
 import { liveGeneralConfigState, loadConfig } from "./config.js";
-import { resolveSubagentsFlag } from "./user-config.js";
+import {
+  forgerelayConfigPath,
+  resolveSubagentsFlag,
+  writeForgeRelayConfig,
+} from "./user-config.js";
 
 const emptyConfigDir = mkdtempSync(join(tmpdir(), "forgerelay-empty-config-test-"));
 const baseEnv = {
@@ -555,4 +559,39 @@ writeFileSync(
 assert.throws(
   () => loadConfig({ FORGERELAY_CONFIG_DIR: strictConfigDir }),
   /Unrecognized key: "typoPort"/,
+);
+
+const validatedWriteRoot = mkdtempSync(join(tmpdir(), "forgerelay-config-write-validation-"));
+const validatedWriteEnv = {
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: join(validatedWriteRoot, "config"),
+};
+writeForgeRelayConfig({
+  $schema: "https://example.test/config.user.schema.json",
+  allowedRoots: [validatedWriteRoot],
+  port: 1,
+}, validatedWriteEnv);
+const validatedWritePath = forgerelayConfigPath(validatedWriteEnv);
+const validConfigText = readFileSync(validatedWritePath, "utf8");
+assert.equal(JSON.parse(validConfigText).port, 1);
+assert.throws(
+  () => writeForgeRelayConfig({ allowedRoots: [validatedWriteRoot], port: 0 }, validatedWriteEnv),
+  /greater than or equal to 1|too small/i,
+);
+assert.equal(readFileSync(validatedWritePath, "utf8"), validConfigText);
+assert.throws(
+  () => writeForgeRelayConfig({ allowedRoots: [validatedWriteRoot], port: 65_536 }, validatedWriteEnv),
+  /less than or equal to 65535|too big/i,
+);
+assert.equal(readFileSync(validatedWritePath, "utf8"), validConfigText);
+
+const explicitDefaultRoot = mkdtempSync(join(tmpdir(), "forgerelay-config-explicit-default-"));
+const explicitDefaultEnv = {
+  ...baseEnv,
+  FORGERELAY_CONFIG_DIR: join(explicitDefaultRoot, "config"),
+};
+writeForgeRelayConfig({ port: 7676 }, explicitDefaultEnv);
+assert.equal(
+  JSON.parse(readFileSync(forgerelayConfigPath(explicitDefaultEnv), "utf8")).port,
+  7676,
 );

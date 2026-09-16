@@ -51,7 +51,6 @@ test("basic proxy init persists only connection-specific values", () => {
     $schema: schema,
     allowedRoots: roots,
     publicBaseUrl: "https://forge.example.com/relay",
-    trustedProxies: ["loopback"],
   });
 });
 

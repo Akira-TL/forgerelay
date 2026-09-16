@@ -51,6 +51,25 @@ test("config migrate dry-run reports paths without mutating or printing legacy s
   assert.ok(json(join(configDir, "config.json")).mcpServers);
 });
 
+test("config migrate refuses an invalid general config before writing canonical targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-invalid-general-"));
+  const configDir = join(root, "config");
+  mkdirSync(configDir, { recursive: true });
+  const configPath = join(configDir, "config.json");
+  const original = JSON.stringify({
+    port: 65_536,
+    mcpServers: { demo: { transport: "stdio", command: "demo-mcp" } },
+  }, null, 2);
+  writeFileSync(configPath, original);
+
+  const result = runCli(configDir, ["config", "migrate", "--global"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /65535|too big/i);
+  assert.equal(readFileSync(configPath, "utf8"), original);
+  assert.equal(existsSync(join(configDir, "mcp.json")), false);
+  assert.equal(existsSync(join(configDir, "migration-backups")), false);
+});
+
 test("config migrate writes canonical user domains, backs up legacy sources, and preserves effective behavior", async () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-user-"));
   const configDir = join(root, "config");

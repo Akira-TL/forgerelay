@@ -43,7 +43,10 @@ test("file-backed source schemas reserve $schema and reject unknown or illegal-s
   const userTypo = configSourceSchema(generalConfigDefinition, "user").safeParse({ typoPort: 7676 });
   assert.equal(userTypo.success, false);
   if (!userTypo.success) assert.equal(userTypo.error.issues[0]?.code, "unrecognized_keys");
-  assert.equal(configSourceSchema(generalConfigDefinition, "user").safeParse({ port: 7677 }).success, true);
+  assert.equal(configSourceSchema(generalConfigDefinition, "user").safeParse({ port: 1 }).success, true);
+  assert.equal(configSourceSchema(generalConfigDefinition, "user").safeParse({ port: 65_535 }).success, true);
+  assert.equal(configSourceSchema(generalConfigDefinition, "user").safeParse({ port: 0 }).success, false);
+  assert.equal(configSourceSchema(generalConfigDefinition, "user").safeParse({ port: 65_536 }).success, false);
 });
 
 test("generated scope schemas carry strict structure, defaults, descriptions, and Config metadata", () => {
@@ -56,7 +59,9 @@ test("generated scope schemas carry strict structure, defaults, descriptions, an
 
   const properties = schema.properties as Record<string, Record<string, unknown>>;
   assert.equal(properties.port?.default, 7676);
-  assert.equal(properties.port?.description, "Local listening port.");
+  assert.equal(properties.port?.description, "Local listening port (1-65535).");
+  assert.equal(properties.port?.minimum, 1);
+  assert.equal(properties.port?.maximum, 65_535);
   assert.equal(properties.port?.["x-forgerelay-reload"], "restart-required");
   assert.deepEqual(properties.port?.["x-forgerelay-scopes"], ["runtime", "user", "built-in"]);
   assert.deepEqual(properties.retention?.["x-forgerelay-runtime-override"], {

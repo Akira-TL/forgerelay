@@ -20,6 +20,8 @@ import type { LanguageServerConfigInput } from "../../lsp/language-server-config
 import type { CommandShellPreference } from "../shell/command-shell-runtime.js";
 import type { ExternalMcpServersConfig } from "./external-mcp-config.js";
 import type { HookConfigInput } from "../../mcp/hooks/hooks.js";
+import { parseConfigSource } from "./definition/definition.js";
+import { generalConfigDefinition } from "./definition/general-config.js";
 
 export interface ForgeRelayRetentionConfig {
   historyDays?: number;
@@ -141,8 +143,13 @@ export function writeForgeRelayConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const filePath = forgerelayConfigPath(env);
+  const validated = parseConfigSource(
+    generalConfigDefinition,
+    "user",
+    config,
+  ) as ForgeRelayUserConfig;
   mkdirSync(forgerelayConfigDir(env), { recursive: true });
-  writeJsonFile(filePath, config, 0o600);
+  writeJsonFile(filePath, validated, 0o600);
   return filePath;
 }
 

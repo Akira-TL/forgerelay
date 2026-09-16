@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { defineConfigDomain } from "./definition.js";
 import type { ConfigFieldDefinition } from "./types.js";
+import { LISTEN_PORT_MIN, PORT_MAX } from "../validation/ports.js";
 
 const USER_RUNTIME_SCOPES = ["runtime", "user", "built-in"] as const;
 const USER_SCOPES = ["user", "built-in"] as const;
@@ -29,12 +30,19 @@ export const generalConfigDefinition = defineConfigDomain({
       reload: "restart-required",
       runtimeOverride: runtimeEnv("HOST", (env) => env.HOST),
     }),
-    port: field(z.number().int().min(1).max(65535), "Local listening port.", {
-      scopes: USER_RUNTIME_SCOPES,
-      builtIn: literal(7676),
-      reload: "restart-required",
-      runtimeOverride: runtimeEnv("PORT", (env) => readIntegerEnv(env, "PORT", 1, 65535)),
-    }),
+    port: field(
+      z.number().int().min(LISTEN_PORT_MIN).max(PORT_MAX),
+      `Local listening port (${LISTEN_PORT_MIN}-${PORT_MAX}).`,
+      {
+        scopes: USER_RUNTIME_SCOPES,
+        builtIn: literal(7676),
+        reload: "restart-required",
+        runtimeOverride: runtimeEnv(
+          "PORT",
+          (env) => readIntegerEnv(env, "PORT", LISTEN_PORT_MIN, PORT_MAX),
+        ),
+      },
+    ),
     allowedRoots: field(z.array(z.string()), "Filesystem roots that Workspaces may open.", {
       scopes: USER_RUNTIME_SCOPES,
       builtIn: computed("The process working directory when no roots are configured."),
@@ -131,7 +139,7 @@ export const generalConfigDefinition = defineConfigDomain({
     }),
     commandShell: field(commandShellSchema, "Recorded command-shell preference for ForgeRelay command and Hook execution.", {
       scopes: USER_SCOPES,
-      builtIn: computed("Detected launcher shell with the recorded compatibility fallback used when needed."),
+      builtIn: computed("Platform compatibility default unless an explicit shell preference is recorded."),
       reload: "restart-required",
     }),
     shellInstructions: field(z.boolean(), "Enable ForgeRelay-owned runtime shell instructions.", {

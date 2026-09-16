@@ -168,13 +168,13 @@ forgerelay init --advanced
 
 高级初始化只处理一小组常用设置：
 
-- port；
+- port（`1`–`65535`；默认 `7676`）；
 - Command Shell Runtime；
 - ForgeRelay Runtime Shell Instructions（默认不启用，用户显式 opt-in）；
 - ForgeRelay-managed Language Servers；
 - 是否允许 Agent 按需安装 managed Language Server。
 
-`forgerelay init --force` 只更新 setup-owned 字段。它不会把所有默认值快照进配置，不会删除无关高级配置，也**不会执行 legacy migration**。
+`forgerelay init --force` 只更新 setup-owned 字段。它不会把所有默认值快照进配置，不会删除无关高级配置，也**不会执行 legacy migration**。Setup 只持久化用户真正选择的 override；例如 HTTPS proxy 所需的 loopback proxy trust 可以从 loopback bind + public URL 安全推导，因此不会重复写入 `trustedProxies`。
 
 ## 显式迁移
 
@@ -353,7 +353,7 @@ ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime reso
 | Variable | 用途 |
 | --- | --- |
 | `HOST` | bind host，默认 `127.0.0.1` |
-| `PORT` | bind port，默认 `7676` |
+| `PORT` | bind port，允许 `1`–`65535`，默认 `7676` |
 | `FORGERELAY_ALLOWED_ROOTS` | 可打开的 Project roots |
 | `FORGERELAY_PUBLIC_BASE_URL` | 一个或多个 public base URL |
 | `FORGERELAY_ALLOWED_HOSTS` | Host-header allowlist override |

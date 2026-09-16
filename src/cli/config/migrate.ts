@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { parseConfigSource } from "../../runtime/config/definition/definition.js";
 import { configSchemaId } from "../../runtime/config/definition/schema.js";
 import { generalConfigDefinition } from "../../runtime/config/definition/general-config.js";
 import { externalMcpConfigDefinition } from "../../runtime/config/definition/external-mcp.js";
@@ -184,7 +185,14 @@ function buildGlobalMigrationPlan(configDir: string): MigrationPlan {
     nextConfig.$schema = generalSchema;
     configChanged = true;
   }
-  if (configChanged) writes.push(jsonWrite(files.configPath, nextConfig));
+  if (configChanged) {
+    const validatedConfig = parseConfigSource(
+      generalConfigDefinition,
+      "user",
+      nextConfig,
+    ) as ForgeRelayUserConfig;
+    writes.push(jsonWrite(files.configPath, validatedConfig));
+  }
 
   if (configChanged && files.configExists) backupSources.push({ path: files.configPath, relativePath: "config.json" });
   if (files.hooksExists) backupSources.push({ path: files.hooksPath, relativePath: "hooks.json" });
