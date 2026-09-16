@@ -383,4 +383,13 @@ https://forge.example.com/forgerelay/main/mcp
 
 可以配置多个 public base URL；第一个是 canonical URL，各自 pathname 都是独立 route boundary。
 
+网络配置的 source-of-truth 分工如下：
+
+- `host` / `port` 只定义本地 bind endpoint；
+- `publicBaseUrl` 定义 Client 看到的 canonical/public endpoint，不要求和本地 bind 地址相同；
+- `allowedHosts` 是显式 Host-header allowlist override；未配置时由 loopback、bind host 和 `publicBaseUrl` hostname 自动派生；
+- `trustedProxies` 是显式 proxy trust override；未配置时，只有 loopback bind + 非 loopback public URL 这种可安全判断的部署形状才自动派生 loopback trust。
+
+因此 setup 不会把这些派生结果重复快照进 `config.json`；只有用户显式提供的 override 才需要成为持久化配置。
+
 完整网络/OAuth 初始化见 [快速开始](Getting-Started)。
