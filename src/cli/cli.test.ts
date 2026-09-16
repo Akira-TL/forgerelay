@@ -404,6 +404,7 @@ try {
       "set",
       "publicBaseUrl",
       "https://primary.example.com/forgerelay/debug,https://alias.example.com/relay",
+      "--global",
     ],
     { cwd: process.cwd(), encoding: "utf8", env },
   );
@@ -432,7 +433,7 @@ try {
 
   execFileSync(
     "node",
-    ["--import", "tsx", "src/cli.ts", "config", "set", "publicBaseUrl", "https://legacy.example.com/new-route"],
+    ["--import", "tsx", "src/cli.ts", "config", "set", "publicBaseUrl", "https://legacy.example.com/new-route", "--global"],
     { cwd: process.cwd(), encoding: "utf8", env },
   );
   const single = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as Record<string, unknown>;

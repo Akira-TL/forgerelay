@@ -47,15 +47,19 @@ test("config check reports invalid global configuration as JSON with exit code 1
   assert.equal(output.diagnostics?.[0]?.source?.location, join(configDir, "config.json"));
 });
 
-test("top-level help advertises the Config v2 diagnostic commands", () => {
+test("config help advertises the General Config and diagnostic commands", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-help-"));
   const configDir = join(root, "config");
   mkdirSync(configDir, { recursive: true });
-  const result = runCli(configDir, ["--help"]);
+  const result = runCli(configDir, ["config", "--help"]);
   assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /forgerelay config get/);
+  assert.match(result.stdout, /forgerelay config set <logical-path> <value>/);
+  assert.match(result.stdout, /forgerelay config unset <logical-path>/);
   assert.match(result.stdout, /forgerelay config check/);
   assert.match(result.stdout, /forgerelay config sources/);
   assert.match(result.stdout, /forgerelay config explain <logical-path>/);
+  assert.match(result.stdout, /forgerelay config migrate/);
 });
 
 test("config diagnostic usage and query failures exit with code 2", () => {

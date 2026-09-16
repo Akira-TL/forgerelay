@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { forgerelayConfigDir } from "../../runtime/config/user-config.js";
 import { ExternalMcpConfigRegistry } from "../../runtime/config/external-mcp-registry.js";
 import { resolveGeneralConfig } from "../../runtime/config/resolution/general.js";
@@ -8,6 +8,7 @@ import { readJsonConfigSource } from "../../runtime/config/resolution/project-so
 import { ConfigSourceRuntime } from "../../runtime/config/runtime/source-refresh.js";
 import { resolveSubagentProfilesConfigSources } from "../../subagents/profiles.js";
 import { ProjectContextResolver } from "../../workspaces/state/project-context.js";
+import { parseConfigScopeArgs, type ConfigCliScope } from "./scope.js";
 import type {
   ConfigDiagnostic,
   ConfigShadowedValue,
@@ -17,9 +18,7 @@ import type {
 } from "../../runtime/config/resolution/types.js";
 
 export type ConfigInspectionCommand = "check" | "sources" | "explain";
-type ConfigInspectionScope =
-  | { mode: "global" }
-  | { mode: "project"; projectRoot: string };
+type ConfigInspectionScope = ConfigCliScope;
 
 interface ConfigInspectionOptions {
   command: ConfigInspectionCommand;
@@ -163,32 +162,17 @@ export async function runConfigInspection(args: string[]): Promise<number> {
 }
 
 function parseInspectionArgs(args: string[]): ConfigInspectionOptions {
-  const [command, ...rest] = args;
+  const scoped = parseConfigScopeArgs(args);
+  const [command, ...rest] = scoped.rest;
   if (command !== "check" && command !== "sources" && command !== "explain") {
     throw new Error("Expected config check, config sources, or config explain <logical-path>.");
   }
   let json = false;
-  let global = false;
-  let projectRoot: string | undefined;
   let logicalPath: string | undefined;
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index]!;
+  for (const arg of rest) {
     if (arg === "--json") {
       if (json) throw new Error("--json may only be supplied once.");
       json = true;
-      continue;
-    }
-    if (arg === "--global") {
-      if (global || projectRoot) throw new Error("--global and --project cannot be used together or repeated.");
-      global = true;
-      continue;
-    }
-    if (arg === "--project") {
-      if (global || projectRoot) throw new Error("--global and --project cannot be used together or repeated.");
-      const value = rest[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--project requires a project path.");
-      projectRoot = resolve(value);
-      index += 1;
       continue;
     }
     if (command === "explain" && logicalPath === undefined && !arg.startsWith("--")) {
@@ -201,9 +185,7 @@ function parseInspectionArgs(args: string[]): ConfigInspectionOptions {
   return {
     command,
     json,
-    scope: global
-      ? { mode: "global" }
-      : { mode: "project", projectRoot: projectRoot ?? resolve(process.env.FORGERELAY_WORKSPACE_ROOT ?? process.cwd()) },
+    scope: scoped.scope,
     ...(logicalPath ? { logicalPath } : {}),
   };
 }

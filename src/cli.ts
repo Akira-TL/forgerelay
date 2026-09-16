@@ -13,6 +13,7 @@ import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
 import { runConfigMigration } from "./cli/config/migrate.js";
 import { runConfigInspection } from "./cli/config/inspect.js";
+import { renderGeneralConfigHelp, runGeneralConfigGet, runGeneralConfigSet, runGeneralConfigUnset } from "./cli/config/general.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
 import {
@@ -32,7 +33,6 @@ import {
   loadForgeRelayFiles,
   removeForgeRelayRemote,
   renameForgeRelayRemote,
-  writeForgeRelayConfig,
   writeForgeRelayRemote,
 } from "./runtime/config/user-config.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
@@ -72,7 +72,6 @@ import {
   checkGitAvailable,
   checkSqliteNative,
   nodeVersionStatus,
-  normalizeOptionalPublicBaseUrl,
 } from "./cli/setup-support.js";
 
 
@@ -514,7 +513,11 @@ async function runDoctor(): Promise<void> {
 }
 
 async function runConfigCommand(args: string[]): Promise<void> {
-  const [subcommand, key, ...rest] = args;
+  const [subcommand] = args;
+  if (subcommand === "help" || subcommand === "--help" || subcommand === "-h") {
+    console.log(renderGeneralConfigHelp());
+    return;
+  }
   if (subcommand === "migrate") {
     await runConfigMigration(args.slice(1));
     return;
@@ -523,28 +526,20 @@ async function runConfigCommand(args: string[]): Promise<void> {
     process.exitCode = await runConfigInspection(args);
     return;
   }
-  const files = loadForgeRelayFiles();
-
   if (!subcommand || subcommand === "get") {
-    console.log(JSON.stringify(files.config, null, 2));
+    await runGeneralConfigGet(subcommand ? args.slice(1) : []);
     return;
   }
 
-  if (subcommand !== "set") {
-    throw new Error(`Unknown config command: ${subcommand}`);
+  if (subcommand === "set") {
+    await runGeneralConfigSet(args.slice(1));
+    return;
   }
-  if (key !== "publicBaseUrl") {
-    throw new Error("Only `forgerelay config set publicBaseUrl <url[,url...]|null>` is supported right now.");
+  if (subcommand === "unset") {
+    await runGeneralConfigUnset(args.slice(1));
+    return;
   }
-
-  const value = rest.join(" ").trim();
-  if (!value) throw new Error("Missing publicBaseUrl value.");
-
-  writeForgeRelayConfig({
-    ...files.config,
-    publicBaseUrl: normalizeOptionalPublicBaseUrl(value),
-  });
-  console.log(`Updated ${files.configPath}`);
+  throw new Error(`Unknown config command: ${subcommand}`);
 }
 
 function printHelp(): void {

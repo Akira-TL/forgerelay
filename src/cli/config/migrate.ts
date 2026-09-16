@@ -31,6 +31,7 @@ import {
 import { mergeHookConfigs, parseHookConfig } from "../../mcp/hooks/hooks.js";
 import { canonicalSubagentProfileDocumentFromLegacy } from "../../subagents/profiles.js";
 import { resolveProjectContext } from "../../workspaces/state/project-context.js";
+import { parseConfigScopeArgs } from "./scope.js";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -96,33 +97,19 @@ export async function runConfigMigration(args: string[]): Promise<void> {
 }
 
 function parseMigrationArgs(args: string[]): MigrationOptions {
+  const scoped = parseConfigScopeArgs(args);
   let dryRun = false;
-  let scope: MigrationOptions["scope"] | undefined;
-  let projectPath: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
+  for (const arg of scoped.rest) {
     if (arg === "--dry-run") {
       if (dryRun) throw new Error("--dry-run may only be supplied once.");
       dryRun = true;
       continue;
     }
-    if (arg === "--global") {
-      if (scope) throw new Error("Choose exactly one migration scope: --global or --project <path>.");
-      scope = "global";
-      continue;
-    }
-    if (arg === "--project") {
-      if (scope) throw new Error("Choose exactly one migration scope: --global or --project <path>.");
-      const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("--project requires a project path.");
-      scope = "project";
-      projectPath = resolve(value);
-      index += 1;
-      continue;
-    }
     throw new Error(`Unknown config migrate option: ${arg}`);
   }
-  return { dryRun, scope: scope ?? "global", ...(projectPath ? { projectPath } : {}) };
+  return scoped.scope.mode === "global"
+    ? { dryRun, scope: "global" }
+    : { dryRun, scope: "project", projectPath: scoped.scope.projectRoot };
 }
 
 function buildGlobalMigrationPlan(configDir: string): MigrationPlan {
