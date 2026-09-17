@@ -394,7 +394,7 @@ test("OAuth-protected External MCP without stored credentials returns an actiona
   } as Parameters<Client["callTool"]>[0]);
 
   assert.equal(result.isError, true);
-  assert.match(allResponseText(result), /mcp\.auth_required.*forgerelay mcp auth secure/i);
+  assert.match(allResponseText(result), /mcp\.auth_required.*forgerelay connect mcp auth secure/i);
 });
 
 test("configured Streamable HTTP MCP tools are discovered and called through capability", async (t) => {

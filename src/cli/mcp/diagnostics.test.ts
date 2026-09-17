@@ -14,7 +14,56 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-void test("mcp list resolves Project scope from a nested cwd and --global excludes Project entries", async (t) => {
+void test("connect mcp help advertises runtime controls and legacy mcp help delegates to it", async (t) => {
+  const context = await createCliContext(t);
+  const canonical = await runCli(["connect", "mcp", "--help"], context.env, context.projectRoot);
+  assert.equal(canonical.status, 0, canonical.stderr);
+  assert.match(canonical.stdout, /ForgeRelay connect mcp/);
+  assert.match(canonical.stdout, /connect mcp status \[server\]/);
+  assert.match(canonical.stdout, /connect mcp test <server>/);
+  assert.match(canonical.stdout, /connect mcp auth <server>/);
+  assert.match(canonical.stdout, /connect mcp logout <server>/);
+  assert.doesNotMatch(canonical.stdout, /forgerelay mcp (list|test|auth|logout)/);
+
+  const compatibility = await runCli(["mcp", "--help"], context.env, context.projectRoot);
+  assert.equal(compatibility.status, 0, compatibility.stderr);
+  assert.equal(compatibility.stdout, canonical.stdout);
+});
+
+void test("connect mcp status reports effective External MCP state for the selected scope", async (t) => {
+  const context = await createCliContext(t);
+  writeJson(join(context.configDir, "mcp.json"), {
+    servers: {
+      global: { transport: "stdio", command: process.execPath },
+      secure: { transport: "streamable-http", url: "https://secure.example/mcp" },
+    },
+  });
+
+  const result = await runCli(["connect", "mcp", "status", "--global"], context.env, context.projectRoot);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Scope: global/);
+  assert.match(result.stdout, /global[\s\S]*source: global[\s\S]*transport: stdio/);
+  assert.match(result.stdout, /secure[\s\S]*source: global[\s\S]*transport: streamable-http/);
+  assert.match(result.stdout, /secure[\s\S]*auth: none detected/);
+});
+
+void test("connect mcp status reports one configured server without definition editing output", async (t) => {
+  const context = await createCliContext(t);
+  writeJson(join(context.configDir, "mcp.json"), {
+    servers: {
+      other: { transport: "stdio", command: process.execPath },
+      secure: { transport: "streamable-http", url: "https://secure.example/mcp" },
+    },
+  });
+
+  const result = await runCli(["connect", "mcp", "status", "secure", "--global"], context.env, context.projectRoot);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /secure[\s\S]*source: global[\s\S]*transport: streamable-http/);
+  assert.doesNotMatch(result.stdout, /\n  other\n/);
+  assert.doesNotMatch(result.stdout, /logical-path|definition/i);
+});
+
+void test("connect mcp status resolves current Project scope and --global excludes Project entries", async (t) => {
   const context = await createCliContext(t);
   const nested = join(context.projectRoot, "src", "nested");
   mkdirSync(nested, { recursive: true });
@@ -31,7 +80,7 @@ void test("mcp list resolves Project scope from a nested cwd and --global exclud
     },
   });
 
-  const project = await runCli(["mcp", "list"], context.env, nested);
+  const project = await runCli(["connect", "mcp", "status"], context.env, nested);
   assert.equal(project.status, 0, project.stderr);
   assert.match(project.stdout, /Scope: project/);
   assert.match(project.stdout, new RegExp(`Project: ${escapeRegExp(context.projectRoot)}`));
@@ -39,28 +88,32 @@ void test("mcp list resolves Project scope from a nested cwd and --global exclud
   assert.match(project.stdout, /shared[\s\S]*source: project[\s\S]*status: disabled/);
   assert.match(project.stdout, /global[\s\S]*source: global/);
 
-  const global = await runCli(["mcp", "list", "--global"], context.env, nested);
+  const global = await runCli(["connect", "mcp", "status", "--global"], context.env, nested);
   assert.equal(global.status, 0, global.stderr);
   assert.match(global.stdout, /Scope: global/);
   assert.match(global.stdout, /shared[\s\S]*source: global/);
   assert.doesNotMatch(global.stdout, /\n  project\n/);
+
+  const compatibility = await runCli(["mcp", "list", "--global"], context.env, nested);
+  assert.equal(compatibility.status, 0, compatibility.stderr);
+  assert.equal(compatibility.stdout, global.stdout);
 });
 
-void test("mcp list returns a nonzero exit for invalid config and explains last-known-good runtime behavior", async (t) => {
+void test("connect mcp status returns a nonzero exit for invalid config and explains last-known-good runtime behavior", async (t) => {
   const context = await createCliContext(t);
   writeFileSync(
     join(context.projectRoot, ".forgerelay", "mcp.json"),
     '{"servers":{"secret":"INVALID-CONTENT-SENTINEL"',
   );
 
-  const result = await runCli(["mcp", "list", "--project", context.projectRoot], context.env, context.projectRoot);
+  const result = await runCli(["connect", "mcp", "status", "--project", context.projectRoot], context.env, context.projectRoot);
   assert.equal(result.status, 1);
   assert.match(result.stdout, /project[\s\S]*invalid/);
   assert.match(result.stdout, /Existing ForgeRelay runtimes[\s\S]*last-known-good/);
   assert.doesNotMatch(result.stdout + result.stderr, /INVALID-CONTENT-SENTINEL/);
 });
 
-void test("mcp test reports protocol, tool count, and ready status for a reachable server", async (t) => {
+void test("connect mcp test reports protocol, tool count, and ready status for a reachable server", async (t) => {
   const fixture = await startMcpFixture(t);
   const context = await createCliContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
@@ -69,7 +122,7 @@ void test("mcp test reports protocol, tool count, and ready status for a reachab
     },
   });
 
-  const result = await runCli(["mcp", "test", "ready", "--global"], context.env, context.projectRoot);
+  const result = await runCli(["connect", "mcp", "test", "ready", "--global"], context.env, context.projectRoot);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Testing External MCP ready/);
   assert.match(result.stdout, /Source: global/);
@@ -80,7 +133,7 @@ void test("mcp test reports protocol, tool count, and ready status for a reachab
   assert.match(result.stdout, /ready is ready\./);
 });
 
-void test("mcp test persists and reports auth-required with a concrete human next action", async (t) => {
+void test("connect mcp test reports auth-required with the canonical authentication action", async (t) => {
   const unauthorized = createHttpServer((_request, response) => {
     response.writeHead(401, { "www-authenticate": "Bearer" });
     response.end();
@@ -93,20 +146,21 @@ void test("mcp test persists and reports auth-required with a concrete human nex
     servers: { secure: { transport: "streamable-http", url } },
   });
 
-  const result = await runCli(["mcp", "test", "secure", "--global"], context.env, context.projectRoot);
+  const result = await runCli(["connect", "mcp", "test", "secure", "--global"], context.env, context.projectRoot);
   assert.equal(result.status, 1);
   assert.match(result.stdout, /Auth: oauth · auth required/);
   assert.match(result.stdout, /Connection: blocked by authentication/);
-  assert.match(result.stdout, /Next: forgerelay mcp auth secure --global/);
+  assert.match(result.stdout, /Reason: .*forgerelay connect mcp auth secure/);
+  assert.match(result.stdout, /Next: forgerelay connect mcp auth secure --global/);
   assert.match(result.stderr, /External MCP secure test failed/);
 });
 
-void test("mcp test distinguishes unreachable transport from tool discovery failure", async (t) => {
+void test("connect mcp test distinguishes unreachable transport from tool discovery failure", async (t) => {
   const context = await createCliContext(t);
   writeJson(join(context.configDir, "mcp.json"), {
     servers: { unreachable: { transport: "streamable-http", url: "http://127.0.0.1:1/mcp" } },
   });
-  const unreachable = await runCli(["mcp", "test", "unreachable", "--global"], context.env, context.projectRoot);
+  const unreachable = await runCli(["connect", "mcp", "test", "unreachable", "--global"], context.env, context.projectRoot);
   assert.equal(unreachable.status, 1);
   assert.match(unreachable.stdout, /Connection: failed/);
   assert.match(unreachable.stdout, /Reason: (ECONNREFUSED|MCP connection or protocol handshake failed\.)/);
@@ -116,7 +170,7 @@ void test("mcp test distinguishes unreachable transport from tool discovery fail
   writeJson(join(context.configDir, "mcp.json"), {
     servers: { broken: { transport: "streamable-http", url: fixture.url } },
   });
-  const broken = await runCli(["mcp", "test", "broken", "--global"], context.env, context.projectRoot);
+  const broken = await runCli(["connect", "mcp", "test", "broken", "--global"], context.env, context.projectRoot);
   assert.equal(broken.status, 1);
   assert.match(broken.stdout, /Connection: ok/);
   assert.match(broken.stdout, /Tools: failed/);

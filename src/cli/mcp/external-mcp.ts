@@ -74,9 +74,12 @@ export async function runExternalMcpCommand(
 ): Promise<void> {
   const [subcommand, ...rest] = args;
   switch (subcommand) {
+    case "status":
+      await runExternalMcpStatus(parseMcpScopeArgs("status", rest), dependencies);
+      return;
     case "list":
     case "ls":
-      await runExternalMcpList(parseMcpScopeArgs("list", rest), dependencies);
+      await runExternalMcpStatus(parseMcpScopeArgs("list", rest), dependencies);
       return;
     case "test":
       await runExternalMcpTest(parseMcpTargetArgs("test", rest), dependencies);
@@ -94,12 +97,12 @@ export async function runExternalMcpCommand(
       printMcpHelp();
       return;
     default:
-      throw new Error(`Unknown mcp command: ${subcommand}`);
+      throw new Error(`Unknown connect mcp command: ${subcommand}`);
   }
 }
 
 function parseMcpScopeArgs(
-  command: "list" | "test" | "auth" | "logout",
+  command: "status" | "list" | "test" | "auth" | "logout",
   args: string[],
 ): ExternalMcpScopeRequest & { rest: string[] } {
   let projectRoot: string | undefined;
@@ -116,7 +119,7 @@ function parseMcpScopeArgs(
       global = true;
       continue;
     }
-    if (arg.startsWith("-")) throw new Error(`Unknown mcp ${command} option: ${arg}`);
+    if (arg.startsWith("-")) throw new Error(`Unknown connect mcp ${command} option: ${arg}`);
     rest.push(arg);
   }
   if (global && projectRoot) throw new Error("--global and --project cannot be used together.");
@@ -133,7 +136,7 @@ function parseMcpTargetArgs(
 ): McpCommandOptions {
   const parsed = parseMcpScopeArgs(command, args);
   if (parsed.rest.length !== 1) {
-    throw new Error(`Usage: forgerelay mcp ${command} <server> [--project <path>|--global]`);
+    throw new Error(`Usage: forgerelay connect mcp ${command} <server> [--project <path>|--global]`);
   }
   return {
     server: parsed.rest[0],
@@ -142,16 +145,23 @@ function parseMcpTargetArgs(
   };
 }
 
-async function runExternalMcpList(
+async function runExternalMcpStatus(
   options: ExternalMcpScopeRequest & { rest: string[] },
   dependencies: ExternalMcpCliDependencies,
 ): Promise<void> {
-  if (options.rest.length > 0) {
-    throw new Error("Usage: forgerelay mcp list [--project <path>|--global]");
+  if (options.rest.length > 1) {
+    throw new Error("Usage: forgerelay connect mcp status [server] [--project <path>|--global]");
   }
   const scope = await resolveExternalMcpScope(options, dependencies);
   const status = inspectExternalMcpStatus(scope);
-  console.log(formatExternalMcpList(status));
+  const serverName = options.rest[0];
+  if (serverName) {
+    const server = findExternalMcpServerStatus(status, serverName);
+    if (!server) throw new Error(`Unknown configured External MCP server: ${serverName}.`);
+    console.log(formatExternalMcpList({ ...status, servers: [server] }));
+  } else {
+    console.log(formatExternalMcpList(status));
+  }
   if (status.configIssues > 0) {
     throw new Error("External MCP configuration or credential status contains issues.");
   }
@@ -226,8 +236,8 @@ function printTestTarget(
 
 function externalMcpAuthCommand(scope: ExternalMcpResolvedScope, server: string): string {
   return scope.mode === "global"
-    ? `forgerelay mcp auth ${cliArgument(server)} --global`
-    : `forgerelay mcp auth ${cliArgument(server)} --project ${cliArgument(scope.projectRoot)}`;
+    ? `forgerelay connect mcp auth ${cliArgument(server)} --global`
+    : `forgerelay connect mcp auth ${cliArgument(server)} --project ${cliArgument(scope.projectRoot)}`;
 }
 
 function cliArgument(value: string): string {
@@ -453,7 +463,7 @@ function hasStaticAuthorizationHeader(headers: Record<string, string> | undefine
 function assertInteractive(dependencies: ExternalMcpCliDependencies): void {
   const interactive = dependencies.isInteractive ?? (Boolean(input.isTTY) && Boolean(output.isTTY));
   if (!interactive) {
-    throw new Error("forgerelay mcp auth requires an interactive terminal for browser/callback authorization.");
+    throw new Error("forgerelay connect mcp auth requires an interactive terminal for browser/callback authorization.");
   }
 }
 
@@ -580,12 +590,12 @@ function isHeadlessEnvironment(env: NodeJS.ProcessEnv): boolean {
 
 function printMcpHelp(): void {
   console.log([
-    "ForgeRelay mcp",
+    "ForgeRelay connect mcp",
     "",
     "Usage:",
-    "  forgerelay mcp list [--project <path>|--global]",
-    "  forgerelay mcp test <server> [--project <path>|--global]",
-    "  forgerelay mcp auth <server> [--project <path>|--global]",
-    "  forgerelay mcp logout <server> [--project <path>|--global]",
+    "  forgerelay connect mcp status [server] [--project <path>|--global]",
+    "  forgerelay connect mcp test <server> [--project <path>|--global]",
+    "  forgerelay connect mcp auth <server> [--project <path>|--global]",
+    "  forgerelay connect mcp logout <server> [--project <path>|--global]",
   ].join("\n"));
 }

@@ -215,7 +215,7 @@ export function formatExternalMcpDoctor(status: ExternalMcpStatusSnapshot): stri
     `  Credential store: ${status.credentialStore}`,
     `  Config issues: ${status.configIssues}`,
     "  Hot reload: active",
-    "  Active checks: not run (use `forgerelay mcp test <server>`)",
+    "  Active checks: not run (use `forgerelay connect mcp test <server>`)",
   ].join("\n");
 }
 

@@ -456,14 +456,14 @@ function isCredentialReauthorizationError(error: unknown): boolean {
 function authRequired(server: string): ExternalMcpOAuthError {
   return new ExternalMcpOAuthError(
     "auth_required",
-    `External MCP ${server} requires OAuth authorization. Run: forgerelay mcp auth ${server}`,
+    `External MCP ${server} requires OAuth authorization. Run: forgerelay connect mcp auth ${server}`,
   );
 }
 
 function reauthorizationRequired(server: string, reason: string): ExternalMcpOAuthError {
   return new ExternalMcpOAuthError(
     "reauthorization_required",
-    `${reason} Run: forgerelay mcp auth ${server}`,
+    `${reason} Run: forgerelay connect mcp auth ${server}`,
   );
 }
 
