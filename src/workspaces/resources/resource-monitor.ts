@@ -25,9 +25,15 @@ export interface TrackWorkspaceResourcesInput {
   skills: WorkspaceResourceSkillInput[];
 }
 
+export type WorkspaceResourceCoveredComponent =
+  | "agentsFiles"
+  | "availableAgentsFiles"
+  | "skills"
+  | "skillDiagnostics";
+
 export interface WorkspaceResourceUpdate {
   text: string;
-  coveredComponents: Array<"agentsFiles" | "skills">;
+  coveredComponents: WorkspaceResourceCoveredComponent[];
   revision: number;
 }
 
@@ -45,12 +51,19 @@ interface ResourceChange extends ResourceSubscription {
   newContent: string | undefined;
 }
 
+interface WorkspaceResourceAnnouncement {
+  revision: number;
+  text: string;
+  coveredComponents: WorkspaceResourceCoveredComponent[];
+}
+
 interface WorkspaceWatchState {
   root: string;
   revision: number;
   tracked: Map<string, () => void>;
   subscriptions: Map<string, ResourceSubscription>;
   changes: ResourceChange[];
+  announcements: WorkspaceResourceAnnouncement[];
   deliveredRevisionByScope: Map<string, number>;
 }
 
@@ -82,6 +95,7 @@ export class WorkspaceResourceMonitor {
       tracked: new Map(),
       subscriptions: new Map(),
       changes: [],
+      announcements: [],
       deliveredRevisionByScope: new Map(),
     };
     state.root = input.root;
@@ -148,6 +162,24 @@ export class WorkspaceResourceMonitor {
     }));
   }
 
+  announce(
+    workspaceId: string,
+    text: string,
+    coveredComponents: WorkspaceResourceCoveredComponent[],
+  ): void {
+    const state = this.states.get(workspaceId);
+    if (!state) return;
+    state.revision += 1;
+    state.announcements.push({
+      revision: state.revision,
+      text,
+      coveredComponents,
+    });
+    if (state.announcements.length > MAX_HISTORY) {
+      state.announcements.splice(0, state.announcements.length - MAX_HISTORY);
+    }
+  }
+
   markSkillActivated(workspaceId: string, skillPath: string): void {
     const state = this.states.get(workspaceId);
     if (!state) return;
@@ -173,23 +205,28 @@ export class WorkspaceResourceMonitor {
     for (const key of state.tracked.keys()) synchronizeSharedWatch(key);
     const deliveredRevision = state.deliveredRevisionByScope.get(conversationScopeId) ?? state.revision;
     const changes = state.changes.filter((change) => change.revision > deliveredRevision);
+    const announcements = state.announcements.filter((announcement) => announcement.revision > deliveredRevision);
     state.deliveredRevisionByScope.set(conversationScopeId, state.revision);
-    if (changes.length === 0) return undefined;
+    if (changes.length === 0 && announcements.length === 0) return undefined;
 
-    const grouped = coalesceChanges(changes);
-    const sections: string[] = [];
-    const coveredComponents = new Set<"agentsFiles" | "skills">();
-    for (const change of grouped) {
+    const sections: Array<{ revision: number; text: string }> = [];
+    const coveredComponents = new Set<WorkspaceResourceCoveredComponent>();
+    for (const change of coalesceChanges(changes)) {
       const formatted = formatResourceChange(change);
       if (!formatted) continue;
-      sections.push(formatted.text);
+      sections.push({ revision: change.revision, text: formatted.text });
       for (const component of formatted.coveredComponents) coveredComponents.add(component);
     }
+    for (const announcement of announcements) {
+      sections.push({ revision: announcement.revision, text: announcement.text });
+      for (const component of announcement.coveredComponents) coveredComponents.add(component);
+    }
+    sections.sort((left, right) => left.revision - right.revision);
     this.pruneDeliveredHistory(state);
     if (sections.length === 0) return undefined;
 
     const header = "Workspace context changed after this Workspace was opened. Apply only these deltas; unchanged instructions and Skill metadata remain active:";
-    const joined = [header, ...sections].join("\n\n");
+    const joined = [header, ...sections.map((section) => section.text)].join("\n\n");
     const text = joined.length <= MAX_DELIVERY_CHARACTERS
       ? joined
       : `${joined.slice(0, MAX_DELIVERY_CHARACTERS)}\n\n[Additional Workspace context deltas were truncated; reopen with context=\"auto\" to refresh metadata.]`;
@@ -260,9 +297,10 @@ export class WorkspaceResourceMonitor {
   }
 
   private pruneDeliveredHistory(state: WorkspaceWatchState): void {
-    if (state.changes.length === 0 || state.deliveredRevisionByScope.size === 0) return;
+    if ((state.changes.length === 0 && state.announcements.length === 0) || state.deliveredRevisionByScope.size === 0) return;
     const floor = Math.min(...state.deliveredRevisionByScope.values());
     while (state.changes[0] && state.changes[0].revision <= floor) state.changes.shift();
+    while (state.announcements[0] && state.announcements[0].revision <= floor) state.announcements.shift();
   }
 }
 

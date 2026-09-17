@@ -53,6 +53,17 @@ export interface SkillSummary {
   description: string;
 }
 
+export function redactSkillDiagnosticMessage(diagnostic: SkillDiagnostic): string {
+  let message = diagnostic.message;
+  const hiddenPaths = [
+    diagnostic.path,
+    diagnostic.collision?.winnerPath,
+    diagnostic.collision?.loserPath,
+  ].filter((path): path is string => Boolean(path));
+  for (const path of hiddenPaths) message = message.split(path).join("<skill-path>");
+  return message;
+}
+
 interface ParsedSkillFrontmatter {
   name?: string;
   description?: string;

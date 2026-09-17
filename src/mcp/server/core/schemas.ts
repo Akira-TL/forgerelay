@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import type { Workspace } from "../../../workspaces.js";
+import { redactSkillDiagnosticMessage } from "../../../workspaces/resources/skills.js";
 
 type AppToolRawShape = Record<string, z.ZodType>;
 
@@ -32,19 +33,9 @@ export function redactSkillDiagnosticPaths(
   diagnostics: Workspace["skillDiagnostics"],
 ): Array<z.infer<typeof workspaceSkillDiagnosticOutputSchema>> {
   return diagnostics.map((diagnostic) => {
-    let message = diagnostic.message;
-    const hiddenPaths = [
-      diagnostic.path,
-      diagnostic.collision?.winnerPath,
-      diagnostic.collision?.loserPath,
-    ].filter((path): path is string => Boolean(path));
-    for (const path of hiddenPaths) {
-      message = message.split(path).join("<skill-path>");
-    }
-
     return {
       type: diagnostic.type,
-      message,
+      message: redactSkillDiagnosticMessage(diagnostic),
       ...(diagnostic.collision
         ? {
             collision: {

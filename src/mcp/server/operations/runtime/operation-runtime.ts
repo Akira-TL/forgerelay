@@ -81,10 +81,14 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     config, workspaces, activityLifecycle, hooks, processSessions, bashOutputStore,
     capabilityRegistry, codeIntelligence, hostScopeIdFor,
   } = options;
+  const refreshedWorkspace = async (workspaceId: string) => {
+    await workspaces.refreshContextSources(workspaceId);
+    return workspaces.getWorkspace(workspaceId);
+  };
   const coreOperations = createCoreOperationExecutor({
     read: async (input: ReadOperationInput, context: CoreOperationContext) => {
       const { workspaceId, ...readInput } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -178,7 +182,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     },
     write: async (input: WriteOperationInput, context: CoreOperationContext) => {
       const { workspaceId, ...writeInput } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -254,7 +258,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     },
     edit: async (input: EditOperationInput, context: CoreOperationContext) => {
       const { workspaceId, ...editInput } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -333,7 +337,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     },
     rename: async (input: RenameOperationInput, context: CoreOperationContext) => {
       const { workspaceId, path, newPath } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -403,7 +407,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
     },
     delete: async (input: DeleteOperationInput, context: CoreOperationContext) => {
       const { workspaceId, path, recursive } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       return runActivityToolWithHooks(
         activityLifecycle,
         hooks,
@@ -484,7 +488,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
         timeoutMs,
         maxOutputTokens,
       } = input;
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       const activityRequest = surface === "exec_command"
         ? {
             workspaceId,
@@ -655,7 +659,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
           }
         }
       }
-      const workspace = workspaces.getWorkspace(workspaceId);
+      const workspace = await refreshedWorkspace(workspaceId);
       let changedPaths: string[] = [];
       return runActivityTool(
         activityLifecycle,

@@ -15,11 +15,13 @@ import {
 import {
   loadWorkspaceSkills,
   markSkillActivated,
+  redactSkillDiagnosticMessage,
   resolveSkillReadPath,
 } from "./resources/skills.js";
 import {
   defaultWorkspaceContextSources,
   resolveWorkspaceContextSources,
+  type WorkspaceContextSources,
 } from "./resources/context-sources.js";
 import type { ProjectContext } from "./state/project-context.js";
 import {
@@ -67,6 +69,7 @@ const SKIPPED_CONTEXT_DIRS = new Set([
  */
 export class WorkspaceContextService {
   private readonly resourceMonitor = new WorkspaceResourceMonitor();
+  private readonly contextSourceRefreshes = new Map<string, Promise<void>>();
 
   constructor(private readonly config: ServerConfig) {}
 
@@ -214,6 +217,67 @@ export class WorkspaceContextService {
       contextSources,
       ...this.loadSkillsForWorkspace(root, contextSources.skillPaths),
     };
+  }
+
+  async refreshContextSourcesForWorkspace(workspace: Workspace): Promise<void> {
+    const existing = this.contextSourceRefreshes.get(workspace.id);
+    if (existing) return existing;
+    const refresh = this.applyContextSourceRefresh(workspace);
+    this.contextSourceRefreshes.set(workspace.id, refresh);
+    try {
+      await refresh;
+    } finally {
+      if (this.contextSourceRefreshes.get(workspace.id) === refresh) this.contextSourceRefreshes.delete(workspace.id);
+    }
+  }
+
+  private async applyContextSourceRefresh(workspace: Workspace): Promise<void> {
+    if (!workspace.project) return;
+    const contextSources = await resolveWorkspaceContextSources(this.config, workspace.project, workspace.root);
+    if (sameContextSources(workspace.contextSources, contextSources)) return;
+
+    const previousSources = workspace.contextSources;
+    const previousLoadedPaths = new Set([...workspace.loadedInstructionPaths].map((path) => resolve(path)));
+    const previousKnownPaths = new Set(
+      [...workspace.knownInstructionPathsByDir.values()].flat().map((path) => resolve(path)),
+    );
+    const previousAvailablePaths = new Set(
+      [...previousKnownPaths].filter((path) => !previousLoadedPaths.has(path)),
+    );
+    const previousSkills = workspace.skills.map((skill) => ({ ...skill }));
+    const previousSkillDiagnostics = workspace.skillDiagnostics.map((diagnostic) => ({ ...diagnostic }));
+
+    const nextSkills = this.loadSkillsForWorkspace(workspace.root, contextSources.skillPaths);
+    workspace.contextSources = contextSources;
+    workspace.skills = nextSkills.skills;
+    workspace.skillDiagnostics = nextSkills.skillDiagnostics;
+    const retainedSkillDirs = new Set(workspace.skills.map((skill) => resolve(skill.baseDir)));
+    for (const activatedDir of [...workspace.activatedSkillDirs]) {
+      if (!retainedSkillDirs.has(resolve(activatedDir))) workspace.activatedSkillDirs.delete(activatedDir);
+    }
+
+    workspace.scannedInstructionDirs.clear();
+    workspace.knownInstructionPathsByDir.clear();
+    workspace.loadedInstructionRealPaths.clear();
+    workspace.loadedInstructionPaths.clear();
+    workspace.workspaceInstructions.length = 0;
+    const agentsFiles = await this.loadInitialAgentsFiles(workspace);
+    const availableAgentsFiles = await this.findAvailableAgentsFiles(workspace, agentsFiles);
+    this.trackWorkspaceResources(workspace, agentsFiles, availableAgentsFiles);
+    this.resourceMonitor.announce(
+      workspace.id,
+      formatContextSourceRefresh({
+        workspace,
+        previousSources,
+        previousLoadedPaths,
+        previousAvailablePaths,
+        previousSkills,
+        previousSkillDiagnostics,
+        agentsFiles,
+        availableAgentsFiles,
+      }),
+      ["agentsFiles", "availableAgentsFiles", "skills", "skillDiagnostics"],
+    );
   }
 
   loadSkillsForWorkspace(
@@ -463,6 +527,114 @@ export function formatAgentsPath(path: string, workspaceRoot: string | undefined
     return path.split(sep).join("/");
   }
   return relationship.split(sep).join("/");
+}
+
+function sameContextSources(left: WorkspaceContextSources, right: WorkspaceContextSources): boolean {
+  return left.systemInstructionsPath === right.systemInstructionsPath &&
+    sameStringList(left.instructionNames, right.instructionNames) &&
+    sameStringList(left.skillPaths, right.skillPaths);
+}
+
+function sameStringList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function formatContextSourceRefresh(input: {
+  workspace: Workspace;
+  previousSources: WorkspaceContextSources;
+  previousLoadedPaths: Set<string>;
+  previousAvailablePaths: Set<string>;
+  previousSkills: Workspace["skills"];
+  previousSkillDiagnostics: Workspace["skillDiagnostics"];
+  agentsFiles: LoadedAgentsFile[];
+  availableAgentsFiles: AvailableAgentsFile[];
+}): string {
+  const {
+    workspace,
+    previousSources,
+    previousLoadedPaths,
+    previousAvailablePaths,
+    previousSkills,
+    previousSkillDiagnostics,
+    agentsFiles,
+    availableAgentsFiles,
+  } = input;
+  const sections = ["Agent context source configuration changed; the effective Workspace context has been refreshed without reopening the Workspace."];
+
+  if (previousSources.systemInstructionsPath !== workspace.contextSources.systemInstructionsPath) {
+    sections.push([
+      "System instruction source changed:",
+      `- ${formatAgentsPath(previousSources.systemInstructionsPath, workspace.root)}`,
+      `+ ${formatAgentsPath(workspace.contextSources.systemInstructionsPath, workspace.root)}`,
+    ].join("\n"));
+  }
+  if (!sameStringList(previousSources.instructionNames, workspace.contextSources.instructionNames)) {
+    sections.push([
+      "Project instruction filename selection changed:",
+      `- ${previousSources.instructionNames.join(", ") || "(none)"}`,
+      `+ ${workspace.contextSources.instructionNames.join(", ") || "(none)"}`,
+    ].join("\n"));
+  }
+  if (!sameStringList(previousSources.skillPaths, workspace.contextSources.skillPaths)) {
+    sections.push([
+      "Skill source path selection changed:",
+      `- ${previousSources.skillPaths.join(", ") || "(none)"}`,
+      `+ ${workspace.contextSources.skillPaths.join(", ") || "(none)"}`,
+    ].join("\n"));
+  }
+
+  const currentLoadedPaths = new Set(agentsFiles.map((file) => resolve(file.path)));
+  for (const path of [...previousLoadedPaths].filter((path) => !currentLoadedPaths.has(path)).sort()) {
+    sections.push(`Instruction source is no longer active: ${formatAgentsPath(path, workspace.root)}`);
+  }
+  for (const file of agentsFiles) {
+    if (previousLoadedPaths.has(resolve(file.path))) continue;
+    sections.push([
+      `Instruction source loaded: ${formatAgentsPath(file.path, workspace.root)}`,
+      file.content,
+    ].join("\n"));
+  }
+
+  const currentAvailablePaths = new Set(availableAgentsFiles.map((file) => resolve(file.path)));
+  for (const path of [...previousAvailablePaths].filter((path) => !currentAvailablePaths.has(path)).sort()) {
+    sections.push(`Lazy Workspace instruction is no longer advertised: ${formatAgentsPath(path, workspace.root)}`);
+  }
+  for (const file of availableAgentsFiles) {
+    if (previousAvailablePaths.has(resolve(file.path))) continue;
+    sections.push(`Lazy Workspace instruction is now available: ${formatAgentsPath(file.path, workspace.root)}. Read it before working under that directory.`);
+  }
+
+  const previousSkillKeys = new Map(previousSkills.map((skill) => [
+    `${skill.name}\u0000${resolve(skill.filePath)}`,
+    skill,
+  ]));
+  const currentSkillKeys = new Map(workspace.skills.map((skill) => [
+    `${skill.name}\u0000${resolve(skill.filePath)}`,
+    skill,
+  ]));
+  for (const [key, skill] of previousSkillKeys) {
+    if (currentSkillKeys.has(key)) continue;
+    sections.push(`Skill metadata removed: skills://${encodeURIComponent(skill.name)}`);
+  }
+  for (const [key, skill] of currentSkillKeys) {
+    if (previousSkillKeys.has(key)) continue;
+    sections.push(`Skill metadata added: skills://${encodeURIComponent(skill.name)}\n+ description: ${skill.description}`);
+  }
+
+  if (JSON.stringify(previousSkillDiagnostics) !== JSON.stringify(workspace.skillDiagnostics)) {
+    if (workspace.skillDiagnostics.length === 0) {
+      sections.push("Skill diagnostics cleared.");
+    } else {
+      sections.push([
+        "Current Skill diagnostics:",
+        ...workspace.skillDiagnostics.map((diagnostic) =>
+          `- ${diagnostic.type}: ${redactSkillDiagnosticMessage(diagnostic)}`
+        ),
+      ].join("\n"));
+    }
+  }
+
+  return sections.join("\n\n");
 }
 
 async function readSystemInstructions(path: string): Promise<string | undefined> {

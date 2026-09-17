@@ -785,6 +785,8 @@ export class WorkspaceRegistry {
     return this.context.discoverPathInstructions(workspace, inputPath);
   }
 
+  refreshContextSources(workspaceId: string): Promise<void> { return this.context.refreshContextSourcesForWorkspace(this.getWorkspace(workspaceId)); }
+
   claimResourceUpdates(workspaceId: string, conversationScopeId: string | undefined) {
     return this.context.claimResourceUpdates(workspaceId, conversationScopeId);
   }
@@ -792,7 +794,6 @@ export class WorkspaceRegistry {
   acknowledgeResourceUpdates(workspaceId: string, conversationScopeId: string | undefined): void {
     this.context.acknowledgeResourceUpdates(workspaceId, conversationScopeId);
   }
-
 }
 
 export { formatAgentsPath };

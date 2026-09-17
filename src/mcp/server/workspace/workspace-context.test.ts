@@ -259,6 +259,83 @@ test("open_workspace hides skill filesystem paths and read loads skills through 
   assert.match(allResponseText(reference), /skill reference body/);
 });
 
+test("live context source config changes refresh instructions and Skills without reopening the Workspace", async (t) => {
+  const context = await fixture(t);
+  const projectConfigPath = join(context.project, ".forgerelay", "config.json");
+  const initialSkillDir = join(context.project, ".agents", "skills", "initial-skill");
+  const replacementSkillDir = join(context.project, ".replacement-skills", "replacement-skill");
+  await mkdir(initialSkillDir, { recursive: true });
+  await mkdir(replacementSkillDir, { recursive: true });
+  await writeFile(join(context.project, "SYSTEM-A.md"), "system instructions A\n");
+  await writeFile(join(context.project, "SYSTEM-B.md"), "system instructions B\n");
+  await writeFile(join(context.project, "CLAUDE.md"), "claude live instructions\n");
+  await writeFile(join(context.project, "probe.txt"), "probe\n");
+  await writeFile(join(initialSkillDir, "SKILL.md"), [
+    "---",
+    "name: initial-skill",
+    "description: Initial live Skill.",
+    "---",
+    "initial skill body",
+  ].join("\n"));
+  await writeFile(join(replacementSkillDir, "SKILL.md"), [
+    "---",
+    "name: replacement-skill",
+    "description: Replacement live Skill.",
+    "---",
+    "replacement skill body",
+  ].join("\n"));
+  await writeFile(projectConfigPath, JSON.stringify({
+    systemInstructionsPath: "./SYSTEM-A.md",
+    instructionNames: ["AGENTS.md"],
+    skillPaths: ["./.agents/skills"],
+  }) + "\n");
+
+  const opened = await callOpen(context.client, context.project, "chat-live-context-sources");
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  assert.equal(
+    (structuredContent(opened).agentsFiles as Array<{ content: string }>).some((file) =>
+      file.content.includes("system instructions A")
+    ),
+    true,
+  );
+  assert.equal(
+    (structuredContent(opened).skills as Array<{ name: string }>).some((skill) => skill.name === "initial-skill"),
+    true,
+  );
+
+  await writeFile(projectConfigPath, JSON.stringify({
+    systemInstructionsPath: "./SYSTEM-B.md",
+    instructionNames: ["CLAUDE.md"],
+    skillPaths: ["./.replacement-skills"],
+  }) + "\n");
+
+  const probe = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "probe.txt" },
+    _meta: { "openai/session": "chat-live-context-sources" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(probe.isError, undefined);
+  assert.match(allResponseText(probe), /system instructions B/);
+  assert.match(allResponseText(probe), /claude live instructions/);
+  assert.match(allResponseText(probe), /replacement-skill/);
+  assert.match(allResponseText(probe), /initial-skill/);
+
+  const oldSkill = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "skills://initial-skill" },
+    _meta: { "openai/session": "chat-live-context-sources" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(oldSkill.isError, true);
+
+  const newSkill = await context.client.callTool({
+    name: "read",
+    arguments: { workspaceId, path: "skills://replacement-skill" },
+    _meta: { "openai/session": "chat-live-context-sources" },
+  } as Parameters<Client["callTool"]>[0]);
+  assert.equal(newSkill.isError, undefined);
+  assert.match(allResponseText(newSkill), /replacement skill body/);
+});
+
 test("different MCP conversations share one canonical checkout Workspace id and can explicitly resume it", async (t) => {
   const context = await fixture(t);
   const first = await callOpen(context.client, context.project, "chat-1");
