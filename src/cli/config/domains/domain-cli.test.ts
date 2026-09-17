@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -304,6 +304,36 @@ test("mcp and lsp require remove for complete named-resource deletion", () => {
       assert.match(unset.stderr, /remove <name>/);
       assert.equal(readFileSync(entry.file, "utf8"), before);
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("subagent mutations resolve stable profile names independently from Markdown filenames", () => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-config-domain-subagent-stable-name-"));
+  const configDir = join(root, "config");
+  const subagentsDir = join(configDir, "subagents");
+  mkdirSync(subagentsDir, { recursive: true });
+  const customPath = join(subagentsDir, "custom.md");
+  writeFileSync(customPath, [
+    "---",
+    'name: "reviewer"',
+    'description: "Review"',
+    "provider: codex",
+    "---",
+    "Review.",
+    "",
+  ].join("\n"));
+  try {
+    let result = runCli(configDir, ["config", "subagents", "set", "profiles.reviewer.model", "gpt-5", "--global"]);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(readFileSync(customPath, "utf8"), /model: "gpt-5"/);
+    assert.equal(existsSync(join(subagentsDir, "reviewer.md")), false);
+
+    result = runCli(configDir, ["config", "subagents", "remove", "reviewer", "--global"]);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(existsSync(customPath), false);
+    assert.equal(existsSync(join(subagentsDir, "reviewer.md")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

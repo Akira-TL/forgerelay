@@ -143,7 +143,7 @@ async function runSubagentDomainCommand(args: readonly string[]): Promise<void> 
     const [logicalPath, ...valueParts] = parsed.rest;
     const segments = domainLogicalSegments("subagents", "profiles", logicalPath!);
     const name = safeResourceName(segments[1] ?? "");
-    const target = await domainWriteTarget(parsed.scope, join("subagents", `${name}.md`));
+    const target = await subagentWriteTarget(parsed.scope, name);
     const rawValue = valueParts.join(" ").trim();
     if (!rawValue) throw new Error(`Missing value for ${logicalPath}.`);
     const candidate = segments.length === 2
@@ -158,7 +158,7 @@ async function runSubagentDomainCommand(args: readonly string[]): Promise<void> 
     const segments = domainLogicalSegments("subagents", "profiles", parsed.rest[0]!);
     if (segments.length < 3) throw new Error("Use `config subagents remove <name>` to delete a complete profile.");
     const name = safeResourceName(segments[1]!);
-    const target = await domainWriteTarget(parsed.scope, join("subagents", `${name}.md`));
+    const target = await subagentWriteTarget(parsed.scope, name);
     const candidate = mutateExistingSubagent(target.path, segments.slice(2), undefined, "unset");
     writeSubagentTarget(target, name, candidate);
     return;
@@ -167,7 +167,7 @@ async function runSubagentDomainCommand(args: readonly string[]): Promise<void> 
     const parsed = parseConfigScopeArgs(rest);
     if (parsed.rest.length !== 1) throw new Error("Usage: forgerelay config subagents remove <name> [scope]");
     const name = safeResourceName(parsed.rest[0]!);
-    const target = await domainWriteTarget(parsed.scope, join("subagents", `${name}.md`));
+    const target = await subagentWriteTarget(parsed.scope, name);
     rmSync(target.path, { force: true });
     console.log(`Removed ${target.path}`);
     return;
@@ -283,6 +283,23 @@ async function resolveHookConfiguration(scope: ConfigCliScope): Promise<Resolved
       ? { project: { sharedConfigDir: project.sharedConfigDir, localConfigDir: project.localConfigDir } }
       : { projectSharedConfigDir: project.sharedConfigDir }),
   });
+}
+
+async function subagentWriteTarget(scope: ConfigCliScope, name: string): Promise<DomainWriteTarget> {
+  const resolution = await resolveSubagentConfiguration(scope);
+  const entry = resolution.entries[`profiles.${name}`];
+  const targetScope = scope.mode === "global" ? "user" : "project";
+  const candidate = entry
+    ? [entry.effective, ...entry.shadowed].find((value) =>
+        value.source.scope === targetScope &&
+        value.source.id.startsWith(`canonical:${targetScope}:subagent:`) &&
+        value.source.location !== undefined
+      )
+    : undefined;
+  if (candidate?.source.location) {
+    return { scope: targetScope, path: candidate.source.location };
+  }
+  return domainWriteTarget(scope, join("subagents", `${name}.md`));
 }
 
 async function resolveSubagentConfiguration(scope: ConfigCliScope): Promise<ResolvedConfigDomain> {
