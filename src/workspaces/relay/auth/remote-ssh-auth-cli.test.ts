@@ -8,6 +8,7 @@ import { once } from "node:events";
 import test from "node:test";
 import { loadConfig } from "../../../runtime/config/config.js";
 import { createServer } from "../../../server.js";
+import { runCliWithScriptedPseudoTerminal } from "./cli-test-support.js";
 
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>
@@ -411,39 +412,6 @@ void sshProcessTest("SSH command and tunnel failures are explicit and never fall
   assert.match(httpsRejected.stderr, /SSH-routed HTTPS service targets are not supported/i);
   assert.equal((await readFile(sshLog, "utf8")).trim(), "");
 });
-
-async function runCliWithScriptedPseudoTerminal(
-  args: string[],
-  env: NodeJS.ProcessEnv,
-  steps: Array<{ match: RegExp; input: string }>,
-): Promise<{ status: number | null; output: string }> {
-  const nodePty = await import("node-pty");
-  const ptyEnv = Object.fromEntries(
-    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
-  const child = nodePty.spawn(
-    process.execPath,
-    ["--import", "tsx", "src/cli.ts", ...args],
-    { cwd: process.cwd(), env: ptyEnv, name: "xterm-256color", cols: 80, rows: 24 },
-  );
-  let terminalOutput = "";
-  let stepIndex = 0;
-  const dataDisposable = child.onData((chunk) => {
-    terminalOutput += chunk;
-    const step = steps[stepIndex];
-    if (step && step.match.test(terminalOutput)) {
-      stepIndex += 1;
-      child.write(`${step.input}\r`);
-    }
-  });
-  const timer = setTimeout(() => child.kill(), 20_000);
-  const status = await new Promise<number | null>((resolve) => {
-    child.onExit(({ exitCode }) => resolve(exitCode));
-  });
-  clearTimeout(timer);
-  dataDisposable.dispose();
-  return { status, output: terminalOutput };
-}
 
 async function runCli(
   args: string[],
