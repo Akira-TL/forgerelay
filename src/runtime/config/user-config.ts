@@ -317,9 +317,13 @@ function delay(ms: number): Promise<void> {
 }
 
 export function writeConfigJsonFile(filePath: string, value: unknown, mode: number): void {
+  writeConfigTextFile(filePath, JSON.stringify(value, null, 2) + "\n", mode);
+}
+
+export function writeConfigTextFile(filePath: string, value: string, mode: number): void {
   const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
-    writeFileSync(tempPath, JSON.stringify(value, null, 2) + "\n", { mode });
+    writeFileSync(tempPath, value, { mode });
     renameSync(tempPath, filePath);
   } finally {
     rmSync(tempPath, { force: true });

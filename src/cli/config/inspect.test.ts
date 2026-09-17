@@ -59,6 +59,7 @@ test("config help advertises the General Config and diagnostic commands", () => 
   assert.match(result.stdout, /forgerelay config check/);
   assert.match(result.stdout, /forgerelay config sources/);
   assert.match(result.stdout, /forgerelay config explain <logical-path>/);
+  assert.match(result.stdout, /forgerelay config <mcp\|hooks\|lsp\|subagents>/);
   assert.match(result.stdout, /forgerelay config migrate/);
 });
 

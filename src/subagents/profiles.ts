@@ -426,6 +426,44 @@ function legacyProfileFromDocument(content: string, filePath: string): SubagentP
   return legacyProfileFromFrontmatter(parsed.frontmatter, parsed.body, filePath);
 }
 
+export function canonicalSubagentProfileValueFromDocument(content: string, filePath: string): unknown {
+  const profile = canonicalProfileFromDocument(content, filePath);
+  if (profile.disabled) return { disabled: true };
+  return {
+    description: profile.description,
+    provider: profile.provider,
+    ...(profile.model ? { model: profile.model } : {}),
+    ...(profile.thinking ? { thinking: profile.thinking } : {}),
+    body: profile.body,
+  };
+}
+
+export function canonicalSubagentProfileDocument(name: string, value: unknown): string {
+  const normalizedName = profileNameSchema.parse(name);
+  const disabled = subagentProfileDisabledSchema.safeParse(value);
+  if (disabled.success) {
+    return [
+      FRONTMATTER_DELIMITER,
+      `name: ${JSON.stringify(normalizedName)}`,
+      "disabled: true",
+      FRONTMATTER_DELIMITER,
+      "",
+    ].join("\n");
+  }
+  const profile = subagentProfileValueSchema.parse(value);
+  return [
+    FRONTMATTER_DELIMITER,
+    `name: ${JSON.stringify(normalizedName)}`,
+    `description: ${JSON.stringify(profile.description)}`,
+    `provider: ${profile.provider}`,
+    ...(profile.model ? [`model: ${JSON.stringify(profile.model)}`] : []),
+    ...(profile.thinking ? [`thinking: ${JSON.stringify(profile.thinking)}`] : []),
+    FRONTMATTER_DELIMITER,
+    profile.body,
+    "",
+  ].join("\n");
+}
+
 export function canonicalSubagentProfileDocumentFromLegacy(content: string, filePath: string): string {
   const profile = legacyProfileFromDocument(content, filePath);
   const frontmatter = [

@@ -14,6 +14,7 @@ import { runInit } from "./cli/init.js";
 import { runConfigMigration } from "./cli/config/migrate.js";
 import { runConfigInspection } from "./cli/config/inspect.js";
 import { renderGeneralConfigHelp, runGeneralConfigGet, runGeneralConfigSet, runGeneralConfigUnset } from "./cli/config/general.js";
+import { runConfigDomainCommand } from "./cli/config/domains/domain-cli.js";
 import { runMaintenanceCommand } from "./cli/maintenance.js";
 import { runExternalMcpCommand } from "./cli/mcp/external-mcp.js";
 import {
@@ -121,6 +122,9 @@ async function runCompatibilityRootCommand(
     case "agents":
       await runAgentsCommand(args);
       return;
+    case "hooks":
+      await runHooksCommand(args);
+      return;
   }
 }
 
@@ -140,6 +144,7 @@ async function runInitCommand(args: string[]): Promise<void> {
 
 async function runConfigRootCommand(args: string[]): Promise<void> {
   const [domain, ...rest] = args;
+  if (domain && await runConfigDomainCommand(domain, rest)) return;
   if (domain === "hooks") {
     await runHooksCommand(rest);
     return;

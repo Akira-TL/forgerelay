@@ -28,6 +28,7 @@ export function renderGeneralConfigHelp(): string {
     "  forgerelay config sources [--project <path>|--global] [--json]",
     "  forgerelay config explain <logical-path> [--project <path>|--global] [--json]",
     "  forgerelay config migrate [--dry-run] [--project <path>|--global]",
+    "  forgerelay config <mcp|hooks|lsp|subagents> <get|set|unset|remove|check|sources|explain> ...",
   ].join("\n");
 }
 

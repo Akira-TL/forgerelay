@@ -7,7 +7,7 @@ export type CliRootHandler =
   | "help"
   | "version";
 
-export type CliCompatibilityHandler = "agents";
+export type CliCompatibilityHandler = "agents" | "hooks";
 
 interface CliRouteMetadata {
   command: string;
@@ -33,7 +33,7 @@ export const CLI_ROOT_ROUTES: readonly CliRootRoute[] = [
   // compatibility window but never appear in generated public root help.
   { command: "start", handler: "serve" },
   { command: "doctor", handler: "system", argsPrefix: ["doctor"] },
-  { command: "hooks", handler: "config", argsPrefix: ["hooks"] },
+  { command: "hooks", compatibilityHandler: "hooks" },
   { command: "auth", handler: "connect", argsPrefix: ["relay"] },
   { command: "mcp", handler: "connect", argsPrefix: ["mcp"] },
   { command: "maintenance", handler: "system" },

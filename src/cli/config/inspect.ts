@@ -85,7 +85,7 @@ const OFFLINE_LIVE_STATE = {
   appliedValues: "unknown",
 } as const;
 
-export async function runConfigInspection(args: string[]): Promise<number> {
+export async function runConfigInspection(args: string[], domainFilter?: string): Promise<number> {
   let options: ConfigInspectionOptions;
   try {
     options = parseInspectionArgs(args);
@@ -96,6 +96,7 @@ export async function runConfigInspection(args: string[]): Promise<number> {
   let domains: ResolvedConfigDomain[];
   try {
     domains = await resolveInspectionDomains(options);
+    if (domainFilter) domains = domains.filter((domain) => domain.domain === domainFilter);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
