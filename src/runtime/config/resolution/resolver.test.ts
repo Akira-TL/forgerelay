@@ -154,6 +154,64 @@ test("general runtime CLI values outrank parsed environment overrides", () => {
   assert.equal(resolved.entries.port?.shadowed[0]?.source.kind, "environment");
 });
 
+test("Agent context source fields use replace precedence across built-in, project, Project Local, and runtime", () => {
+  const defaults = resolveGeneralConfig({ env: {} });
+  assert.equal(defaults.values.systemInstructionsPath, "~/.agents/AGENTS.md");
+  assert.deepEqual(defaults.values.instructionNames, ["AGENTS.md"]);
+  assert.deepEqual(defaults.values.skillPaths, ["~/.agents/skills", "./.agents/skills"]);
+
+  const project = resolveGeneralConfig({
+    env: {},
+    user: {
+      systemInstructionsPath: "~/.user/USER.md",
+      instructionNames: ["USER.md"],
+      skillPaths: ["~/.user/skills"],
+    },
+    project: {
+      systemInstructionsPath: "~/.project/PROJECT.md",
+      instructionNames: ["PROJECT.md", "CLAUDE.md"],
+      skillPaths: ["./.claude/skills"],
+    },
+    projectLocal: {
+      instructionNames: ["LOCAL.md"],
+      skillPaths: ["./.local/skills"],
+    },
+  });
+  assert.equal(project.values.systemInstructionsPath, "~/.project/PROJECT.md");
+  assert.deepEqual(project.values.instructionNames, ["LOCAL.md"]);
+  assert.deepEqual(project.values.skillPaths, ["./.local/skills"]);
+  assert.equal(project.entries.systemInstructionsPath?.effective.source.scope, "project");
+  assert.equal(project.entries.instructionNames?.effective.source.scope, "project-local");
+  assert.equal(project.entries.skillPaths?.effective.source.scope, "project-local");
+
+  const runtime = resolveGeneralConfig({
+    env: {
+      FORGERELAY_SYSTEM_INSTRUCTIONS_PATH: "~/.runtime/RUNTIME.md",
+      FORGERELAY_INSTRUCTION_NAMES: "AGENTS.md",
+      FORGERELAY_SKILL_PATHS: "~/.runtime/skills",
+    },
+    project: {
+      systemInstructionsPath: "~/.project/PROJECT.md",
+      instructionNames: ["AGENTS.md", "CLAUDE.md"],
+      skillPaths: ["./.project/skills", "~/.project/skills"],
+    },
+  });
+  assert.equal(runtime.values.systemInstructionsPath, "~/.runtime/RUNTIME.md");
+  assert.deepEqual(runtime.values.instructionNames, ["AGENTS.md"]);
+  assert.deepEqual(runtime.values.skillPaths, ["~/.runtime/skills"]);
+  assert.equal(runtime.entries.instructionNames?.effective.source.kind, "environment");
+  assert.equal(runtime.entries.skillPaths?.effective.source.kind, "environment");
+});
+
+test("instructionNames rejects path-like entries because discovery matches basenames only", () => {
+  const resolved = resolveGeneralConfig({
+    env: {},
+    project: { instructionNames: ["nested/AGENTS.md"] },
+  });
+  assert.equal(resolved.diagnostics[0]?.code, "invalid_source");
+  assert.match(resolved.diagnostics[0]?.message ?? "", /basename without path separators/);
+});
+
 test("runtime diagnostics report constraints without echoing received values", () => {
   const sentinel = "sentinel-invalid-port";
   const resolved = resolveGeneralConfig({ env: { PORT: sentinel } });

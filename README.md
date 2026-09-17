@@ -110,7 +110,7 @@ ForgeRelay 不会默认为每个任务创建 worktree。只有你明确要求隔
 - Linux / macOS 可以用 Bash、zsh、POSIX sh；Windows 原生支持 PowerShell 7、Windows PowerShell 5.1 和 `cmd.exe`。
 - 同一个 checkout 会保留自己的 Workspace 身份。换一次对话，不需要重新创建工作区。
 - `code.intelligence` 可以查 definition、hover、references、symbols 和 diagnostics。
-- 项目里的 `AGENTS.md`、`CLAUDE.md` 和 Agent Skills 按需加载，不会每次都把整套说明重新塞进上下文。Skill 来自项目级 `.agents/skills`、项目/系统 ForgeRelay Skills 和显式附加路径；不会自动扫描全局 `~/.agents/skills`。
+- Agent 上下文来源走 Config v2：默认 system instructions 是 `~/.agents/AGENTS.md`，项目指令默认只匹配 `AGENTS.md`，Skills 默认按顺序扫描 `~/.agents/skills` 与项目 `./.agents/skills`。项目/User/Project Local/runtime 都可以用 replace semantics 选择其他通用 Agent 目录；ForgeRelay 不再隐式维护 `.forgerelay/skills` 来源。
 - 需要并行开发时可以创建真实 Git worktree；起始 commit 与最终 `targetBranch` 独立，集成仍只接受安全的 fast-forward，不自动制造 merge conflict。
 - 支持 MCP Apps 的 Host 会显示 Workspace Summary / Activity Panel；Workspace 身份色在 Panel 与 pretty log 中保持一致，长路径会在详情区正常换行。
 - Workspace Relay 可以把执行放到另一台 ForgeRelay；Composite Workspace 可以同时协调几个独立环境。
@@ -234,7 +234,7 @@ Long commands do not require tight polling either. Once the current wait window 
 - Linux/macOS can use Bash, zsh, or POSIX sh. Windows has native PowerShell 7, Windows PowerShell 5.1, and `cmd.exe` support.
 - Reopening the same checkout reuses the same Workspace identity instead of creating another one for every conversation.
 - `code.intelligence` provides definition, hover, references, symbols, and diagnostics.
-- `AGENTS.md`, `CLAUDE.md`, and Agent Skills are loaded as needed instead of being resent in full on every open. Skills come from project `.agents/skills`, project/system ForgeRelay Skill directories, and explicit extra paths; global `~/.agents/skills` is not scanned automatically.
+- Agent context sources use Config v2: the default system instruction is `~/.agents/AGENTS.md`, project instructions match only `AGENTS.md` by default, and Skills scan `~/.agents/skills` then project `./.agents/skills`. Project/User/Project Local/runtime config can replace those generic sources; ForgeRelay no longer implicitly owns `.forgerelay/skills` sources.
 - Managed worktrees provide real Git isolation when you ask for parallel work. Starting commit and local `targetBranch` are tracked independently, while finalization remains fast-forward-only.
 - MCP Apps-capable hosts can render the Workspace Summary / Activity Panel. Workspace identity colors stay consistent between the panel and pretty logs, and long paths wrap in detail rows instead of hiding their tail.
 - Workspace Relay runs work on another ForgeRelay instance; Composite Workspaces coordinate several independent environments from one Host.

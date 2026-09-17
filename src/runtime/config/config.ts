@@ -6,7 +6,6 @@ import { normalizeAllowedRootPaths } from "./validation/paths.js";
 import type { LoggingConfig, LogFormat, LogLevel } from "../logging/logger.js";
 import type { OAuthConfig } from "../../mcp/oauth/oauth-provider.js";
 import {
-  forgerelaySkillsDir,
   generateInstanceId,
   loadForgeRelayFiles,
   type ForgeRelayUserConfig,
@@ -18,7 +17,11 @@ import {
   resolveConfiguredCommandShellRuntime,
   type CommandShellRuntime,
 } from "../shell/command-shell-runtime.js";
-import { generalConfigDefinition } from "./definition/general-config.js";
+import {
+  DEFAULT_INSTRUCTION_NAMES,
+  DEFAULT_SKILL_PATHS,
+  generalConfigDefinition,
+} from "./definition/general-config.js";
 import { resolveGeneralConfig } from "./resolution/general.js";
 import { assertConfigResolutionValid } from "./resolution/resolver.js";
 import { ConfigRuntime, type ConfigAppliedDomainState } from "./runtime/config-runtime.js";
@@ -77,7 +80,7 @@ export interface ServerConfig {
   taskReminderInterval: number;
   skillsEnabled: boolean;
   skillPaths: string[];
-  configSkillsDir: string;
+  instructionNames: string[];
   subagents: boolean;
   allowAgentLanguageServerInstall: boolean;
   agentDir: string;
@@ -166,15 +169,6 @@ function parseLogFormat(value: string | undefined): LogFormat {
   if (value === "json") return "json";
 
   throw new Error(`Invalid FORGERELAY_LOG_FORMAT: ${value}`);
-}
-
-function parsePathList(value: string | undefined): string[] {
-  return (
-    value
-      ?.split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean) ?? []
-  );
 }
 
 function parseStringList(value: string | undefined, fallback: string[]): string[] {
@@ -438,8 +432,8 @@ export function loadConfig(
     mediaMaxBytes: config.mediaMaxBytes ?? DEFAULT_MEDIA_MAX_BYTES,
     taskReminderInterval: config.taskReminderInterval ?? DEFAULT_TASK_REMINDER_INTERVAL,
     skillsEnabled: productEnv(env, "SKILLS") === undefined ? true : parseBoolean(productEnv(env, "SKILLS")),
-    skillPaths: parsePathList(productEnv(env, "SKILL_PATHS")),
-    configSkillsDir: forgerelaySkillsDir(env),
+    skillPaths: config.skillPaths ?? [...DEFAULT_SKILL_PATHS],
+    instructionNames: config.instructionNames ?? [...DEFAULT_INSTRUCTION_NAMES],
     subagents: config.subagents === true,
     allowAgentLanguageServerInstall: config.allowAgentLanguageServerInstall === true,
     agentDir: resolve(expandHomePath(config.agentDir ?? defaultAgentDir())),

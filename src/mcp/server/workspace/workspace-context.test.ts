@@ -216,6 +216,10 @@ test("open_workspace hides skill filesystem paths and read loads skills through 
     "---",
     "duplicate body",
   ].join("\n"));
+  await writeFile(
+    join(context.project, ".forgerelay", "config.json"),
+    JSON.stringify({ skillPaths: ["./.agents/skills", "./.forgerelay/skills"] }) + "\n",
+  );
 
   const opened = await callOpen(context.client, context.project, "chat-skill-uri");
   const openedStructured = structuredContent(opened);

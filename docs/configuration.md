@@ -888,21 +888,43 @@ Payload 用于策略和自动化，不包含文件正文、native-file credentia
 
 Hook 命令与 ForgeRelay 使用同一个本地用户权限。项目 `.forgerelay/hooks/*.json` 是可执行项目约定；允许某个 root 后，应把该 root 中的项目 Hook 视为本地开发环境的一部分。详见 [Security Model](security.md)。
 
-## System instructions
+## Agent context sources
 
-ForgeRelay loads exactly one global system-instructions file. The default is
-`~/.agents/AGENTS.md`. Set `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` or the
-`systemInstructionsPath` config key to point at a different single file.
-Arrays or empty values are not accepted. Symbolic links are followed, so the
-runtime entry may point at a canonical source elsewhere on disk.
+ForgeRelay resolves Agent instruction and Skill sources through General Config v2.
+The three source fields use normal precedence (`runtime > project-local > project > user > built-in`),
+and each higher-precedence value **replaces** the lower-precedence/default value rather than appending to it.
+`config get`, `config sources`, and `config explain` expose the same effective values and provenance.
 
-Project-root `AGENTS.md` / `CLAUDE.md` files remain project context and are
-loaded separately. Initial nested-instruction discovery checks only direct child
-directories; deeper instruction files are discovered lazily when a workspace path
-is first accessed. Reads surface newly discovered instructions inline, while
-side-effecting file/shell operations stop before execution and require a retry if
-that access discovers new local instructions. `FORGERELAY_AGENT_DIR` does not
-select a global instruction file; its `skills` child is an additional Agent Skills source.
+`systemInstructionsPath` selects exactly one system-instructions file. Its built-in default is
+`~/.agents/AGENTS.md`; `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` is the runtime override. A missing
+selected file does not prevent Workspace open, but ForgeRelay reports that instruction source as
+unavailable. `~` resolves through the current user's home directory; Workspace-relative paths are
+resolved from the current Workspace root.
+
+`instructionNames` controls hierarchical project-instruction discovery. Its built-in effective value is
+only `["AGENTS.md"]`; files such as `CLAUDE.md` or `GEMINI.md` are discovered only when explicitly
+listed. `FORGERELAY_INSTRUCTION_NAMES` accepts a comma-separated runtime replacement list. Initial
+nested discovery checks direct child directories; deeper matching instruction files are discovered lazily
+when a Workspace path is first accessed. Reads surface newly discovered instructions inline, while
+side-effecting file/shell operations stop before execution and require a retry if that access discovers new
+local instructions.
+
+`skillPaths` is an ordered source list. Its built-in effective value is:
+
+```json
+["~/.agents/skills", "./.agents/skills"]
+```
+
+`FORGERELAY_SKILL_PATHS` accepts a comma-separated runtime **replacement** list. Project and Project
+Local config may select another complete list as well. Missing configured directories are skipped quietly;
+existing unreadable/invalid Skills and same-name collisions remain diagnosable. If the same Skill name
+appears in multiple configured sources, the first source in the effective list wins. ForgeRelay does not
+implicitly scan `~/.forgerelay/skills`, `<project>/.forgerelay/skills`, provider-private Skill directories, or
+`FORGERELAY_AGENT_DIR/skills`.
+
+`forgerelay init` exposes these three fields with direct input prompts. Pressing Enter accepts the displayed
+current/default value; accepting the built-in default does not serialize a redundant override into
+`config.json`.
 
 ## Skills and subagents
 
@@ -911,18 +933,9 @@ select a global instruction file; its `skills` child is an additional Agent Skil
 | `FORGERELAY_SKILLS` | Set to `0` to hide skills. Enabled by default. |
 | `FORGERELAY_SUBAGENTS` | Set to `1` to expose configured subagent profiles. |
 | `FORGERELAY_AGENT_DIR` | Defaults to `~/.codex`; used by supported Agent integrations, not as an automatic Skill source. |
-| `FORGERELAY_SKILL_PATHS` | Optional comma-separated additional skill directories. |
-
-Skills are discovered in precedence order from:
-
-- project `.agents/skills`
-- project `.forgerelay/skills`
-- the active ForgeRelay config directory's `skills` folder (`~/.forgerelay/skills` by default)
-- paths explicitly added through `FORGERELAY_SKILL_PATHS`
-
-Project `.agents/skills` belongs to the open Agent Skills ecosystem and may contain files or symlinks installed by other Agent tooling. ForgeRelay-owned project/system Skills stay under `.forgerelay/skills` and the active ForgeRelay config directory. Global Agent runtime directories such as `~/.agents/skills` and `FORGERELAY_AGENT_DIR/skills` are not scanned automatically.
-
-When the same Skill name appears in more than one source, the first source wins: project Agent Skills override project ForgeRelay Skills, which override system ForgeRelay Skills and explicit additional paths.
+| `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` | Runtime replacement for the selected system instruction file. |
+| `FORGERELAY_INSTRUCTION_NAMES` | Runtime comma-separated replacement list for project instruction basenames. |
+| `FORGERELAY_SKILL_PATHS` | Runtime comma-separated replacement list for Skill source directories. |
 
 When subagents are enabled, canonical v1.2 profiles are discovered from:
 

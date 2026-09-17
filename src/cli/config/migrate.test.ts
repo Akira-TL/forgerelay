@@ -107,6 +107,9 @@ test("config migrate writes canonical user domains, backs up legacy sources, and
   writeFileSync(join(configDir, "config.json"), JSON.stringify({
     allowedRoots: [root],
     artifactsEnabled: true,
+    systemInstructionsPath: "~/.custom/AGENT.md",
+    instructionNames: ["AGENTS.md", "CLAUDE.md"],
+    skillPaths: ["~/.custom/skills", "./.custom/skills"],
     mcpServers: { demo: { transport: "stdio", command: "demo-mcp", args: ["--stdio"] } },
     languageServers: { custom: { command: "custom-lsp", extensions: [".custom"] } },
     hooks: { BeforeTool: [{ name: "guard", matcher: { tool: "read" }, command: "printf guard", report: true }] },
@@ -122,6 +125,9 @@ test("config migrate writes canonical user domains, backs up legacy sources, and
 
   const migratedConfig = json(join(configDir, "config.json"));
   assert.equal(migratedConfig.artifactsEnabled, true);
+  assert.equal(migratedConfig.systemInstructionsPath, "~/.custom/AGENT.md");
+  assert.deepEqual(migratedConfig.instructionNames, ["AGENTS.md", "CLAUDE.md"]);
+  assert.deepEqual(migratedConfig.skillPaths, ["~/.custom/skills", "./.custom/skills"]);
   assert.equal("mcpServers" in migratedConfig, false);
   assert.equal("languageServers" in migratedConfig, false);
   assert.equal("hooks" in migratedConfig, false);
@@ -221,7 +227,7 @@ test("config migrate handles project-shared legacy Hooks and Subagent Profiles e
   assert.equal(existsSync(join(project, ".forgerelay", "agents")), false);
 });
 
-test("config migrate preserves ForgeRelay-owned Skills under the ForgeRelay config directory", () => {
+test("config migrate leaves legacy config-directory Skills in place without moving them into Agent sources", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-skills-"));
   const configDir = join(root, "config");
   const home = join(root, "home");
@@ -263,7 +269,7 @@ test("config migrate preserves repeated legacy Hook names by assigning stable ex
   assert.deepEqual(commands, ["printf after", "printf before"]);
 });
 
-test("config migrate does not merge ForgeRelay-owned Skills with Agent ecosystem Skills", () => {
+test("config migrate does not merge legacy config-directory Skills with Agent ecosystem Skills", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-migrate-skill-shadow-"));
   const configDir = join(root, "config");
   const home = join(root, "home");

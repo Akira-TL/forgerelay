@@ -192,14 +192,16 @@ Skills are enabled by default. Check:
 FORGERELAY_SKILLS=1 forgerelay serve
 ```
 
-Standard automatic discovery paths include:
+The built-in `skillPaths` list is:
 
-- project `.agents/skills`
-- project `.forgerelay/skills`
-- active ForgeRelay config `skills` directory (`~/.forgerelay/skills` by default)
-- additional paths explicitly configured through `FORGERELAY_SKILL_PATHS`
+```text
+~/.agents/skills
+./.agents/skills
+```
 
-ForgeRelay does **not** automatically scan global Agent runtime Skill directories such as `~/.agents/skills` or `FORGERELAY_AGENT_DIR/skills`. Project `.agents/skills` remains the open Agent Skills source, while ForgeRelay-owned project/system Skills live under `.forgerelay/skills` and the active ForgeRelay config `skills` directory.
+The first entry is user-home scoped; the second is relative to the current Workspace root. Any User, Project, Project Local, or runtime `skillPaths` value replaces that complete list. `FORGERELAY_SKILL_PATHS` is the comma-separated runtime replacement.
+
+If Skills are still missing, inspect the effective source with `forgerelay config get`, `forgerelay config sources`, or `forgerelay config explain config.skillPaths`. ForgeRelay does **not** implicitly scan `~/.forgerelay/skills`, project `.forgerelay/skills`, provider-private Skill directories, or `FORGERELAY_AGENT_DIR/skills`.
 
 ## Subagent profiles do not appear
 

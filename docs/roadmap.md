@@ -189,7 +189,7 @@ capability
 - completed background process 的 Agent 可消费状态最多保留 5 分钟；底层 ChildProcess/PTY handle 在退出时立即释放，completed notice 数量与 active process 数量都有硬上限，并缩小单 process 输出驻留预算；
 - 高输出 head/tail buffer 保留 Unicode code-point 语义，但不再通过 `Array.from(整段输出)` 构造巨型临时数组，降低 V8 heap 扩容与 GC 压力；
 - MCP transport registry 与 review checkpoint state 加入容量边界；正常 transport close/workspace close 仍立即释放，异常遗弃对象不能再无限累积；OAuth 过期 authorization code 也会主动淘汰；
-- `open_workspace` 的 instruction discovery 首轮只检查 root 与直接子目录，不再递归整棵 workspace。更深层 `AGENTS.md` / `CLAUDE.md` 在 Agent 首次访问对应路径时沿祖先目录惰性发现，并缓存已扫描目录；read 可直接携带新发现指令，write/edit/rename/delete/bash 等副作用调用则在执行前返回指令并要求重试；
+- `open_workspace` 的 instruction discovery 首轮只检查 root 与直接子目录，不再递归整棵 workspace。更深层只匹配 effective `instructionNames`（当前 built-in default 只有 `AGENTS.md`，其他 basename 需显式配置），在 Agent 首次访问对应路径时沿祖先目录惰性发现，并缓存已扫描目录；read 可直接携带新发现指令，write/edit/rename/delete/bash 等副作用调用则在执行前返回指令并要求重试；
 - Workspace SQLite 继续作为本地持久化真源，不引入 Redis/PostgreSQL/Docker。高频 session/conversation `lastUsedAt` touch 进入内存 write-behind cache，最多每 5 分钟事务批量 flush，normal shutdown 再显式 flush；create/close/status 等语义性状态仍同步持久化；
 - debug runtime telemetry 定期报告 RSS/heap、transport、process、workspace cache 与 review state 数量，为后续真实实例资源趋势提供可观测性。
 

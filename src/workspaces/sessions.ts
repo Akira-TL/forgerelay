@@ -361,7 +361,10 @@ export class WorkspaceSessionService {
 
   async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     workspace.project = await resolveProjectContext(this.config.configDir, workspace.root);
-    Object.assign(workspace, this.context.loadSkillsForWorkspace(workspace.root));
+    Object.assign(
+      workspace,
+      await this.context.loadContextSourcesForWorkspace(workspace.project, workspace.root),
+    );
     workspace.capabilityGuides = loadCapabilityGuides(this.config);
     workspace.agentProfiles = await loadSubagentProfiles(this.config, workspace.root);
     workspace.scannedInstructionDirs.clear();
@@ -617,11 +620,13 @@ export class WorkspaceSessionService {
     }
 
     const root = this.context.assertWorkspaceRootAllowed(session.root, session.mode, session.sourceRoot);
+    const contextSources = this.context.defaultContextSources(root);
     const restoredWorkspace: Workspace = {
       id: session.id,
       root,
       mode: session.mode,
       sourceRoot: session.sourceRoot,
+      contextSources,
       worktree: session.mode === "worktree"
         ? {
             path: root,
@@ -634,7 +639,7 @@ export class WorkspaceSessionService {
             managed: session.managed,
           }
         : undefined,
-      ...this.context.loadSkillsForWorkspace(root),
+      ...this.context.loadSkillsForWorkspace(root, contextSources.skillPaths),
       capabilityGuides: loadCapabilityGuides(this.config),
       agentProfiles: [],
       activatedSkillDirs: new Set(),

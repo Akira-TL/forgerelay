@@ -4,7 +4,12 @@ import type { ConfigFieldDefinition } from "./types.js";
 import { LISTEN_PORT_MIN, PORT_MAX } from "../validation/ports.js";
 
 const USER_RUNTIME_SCOPES = ["runtime", "user", "built-in"] as const;
+const CONTEXT_SOURCE_SCOPES = ["runtime", "project-local", "project", "user", "built-in"] as const;
 const USER_SCOPES = ["user", "built-in"] as const;
+
+export const DEFAULT_SYSTEM_INSTRUCTIONS_PATH = "~/.agents/AGENTS.md";
+export const DEFAULT_INSTRUCTION_NAMES = ["AGENTS.md"] as const;
+export const DEFAULT_SKILL_PATHS = ["~/.agents/skills", "./.agents/skills"] as const;
 const USER_ONLY_SCOPES = ["user"] as const;
 const LEGACY_REMOVAL_VERSION = "1.4.0";
 
@@ -18,6 +23,11 @@ const retentionSchema = z.object({
   historyDays: z.number().int().min(1).max(36_500).optional(),
   orphanedAdministrativeState: z.boolean().optional(),
 }).strict();
+
+const instructionNameSchema = z.string().trim().min(1).refine(
+  (value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\"),
+  "Instruction name must be one basename without path separators.",
+);
 
 export const generalConfigDefinition = defineConfigDomain({
   domain: "config",
@@ -132,10 +142,20 @@ export const generalConfigDefinition = defineConfigDomain({
       reload: "restart-required",
       runtimeOverride: runtimeEnv("FORGERELAY_AGENT_DIR", (env) => env.FORGERELAY_AGENT_DIR),
     }),
-    systemInstructionsPath: field(z.string().min(1), "Global Agent instruction file consumed by ForgeRelay.", {
-      scopes: USER_RUNTIME_SCOPES,
-      builtIn: computed("~/.agents/AGENTS.md"),
+    systemInstructionsPath: field(z.string().trim().min(1), "Selected system-level Agent instruction file consumed by ForgeRelay.", {
+      scopes: CONTEXT_SOURCE_SCOPES,
+      builtIn: literal(DEFAULT_SYSTEM_INSTRUCTIONS_PATH),
       runtimeOverride: runtimeEnv("FORGERELAY_SYSTEM_INSTRUCTIONS_PATH", (env) => readNonEmptyPathEnv(env, "FORGERELAY_SYSTEM_INSTRUCTIONS_PATH")),
+    }),
+    instructionNames: field(z.array(instructionNameSchema), "Project instruction basenames discovered hierarchically within a Workspace.", {
+      scopes: CONTEXT_SOURCE_SCOPES,
+      builtIn: literal([...DEFAULT_INSTRUCTION_NAMES]),
+      runtimeOverride: runtimeEnv("FORGERELAY_INSTRUCTION_NAMES", (env) => readListEnv(env, "FORGERELAY_INSTRUCTION_NAMES")),
+    }),
+    skillPaths: field(z.array(z.string().trim().min(1)), "Ordered Agent Skill source directories; explicit higher-precedence lists replace lower-precedence lists.", {
+      scopes: CONTEXT_SOURCE_SCOPES,
+      builtIn: literal([...DEFAULT_SKILL_PATHS]),
+      runtimeOverride: runtimeEnv("FORGERELAY_SKILL_PATHS", (env) => readListEnv(env, "FORGERELAY_SKILL_PATHS")),
     }),
     commandShell: field(commandShellSchema, "Recorded command-shell preference for ForgeRelay command and Hook execution.", {
       scopes: USER_SCOPES,

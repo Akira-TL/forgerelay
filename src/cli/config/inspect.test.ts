@@ -228,6 +228,49 @@ test("config explain reports precedence, reload, and execution metadata", () => 
   ));
 });
 
+test("Agent context source fields expose project precedence and provenance through config explain", () => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-config-explain-context-sources-"));
+  const configDir = join(root, "config");
+  const project = join(root, "project");
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(join(project, ".forgerelay"), { recursive: true });
+  writeFileSync(join(configDir, "config.json"), JSON.stringify({
+    instructionNames: ["USER.md"],
+    skillPaths: ["~/.user/skills"],
+  }));
+  writeFileSync(join(project, ".forgerelay", "config.json"), JSON.stringify({
+    systemInstructionsPath: "./PROJECT.md",
+    instructionNames: ["CLAUDE.md", "GEMINI.md"],
+    skillPaths: ["./.claude/skills"],
+  }));
+
+  const result = runCli(
+    configDir,
+    ["config", "explain", "config.instructionNames", "--project", project, "--json"],
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const output = JSON.parse(result.stdout) as {
+    effective: { source: { id: string; scope: string }; configuredValue: unknown; effectiveValue: unknown };
+    shadowed: Array<{ source: { id: string; scope: string }; configuredValue: unknown }>;
+  };
+  assert.equal(output.effective.source.id, "project:config");
+  assert.equal(output.effective.source.scope, "project");
+  assert.deepEqual(output.effective.configuredValue, ["CLAUDE.md", "GEMINI.md"]);
+  assert.deepEqual(output.effective.effectiveValue, ["CLAUDE.md", "GEMINI.md"]);
+  assert.ok(output.shadowed.some((entry) =>
+    entry.source.id === "user:config" &&
+    entry.source.scope === "user" &&
+    JSON.stringify(entry.configuredValue) === JSON.stringify(["USER.md"])
+  ));
+
+  const get = runCli(configDir, ["config", "get", "--project", project]);
+  assert.equal(get.status, 0, get.stderr || get.stdout);
+  const effective = JSON.parse(get.stdout) as Record<string, unknown>;
+  assert.equal(effective.systemInstructionsPath, "./PROJECT.md");
+  assert.deepEqual(effective.instructionNames, ["CLAUDE.md", "GEMINI.md"]);
+  assert.deepEqual(effective.skillPaths, ["./.claude/skills"]);
+});
+
 test("config explain human output includes related diagnostics", () => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-config-explain-diagnostics-"));
   const configDir = join(root, "config");

@@ -51,23 +51,40 @@ export function bootstrapContextFingerprints(
   contextFingerprint: string;
   componentFingerprints: Record<WorkspaceBootstrapComponent, string>;
 } {
+  const instructionSources = {
+    systemInstructionsPath: resolve(workspace.contextSources.systemInstructionsPath),
+    instructionNames: [...workspace.contextSources.instructionNames],
+  };
+  const skillSources = { skillPaths: [...workspace.contextSources.skillPaths] };
   const payload = {
-    agentsFiles: agentsFiles
-      .map((file) => ({ path: resolve(file.path), content: file.content }))
-      .sort((left, right) => left.path.localeCompare(right.path)),
-    availableAgentsFiles: availableAgentsFiles
-      .map((file) => resolve(file.path))
-      .sort((left, right) => left.localeCompare(right)),
-    skills: workspace.skills
-      .map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-        filePath: resolve(skill.filePath),
-      }))
-      .sort((left, right) =>
-        left.name.localeCompare(right.name) || left.filePath.localeCompare(right.filePath)
-      ),
-    skillDiagnostics: workspace.skillDiagnostics,
+    agentsFiles: {
+      sources: instructionSources,
+      files: agentsFiles
+        .map((file) => ({ path: resolve(file.path), content: file.content }))
+        .sort((left, right) => left.path.localeCompare(right.path)),
+    },
+    availableAgentsFiles: {
+      sources: instructionSources,
+      files: availableAgentsFiles
+        .map((file) => resolve(file.path))
+        .sort((left, right) => left.localeCompare(right)),
+    },
+    skills: {
+      sources: skillSources,
+      resources: workspace.skills
+        .map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          filePath: resolve(skill.filePath),
+        }))
+        .sort((left, right) =>
+          left.name.localeCompare(right.name) || left.filePath.localeCompare(right.filePath)
+        ),
+    },
+    skillDiagnostics: {
+      sources: skillSources,
+      diagnostics: workspace.skillDiagnostics,
+    },
     capabilityGuides: workspace.capabilityGuides
       .map((guide) => ({
         name: guide.name,

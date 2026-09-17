@@ -48,6 +48,8 @@ export interface ForgeRelayUserConfig {
   appendInstructions?: string;
   agentDir?: string;
   systemInstructionsPath?: string;
+  instructionNames?: string[];
+  skillPaths?: string[];
   commandShell?: CommandShellPreference;
   shellInstructions?: boolean;
   subagents?: boolean;
@@ -106,10 +108,6 @@ export function forgerelayHooksPath(env: NodeJS.ProcessEnv = process.env): strin
 
 export function forgerelayHooksDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(forgerelayConfigDir(env), "hooks");
-}
-
-export function forgerelaySkillsDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(forgerelayConfigDir(env), "skills");
 }
 
 export function loadForgeRelayFiles(

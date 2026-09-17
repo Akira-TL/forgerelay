@@ -201,7 +201,7 @@ Migration 会：
 - 使用原子写入/替换；
 - 把 legacy source 规范化到 canonical domain；
 - 保留迁移前后的 effective behavior，包括已有 canonical shadowing；
-- 不移动 ForgeRelay-owned `~/.forgerelay/skills` 到 `.agents/skills`。
+- 不自动搬迁历史 `.forgerelay/skills` 目录；这些目录不再是隐式 Skill source，如需继续使用必须显式加入 `skillPaths`。
 
 Migration **不会**读取或导入 Claude、Codex、Cursor 等其他产品的私有配置目录。`.agents/skills` 是开放 Agent Skills 生态来源，不是 ForgeRelay 私有配置的迁移目标。
 
@@ -321,30 +321,25 @@ FORGERELAY_SUBAGENTS=1
 
 `forgerelay agents ls` 主要查看 Session，不等于列出所有 profile definition。Host 的 compact profile catalog 使用 Config v2 profile resolver。
 
-## Instructions 与 Agent Skills ownership
+## Agent context sources
 
-通用 `AGENTS.md` / Agent Skills 遵循 Agent 生态约定，不被伪装成 ForgeRelay Config domain。
+System instructions、项目指令文件名与 Agent Skills 都通过 General Config v2 选择来源，优先级统一为 `runtime > project-local > project > user > built-in`，三项都是 replace semantics。
 
-全局 Agent Instructions 默认：
-
-```text
-~/.agents/AGENTS.md
-```
-
-Skill discovery 常见来源：
+内置默认：
 
 ```text
-<project>/.agents/skills
-<project>/.forgerelay/skills
-~/.forgerelay/skills
-FORGERELAY_SKILL_PATHS
+systemInstructionsPath = ~/.agents/AGENTS.md
+instructionNames        = [AGENTS.md]
+skillPaths              = [~/.agents/skills, ./.agents/skills]
 ```
 
-这些来源不是同一个 ownership domain：
+`systemInstructionsPath` 始终只选择一个文件；选中的文件不存在时 Workspace 仍可打开，但状态会显示为 unavailable。`instructionNames` 只接受 basename，默认不会匹配 `CLAUDE.md`；需要兼容其他 Agent 时显式把相应文件名加入列表即可。
 
-- Project `.agents/skills` 是开放 Agent Skills 生态，可以包含其他工具安装或软链接的 Skill；
-- ForgeRelay 自己管理的 Project/System Skill 分别保留在 `<project>/.forgerelay/skills` 与 active config directory 的 `skills/`（默认 `~/.forgerelay/skills`）；
-- ForgeRelay 不自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
+`skillPaths` 是有序完整来源列表。`~` 指向当前用户 home，`./...` 相对当前 Workspace root。User / Project / Project Local / runtime 任一更高优先级列表都会完整替换低层列表；同名 Skill 由列表中先出现的来源获胜，并保留 collision diagnostic。
+
+ForgeRelay 不再隐式扫描 `~/.forgerelay/skills`、`<project>/.forgerelay/skills`、provider-private Skill 目录或 `FORGERELAY_AGENT_DIR/skills`。历史 `.forgerelay/skills` 内容不会被删除；如需继续使用，把该路径显式加入 `skillPaths`。
+
+`forgerelay init` 直接显示这三项当前/默认值；按 Enter 接受 built-in 时不会把冗余默认写进 `config.json`。
 
 ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime resource，和通用 Agent Skill 不同；fresh init 默认关闭，只有显式 opt-in 才启用。
 
@@ -362,6 +357,9 @@ ForgeRelay Runtime Shell Instructions 是另一项 ForgeRelay-owned runtime reso
 | `FORGERELAY_WORKTREE_ROOT` | managed worktree directory |
 | `FORGERELAY_ACTIVITY_PANEL_EXPANDED` | Activity Panel 默认展开状态 |
 | `FORGERELAY_TASK_REMINDER_INTERVAL` | Workspace Task reminder interval |
+| `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` | runtime system instruction path replacement |
+| `FORGERELAY_INSTRUCTION_NAMES` | runtime comma-separated project instruction basename list |
+| `FORGERELAY_SKILL_PATHS` | runtime comma-separated Skill source replacement list |
 | `FORGERELAY_SUBAGENTS` | Subagent Session 开关 |
 | `FORGERELAY_ARTIFACTS` | native Artifact capability 开关 |
 

@@ -65,18 +65,13 @@ interface SkillCandidate {
 
 const FRONTMATTER_DELIMITER = "---";
 
-export function effectiveSkillPaths(config: ServerConfig, cwd: string): string[] {
-  const defaultPathCandidates = [
-    resolve(cwd, ".agents", "skills"),
-    resolve(cwd, ".forgerelay", "skills"),
-    config.configSkillsDir,
-  ];
-  const defaultPaths = defaultPathCandidates.filter(
-    (path): path is string => path !== undefined && existsSync(path),
-  );
-
+export function effectiveSkillPaths(
+  config: Pick<ServerConfig, "skillPaths">,
+  cwd: string,
+  skillPaths: readonly string[] = config.skillPaths,
+): string[] {
   const seen = new Set<string>();
-  return [...defaultPaths, ...config.skillPaths]
+  return skillPaths
     .map((path) => resolveSkillPath(path, cwd))
     .filter((path) => {
       if (seen.has(path)) return false;
@@ -89,14 +84,18 @@ function resolveSkillPath(path: string, cwd: string): string {
   return resolve(cwd, expandHomePath(path));
 }
 
-export function loadWorkspaceSkills(config: ServerConfig, cwd: string): LoadedSkills {
+export function loadWorkspaceSkills(
+  config: Pick<ServerConfig, "skillsEnabled" | "skillPaths" | "subagents">,
+  cwd: string,
+  skillPaths: readonly string[] = config.skillPaths,
+): LoadedSkills {
   if (!config.skillsEnabled) return { skills: [], diagnostics: [] };
 
   const skills: Skill[] = [];
   const diagnostics: SkillDiagnostic[] = [];
   const winners = new Map<string, SkillCandidate>();
 
-  for (const sourcePath of effectiveSkillPaths(config, cwd)) {
+  for (const sourcePath of effectiveSkillPaths(config, cwd, skillPaths)) {
     const candidates = discoverSkills(sourcePath, diagnostics);
     for (const skill of candidates) {
       const existing = winners.get(skill.name);

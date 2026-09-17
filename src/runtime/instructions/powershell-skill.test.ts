@@ -6,7 +6,7 @@ import test from "node:test";
 import { loadConfig } from "../config/config.js";
 import { loadWorkspaceSkills } from "../../workspaces/resources/skills.js";
 
-test("a ForgeRelay-owned private PowerShell Skill remains readable from the ForgeRelay config directory", async (t) => {
+test("a legacy config-directory PowerShell Skill is only discovered when skillPaths explicitly selects it", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-legacy-powershell-skill-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const configDir = join(root, "config");
@@ -32,8 +32,17 @@ test("a ForgeRelay-owned private PowerShell Skill remains readable from the Forg
     FORGERELAY_ALLOWED_ROOTS: projectRoot,
     FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
   });
-  const loaded = loadWorkspaceSkills(config, projectRoot);
-  const legacy = loaded.skills.find((skill) => skill.name === "powershell");
+  const defaultLoaded = loadWorkspaceSkills(config, projectRoot);
+  assert.equal(defaultLoaded.skills.some((skill) => skill.name === "powershell"), false);
+
+  const explicitConfig = loadConfig({
+    FORGERELAY_CONFIG_DIR: configDir,
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_SKILL_PATHS: join(configDir, "skills"),
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+  });
+  const explicitLoaded = loadWorkspaceSkills(explicitConfig, projectRoot);
+  const legacy = explicitLoaded.skills.find((skill) => skill.name === "powershell");
   assert.equal(legacy?.filePath, skillPath);
   assert.equal(legacy?.description, "ForgeRelay-owned PowerShell guidance.");
 });

@@ -122,7 +122,8 @@ assert.equal(loadConfig({
 assert.equal(forgeRelayConfig.toolMode, "full");
 assert.equal(forgeRelayConfig.subagents, true);
 assert.equal("hooks" in forgeRelayConfig, false, "legacy Hook sources are resolved on demand, not snapshotted into ServerConfig");
-assert.equal(forgeRelayConfig.configSkillsDir, join(forgeRelayConfigDir, "skills"));
+assert.deepEqual(forgeRelayConfig.instructionNames, ["AGENTS.md"]);
+assert.deepEqual(forgeRelayConfig.skillPaths, ["~/.agents/skills", "./.agents/skills"]);
 assert.equal(resolveSubagentsFlag({}, { FORGERELAY_SUBAGENTS: "1" }), true);
 assert.equal(loadConfig(baseEnv).workflowInstructions, undefined);
 assert.equal(
@@ -140,7 +141,16 @@ assert.equal(
   "Keep command output concise.",
 );
 assert.equal(loadConfig(baseEnv).skillsEnabled, true);
-assert.equal(loadConfig(baseEnv).configSkillsDir, join(emptyConfigDir, "skills"));
+assert.deepEqual(loadConfig(baseEnv).instructionNames, ["AGENTS.md"]);
+assert.deepEqual(loadConfig(baseEnv).skillPaths, ["~/.agents/skills", "./.agents/skills"]);
+assert.deepEqual(
+  loadConfig({ ...baseEnv, FORGERELAY_INSTRUCTION_NAMES: "AGENTS.md,CLAUDE.md" }).instructionNames,
+  ["AGENTS.md", "CLAUDE.md"],
+);
+assert.deepEqual(
+  loadConfig({ ...baseEnv, FORGERELAY_SKILL_PATHS: "~/.claude/skills,./.claude/skills" }).skillPaths,
+  ["~/.claude/skills", "./.claude/skills"],
+);
 assert.equal(loadConfig(baseEnv).subagents, false);
 assert.equal(loadConfig(baseEnv).artifactsEnabled, false);
 assert.equal(loadConfig(baseEnv).artifactMaxFileBytes, 100 * 1024 * 1024);
@@ -470,6 +480,8 @@ writeFileSync(
     workflowInstructions: false,
     appendInstructions: "Follow repository workflow instructions.",
     systemInstructionsPath: "~/configured-system.md",
+    instructionNames: ["AGENTS.md", "CLAUDE.md"],
+    skillPaths: ["~/.custom/skills", "./.custom/skills"],
     hooks: {
       WorkspaceOpen: [{ command: "echo opened" }],
       BeforeWorktreeClose: [{ command: "npm test", timeoutSeconds: 45 }],
@@ -501,6 +513,8 @@ assert.equal(fileConfig.shellInstructionsEnabled, false);
 assert.equal(fileConfig.workflowInstructions, false);
 assert.equal(fileConfig.appendInstructions, "Follow repository workflow instructions.");
 assert.equal(fileConfig.systemInstructionsPath, join(homedir(), "configured-system.md"));
+assert.deepEqual(fileConfig.instructionNames, ["AGENTS.md", "CLAUDE.md"]);
+assert.deepEqual(fileConfig.skillPaths, ["~/.custom/skills", "./.custom/skills"]);
 assert.equal("hooks" in fileConfig, false, "legacy inline Hooks are not materialized into ServerConfig");
 assert.deepEqual(fileConfig.allowedHosts, [
   "localhost",

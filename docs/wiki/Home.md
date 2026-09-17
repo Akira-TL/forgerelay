@@ -31,7 +31,7 @@ Host 负责对话和推理，ForgeRelay 负责真实本地执行。普通开发�
 
 Workspace close 不等于 delete。Close 只是暂时停用，identity 和 Task List 等 ForgeRelay-owned state 仍然保留。
 
-Agent Skills 的 ownership 要分清：项目 `.agents/skills` 属于开放 Agent Skills 生态，ForgeRelay 自己的 Project/System Skills 位于 `.forgerelay/skills` 和 active config directory。ForgeRelay 不会自动扫描全局 `~/.agents/skills`。
+Agent Skills 现在只按通用 `skillPaths` 来源发现。内置默认是 `~/.agents/skills` 和当前 Workspace 的 `./.agents/skills`；User / Project / Project Local / runtime 可以替换整个列表。ForgeRelay 不再隐式维护或扫描 `.forgerelay/skills` 命名空间。
 
 Shell 命令使用启动 ForgeRelay 的本地用户权限，不受文件工具的 Workspace path boundary 限制。只连接你信任的 Host，并只开放确实需要访问的 roots。
 

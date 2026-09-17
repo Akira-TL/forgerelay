@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ForgeRelayUserConfig } from "../../runtime/config/user-config.js";
+import {
+  DEFAULT_INSTRUCTION_NAMES,
+  DEFAULT_SKILL_PATHS,
+  DEFAULT_SYSTEM_INSTRUCTIONS_PATH,
+} from "../../runtime/config/definition/general-config.js";
 import { applySetupConfig } from "./setup-config.js";
 
 const schema = "https://raw.githubusercontent.com/Akira-TL/forgerelay/main/schemas/v1/config.user.schema.json";
@@ -51,6 +56,46 @@ test("basic proxy init persists only connection-specific values", () => {
     $schema: schema,
     allowedRoots: roots,
     publicBaseUrl: "https://forge.example.com/relay",
+  });
+});
+
+test("init accepts Agent context built-ins without persisting redundant overrides", () => {
+  const current: ForgeRelayUserConfig = {
+    systemInstructionsPath: DEFAULT_SYSTEM_INSTRUCTIONS_PATH,
+    instructionNames: [...DEFAULT_INSTRUCTION_NAMES],
+    skillPaths: [...DEFAULT_SKILL_PATHS],
+  };
+  assert.deepEqual(applySetupConfig(current, {
+    schema,
+    allowedRoots: roots,
+    network: { mode: "local" },
+    context: {
+      systemInstructionsPath: DEFAULT_SYSTEM_INSTRUCTIONS_PATH,
+      instructionNames: [...DEFAULT_INSTRUCTION_NAMES],
+      skillPaths: [...DEFAULT_SKILL_PATHS],
+    },
+  }), {
+    $schema: schema,
+    allowedRoots: roots,
+  });
+});
+
+test("init persists only actual Agent context source overrides", () => {
+  assert.deepEqual(applySetupConfig({}, {
+    schema,
+    allowedRoots: roots,
+    network: { mode: "local" },
+    context: {
+      systemInstructionsPath: "~/.custom/AGENT.md",
+      instructionNames: ["AGENTS.md", "CLAUDE.md"],
+      skillPaths: ["~/.claude/skills", "./.claude/skills"],
+    },
+  }), {
+    $schema: schema,
+    allowedRoots: roots,
+    systemInstructionsPath: "~/.custom/AGENT.md",
+    instructionNames: ["AGENTS.md", "CLAUDE.md"],
+    skillPaths: ["~/.claude/skills", "./.claude/skills"],
   });
 });
 

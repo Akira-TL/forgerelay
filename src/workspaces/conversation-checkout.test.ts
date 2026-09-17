@@ -137,6 +137,81 @@ test("changed project instructions invalidate the delivered bootstrap fingerprin
   assert.equal(refreshed.agentsFiles.some((file) => file.content.includes("updated project instructions")), true);
 });
 
+test("project instructionNames replaces the AGENTS.md default and Project Local overrides Project scope", async (t) => {
+  const { project, registry } = await fixture(t);
+  await writeFile(join(project, "CLAUDE.md"), "claude project instructions\n");
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-context-sources" });
+  assert.deepEqual(first.workspace.contextSources.instructionNames, ["AGENTS.md"]);
+  assert.equal(first.agentsFiles.some((file) => file.path.endsWith("CLAUDE.md")), false);
+
+  await writeFile(
+    join(project, ".forgerelay", "config.json"),
+    JSON.stringify({ instructionNames: ["AGENTS.md", "CLAUDE.md"] }) + "\n",
+  );
+  const projectConfigured = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-context-sources" },
+  );
+  assert.deepEqual(projectConfigured.workspace.contextSources.instructionNames, ["AGENTS.md", "CLAUDE.md"]);
+  assert.equal(projectConfigured.agentsFiles.some((file) => file.path.endsWith("CLAUDE.md")), true);
+  assert.notEqual(projectConfigured.contextFingerprint, first.contextFingerprint);
+
+  const localConfigDir = projectConfigured.workspace.project?.localConfigDir;
+  assert.ok(localConfigDir);
+  await mkdir(localConfigDir, { recursive: true });
+  await writeFile(
+    join(localConfigDir, "config.json"),
+    JSON.stringify({ instructionNames: ["CLAUDE.md"] }) + "\n",
+  );
+  const localConfigured = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-context-sources" },
+  );
+  assert.deepEqual(localConfigured.workspace.contextSources.instructionNames, ["CLAUDE.md"]);
+  assert.equal(localConfigured.agentsFiles.some((file) => file.path.endsWith("AGENTS.md") && file.path.startsWith(project)), false);
+  assert.equal(localConfigured.agentsFiles.some((file) => file.path.endsWith("CLAUDE.md")), true);
+});
+
+test("effective Skill source configuration participates in bootstrap fingerprinting", async (t) => {
+  const { project, registry } = await fixture(t);
+  const configPath = join(project, ".forgerelay", "config.json");
+  await mkdir(join(project, ".empty-skills-a"), { recursive: true });
+  await mkdir(join(project, ".empty-skills-b"), { recursive: true });
+  await writeFile(configPath, JSON.stringify({ skillPaths: ["./.empty-skills-a"] }) + "\n");
+
+  const first = await registry.openWorkspace(project, { conversationScopeId: "chat-skill-sources" });
+  assert.deepEqual(first.workspace.contextSources.skillPaths, ["./.empty-skills-a"]);
+  assert.deepEqual(first.workspace.skills, []);
+
+  await writeFile(configPath, JSON.stringify({ skillPaths: ["./.empty-skills-b"] }) + "\n");
+  const second = await registry.openWorkspace(
+    { workspaceId: first.workspace.id },
+    { conversationScopeId: "chat-skill-sources" },
+  );
+  assert.deepEqual(second.workspace.contextSources.skillPaths, ["./.empty-skills-b"]);
+  assert.deepEqual(second.workspace.skills, []);
+  assert.notEqual(second.contextFingerprint, first.contextFingerprint);
+  assert.equal(second.includeBootstrapContext, true);
+});
+
+test("a missing selected system instruction source is explicit but does not block Workspace open", async (t) => {
+  const { project, registry } = await fixture(t);
+  const missing = join(project, "missing-system-instructions.md");
+  await writeFile(
+    join(project, ".forgerelay", "config.json"),
+    JSON.stringify({ systemInstructionsPath: "./missing-system-instructions.md" }) + "\n",
+  );
+
+  const opened = await registry.openWorkspace(project, { conversationScopeId: "chat-missing-system" });
+  assert.equal(opened.workspace.contextSources.systemInstructionsPath, missing);
+  assert.equal(opened.agentsFiles.some((file) => file.path === missing), false);
+  assert.deepEqual(
+    opened.workspace.workspaceInstructions.find((state) => state.path === missing),
+    { path: missing, status: "unavailable" },
+  );
+});
+
 test("changed project Skill metadata refreshes when the Workspace is reopened", async (t) => {
   const { project, registry } = await fixture(t);
   const skillDir = join(project, ".agents", "skills", "live-skill");
@@ -424,16 +499,16 @@ test("legacy duplicate checkout records fold to one canonical Workspace with ali
 
 test("a failed first context load does not consume bootstrap", async (t) => {
   const { project, config, store, registry } = await fixture(t);
-  const failingRegistry = new WorkspaceRegistry({
-    ...config,
-    systemInstructionsPath: project,
-  }, store);
+  const projectConfigPath = join(project, ".forgerelay", "config.json");
+  await writeFile(projectConfigPath, JSON.stringify({ systemInstructionsPath: "." }) + "\n");
+  const failingRegistry = new WorkspaceRegistry(config, store);
 
   await assert.rejects(
     () => failingRegistry.openWorkspace(project, { conversationScopeId: "chat-1" }),
     /EISDIR|directory/i,
   );
 
+  await writeFile(projectConfigPath, "{}\n");
   const successfulOpen = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   assert.equal(successfulOpen.includeBootstrapContext, true);
 });
@@ -441,16 +516,16 @@ test("a failed first context load does not consume bootstrap", async (t) => {
 test("a context-loading failure preserves a valid checkout binding", async (t) => {
   const { project, config, store, registry } = await fixture(t);
   const first = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
-  const failingRegistry = new WorkspaceRegistry({
-    ...config,
-    systemInstructionsPath: project,
-  }, store);
+  const projectConfigPath = join(project, ".forgerelay", "config.json");
+  await writeFile(projectConfigPath, JSON.stringify({ systemInstructionsPath: "." }) + "\n");
+  const failingRegistry = new WorkspaceRegistry(config, store);
 
   await assert.rejects(
     () => failingRegistry.openWorkspace(project, { conversationScopeId: "chat-1" }),
     /EISDIR|directory/i,
   );
 
+  await writeFile(projectConfigPath, "{}\n");
   const recovered = await registry.openWorkspace(project, { conversationScopeId: "chat-1" });
   assert.equal(recovered.workspace.id, first.workspace.id);
 });

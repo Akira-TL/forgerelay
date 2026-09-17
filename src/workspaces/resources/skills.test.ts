@@ -240,18 +240,10 @@ try {
   });
   const loaded = loadWorkspaceSkills(config, projectRoot);
   assert.equal(loaded.skills.some((skill) => skill.name === "agent-global-skill"), false);
-  assert.equal(loaded.skills.some((skill) => skill.name === "agent-project-skill"), true);
-  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-project-skill"), true);
-  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-system-skill"), true);
+  assert.equal(loaded.skills.some((skill) => skill.name === "agent-project-skill"), false);
+  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-project-skill"), false);
+  assert.equal(loaded.skills.some((skill) => skill.name === "forgerelay-system-skill"), false);
   assert.equal(loaded.skills.some((skill) => skill.name === "duplicate-skill"), true);
-  assert.equal(
-    loaded.skills.some((skill) => skill.filePath.startsWith(join(agentDir, "skills"))),
-    false,
-  );
-  assert.equal(
-    loaded.skills.find((skill) => skill.name === "shared-skill")?.description,
-    "Project shared skill.",
-  );
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-global-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "claude-project-skill"), true);
   assert.equal(loaded.skills.some((skill) => skill.name === "project-skill"), false);
@@ -260,24 +252,28 @@ try {
   const legacyHiddenSkill = loaded.skills.find((skill) => skill.name === "hidden-skill");
   assert.ok(legacyHiddenSkill);
   assert.equal("disableModelInvocation" in legacyHiddenSkill, false);
-  assert.equal(loaded.diagnostics.some((diagnostic) => diagnostic.type === "collision"), true);
-  const projectGlobalCollision = loaded.diagnostics.find(
+  assert.equal(loaded.diagnostics.some((diagnostic) => diagnostic.type === "collision"), false);
+
+  const defaultConfig = loadConfig({
+    FORGERELAY_ALLOWED_ROOTS: projectRoot,
+    FORGERELAY_AGENT_DIR: agentDir,
+    FORGERELAY_OAUTH_OWNER_TOKEN: "test-owner-token-that-is-long-enough",
+    PORT: "1",
+  });
+  const defaultLoaded = loadWorkspaceSkills(defaultConfig, projectRoot);
+  assert.equal(defaultLoaded.skills.some((skill) => skill.name === "agent-global-skill"), true);
+  assert.equal(defaultLoaded.skills.some((skill) => skill.name === "agent-project-skill"), true);
+  assert.equal(defaultLoaded.skills.some((skill) => skill.name === "forgerelay-project-skill"), false);
+  assert.equal(defaultLoaded.skills.some((skill) => skill.name === "forgerelay-system-skill"), false);
+  assert.equal(
+    defaultLoaded.skills.find((skill) => skill.name === "shared-skill")?.description,
+    "Global shared skill.",
+  );
+  const defaultCollision = defaultLoaded.diagnostics.find(
     (diagnostic) => diagnostic.collision?.name === "shared-skill",
   )?.collision;
-  assert.equal(projectGlobalCollision?.winnerPath, join(projectAgentsSkills, "shared-skill", "SKILL.md"));
-  assert.equal(projectGlobalCollision?.loserPath, join(projectForgeRelaySkills, "shared-skill", "SKILL.md"));
-  assert.equal(
-    loaded.diagnostics.some(
-      (diagnostic) => diagnostic.collision?.loserPath === join(globalAgentsSkills, "shared-skill", "SKILL.md"),
-    ),
-    false,
-  );
-  assert.equal(
-    loaded.diagnostics.some(
-      (diagnostic) => diagnostic.collision?.name === "subagent-delegation",
-    ),
-    false,
-  );
+  assert.equal(defaultCollision?.winnerPath, join(globalAgentsSkills, "shared-skill", "SKILL.md"));
+  assert.equal(defaultCollision?.loserPath, join(projectAgentsSkills, "shared-skill", "SKILL.md"));
 
   const cleanAgentDir = join(root, "clean-agent");
   const cleanConfigDir = join(root, "clean-config");
@@ -320,9 +316,9 @@ try {
     PORT: "1",
   });
   const duplicatePaths = effectiveSkillPaths(duplicateConfig, projectRoot);
-  assert.equal(duplicatePaths.filter((path) => path === projectAgentsSkills).length, 1);
-  assert.equal(duplicatePaths.includes(projectForgeRelaySkills), true);
-  assert.equal(duplicatePaths.includes(configSkillsDir), true);
+  assert.deepEqual(duplicatePaths, [explicitSkills, projectAgentsSkills]);
+  assert.equal(duplicatePaths.includes(projectForgeRelaySkills), false);
+  assert.equal(duplicatePaths.includes(configSkillsDir), false);
   assert.equal(duplicatePaths.includes(globalAgentsSkills), false);
   assert.equal(duplicatePaths.includes(join(agentDir, "skills")), false);
 
@@ -338,12 +334,12 @@ try {
     true,
   );
 
-  const projectSkill = loaded.skills.find((skill) => skill.name === "agent-project-skill");
+  const projectSkill = defaultLoaded.skills.find((skill) => skill.name === "agent-project-skill");
   assert.ok(projectSkill);
   assert.match(formatPathForPrompt(projectSkill.filePath), /SKILL\.md$/);
 
   const skillFileRead = resolveSkillReadPath(
-    loaded.skills,
+    defaultLoaded.skills,
     new Set(),
     `skills://${projectSkill.name}`,
   );
@@ -353,12 +349,12 @@ try {
   const resourcePath = join(projectSkill.baseDir, "references.md");
   await writeFile(resourcePath, "reference\n");
   assert.equal(
-    resolveSkillReadPath(loaded.skills, new Set(), `skills://${projectSkill.name}/references.md`),
+    resolveSkillReadPath(defaultLoaded.skills, new Set(), `skills://${projectSkill.name}/references.md`),
     undefined,
   );
   assert.equal(
     resolveSkillReadPath(
-      loaded.skills,
+      defaultLoaded.skills,
       new Set([projectSkill.baseDir]),
       `skills://${projectSkill.name}/references.md`,
     )?.isSkillFile,
@@ -367,19 +363,19 @@ try {
 
   assert.throws(
     () => resolveSkillReadPath(
-      loaded.skills,
+      defaultLoaded.skills,
       new Set([projectSkill.baseDir]),
       `skills://${projectSkill.name}/../outside.md`,
     ),
     /Invalid skill URI/,
   );
   assert.throws(
-    () => resolveSkillReadPath(loaded.skills, new Set(), "skills://missing-skill"),
+    () => resolveSkillReadPath(defaultLoaded.skills, new Set(), "skills://missing-skill"),
     /Unknown advertised skill/,
   );
 
   // Legacy absolute paths remain readable for stale Host metadata, but are no longer advertised.
-  assert.equal(resolveSkillReadPath(loaded.skills, new Set(), projectSkill.filePath)?.isSkillFile, true);
+  assert.equal(resolveSkillReadPath(defaultLoaded.skills, new Set(), projectSkill.filePath)?.isSkillFile, true);
 } finally {
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;

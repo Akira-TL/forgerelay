@@ -289,16 +289,16 @@ Skills 默认启用。确认没有关闭：
 FORGERELAY_SKILLS=1 forgerelay serve
 ```
 
-常见发现位置：
+内置 `skillPaths` 是：
 
 ```text
-<project>/.agents/skills
-<project>/.forgerelay/skills
-<forgerelay-config>/skills
-FORGERELAY_SKILL_PATHS
+~/.agents/skills
+./.agents/skills
 ```
 
-如果排查 ForgeRelay 自己管理的 Skill，优先检查 `<project>/.forgerelay/skills` 与 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。Project `.agents/skills` 属于开放 Agent Skills 生态，可能包含其他工具创建的文件或软链接；ForgeRelay 不再自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
+如果实际来源不同，先检查 `forgerelay config get` / `config sources` / `config explain config.skillPaths`。User / Project / Project Local / runtime 的显式列表会完整替换 built-in；`FORGERELAY_SKILL_PATHS` 也是 replacement，不是追加。
+
+ForgeRelay 不再隐式扫描 `<project>/.forgerelay/skills`、`<forgerelay-config>/skills`、provider-private Skill 目录或 `FORGERELAY_AGENT_DIR/skills`。历史 `.forgerelay/skills` 文件仍留在磁盘上，如需继续发现必须把路径显式加入 `skillPaths`。
 
 发现到的 Skill 应通过 `open_workspace` 向 Agent 暴露 `name + description`。Skill 和 ForgeRelay Capability Guide 是两个系统。
 

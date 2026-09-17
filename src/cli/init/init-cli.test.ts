@@ -7,7 +7,7 @@ import pty from "node-pty";
 
 const cli = join(process.cwd(), "src", "cli.ts");
 
-void test("basic init asks only roots and connection mode while preserving the connection handoff", async (t) => {
+void test("basic init exposes Agent context sources with direct defaults without persisting built-ins", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "forgerelay-init-cli-test-"));
   const configDir = join(root, "config");
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -24,25 +24,28 @@ void test("basic init asks only roots and connection mode while preserving the c
   });
 
   let output = "";
-  let rootsAnswered = false;
-  let modeAnswered = false;
+  const answered = new Set<string>();
+  const promptsToAnswer = [
+    "Where are your projects located?",
+    "Which system instruction file should ForgeRelay load?",
+    "Which project instruction filenames should ForgeRelay discover?",
+    "Which Skill directories should ForgeRelay scan?",
+    "How should clients reach this ForgeRelay instance?",
+  ];
   child.onData((data) => {
     output += data;
-    if (!rootsAnswered && output.includes("Where are your projects located?")) {
-      rootsAnswered = true;
-      child.write("\r");
-      return;
-    }
-    if (rootsAnswered && !modeAnswered && output.includes("How should clients reach this ForgeRelay instance?")) {
-      modeAnswered = true;
-      child.write("\r");
+    for (const prompt of promptsToAnswer) {
+      if (!answered.has(prompt) && output.includes(prompt)) {
+        answered.add(prompt);
+        child.write("\r");
+        break;
+      }
     }
   });
 
   const exitCode = await waitForExit(child, 10_000);
   assert.equal(exitCode, 0, output);
-  assert.equal(rootsAnswered, true, output);
-  assert.equal(modeAnswered, true, output);
+  for (const prompt of promptsToAnswer) assert.equal(answered.has(prompt), true, `${prompt}\n${output}`);
   for (const unexpected of [
     "Which local port should ForgeRelay use?",
     "Which command shell should Agent commands and Hooks use?",
@@ -63,6 +66,52 @@ void test("basic init asks only roots and connection mode while preserving the c
   assert.match(output, /Client-facing MCP URL/);
   assert.match(output, new RegExp(escapeRegExp(`Owner password: ${auth.ownerToken}`)));
   assert.match(output, /Run `forgerelay serve` to start the MCP server\./);
+});
+
+void test("basic init persists direct Agent context source replacements", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-init-context-cli-test-"));
+  const configDir = join(root, "config");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const child = pty.spawn(process.execPath, ["--import", "tsx", cli, "init"], {
+    name: "xterm-256color",
+    cols: 110,
+    rows: 40,
+    cwd: process.cwd(),
+    env: stringEnvironment({
+      FORGERELAY_CONFIG_DIR: configDir,
+      FORGERELAY_STATE_DIR: join(root, "state"),
+    }),
+  });
+
+  let output = "";
+  const answers = new Map<string, string>([
+    ["Where are your projects located?", ""],
+    ["Which system instruction file should ForgeRelay load?", "~/.custom/AGENT.md"],
+    ["Which project instruction filenames should ForgeRelay discover?", "AGENTS.md, CLAUDE.md"],
+    ["Which Skill directories should ForgeRelay scan?", "~/.claude/skills, ./.claude/skills"],
+    ["How should clients reach this ForgeRelay instance?", ""],
+  ]);
+  const answered = new Set<string>();
+  child.onData((data) => {
+    output += data;
+    for (const [prompt, answer] of answers) {
+      if (!answered.has(prompt) && output.includes(prompt)) {
+        answered.add(prompt);
+        child.write(`${answer}\r`);
+        break;
+      }
+    }
+  });
+
+  const exitCode = await waitForExit(child, 10_000);
+  assert.equal(exitCode, 0, output);
+  for (const prompt of answers.keys()) assert.equal(answered.has(prompt), true, `${prompt}\n${output}`);
+
+  const config = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as Record<string, unknown>;
+  assert.equal(config.systemInstructionsPath, "~/.custom/AGENT.md");
+  assert.deepEqual(config.instructionNames, ["AGENTS.md", "CLAUDE.md"]);
+  assert.deepEqual(config.skillPaths, ["~/.claude/skills", "./.claude/skills"]);
 });
 
 void test("advanced init remains directly usable after basic setup and preserves unrelated config", async (t) => {
@@ -94,6 +143,9 @@ void test("advanced init remains directly usable after basic setup and preserves
   const answered = new Set<string>();
   const promptsToAnswer = [
     "Where are your projects located?",
+    "Which system instruction file should ForgeRelay load?",
+    "Which project instruction filenames should ForgeRelay discover?",
+    "Which Skill directories should ForgeRelay scan?",
     "How should clients reach this ForgeRelay instance?",
     "Which local port should ForgeRelay use?",
     "Which command shell should Agent commands and Hooks use?",

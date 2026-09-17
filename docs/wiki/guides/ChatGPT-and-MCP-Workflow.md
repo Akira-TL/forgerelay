@@ -52,39 +52,32 @@ ForgeRelay 升级后，Host 可能仍缓存旧的 MCP schema。常见情况是 `
 
 ## 项目指令
 
-Workspace 打开时，ForgeRelay 先加载全局 system instructions，默认位置：
+Agent instruction source 走 General Config v2。内置 system instruction 是 `~/.agents/AGENTS.md`；`systemInstructionsPath` 的更高优先级值会完整替换它。
 
-```text
-~/.agents/AGENTS.md
-```
-
-然后读取 Workspace root 的：
+项目/path 指令由 `instructionNames` 匹配 basename。内置默认只有：
 
 ```text
 AGENTS.md
-AGENTS.MD
-CLAUDE.md
-CLAUDE.MD
 ```
 
-更深目录不会在首次打开时递归扫描。Agent 第一次访问对应路径时，ForgeRelay 才沿路径发现 nested instructions。
+需要 `CLAUDE.md`、`GEMINI.md` 或其他约定时，在 User / Project / Project Local 配置中显式替换列表，或使用 `FORGERELAY_INSTRUCTION_NAMES` runtime override。
+
+更深目录不会在首次打开时递归扫描。Agent 第一次访问对应路径时，ForgeRelay 才沿路径发现匹配当前 `instructionNames` 的 nested instructions。
 
 如果副作用操作在执行前发现新的 nested instructions，ForgeRelay 会先返回规则并要求 retry，避免“先改文件，再发现这里其实有约束”。
 
 ## Agent Skills
 
-Skill 按优先级从以下来源发现：
+`skillPaths` 是 Config v2 的有序完整来源列表，内置默认：
 
 ```text
-<project>/.agents/skills
-<project>/.forgerelay/skills
-<forgerelay-config>/skills
-FORGERELAY_SKILL_PATHS
+~/.agents/skills
+./.agents/skills
 ```
 
-这些位置只共享 discovery contract，不共享所有权。Project `.agents/skills` 是开放 Agent Skills 目录，可以由其他 Agent 工具安装或软链接；ForgeRelay-owned 的 Project/System Skill 分别保持在 `<project>/.forgerelay/skills` 与 `<forgerelay-config>/skills`（默认 `~/.forgerelay/skills`）。ForgeRelay 不再自动扫描 `~/.agents/skills` 或 `FORGERELAY_AGENT_DIR/skills`。
+`~` 是当前用户 home，`./...` 相对当前 Workspace root。User / Project / Project Local / runtime 可以替换整个列表；`FORGERELAY_SKILL_PATHS` 是 runtime comma-separated replacement。
 
-同名 Skill 只保留优先级最高的来源，因此 Project Agent Skill 会覆盖 Project ForgeRelay Skill，后者再覆盖系统 ForgeRelay Skill 和显式附加路径。
+ForgeRelay 不再隐式扫描 `.forgerelay/skills`、provider-private Skill 目录或 `FORGERELAY_AGENT_DIR/skills`。同名 Skill 按有效 `skillPaths` 顺序 first-wins，并保留 collision diagnostic。
 
 ForgeRelay 只负责发现，并把 `name + description` 暴露给 Agent。任务匹配由 Agent 自己判断；真正需要时再读取：
 

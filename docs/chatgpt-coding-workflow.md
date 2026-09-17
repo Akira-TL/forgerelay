@@ -174,23 +174,20 @@ state and does not recreate the physical backing.
 
 ## Instructions
 
-When a workspace opens, ForgeRelay first loads exactly one global system-instructions
-file. The default is `~/.agents/AGENTS.md`; configure a different single path with
-`FORGERELAY_SYSTEM_INSTRUCTIONS_PATH`. Symbolic links are followed so this entry can
-point at a canonical source elsewhere on disk.
+Agent context sources are resolved through General Config v2 using
+`runtime > project-local > project > user > built-in` precedence and replace semantics.
+ForgeRelay loads exactly one selected system-instructions file; the built-in default is
+`~/.agents/AGENTS.md`, and `FORGERELAY_SYSTEM_INSTRUCTIONS_PATH` is the runtime replacement.
+A missing selected system file is reported as unavailable but does not block Workspace open.
 
-ForgeRelay then loads root-level project instruction files when they exist:
-
-```text
-AGENTS.md
-AGENTS.MD
-CLAUDE.md
-CLAUDE.MD
-```
+Project/path-scoped instruction discovery is controlled by `instructionNames`. The built-in
+list is exactly `["AGENTS.md"]`; `CLAUDE.md`, `GEMINI.md`, or other basenames are discovered
+only when explicitly configured. `FORGERELAY_INSTRUCTION_NAMES` provides a comma-separated
+runtime replacement list.
 
 To keep broad workspaces such as `~` fast, initial nested-instruction discovery is
 bounded to direct child directories instead of recursively walking the whole tree.
-Deeper `AGENTS.md` / `CLAUDE.md` files are discovered lazily along a path the first
+Deeper configured instruction filenames are discovered lazily along a path the first
 time the Agent accesses it, and already-scanned directories are cached for the life
 of that workspace handle. A `read` result carries any newly discovered local
 instructions before the requested file content. Side-effecting file tools and shell
@@ -241,16 +238,22 @@ force the Host to discard a cached tool schema.
 
 ## Agent Skills
 
-ForgeRelay discovers Skills in precedence order from:
+`skillPaths` is an ordered General Config v2 list with replace semantics. Its built-in
+effective value is:
 
-- project `.agents/skills`
-- project `.forgerelay/skills`
-- the active ForgeRelay config directory's `skills` folder (`~/.forgerelay/skills` by default)
-- paths explicitly added through `FORGERELAY_SKILL_PATHS`
+```text
+~/.agents/skills
+./.agents/skills
+```
 
-These paths are discovery sources, not one shared ownership domain. Project `.agents/skills` is the open Agent Skills ecosystem and may contain files or symlinks managed by other Agent tooling. ForgeRelay-owned project/system Skills stay under `.forgerelay/skills` and the active ForgeRelay config directory. ForgeRelay does not automatically scan global Agent runtime Skill directories such as `~/.agents/skills` or `FORGERELAY_AGENT_DIR/skills`.
+The first path is user-home scoped; `./...` paths resolve from the current Workspace root.
+Project, Project Local, User, or runtime config can replace the complete list with any
+Agent ecosystem directories. `FORGERELAY_SKILL_PATHS` is the comma-separated runtime
+replacement. ForgeRelay does not implicitly scan `.forgerelay/skills`, provider-private
+Skill directories, or `FORGERELAY_AGENT_DIR/skills`.
 
-Same-named collisions use the first source: project Agent Skills override project ForgeRelay Skills, which override system ForgeRelay Skills and explicit additional paths.
+Same-named collisions use source-list order: the first discovered Skill name wins and the
+losing source remains visible through diagnostics.
 
 When a task matches an advertised skill, read its `SKILL.md` before using other
 files in the skill directory.

@@ -370,11 +370,14 @@
       "x-forgerelay-computed-default": "~/.codex"
     },
     "systemInstructionsPath": {
-      "description": "Global Agent instruction file consumed by ForgeRelay.",
+      "description": "Selected system-level Agent instruction file consumed by ForgeRelay.",
       "type": "string",
       "minLength": 1,
+      "default": "~/.agents/AGENTS.md",
       "x-forgerelay-scopes": [
         "runtime",
+        "project-local",
+        "project",
         "user",
         "built-in"
       ],
@@ -385,8 +388,60 @@
       "x-forgerelay-execution-effect": "none",
       "x-forgerelay-runtime-override": {
         "env": "FORGERELAY_SYSTEM_INSTRUCTIONS_PATH"
+      }
+    },
+    "instructionNames": {
+      "description": "Project instruction basenames discovered hierarchically within a Workspace.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
       },
-      "x-forgerelay-computed-default": "~/.agents/AGENTS.md"
+      "default": [
+        "AGENTS.md"
+      ],
+      "x-forgerelay-scopes": [
+        "runtime",
+        "project-local",
+        "project",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_INSTRUCTION_NAMES"
+      }
+    },
+    "skillPaths": {
+      "description": "Ordered Agent Skill source directories; explicit higher-precedence lists replace lower-precedence lists.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": [
+        "~/.agents/skills",
+        "./.agents/skills"
+      ],
+      "x-forgerelay-scopes": [
+        "runtime",
+        "project-local",
+        "project",
+        "user",
+        "built-in"
+      ],
+      "x-forgerelay-merge": "replace",
+      "x-forgerelay-reload": "hot",
+      "x-forgerelay-sensitivity": "public",
+      "x-forgerelay-interpolation": "none",
+      "x-forgerelay-execution-effect": "none",
+      "x-forgerelay-runtime-override": {
+        "env": "FORGERELAY_SKILL_PATHS"
+      }
     },
     "commandShell": {
       "description": "Recorded command-shell preference for ForgeRelay command and Hook execution.",

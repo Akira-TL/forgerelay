@@ -1,11 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { realpathSync, type Stats } from "node:fs";
 import { resolveProjectContext, type ProjectContext } from "./workspaces/state/project-context.js";
-import type {
-  WorkspaceMode,
-  WorkspaceSession,
-  WorkspaceStore,
-} from "./workspaces/state/workspace-store.js";
+import type { WorkspaceMode, WorkspaceSession, WorkspaceStore } from "./workspaces/state/workspace-store.js";
 import { mkdir, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -49,6 +45,7 @@ import {
   type LoadedSkills,
   type SkillReadResolution,
 } from "./workspaces/resources/skills.js";
+import type { WorkspaceContextSources } from "./workspaces/resources/context-sources.js";
 import {
   loadSubagentProfiles,
   type SubagentProfile,
@@ -80,6 +77,7 @@ export interface Workspace {
   mode: WorkspaceMode;
   sourceRoot?: string;
   project?: ProjectContext;
+  contextSources: WorkspaceContextSources;
   worktree?: WorkspaceWorktree;
   skills: LoadedSkills["skills"];
   skillDiagnostics: LoadedSkills["diagnostics"];
@@ -717,14 +715,16 @@ export class WorkspaceRegistry {
     sourceRoot?: string;
     worktree?: WorkspaceWorktree;
   }): Promise<WorkspaceContext> {
+    const project = await resolveProjectContext(this.config.configDir, input.root);
+    const contextResources = await this.context.loadContextSourcesForWorkspace(project, input.root);
     const workspace: Workspace = {
       id: `ws_${randomBytes(5).toString("hex")}`,
       root: input.root,
       mode: input.mode,
       sourceRoot: input.sourceRoot,
-      project: await resolveProjectContext(this.config.configDir, input.root),
+      project,
+      ...contextResources,
       worktree: input.worktree,
-      ...this.context.loadSkillsForWorkspace(input.root),
       capabilityGuides: loadCapabilityGuides(this.config),
       agentProfiles: await loadSubagentProfiles(this.config, input.root),
       activatedSkillDirs: new Set(),

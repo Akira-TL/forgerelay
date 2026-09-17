@@ -18,6 +18,11 @@ import {
   resolveSkillReadPath,
 } from "./resources/skills.js";
 import {
+  defaultWorkspaceContextSources,
+  resolveWorkspaceContextSources,
+} from "./resources/context-sources.js";
+import type { ProjectContext } from "./state/project-context.js";
+import {
   WorkspaceResourceMonitor,
   type WorkspaceResourceUpdate,
 } from "./resources/resource-monitor.js";
@@ -42,7 +47,6 @@ export interface AdvertisedWorkspaceInstruction {
 }
 
 const INITIAL_INSTRUCTION_DISCOVERY_DEPTH = 1;
-const CONTEXT_FILE_NAMES = new Set(["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 const SKIPPED_CONTEXT_DIRS = new Set([
   ".git",
   ".hg",
@@ -170,7 +174,7 @@ export class WorkspaceContextService {
     // system/shell instructions are intentionally exempt because they are
     // trusted inputs explicitly advertised by ForgeRelay.
     const trustedExternalInstructionPaths = new Set([
-      resolve(this.config.systemInstructionsPath),
+      resolve(workspace.contextSources.systemInstructionsPath),
       ...(this.config.shellInstructionPath ? [resolve(this.config.shellInstructionPath)] : []),
     ]);
     if (!trustedExternalInstructionPaths.has(resolve(selectedPath))) {
@@ -197,8 +201,26 @@ export class WorkspaceContextService {
     return assertAllowedPath(directory, [workspace.root]);
   }
 
-  loadSkillsForWorkspace(root: string): Pick<Workspace, "skills" | "skillDiagnostics"> {
-    const result = loadWorkspaceSkills(this.config, root);
+  defaultContextSources(root: string): Workspace["contextSources"] {
+    return defaultWorkspaceContextSources(this.config, root);
+  }
+
+  async loadContextSourcesForWorkspace(
+    project: ProjectContext,
+    root: string,
+  ): Promise<Pick<Workspace, "contextSources" | "skills" | "skillDiagnostics">> {
+    const contextSources = await resolveWorkspaceContextSources(this.config, project, root);
+    return {
+      contextSources,
+      ...this.loadSkillsForWorkspace(root, contextSources.skillPaths),
+    };
+  }
+
+  loadSkillsForWorkspace(
+    root: string,
+    skillPaths: readonly string[] = this.config.skillPaths,
+  ): Pick<Workspace, "skills" | "skillDiagnostics"> {
+    const result = loadWorkspaceSkills(this.config, root, skillPaths);
     return {
       skills: result.skills,
       skillDiagnostics: result.diagnostics,
@@ -217,7 +239,7 @@ export class WorkspaceContextService {
   }
 
   async loadInitialAgentsFiles(workspace: Workspace): Promise<LoadedAgentsFile[]> {
-    const systemInstructionsPath = resolve(this.config.systemInstructionsPath);
+    const systemInstructionsPath = resolve(workspace.contextSources.systemInstructionsPath);
     const loadedFiles: LoadedAgentsFile[] = [];
     const systemInstructions = await readSystemInstructions(systemInstructionsPath);
     const systemInstructionsRealPath = await tryRealpath(systemInstructionsPath);
@@ -226,6 +248,8 @@ export class WorkspaceContextService {
       loadedFiles.push({ path: systemInstructionsPath, content: systemInstructions });
       workspace.loadedInstructionPaths.add(systemInstructionsPath);
       if (systemInstructionsRealPath) workspace.loadedInstructionRealPaths.add(systemInstructionsRealPath);
+    } else {
+      workspace.workspaceInstructions.push({ path: systemInstructionsPath, status: "unavailable" });
     }
 
     const shellInstructionPath = this.config.shellInstructionPath;
@@ -375,7 +399,7 @@ export class WorkspaceContextService {
     const childDirectories: string[] = [];
     for await (const entry of entries) {
       const path = join(resolvedDirectory, entry.name);
-      if (entry.isFile() && CONTEXT_FILE_NAMES.has(entry.name)) {
+      if (entry.isFile() && workspace.contextSources.instructionNames.includes(entry.name)) {
         instructionPaths.push(path);
         continue;
       }

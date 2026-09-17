@@ -184,10 +184,12 @@ test("managed-worktree reopen stays closed when context bootstrap fails after ba
   const closedRoot = opened.workspace.root;
 
   await registry.closeWorktree(workspaceId, "test: close before bootstrap failure");
-  const failingRegistry = new WorkspaceRegistry({
-    ...config,
-    systemInstructionsPath: project,
-  }, store);
+  await mkdir(config.configDir, { recursive: true });
+  await writeFile(
+    join(config.configDir, "config.json"),
+    JSON.stringify({ systemInstructionsPath: project }) + "\n",
+  );
+  const failingRegistry = new WorkspaceRegistry(config, store);
 
   await assert.rejects(
     failingRegistry.openWorkspace({ workspaceId }),

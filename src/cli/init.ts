@@ -25,7 +25,12 @@ import {
   writeForgeRelayConfig,
   type ForgeRelayUserConfig,
 } from "../runtime/config/user-config.js";
-import { generalConfigDefinition } from "../runtime/config/definition/general-config.js";
+import {
+  DEFAULT_INSTRUCTION_NAMES,
+  DEFAULT_SKILL_PATHS,
+  DEFAULT_SYSTEM_INSTRUCTIONS_PATH,
+  generalConfigDefinition,
+} from "../runtime/config/definition/general-config.js";
 import { configSchemaId } from "../runtime/config/definition/schema.js";
 import {
   classifyClientFacingBaseUrl,
@@ -51,7 +56,19 @@ import {
   shellFamiliesForCustomSelection,
   type CommandShellSetupChoice,
 } from "./shell/setup.js";
-import { applySetupConfig, type AdvancedSetupSelection } from "./init/setup-config.js";
+import {
+  applySetupConfig,
+  type AdvancedSetupSelection,
+  type AgentContextSetupSelection,
+} from "./init/setup-config.js";
+
+function parseSetupList(value: string): string[] {
+  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function validateSetupList(value: string | undefined): string | undefined {
+  return value && parseSetupList(value).length > 0 ? undefined : "Enter at least one comma-separated value.";
+}
 
 export async function runInit({ force, advanced, version }: { force: boolean; advanced: boolean; version: string }): Promise<void> {
   const files = loadForgeRelayFiles();
@@ -72,6 +89,35 @@ export async function runInit({ force, advanced, version }: { force: boolean; ad
       validate: (value) => value?.trim() ? undefined : "Enter at least one project root.",
     });
     const allowedRoots = normalizeAllowedRootPaths(rootsAnswer.split(","));
+
+    const defaultSystemInstructionsPath = files.config.systemInstructionsPath ?? DEFAULT_SYSTEM_INSTRUCTIONS_PATH;
+    const systemInstructionsPath = (await textPrompt({
+      message: `Which system instruction file should ForgeRelay load? Press Enter to use ${defaultSystemInstructionsPath}`,
+      placeholder: defaultSystemInstructionsPath,
+      defaultValue: defaultSystemInstructionsPath,
+      validate: (value) => value?.trim() ? undefined : "Enter an instruction file path.",
+    })).trim();
+
+    const defaultInstructionNames = (files.config.instructionNames ?? DEFAULT_INSTRUCTION_NAMES).join(", ");
+    const instructionNames = parseSetupList(await textPrompt({
+      message: `Which project instruction filenames should ForgeRelay discover? Press Enter to use ${defaultInstructionNames}`,
+      placeholder: defaultInstructionNames,
+      defaultValue: defaultInstructionNames,
+      validate: validateSetupList,
+    }));
+
+    const defaultSkillPaths = (files.config.skillPaths ?? DEFAULT_SKILL_PATHS).join(", ");
+    const skillPaths = parseSetupList(await textPrompt({
+      message: `Which Skill directories should ForgeRelay scan? Press Enter to use ${defaultSkillPaths}`,
+      placeholder: defaultSkillPaths,
+      defaultValue: defaultSkillPaths,
+      validate: validateSetupList,
+    }));
+    const contextSelection: AgentContextSetupSelection = {
+      systemInstructionsPath,
+      instructionNames,
+      skillPaths,
+    };
 
     const defaultPort = String(files.config.port ?? 7676);
     const port = advanced
@@ -283,6 +329,7 @@ export async function runInit({ force, advanced, version }: { force: boolean; ad
         mode: networkMode,
         ...(publicBaseUrl === undefined ? {} : { publicBaseUrl }),
       },
+      context: contextSelection,
       ...(advancedSelection ? { advanced: advancedSelection } : {}),
     });
     const auth = {
