@@ -122,9 +122,6 @@ async function runCompatibilityRootCommand(
     case "agents":
       await runAgentsCommand(args);
       return;
-    case "hooks":
-      await runHooksCommand(args);
-      return;
   }
 }
 
@@ -144,6 +141,10 @@ async function runInitCommand(args: string[]): Promise<void> {
 
 async function runConfigRootCommand(args: string[]): Promise<void> {
   const [domain, ...rest] = args;
+  if (domain === "hooks" && rest[0] === "--compat") {
+    await runHooksCommand(rest.slice(1));
+    return;
+  }
   if (domain && await runConfigDomainCommand(domain, rest)) return;
   if (domain === "hooks") {
     await runHooksCommand(rest);

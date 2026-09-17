@@ -122,11 +122,7 @@ test("config mcp get returns the effective configured definition without exposin
       { MCP_TOKEN: "SECRET_MUST_NOT_APPEAR" },
     );
     assert.equal(get.status, 0, get.stderr || get.stdout);
-    assert.deepEqual(JSON.parse(get.stdout), {
-      transport: "<redacted>",
-      url: "<redacted>",
-      headers: { Authorization: "<redacted>" },
-    });
+    assert.equal(JSON.parse(get.stdout), "<redacted>");
     assert.doesNotMatch(get.stdout, /SECRET_MUST_NOT_APPEAR|mcp\.example\.test|Bearer \$\{MCP_TOKEN\}/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -275,6 +271,39 @@ test("invalid updates are rejected atomically for every configurable domain", ()
       assert.equal(result.status, 1, result.stderr || result.stdout);
     }
     assert.deepEqual(paths.map((path) => readFileSync(path, "utf8")), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("mcp and lsp require remove for complete named-resource deletion", () => {
+  const root = mkdtempSync(join(tmpdir(), "forgerelay-config-domain-remove-distinction-"));
+  const configDir = join(root, "config");
+  mkdirSync(configDir, { recursive: true });
+  try {
+    const cases = [
+      {
+        cli: "mcp",
+        path: "servers.demo",
+        value: { transport: "stdio", command: "demo" },
+        file: join(configDir, "mcp.json"),
+      },
+      {
+        cli: "lsp",
+        path: "servers.demo",
+        value: { command: "demo-lsp", extensions: [".demo"] },
+        file: join(configDir, "language-servers.json"),
+      },
+    ];
+    for (const entry of cases) {
+      const create = runCli(configDir, ["config", entry.cli, "set", entry.path, JSON.stringify(entry.value), "--global"]);
+      assert.equal(create.status, 0, create.stderr || create.stdout);
+      const before = readFileSync(entry.file, "utf8");
+      const unset = runCli(configDir, ["config", entry.cli, "unset", entry.path, "--global"]);
+      assert.equal(unset.status, 1, unset.stderr || unset.stdout);
+      assert.match(unset.stderr, /remove <name>/);
+      assert.equal(readFileSync(entry.file, "utf8"), before);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

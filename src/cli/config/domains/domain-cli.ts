@@ -218,7 +218,11 @@ async function runJsonDomainCommand(adapter: JsonDomainAdapter, args: readonly s
     }
     const target = await domainWriteTarget(parsed.scope, adapter.fileName);
     const next = readJsonObject(target.path, domainFallback(adapter));
-    deleteNestedValue(next, storagePathSegments(adapter, parsed.rest[0]!));
+    const path = storagePathSegments(adapter, parsed.rest[0]!);
+    if (isCompleteJsonResourcePath(adapter, path)) {
+      throw new Error(`Use \`config ${adapter.cliName} remove <name>\` to delete a complete resource.`);
+    }
+    deleteNestedValue(next, path);
     writeJsonDomainTarget(adapter, target, next);
     return;
   }
@@ -255,7 +259,7 @@ function printConfiguredEntry(resolution: ResolvedConfigDomain, logicalPath: str
   assertConfigResolutionValid(resolution);
   const entry = Object.values(resolution.entries).find((candidate) => candidate.logicalPath === logicalPath);
   if (!entry || entry.tombstone) throw new Error(`Unknown configuration logical path: ${logicalPath}.`);
-  console.log(JSON.stringify(entry.effective.configuredValue, null, 2));
+  console.log(JSON.stringify(entry.effective.effectiveValue, null, 2));
 }
 
 async function resolveMcpConfiguration(scope: ConfigCliScope): Promise<ResolvedConfigDomain> {
@@ -394,6 +398,12 @@ function safeResourceName(value: string): string {
     throw new Error(`Invalid configuration resource name: ${value}.`);
   }
   return name;
+}
+
+function isCompleteJsonResourcePath(adapter: JsonDomainAdapter, path: readonly string[]): boolean {
+  return adapter.diskShape === "keyed-root"
+    ? path.length === 1
+    : path.length === 2 && path[0] === adapter.rootField;
 }
 
 function storagePathSegments(adapter: JsonDomainAdapter, logicalPath: string): string[] {
