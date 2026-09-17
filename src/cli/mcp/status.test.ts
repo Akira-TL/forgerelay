@@ -7,7 +7,7 @@ import test from "node:test";
 import { externalMcpCredentialIdentity } from "../../runtime/config/external-mcp-auth-store.js";
 import {
   formatExternalMcpDoctor,
-  formatExternalMcpList,
+  formatExternalMcpStatus,
   inspectExternalMcpStatus,
   resolveExternalMcpScope,
 } from "./status.js";
@@ -105,13 +105,13 @@ void test("External MCP list and doctor expose status without credential or stat
   );
 
   const status = inspectExternalMcpStatus(scope);
-  const list = formatExternalMcpList(status);
-  assert.match(list, /authenticated[\s\S]*auth: oauth · authenticated/);
-  assert.match(list, /required[\s\S]*auth: oauth · auth required/);
-  assert.match(list, /reauth[\s\S]*auth: oauth · reauthorization required/);
-  assert.match(list, /static[\s\S]*auth: static · configured/);
-  assert.match(list, /local[\s\S]*auth: config-managed/);
-  assert.match(list, /disabled[\s\S]*status: disabled/);
+  const output = formatExternalMcpStatus(status);
+  assert.match(output, /authenticated[\s\S]*auth: oauth · authenticated/);
+  assert.match(output, /required[\s\S]*auth: oauth · auth required/);
+  assert.match(output, /reauth[\s\S]*auth: oauth · reauthorization required/);
+  assert.match(output, /static[\s\S]*auth: static · configured/);
+  assert.match(output, /local[\s\S]*auth: config-managed/);
+  assert.match(output, /disabled[\s\S]*status: disabled/);
   for (const secret of [
     "STATIC-SECRET-SENTINEL",
     "ENV-SECRET-SENTINEL",
@@ -119,7 +119,7 @@ void test("External MCP list and doctor expose status without credential or stat
     "CLIENT-SECRET-SENTINEL",
     "OLD-ACCESS-SECRET",
   ]) {
-    assert.doesNotMatch(list, new RegExp(secret));
+    assert.doesNotMatch(output, new RegExp(secret));
   }
 
   const doctor = formatExternalMcpDoctor(status);
@@ -146,11 +146,11 @@ void test("External MCP invalid live edit reports last-known-good status without
   writeFileSync(globalPath, '{"servers":{"secret":"DO-NOT-ECHO-INVALID-CONTENT"');
   const next = { ...scope, snapshot: scope.registry.resolveGlobal() };
   const status = inspectExternalMcpStatus(next);
-  const list = formatExternalMcpList(status);
-  assert.match(list, /global[\s\S]*invalid · using last-known-good/);
-  assert.match(list, /Using this process's last-known-good configuration/);
-  assert.match(list, /stable[\s\S]*status: configured/);
-  assert.doesNotMatch(list, /DO-NOT-ECHO-INVALID-CONTENT/);
+  const output = formatExternalMcpStatus(status);
+  assert.match(output, /global[\s\S]*invalid · using last-known-good/);
+  assert.match(output, /Using this process's last-known-good configuration/);
+  assert.match(output, /stable[\s\S]*status: configured/);
+  assert.doesNotMatch(output, /DO-NOT-ECHO-INVALID-CONTENT/);
 });
 
 void test("External MCP status reports an invalid credential store without echoing persisted secret content", async (t) => {
@@ -163,11 +163,11 @@ void test("External MCP status reports an invalid credential store without echoi
   writeFileSync(join(context.configDir, "mcp-auth.json"), '{"secret":"CREDENTIAL-SECRET-SENTINEL"');
   const scope = await resolveExternalMcpScope({ global: true }, { cwd: context.projectRoot, env: context.env });
   const status = inspectExternalMcpStatus(scope);
-  const list = formatExternalMcpList(status);
+  const output = formatExternalMcpStatus(status);
   assert.equal(status.credentialStore, "invalid");
   assert.equal(status.configIssues, 1);
-  assert.match(list, /mcp-auth\.json · invalid/);
-  assert.doesNotMatch(list, /CREDENTIAL-SECRET-SENTINEL/);
+  assert.match(output, /mcp-auth\.json · invalid/);
+  assert.doesNotMatch(output, /CREDENTIAL-SECRET-SENTINEL/);
 });
 
 async function createStatusContext(t: test.TestContext): Promise<{

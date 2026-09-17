@@ -28,7 +28,7 @@ import {
 import {
   findExternalMcpServerStatus,
   formatAuth,
-  formatExternalMcpList,
+  formatExternalMcpStatus,
   inspectExternalMcpStatus,
   resolveExternalMcpScope,
   type ExternalMcpResolvedScope,
@@ -158,9 +158,9 @@ async function runExternalMcpStatus(
   if (serverName) {
     const server = findExternalMcpServerStatus(status, serverName);
     if (!server) throw new Error(`Unknown configured External MCP server: ${serverName}.`);
-    console.log(formatExternalMcpList({ ...status, servers: [server] }));
+    console.log(formatExternalMcpStatus({ ...status, servers: [server] }));
   } else {
-    console.log(formatExternalMcpList(status));
+    console.log(formatExternalMcpStatus(status));
   }
   if (status.configIssues > 0) {
     throw new Error("External MCP configuration or credential status contains issues.");

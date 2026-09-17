@@ -143,7 +143,7 @@ export function findExternalMcpServerStatus(
   return status.servers.find((server) => server.name === name);
 }
 
-export function formatExternalMcpList(status: ExternalMcpStatusSnapshot): string {
+export function formatExternalMcpStatus(status: ExternalMcpStatusSnapshot): string {
   const lines = ["External MCP", ""];
   if (status.scope.mode === "global") {
     lines.push("Scope: global");
