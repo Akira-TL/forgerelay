@@ -7,7 +7,6 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as prompts from "@clack/prompts";
 import { loadConfig } from "./runtime/config/config.js";
 import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
 import { runInit } from "./cli/init.js";
@@ -32,9 +31,6 @@ import type { SubagentSession } from "./subagents/sessions/store.js";
 import {
   ensureForgeRelayInstanceId,
   loadForgeRelayFiles,
-  removeForgeRelayRemote,
-  renameForgeRelayRemote,
-  writeForgeRelayRemote,
 } from "./runtime/config/user-config.js";
 import { shutdownHttpServer } from "./mcp/server/transport/server-shutdown.js";
 import { publicEndpointUrl } from "./mcp/oauth/public-url.js";
@@ -54,20 +50,7 @@ import {
   type CliCompatibilityHandler,
 } from "./cli/core/command-tree.js";
 import { parseServeCommandArgs } from "./cli/core/serve-options.js";
-import {
-  authenticateRemote,
-  defaultRemoteAlias,
-  isRemoteMcpUnauthorized,
-  normalizeRemoteServiceTarget,
-  refreshRemoteAuthentication,
-  verifyRemoteMcp,
-} from "./workspaces/relay/auth/remote-auth.js";
-import {
-  defaultSshRouteAlias,
-  parseSshRoute,
-  readRemoteOwnerToken,
-  withRemoteServiceEndpoint,
-} from "./workspaces/relay/transport/remote-transport.js";
+import { runRelayCommand } from "./cli/connect/relay.js";
 import {
   assertSupportedNode,
   checkGitAvailable,
@@ -156,7 +139,7 @@ async function runConfigRootCommand(args: string[]): Promise<void> {
 async function runConnectCommand(args: string[]): Promise<void> {
   const [domain, ...rest] = args;
   if (domain === "relay") {
-    await runAuthCommand(rest);
+    await runRelayCommand(rest);
     return;
   }
   if (domain === "mcp") {
@@ -304,170 +287,6 @@ async function serve(
   process.once("SIGTERM", handleShutdown);
 }
 
-
-interface AuthCommandArgs {
-  target: string;
-  alias?: string;
-  ownerToken?: string;
-  sshRoute?: string[];
-  sshAuth: boolean;
-}
-
-function parseAuthCommandArgs(args: string[]): AuthCommandArgs {
-  let target: string | undefined;
-  let alias: string | undefined;
-  let ownerToken: string | undefined;
-  let sshRoute: string[] | undefined;
-  let sshAuth = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--alias") {
-      alias = args[++index];
-      if (!alias) throw new Error("Missing value for --alias.");
-      continue;
-    }
-    if (arg === "--token") {
-      ownerToken = args[++index];
-      if (!ownerToken) throw new Error("Missing value for --token.");
-      continue;
-    }
-    if (arg === "-J") {
-      const route = args[++index];
-      if (!route) throw new Error("Missing value for -J.");
-      sshRoute = parseSshRoute(route);
-      continue;
-    }
-    if (arg === "--ssh-auth") {
-      sshAuth = true;
-      continue;
-    }
-    if (arg.startsWith("-")) throw new Error(`Unknown auth option: ${arg}`);
-    if (target) throw new Error(`Unexpected auth argument: ${arg}`);
-    target = arg;
-  }
-
-  if (!target) throw new Error("Missing remote service target.");
-  if (sshAuth && !sshRoute) throw new Error("--ssh-auth requires -J <ssh-route>.");
-  if (sshAuth && ownerToken) throw new Error("--ssh-auth and --token cannot be used together.");
-  return { target, alias, ownerToken, sshRoute, sshAuth };
-}
-
-async function resolveAuthOwnerToken(ownerToken: string | undefined): Promise<string> {
-  if (ownerToken) return ownerToken;
-  if (!input.isTTY || !output.isTTY) {
-    throw new Error("Missing owner token. Pass --token, use --ssh-auth with -J, or run in an interactive terminal.");
-  }
-  const result = await prompts.password({
-    message: "Remote ForgeRelay owner token",
-    validate: (value) => value?.trim() ? undefined : "Enter the remote owner token.",
-  });
-  if (prompts.isCancel(result)) throw new Error("Remote authentication cancelled.");
-  return String(result);
-}
-
-function localOwnerToken(): string {
-  const token = process.env.FORGERELAY_OAUTH_OWNER_TOKEN
-    ?? loadForgeRelayFiles().auth.ownerToken;
-  if (!token) throw new Error("ForgeRelay owner token is not configured on this machine.");
-  return token;
-}
-
-async function runAuthCommand(args: string[]): Promise<void> {
-  const [subcommand, ...rest] = args;
-  if (subcommand === "__owner-token") {
-    if (rest.length > 0) throw new Error("Internal owner-token command does not accept arguments.");
-    process.stdout.write(`${localOwnerToken()}\n`);
-    return;
-  }
-  if (subcommand === "list") {
-    if (rest.length > 0) throw new Error("forgerelay auth list does not accept additional arguments.");
-    const remotes = loadForgeRelayFiles().auth.remotes ?? {};
-    if (Object.keys(remotes).length === 0) {
-      console.log("No remote ForgeRelay instances registered.");
-      return;
-    }
-    for (const [alias, remote] of Object.entries(remotes).sort(([left], [right]) => left.localeCompare(right))) {
-      console.log(`${alias}\t${remote.target}\t${remote.instanceId}`);
-    }
-    return;
-  }
-  if (subcommand === "rename") {
-    const [fromAlias, toAlias, ...extra] = rest;
-    if (!fromAlias || !toAlias || extra.length > 0) {
-      throw new Error("Usage: forgerelay auth rename <old-alias> <new-alias>");
-    }
-    await renameForgeRelayRemote(fromAlias, toAlias);
-    console.log(`Renamed remote ${fromAlias} to ${toAlias}.`);
-    return;
-  }
-  if (subcommand === "remove") {
-    const [alias, ...extra] = rest;
-    if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth remove <alias>");
-    await removeForgeRelayRemote(alias);
-    console.log(`Removed remote ${alias}.`);
-    return;
-  }
-  if (subcommand === "test") {
-    const [alias, ...extra] = rest;
-    if (!alias || extra.length > 0) throw new Error("Usage: forgerelay auth test <alias>");
-    const files = loadForgeRelayFiles();
-    const storedRemote = files.auth.remotes?.[alias];
-    if (!storedRemote) throw new Error(`Unknown remote alias: ${alias}`);
-    let remote = storedRemote;
-
-    await withRemoteServiceEndpoint(remote.target, remote.sshRoute, async (endpoint) => {
-      let refreshed = false;
-      if (remote.accessTokenExpiresAt <= Math.floor(Date.now() / 1000)) {
-        remote = await refreshRemoteAuthentication(remote, endpoint);
-        await writeForgeRelayRemote(alias, remote);
-        refreshed = true;
-      }
-
-      try {
-        await verifyRemoteMcp(remote, endpoint);
-      } catch (error) {
-        if (refreshed || !isRemoteMcpUnauthorized(error)) throw error;
-        remote = await refreshRemoteAuthentication(remote, endpoint);
-        await writeForgeRelayRemote(alias, remote);
-        await verifyRemoteMcp(remote, endpoint);
-      }
-    });
-    console.log(`${alias}\tok\t${remote.instanceId}`);
-    return;
-  }
-
-  const parsed = parseAuthCommandArgs(args);
-  const target = normalizeRemoteServiceTarget(parsed.target);
-  const authenticated = await withRemoteServiceEndpoint(
-    target,
-    parsed.sshRoute,
-    async (endpoint) => {
-      const ownerToken = parsed.sshAuth
-        ? await readRemoteOwnerToken(parsed.sshRoute ?? [])
-        : await resolveAuthOwnerToken(parsed.ownerToken);
-      return authenticateRemote(endpoint, ownerToken);
-    },
-  );
-  const remote = {
-    ...authenticated,
-    target,
-    ...(parsed.sshRoute ? { sshRoute: parsed.sshRoute } : {}),
-  };
-  const files = loadForgeRelayFiles();
-  const existingAlias = Object.entries(files.auth.remotes ?? {}).find(
-    ([, record]) => record.instanceId === remote.instanceId,
-  )?.[0];
-  const defaultAlias = parsed.sshRoute
-    ? defaultSshRouteAlias(parsed.sshRoute)
-    : defaultRemoteAlias(remote.target);
-  const alias = parsed.alias?.trim() || existingAlias || defaultAlias;
-  if (!files.auth.instanceId) {
-    await ensureForgeRelayInstanceId();
-  }
-  await writeForgeRelayRemote(alias, remote);
-  console.log(`Authenticated remote ${alias} (${remote.instanceId}).`);
-}
 
 async function runDoctor(): Promise<void> {
   const files = loadForgeRelayFiles();

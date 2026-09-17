@@ -63,7 +63,8 @@ void test("forgerelay auth directly authenticates and persists a remote instance
 
   const result = await runCli(
     [
-      "auth",
+      "connect",
+      "relay",
       `127.0.0.1:${port}`,
       "--token",
       ownerToken,
@@ -109,7 +110,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
     const interactiveConfigDir = join(root, "interactive-config");
     await mkdir(interactiveConfigDir, { recursive: true });
     const interactive = await runCliWithPseudoTerminal(
-      ["auth", `127.0.0.1:${port}`, "--alias", "interactive"],
+      ["connect", "relay", `127.0.0.1:${port}`, "--alias", "interactive"],
       {
         ...cleanProductEnv,
         FORGERELAY_CONFIG_DIR: interactiveConfigDir,
@@ -121,11 +122,34 @@ void test("forgerelay auth directly authenticates and persists a remote instance
       .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
       .replace(/\s/g, "");
     assert.match(normalizedTerminalOutput, /RemoteForgeRelayownertoken/);
+    assert.doesNotMatch(normalizedTerminalOutput, /Connectionroute|Forgealias/i);
     assert.doesNotMatch(normalizedTerminalOutput, new RegExp(ownerToken));
     const interactiveAuth = JSON.parse(
       await readFile(join(interactiveConfigDir, "auth.json"), "utf8"),
     ) as { remotes?: Record<string, { instanceId: string }> };
     assert.equal(interactiveAuth.remotes?.interactive?.instanceId, "forge-remote-test");
+
+    const guidedConfigDir = join(root, "guided-config");
+    await mkdir(guidedConfigDir, { recursive: true });
+    const guided = await runCliWithScriptedPseudoTerminal(
+      ["connect", "relay"],
+      {
+        ...cleanProductEnv,
+        FORGERELAY_CONFIG_DIR: guidedConfigDir,
+      },
+      [
+        { match: /Remote service target/i, input: `127.0.0.1:${port}` },
+        { match: /Connection route/i, input: "" },
+        { match: /Forge alias/i, input: "guided" },
+        { match: /Remote ForgeRelay owner token/i, input: ownerToken },
+      ],
+    );
+    assert.equal(guided.status, 0, guided.output);
+    assert.doesNotMatch(guided.output, new RegExp(ownerToken));
+    const guidedAuth = JSON.parse(
+      await readFile(join(guidedConfigDir, "auth.json"), "utf8"),
+    ) as { remotes?: Record<string, { instanceId: string }> };
+    assert.equal(guidedAuth.remotes?.guided?.instanceId, "forge-remote-test");
   }
 
   const movedServer = app.listen(0, "127.0.0.1");
@@ -133,7 +157,7 @@ void test("forgerelay auth directly authenticates and persists a remote instance
   await once(movedServer, "listening");
   const movedPort = (movedServer.address() as AddressInfo).port;
   const reauthenticated = await runCli(
-    ["auth", `127.0.0.1:${movedPort}`, "--token", ownerToken],
+    ["connect", "relay", `127.0.0.1:${movedPort}`, "--token", ownerToken],
     {
       ...cleanProductEnv,
       FORGERELAY_CONFIG_DIR: localConfigDir,
@@ -261,6 +285,45 @@ async function runCli(
   return { status, stdout, stderr };
 }
 
+async function runCliWithScriptedPseudoTerminal(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  steps: Array<{ match: RegExp; input: string }>,
+): Promise<{ status: number | null; output: string }> {
+  const nodePty = await import("node-pty");
+  const ptyEnv = Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  const child = nodePty.spawn(
+    process.execPath,
+    ["--import", "tsx", "src/cli.ts", ...args],
+    {
+      cwd: process.cwd(),
+      env: ptyEnv,
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
+    },
+  );
+  let terminalOutput = "";
+  let stepIndex = 0;
+  const dataDisposable = child.onData((chunk) => {
+    terminalOutput += chunk;
+    const step = steps[stepIndex];
+    if (step && step.match.test(terminalOutput)) {
+      stepIndex += 1;
+      child.write(`${step.input}\r`);
+    }
+  });
+  const timer = setTimeout(() => child.kill(), 15_000);
+  const status = await new Promise<number | null>((resolve) => {
+    child.onExit(({ exitCode }) => resolve(exitCode));
+  });
+  clearTimeout(timer);
+  dataDisposable.dispose();
+  return { status, output: terminalOutput };
+}
+
 async function runCliWithPseudoTerminal(
   args: string[],
   env: NodeJS.ProcessEnv,
@@ -303,7 +366,7 @@ async function runCliWithPseudoTerminal(
   return { status, output: terminalOutput };
 }
 
-void test("forgerelay auth management commands do not expose stored secrets", async (t) => {
+void test("connect relay management commands do not expose stored secrets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-remote-auth-manage-"));
   const configDir = join(root, "config");
   await mkdir(configDir, { recursive: true });
@@ -329,14 +392,24 @@ void test("forgerelay auth management commands do not expose stored secrets", as
   ));
 
   const env = { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: configDir };
-  const listed = await runCli(["auth", "list"], env);
+  const listed = await runCli(["connect", "relay", "list"], env);
   assert.equal(listed.status, 0, listed.stderr);
   assert.match(listed.stdout, /workstation/);
   assert.match(listed.stdout, /10\.11\.12\.13:7676/);
   assert.match(listed.stdout, /forge-remote-test/);
   assert.doesNotMatch(listed.stdout, /access-secret-value|refresh-secret-value/);
 
-  const renamed = await runCli(["auth", "rename", "workstation", "desktop"], env);
+  const status = await runCli(["connect", "relay", "status", "workstation"], env);
+  assert.equal(status.status, 0, status.stderr);
+  assert.match(status.stdout, /workstation\s+registered/i);
+  assert.match(status.stdout, /forge-remote-test/);
+  assert.doesNotMatch(status.stdout, /access-secret-value|refresh-secret-value/);
+
+  const legacyListed = await runCli(["auth", "list"], env);
+  assert.equal(legacyListed.status, 0, legacyListed.stderr);
+  assert.equal(legacyListed.stdout, listed.stdout);
+
+  const renamed = await runCli(["connect", "relay", "rename", "workstation", "desktop"], env);
   assert.equal(renamed.status, 0, renamed.stderr);
   const afterRename = JSON.parse(await readFile(authPath, "utf8")) as {
     remotes?: Record<string, unknown>;
@@ -344,7 +417,7 @@ void test("forgerelay auth management commands do not expose stored secrets", as
   assert.equal(afterRename.remotes?.workstation, undefined);
   assert.ok(afterRename.remotes?.desktop);
 
-  const removed = await runCli(["auth", "remove", "desktop"], env);
+  const removed = await runCli(["connect", "relay", "remove", "desktop"], env);
   assert.equal(removed.status, 0, removed.stderr);
   const afterRemove = JSON.parse(await readFile(authPath, "utf8")) as {
     remotes?: Record<string, unknown>;
@@ -352,9 +425,16 @@ void test("forgerelay auth management commands do not expose stored secrets", as
   assert.deepEqual(afterRemove.remotes, {});
 });
 
-void test("forgerelay auth fails before network access when a non-interactive caller omits the owner token", async () => {
+void test("connect relay fails clearly without prompting when a non-interactive caller omits the target", async () => {
+  const result = await runCli(["connect", "relay"], cleanProductEnv);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /non-interactive/i);
+  assert.match(result.stderr, /remote service target/i);
+});
+
+void test("connect relay fails before network access when a non-interactive caller omits the owner token", async () => {
   const result = await runCli(
-    ["auth", "127.0.0.1:1", "--alias", "unreachable"],
+    ["connect", "relay", "127.0.0.1:1", "--alias", "unreachable"],
     cleanProductEnv,
   );
   assert.equal(result.status, 1);

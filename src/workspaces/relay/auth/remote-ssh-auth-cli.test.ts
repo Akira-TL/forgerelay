@@ -18,7 +18,7 @@ const cleanProductEnv = Object.fromEntries(
 const ownerToken = "ssh-owner-token-that-must-stay-secret";
 const sshProcessTest = process.platform === "win32" ? test.skip : test;
 
-void sshProcessTest("forgerelay auth uses an SSH route for token retrieval and port forwarding", async (t) => {
+void sshProcessTest("connect relay uses an SSH route for token retrieval and port forwarding", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-remote-ssh-auth-"));
   const configDir = join(root, "config");
   const remoteConfigDir = join(root, "remote-config");
@@ -67,7 +67,8 @@ void sshProcessTest("forgerelay auth uses an SSH route for token retrieval and p
 
   const result = await runCli(
     [
-      "auth",
+      "connect",
+      "relay",
       "-J",
       "jump@example.test,target@example.test",
       `remote-only.invalid:${remotePort}`,
@@ -129,7 +130,7 @@ void sshProcessTest("forgerelay auth uses an SSH route for token retrieval and p
 
   await writeFile(sshLog, "");
   const checked = await runCli(
-    ["auth", "test", "workstation"],
+    ["connect", "relay", "test", "workstation"],
     {
       ...cleanProductEnv,
       FORGERELAY_CONFIG_DIR: configDir,
@@ -149,6 +150,38 @@ void sshProcessTest("forgerelay auth uses an SSH route for token retrieval and p
   assert.equal(testInvocations.length, 1);
   assert.ok(testInvocations[0].includes("-L"));
   assert.doesNotMatch(JSON.stringify(testInvocations), new RegExp(ownerToken));
+
+  const guidedConfigDir = join(root, "guided-config");
+  await mkdir(guidedConfigDir, { recursive: true });
+  await writeFile(sshLog, "");
+  const guided = await runCliWithScriptedPseudoTerminal(
+    ["connect", "relay"],
+    {
+      ...cleanProductEnv,
+      FORGERELAY_CONFIG_DIR: guidedConfigDir,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      TEST_SSH_LOG: sshLog,
+      TEST_REMOTE_OWNER_TOKEN: ownerToken,
+      TEST_REMOTE_SERVICE_PORT: String(remotePort),
+    },
+    [
+      { match: /Remote service target/i, input: `remote-only.invalid:${remotePort}` },
+      { match: /Connection route/i, input: "\u001b[B" },
+      { match: /SSH route \(-J\)/i, input: "jump@example.test,target@example.test" },
+      { match: /Forge alias/i, input: "guided-ssh" },
+      { match: /Authentication/i, input: "" },
+    ],
+  );
+  assert.equal(guided.status, 0, guided.output);
+  assert.doesNotMatch(guided.output, new RegExp(ownerToken));
+  const guidedAuth = JSON.parse(await readFile(join(guidedConfigDir, "auth.json"), "utf8")) as {
+    remotes?: Record<string, { instanceId: string; sshRoute?: string[] }>;
+  };
+  assert.equal(guidedAuth.remotes?.["guided-ssh"]?.instanceId, "forge-ssh-remote-test");
+  assert.deepEqual(
+    guidedAuth.remotes?.["guided-ssh"]?.sshRoute,
+    ["jump@example.test", "target@example.test"],
+  );
 });
 
 void sshProcessTest("SSH auth parameter constraints fail before any SSH process starts", async (t) => {
@@ -173,7 +206,7 @@ void sshProcessTest("SSH auth parameter constraints fail before any SSH process 
   };
 
   const missingRoute = await runCli(
-    ["auth", "127.0.0.1:7676", "--ssh-auth"],
+    ["connect", "relay", "127.0.0.1:7676", "--ssh-auth"],
     env,
   );
   assert.equal(missingRoute.status, 1);
@@ -181,7 +214,8 @@ void sshProcessTest("SSH auth parameter constraints fail before any SSH process 
 
   const conflictingCredential = await runCli(
     [
-      "auth",
+      "connect",
+      "relay",
       "-J",
       "target@example.test",
       "127.0.0.1:7676",
@@ -377,6 +411,39 @@ void sshProcessTest("SSH command and tunnel failures are explicit and never fall
   assert.match(httpsRejected.stderr, /SSH-routed HTTPS service targets are not supported/i);
   assert.equal((await readFile(sshLog, "utf8")).trim(), "");
 });
+
+async function runCliWithScriptedPseudoTerminal(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  steps: Array<{ match: RegExp; input: string }>,
+): Promise<{ status: number | null; output: string }> {
+  const nodePty = await import("node-pty");
+  const ptyEnv = Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  const child = nodePty.spawn(
+    process.execPath,
+    ["--import", "tsx", "src/cli.ts", ...args],
+    { cwd: process.cwd(), env: ptyEnv, name: "xterm-256color", cols: 80, rows: 24 },
+  );
+  let terminalOutput = "";
+  let stepIndex = 0;
+  const dataDisposable = child.onData((chunk) => {
+    terminalOutput += chunk;
+    const step = steps[stepIndex];
+    if (step && step.match.test(terminalOutput)) {
+      stepIndex += 1;
+      child.write(`${step.input}\r`);
+    }
+  });
+  const timer = setTimeout(() => child.kill(), 20_000);
+  const status = await new Promise<number | null>((resolve) => {
+    child.onExit(({ exitCode }) => resolve(exitCode));
+  });
+  clearTimeout(timer);
+  dataDisposable.dispose();
+  return { status, output: terminalOutput };
+}
 
 async function runCli(
   args: string[],
