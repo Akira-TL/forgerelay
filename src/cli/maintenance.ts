@@ -153,11 +153,11 @@ export function runMaintenanceCommand(args: string[], env: NodeJS.ProcessEnv = p
     return;
   }
   if (subcommand !== "inspect" && subcommand !== "prune") {
-    throw new Error(`Unknown maintenance command: ${subcommand}`);
+    throw new Error(`Unknown system maintenance command: ${subcommand}`);
   }
   const json = rest.includes("--json");
   const unknown = rest.filter((value) => value !== "--json");
-  if (unknown.length > 0) throw new Error(`Unknown maintenance ${subcommand} option: ${unknown[0]}`);
+  if (unknown.length > 0) throw new Error(`Unknown system ${subcommand} option: ${unknown[0]}`);
 
   const inspection = inspectMaintenanceState(env);
   if (subcommand === "inspect") {
@@ -754,7 +754,7 @@ function errorMessage(error: unknown): string {
 }
 
 function printMaintenanceReport(report: MaintenanceInspectReport): void {
-  console.log(`ForgeRelay maintenance inspection`);
+  console.log(`ForgeRelay system inspection`);
   console.log(`State directory: ${report.stateDir}`);
   console.log(`Database: ${report.database}`);
   console.log(`Retention: durable history ${report.policy.durableHistory}; orphaned administrative cleanup ${report.policy.orphanedAdministrativeState ? "enabled" : "disabled"}`);
@@ -782,11 +782,11 @@ function formatBytes(bytes: number): string {
 
 function printMaintenanceHelp(): void {
   console.log([
-    "ForgeRelay maintenance",
+    "ForgeRelay system",
     "",
     "Usage:",
-    "  forgerelay maintenance inspect [--json]",
-    "  forgerelay maintenance prune [--json]",
+    "  forgerelay system inspect [--json]",
+    "  forgerelay system prune [--json]",
     "",
     "Inspection is read-only. Durable history is retained without an age limit unless retention.historyDays is explicitly configured.",
     "Prune is manual owner maintenance and removes only categories authorized by the configured retention policy.",

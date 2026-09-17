@@ -283,6 +283,21 @@ try {
   );
   assert.equal(canonicalMcpHelp, legacyMcpHelp);
 
+  const canonicalSystemHelp = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "system", "--help"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  assert.match(canonicalSystemHelp, /forgerelay system status/);
+  assert.match(canonicalSystemHelp, /forgerelay system inspect \[--json\]/);
+  assert.match(canonicalSystemHelp, /forgerelay system prune \[--json\]/);
+  const legacyMaintenanceHelp = execFileSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "maintenance", "--help"],
+    { cwd: process.cwd(), encoding: "utf8", env: compatibilityEnv },
+  );
+  assert.equal(legacyMaintenanceHelp, canonicalSystemHelp);
+
   const legacyMaintenance = execFileSync(
     "node",
     ["--import", "tsx", "src/cli.ts", "maintenance", "inspect", "--json"],

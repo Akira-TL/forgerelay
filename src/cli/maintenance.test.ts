@@ -320,7 +320,7 @@ try {
 
   const human = execFileSync(
     "node",
-    ["--import", "tsx", "src/cli.ts", "maintenance", "inspect"],
+    ["--import", "tsx", "src/cli.ts", "system", "inspect"],
     { cwd: process.cwd(), encoding: "utf8", env: cliEnv(configDir, stateDir) },
   );
   assert.match(human, /Retention: durable history 7 days; orphaned administrative cleanup enabled/);
@@ -335,7 +335,7 @@ try {
 
   const invalid = spawnSync(
     "node",
-    ["--import", "tsx", "src/cli.ts", "maintenance", "inspect", "--json"],
+    ["--import", "tsx", "src/cli.ts", "system", "inspect", "--json"],
     {
       cwd: process.cwd(),
       encoding: "utf8",
@@ -383,7 +383,7 @@ function insertActivity(sqlite: import("better-sqlite3").Database, input: {
 function runInspect(configDir: string, stateDir: string): MaintenanceInspectReport {
   const output = execFileSync(
     "node",
-    ["--import", "tsx", "src/cli.ts", "maintenance", "inspect", "--json"],
+    ["--import", "tsx", "src/cli.ts", "system", "inspect", "--json"],
     { cwd: process.cwd(), encoding: "utf8", env: cliEnv(configDir, stateDir) },
   );
   return JSON.parse(output) as MaintenanceInspectReport;

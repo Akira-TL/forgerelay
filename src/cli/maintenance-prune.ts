@@ -165,7 +165,7 @@ export function pruneMaintenanceState(
 }
 
 export function printMaintenancePruneReport(report: MaintenancePruneReport): void {
-  console.log("ForgeRelay maintenance prune");
+  console.log("ForgeRelay system prune");
   console.log(`State directory: ${report.stateDir}`);
   console.log(`Historical retention: ${report.historicalAuthorized ? `authorized before ${report.cutoff}` : "not authorized (unlimited)"}`);
   console.log(`Orphan administrative cleanup: ${report.administrativeAuthorized ? "authorized" : "not authorized"}`);

@@ -51,6 +51,7 @@ import {
 } from "./cli/core/command-tree.js";
 import { parseServeCommandArgs } from "./cli/core/serve-options.js";
 import { runRelayCommand } from "./cli/connect/relay.js";
+import { runSystemStatus } from "./cli/system/status.js";
 import {
   assertSupportedNode,
   checkGitAvailable,
@@ -158,6 +159,11 @@ async function runSystemCommand(args: string[]): Promise<void> {
   if (subcommand === "doctor") {
     if (rest.length > 0) throw new Error("forgerelay system doctor does not accept additional arguments.");
     await runDoctor();
+    return;
+  }
+  if (subcommand === "status") {
+    if (rest.length > 0) throw new Error("forgerelay system status does not accept additional arguments.");
+    runSystemStatus();
     return;
   }
   if (subcommand === "inspect" || subcommand === "prune") {
@@ -387,6 +393,7 @@ function printSystemHelp(): void {
     "",
     "Usage:",
     "  forgerelay system doctor",
+    "  forgerelay system status",
     "  forgerelay system inspect [--json]",
     "  forgerelay system prune [--json]",
   ].join("\n"));

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -178,6 +178,22 @@ try {
   const leaseSnapshot = snapshotTree(stateDir);
   const lease = acquireRuntimeLease(stateDir);
   try {
+    const blockedCli = spawnSync(
+      "node",
+      ["--import", "tsx", "src/cli.ts", "system", "prune", "--json"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...cleanProductEnv,
+          FORGERELAY_CONFIG_DIR: configDir,
+          FORGERELAY_STATE_DIR: stateDir,
+        },
+      },
+    );
+    assert.equal(blockedCli.status, 1);
+    assert.match(blockedCli.stderr, /ForgeRelay state is already in use by PID/);
+
     assert.throws(
       () => pruneMaintenanceState(stateDir, POLICY, NOW),
       /ForgeRelay state is already in use by PID/,
@@ -433,7 +449,7 @@ function readIdentityRows(stateDir: string): unknown {
 function runPruneCli(configDir: string, stateDir: string): ReturnType<typeof pruneMaintenanceState> {
   const output = execFileSync(
     "node",
-    ["--import", "tsx", "src/cli.ts", "maintenance", "prune", "--json"],
+    ["--import", "tsx", "src/cli.ts", "system", "prune", "--json"],
     {
       cwd: process.cwd(),
       encoding: "utf8",
