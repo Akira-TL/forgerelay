@@ -98,10 +98,17 @@ test("Git workspaces fail closed instead of changing identity class when Git bec
   const configDir = join(root, "config");
   const gitProject = join(root, "git-project");
   const linkedWorktree = join(root, "linked-worktree");
+  const symlinkProject = join(root, "symlink-project");
+  const symlinkGitDir = join(root, "symlink-git-dir");
   const nonGitProject = join(root, "plain-project");
   t.after(() => rm(root, { recursive: true, force: true }));
   await createGitProject(gitProject);
   await git(gitProject, ["worktree", "add", "-b", "linked", linkedWorktree]);
+  if (process.platform !== "win32") {
+    await createGitProject(symlinkProject);
+    await rename(join(symlinkProject, ".git"), symlinkGitDir);
+    await symlink(symlinkGitDir, join(symlinkProject, ".git"), "dir");
+  }
   await mkdir(nonGitProject);
   await mkdir(join(root, ".git"));
 
@@ -117,6 +124,12 @@ test("Git workspaces fail closed instead of changing identity class when Git bec
       () => resolver.resolve(linkedWorktree),
       /Git is required to resolve canonical ForgeRelay Project identity/,
     );
+    if (process.platform !== "win32") {
+      await assert.rejects(
+        () => resolver.resolve(symlinkProject),
+        /Git is required to resolve canonical ForgeRelay Project identity/,
+      );
+    }
     assert.equal((await resolver.resolve(nonGitProject)).kind, "non-git");
   } finally {
     if (previousPath === undefined) delete process.env.PATH;

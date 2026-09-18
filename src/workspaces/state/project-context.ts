@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { withFileLock } from "../../runtime/state/lock/file-lock.js";
@@ -250,7 +250,7 @@ async function hasGitMetadataAncestor(workspaceRoot: string): Promise<boolean> {
 async function isGitMetadataMarker(path: string): Promise<boolean> {
   let metadata;
   try {
-    metadata = await lstat(path);
+    metadata = await stat(path);
   } catch (error) {
     if (isErrno(error, "ENOENT")) return false;
     throw error;
