@@ -7,11 +7,14 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const cli = join(process.cwd(), "src", "cli.ts");
+const cleanProductEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !name.startsWith("FORGERELAY_")),
+) as NodeJS.ProcessEnv;
 
 function runCli(configDir: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, ["--import", "tsx", cli, ...args], {
     cwd: process.cwd(),
-    env: { ...process.env, ...extraEnv, FORGERELAY_CONFIG_DIR: configDir },
+    env: { ...cleanProductEnv, ...extraEnv, FORGERELAY_CONFIG_DIR: configDir },
     encoding: "utf8",
   });
 }
