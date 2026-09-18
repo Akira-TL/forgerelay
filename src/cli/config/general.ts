@@ -14,7 +14,8 @@ import { readJsonConfigSource } from "../../runtime/config/resolution/project-so
 import { assertConfigResolutionValid } from "../../runtime/config/resolution/resolver.js";
 import { ProjectContextResolver } from "../../workspaces/state/project-context.js";
 import { normalizeOptionalPublicBaseUrl } from "../setup-support.js";
-import { parseConfigScopeArgs } from "./scope.js";
+import { parseConfigScopeArgs, type ConfigCliScope } from "./scope.js";
+import type { ResolvedConfigDomain } from "../../runtime/config/resolution/types.js";
 
 export function renderGeneralConfigHelp(): string {
   return [
@@ -28,6 +29,7 @@ export function renderGeneralConfigHelp(): string {
     "  forgerelay config sources [--project <path>|--global] [--json]",
     "  forgerelay config explain <logical-path> [--project <path>|--global] [--json]",
     "  forgerelay config migrate [--dry-run] [--project <path>|--global]",
+    "  forgerelay config context <get|set|unset|check|sources|explain> ...",
     "  forgerelay config <mcp|hooks|lsp|subagents> <get|set|unset|remove|check|sources|explain> ...",
   ].join("\n");
 }
@@ -35,14 +37,20 @@ export function renderGeneralConfigHelp(): string {
 export async function runGeneralConfigGet(args: readonly string[]): Promise<void> {
   const parsed = parseConfigScopeArgs(args);
   if (parsed.rest.length > 0) throw new Error(`Unknown config get option: ${parsed.rest[0]}`);
+  const resolution = await resolveGeneralConfigForScope(parsed.scope);
+  assertConfigResolutionValid(resolution);
+  console.log(JSON.stringify(resolution.values, null, 2));
+}
+
+export async function resolveGeneralConfigForScope(scope: ConfigCliScope): Promise<ResolvedConfigDomain> {
   const configDir = forgerelayConfigDir();
   const userSource = await readJsonConfigSource({
     id: "user:config",
     scope: "user",
     location: join(configDir, "config.json"),
   });
-  const project = parsed.scope.mode === "project"
-    ? await new ProjectContextResolver(configDir).inspect(parsed.scope.projectRoot)
+  const project = scope.mode === "project"
+    ? await new ProjectContextResolver(configDir).inspect(scope.projectRoot)
     : undefined;
   const projectSource = project
     ? await readJsonConfigSource({
@@ -58,14 +66,12 @@ export async function runGeneralConfigGet(args: readonly string[]): Promise<void
         location: join(project.localConfigDir, "config.json"),
       })
     : undefined;
-  const resolution = resolveGeneralConfig({
+  return resolveGeneralConfig({
     env: process.env,
     ...(userSource ? { userSource } : {}),
     ...(projectSource ? { projectSource } : {}),
     ...(projectLocalSource ? { projectLocalSource } : {}),
   });
-  assertConfigResolutionValid(resolution);
-  console.log(JSON.stringify(resolution.values, null, 2));
 }
 
 export async function runGeneralConfigSet(args: readonly string[]): Promise<void> {

@@ -20,6 +20,7 @@ import {
 } from "../../../subagents/profiles.js";
 import { runConfigInspection } from "../inspect.js";
 import { parseConfigScopeArgs, type ConfigCliScope } from "../scope.js";
+import { runConfigContextCommand } from "./context-cli.js";
 
 interface JsonDomainAdapter {
   cliName: "mcp" | "lsp";
@@ -53,6 +54,10 @@ const JSON_DOMAIN_ADAPTERS: Record<string, JsonDomainAdapter> = {
 };
 
 export async function runConfigDomainCommand(domain: string, args: readonly string[]): Promise<boolean> {
+  if (domain === "context") {
+    await runConfigContextCommand(args);
+    return true;
+  }
   const adapter = JSON_DOMAIN_ADAPTERS[domain];
   if (adapter) {
     await runJsonDomainCommand(adapter, args);

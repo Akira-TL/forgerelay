@@ -85,7 +85,11 @@ const OFFLINE_LIVE_STATE = {
   appliedValues: "unknown",
 } as const;
 
-export async function runConfigInspection(args: string[], domainFilter?: string): Promise<number> {
+export async function runConfigInspection(
+  args: string[],
+  domainFilter?: string,
+  logicalPathFilter?: ReadonlySet<string>,
+): Promise<number> {
   let options: ConfigInspectionOptions;
   try {
     options = parseInspectionArgs(args);
@@ -97,6 +101,7 @@ export async function runConfigInspection(args: string[], domainFilter?: string)
   try {
     domains = await resolveInspectionDomains(options);
     if (domainFilter) domains = domains.filter((domain) => domain.domain === domainFilter);
+    if (logicalPathFilter) domains = domains.map((domain) => filterResolvedDomain(domain, logicalPathFilter));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
@@ -256,6 +261,30 @@ async function resolveInspectionDomains(options: ConfigInspectionOptions): Promi
     ...(project?.localConfigDir ? { projectLocalConfigDir: project.localConfigDir } : {}),
   });
   return [general, mcp, languageServers, hooks, subagents];
+}
+
+function filterResolvedDomain(
+  domain: ResolvedConfigDomain,
+  logicalPaths: ReadonlySet<string>,
+): ResolvedConfigDomain {
+  const entries = Object.fromEntries(
+    Object.entries(domain.entries).filter(([, entry]) => logicalPaths.has(entry.logicalPath)),
+  );
+  const diagnostics = domain.diagnostics.filter((diagnostic) =>
+    diagnostic.logicalPath === undefined || logicalPaths.has(diagnostic.logicalPath)
+  );
+  const sourceIds = new Set<string>();
+  for (const entry of Object.values(entries)) {
+    sourceIds.add(entry.effective.source.id);
+    for (const shadowed of entry.shadowed) sourceIds.add(shadowed.source.id);
+  }
+  for (const diagnostic of diagnostics) sourceIds.add(diagnostic.source.id);
+  return {
+    ...domain,
+    entries,
+    diagnostics,
+    sources: domain.sources.filter((source) => sourceIds.has(source.id)),
+  };
 }
 
 function shadowDiagnostics(domain: ResolvedConfigDomain): InspectionDiagnostic[] {
