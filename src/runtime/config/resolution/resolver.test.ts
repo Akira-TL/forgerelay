@@ -227,10 +227,34 @@ test("known legacy inline domain keys remain valid but deprecated while unknown 
     env: {},
   });
   assert.equal(compatible.diagnostics.some((diagnostic) => diagnostic.code === "invalid_source"), false);
-  assert.equal(compatible.diagnostics.some((diagnostic) => diagnostic.code === "deprecated_source"), true);
+  const fieldDeprecation = compatible.diagnostics.find((diagnostic) => diagnostic.code === "deprecated_source");
+  assert.ok(fieldDeprecation);
+  assert.match(fieldDeprecation.message, /removed in ForgeRelay 1\.4\.0/);
 
   const invalid = resolveGeneralConfig({ user: { typoPort: 7676 }, env: {} });
   assert.equal(invalid.diagnostics[0]?.code, "invalid_source");
+});
+
+test("source deprecation diagnostics include the scheduled removal version", () => {
+  const resolved = resolveConfigDomain({
+    definition: precedenceDefinition,
+    sources: [{
+      scope: "user",
+      id: "legacy:user",
+      kind: "file",
+      priority: 0,
+      value: { value: "legacy" },
+      deprecation: {
+        since: "1.2.0",
+        removeIn: "1.4.0",
+        replacement: "canonical.json",
+      },
+    }],
+  });
+  const diagnostic = resolved.diagnostics.find((entry) => entry.code === "deprecated_source");
+  assert.ok(diagnostic);
+  assert.match(diagnostic.message, /removed in ForgeRelay 1\.4\.0/);
+  assert.match(diagnostic.message, /use canonical\.json/);
 });
 
 test("keyed merge resolves each key independently, honors tombstones, and lets canonical source presence shadow same-scope legacy", () => {

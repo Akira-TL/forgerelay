@@ -7,6 +7,7 @@ import {
 } from "../definition/definition.js";
 import { configSchemaId } from "../definition/schema.js";
 import type {
+  ConfigDeprecation,
   ConfigDomainDefinition,
   ConfigFieldDefinition,
   ConfigFileScope,
@@ -476,8 +477,7 @@ function appendFieldDeprecations(
       code: "deprecated_source",
       source: candidate.source,
       logicalPath,
-      message: `${logicalPath} is deprecated since ForgeRelay ${field.deprecation.since}` +
-        (field.deprecation.replacement ? `; use ${field.deprecation.replacement}.` : "."),
+      message: deprecationMessage(logicalPath, field.deprecation),
     });
   }
 }
@@ -508,9 +508,14 @@ function sourceDeprecationDiagnostic(
     severity: "warning",
     code: "deprecated_source",
     source,
-    message: `Configuration source ${source.location ?? source.id} is deprecated since ForgeRelay ${deprecation.since}` +
-      (deprecation.replacement ? `; use ${deprecation.replacement}.` : "."),
+    message: deprecationMessage(`Configuration source ${source.location ?? source.id}`, deprecation),
   };
+}
+
+function deprecationMessage(subject: string, deprecation: ConfigDeprecation): string {
+  return `${subject} is deprecated since ForgeRelay ${deprecation.since}` +
+    (deprecation.removeIn ? ` and will be removed in ForgeRelay ${deprecation.removeIn}` : "") +
+    (deprecation.replacement ? `; use ${deprecation.replacement}.` : ".");
 }
 
 function diagnosticForSourceError(
