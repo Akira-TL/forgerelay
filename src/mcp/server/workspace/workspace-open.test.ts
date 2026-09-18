@@ -258,6 +258,37 @@ test("loaded config-owned shell Instructions join bootstrap context and reuse th
   assert.equal(repeatedShellInstructions?.[0]?.status, "loaded");
 });
 
+test("concurrent repeated open_workspace calls keep one shell Instruction presentation", async (t) => {
+  const context = await fixture(t);
+  const shellPath = join(context.config.configDir, "instructions", "pwsh.md");
+  await mkdir(dirname(shellPath), { recursive: true });
+  await writeFile(shellPath, "PowerShell 7 concurrent shell guidance\n");
+  context.config.shellInstructionPath = shellPath;
+  context.config.shellInstructionsEnabled = true;
+
+  const opened = await callOpen(context.client, context.project, "chat-shell-concurrent");
+  const card = responseCard(opened) as {
+    workspaceInstructions?: Array<{ path?: string; status?: string }>;
+  };
+  const shellInstruction = card.workspaceInstructions?.find((instruction) => instruction.status === "loaded");
+  assert.ok(shellInstruction?.path);
+
+  const repeated = await Promise.all(
+    Array.from({ length: 8 }, () => callOpen(context.client, context.project, "chat-shell-concurrent")),
+  );
+  for (const response of repeated) {
+    const repeatedCard = responseCard(response) as {
+      workspaceInstructions?: Array<{ path?: string; status?: string }>;
+    };
+    const repeatedShellInstructions: Array<{ path?: string; status?: string }> =
+      repeatedCard.workspaceInstructions?.filter(
+        (instruction) => instruction.path === shellInstruction.path,
+      ) ?? [];
+    assert.equal(repeatedShellInstructions.length, 1);
+    assert.equal(repeatedShellInstructions[0]?.status, "loaded");
+  }
+});
+
 test("disabled config-owned shell Instructions remain visible and App-readable without entering Agent bootstrap", async (t) => {
   const context = await fixture(t);
   const shellPath = join(context.config.configDir, "instructions", "zsh.md");

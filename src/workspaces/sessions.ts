@@ -40,6 +40,7 @@ const WORKSPACE_GC_INTERVAL_MS = 60 * 60 * 1_000;
  */
 export class WorkspaceSessionService {
   private readonly pendingOpens = new Map<string, Promise<WorkspaceContext>>();
+  private readonly pendingContextRebuilds = new Map<string, Promise<WorkspaceContext>>();
   private lastWorkspaceGcAt = 0;
 
   constructor(
@@ -360,6 +361,21 @@ export class WorkspaceSessionService {
   }
 
   async reusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
+    const existing = this.pendingContextRebuilds.get(workspace.id);
+    if (existing) return existing;
+
+    const rebuild = this.rebuildReusedWorkspaceContext(workspace);
+    this.pendingContextRebuilds.set(workspace.id, rebuild);
+    try {
+      return await rebuild;
+    } finally {
+      if (this.pendingContextRebuilds.get(workspace.id) === rebuild) {
+        this.pendingContextRebuilds.delete(workspace.id);
+      }
+    }
+  }
+
+  private async rebuildReusedWorkspaceContext(workspace: Workspace): Promise<WorkspaceContext> {
     workspace.project = await resolveProjectContext(this.config.configDir, workspace.root);
     Object.assign(
       workspace,

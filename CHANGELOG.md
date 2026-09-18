@@ -22,6 +22,7 @@ All notable ForgeRelay changes are documented here.
 
 - `forgerelay serve --help` 现在返回专用 serve usage/options，而不是把 `--help` 当成未知启动参数；`system status` 在尚未运行 `init`、没有 Owner credential 的全新环境里也保持只读并报告 `Instance: not initialized` / `Runtime: not running`。
 - `config` domain adapters 现在统一使用 stable resource names、原子 schema-valid mutation 与一致的 Project / global scope 语义；Subagent Profile 名称与各 domain `get` / `set` / `unset` / `remove` contract 保持一致。
+- 并发的重复 `open_workspace` 现在会按 Workspace 合并 context rebuild，避免重叠请求互相清空或重复追加 Workspace instruction 状态。
 - 带 public base path 的交互式 debug server 现在打印真实 mounted health URL，例如 `/forgerelay/debug/healthz`，而不是错误的 root `/healthz`。
 
 ## [1.2.5] - 2026-09-16
