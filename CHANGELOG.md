@@ -4,6 +4,25 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-18
+
+### Added
+
+- 新的 domain-first CLI 将运行职责收敛到 `serve`、`init`、`config`、`connect` 与 `system`：`config` 统一 General / Agent Context / External MCP / Hooks / Language Servers / Subagent Profiles 的读取、修改与 provenance 操作，`connect relay` / `connect mcp` 负责运行时连接关系，`system` 负责诊断与维护。
+- `serve` 支持仅当前进程生效的 host、port、allowed root 与 public URL override，不会把调试或多实例参数写回持久配置。
+- Agent context source 现在是 Config System v2 的正式配置：`systemInstructionsPath`、`instructionNames` 与 `skillPaths` 支持 runtime / Project Local / Project / User / built-in precedence、source inspection 和 live refresh。
+
+### Changed
+
+- 裸 `forgerelay` 现在只显示帮助，不再隐式启动服务器；脚本和服务启动应显式使用 `forgerelay serve`。旧 `start`、`hooks`、`auth`、`mcp`、`maintenance` 与 `agents` 路由继续作为不出现在公共 help 中的兼容入口。
+- Agent context built-in defaults 收敛为 `~/.agents/AGENTS.md`、Project instruction basename `AGENTS.md`，以及 `~/.agents/skills` / `./.agents/skills`；ForgeRelay 不再隐式维护 `~/.forgerelay/skills` 或 Project `.forgerelay/skills` 作为 Agent Skill 默认来源。
+- ForgeRelay-owned legacy Config source 继续兼容读取，但 1.3 的 deprecation diagnostic 现在明确显示计划在 `1.4.0` 移除，并继续提供 canonical replacement 路径。
+
+### Fixed
+
+- `config` domain adapters 现在统一使用 stable resource names、原子 schema-valid mutation 与一致的 Project / global scope 语义；Subagent Profile 名称与各 domain `get` / `set` / `unset` / `remove` contract 保持一致。
+- 带 public base path 的交互式 debug server 现在打印真实 mounted health URL，例如 `/forgerelay/debug/healthz`，而不是错误的 root `/healthz`。
+
 ## [1.2.5] - 2026-09-16
 
 ### Changed
