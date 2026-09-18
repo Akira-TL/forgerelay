@@ -111,7 +111,7 @@ async function runCompatibilityRootCommand(
 }
 
 async function runServeCommand(args: string[]): Promise<void> {
-  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h" || args[0] === "help")) {
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
     console.log(renderServeHelp());
     return;
   }
