@@ -45,7 +45,7 @@ export function interactiveDebugUrls(configDir) {
   return {
     baseUrl,
     healthUrl: `${baseUrl}${routeBasePath}/healthz`,
-    mcpUrl: `${baseUrl}${routeBasePath}/mcp`,
+    mcpUrl: `${baseUrl}/mcp`,
   };
 }
 

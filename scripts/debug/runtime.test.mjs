@@ -53,11 +53,11 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, configDir);
   assert.equal(result.baseUrl, "http://127.0.0.1:7677");
   assert.equal(result.healthUrl, "http://127.0.0.1:7677/forgerelay/debug/healthz");
-  assert.equal(result.mcpUrl, "http://127.0.0.1:7677/forgerelay/debug/mcp");
+  assert.equal(result.mcpUrl, "http://127.0.0.1:7677/mcp");
   assert.deepEqual(interactiveDebugUrls(configDir), {
     baseUrl: "http://127.0.0.1:7677",
     healthUrl: "http://127.0.0.1:7677/forgerelay/debug/healthz",
-    mcpUrl: "http://127.0.0.1:7677/forgerelay/debug/mcp",
+    mcpUrl: "http://127.0.0.1:7677/mcp",
   });
   assert.equal(result.env.HOST, undefined);
   assert.equal(result.env.PORT, undefined);
