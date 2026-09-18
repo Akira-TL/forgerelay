@@ -86,6 +86,19 @@ for (const flag of ["-h", "--help"]) {
 for (const command of ["serve", "init", "config", "connect", "system", "help", "version"]) {
   assert.match(helpOutput, new RegExp(`^  forgerelay ${command}\\b`, "m"));
 }
+const serveHelp = spawnSync("node", ["--import", "tsx", "src/cli.ts", "serve", "--help"], {
+  cwd: process.cwd(),
+  encoding: "utf8",
+  env: { ...cleanProductEnv, FORGERELAY_CONFIG_DIR: "/tmp/forgerelay-cli-serve-help-test" },
+});
+assert.equal(serveHelp.status, 0, serveHelp.stderr);
+assert.match(serveHelp.stdout, /^ForgeRelay serve$/m);
+assert.match(serveHelp.stdout, /forgerelay serve \[options\]/);
+assert.match(serveHelp.stdout, /--host <host>/);
+assert.match(serveHelp.stdout, /--port <port>/);
+assert.match(serveHelp.stdout, /--root <path>/);
+assert.match(serveHelp.stdout, /--public-url <url>/);
+assert.match(serveHelp.stdout, /--allow-elevated/);
 for (const legacyCommand of ["start", "doctor", "hooks", "agents", "auth", "mcp", "maintenance"]) {
   assert.doesNotMatch(helpOutput, new RegExp(`^  forgerelay ${legacyCommand}\\b`, "m"));
 }

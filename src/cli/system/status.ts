@@ -1,5 +1,4 @@
-import { loadConfig } from "../../runtime/config/config.js";
-import { loadForgeRelayFiles } from "../../runtime/config/user-config.js";
+import { resolveRuntimeConfigFacts } from "../../runtime/config/config.js";
 import { inspectRuntimeLease, type RuntimeLeaseInspection } from "../../runtime/state/runtime-lease.js";
 
 export interface SystemStatusSnapshot {
@@ -12,10 +11,9 @@ export interface SystemStatusSnapshot {
 }
 
 export function inspectSystemStatus(env: NodeJS.ProcessEnv = process.env): SystemStatusSnapshot {
-  const files = loadForgeRelayFiles(env);
-  const config = loadConfig(env);
+  const config = resolveRuntimeConfigFacts(env);
   return {
-    ...(files.auth.instanceId?.trim() ? { instanceId: files.auth.instanceId.trim() } : {}),
+    ...(config.instanceId ? { instanceId: config.instanceId } : {}),
     stateDir: config.stateDir,
     host: config.host,
     port: config.port,

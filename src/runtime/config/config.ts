@@ -339,6 +339,14 @@ interface PublicDeploymentConfig {
   canonicalBaseUrl: string;
 }
 
+export interface RuntimeConfigFacts {
+  instanceId?: string;
+  stateDir: string;
+  host: string;
+  port: number;
+  publicBaseUrl: string;
+}
+
 function parsePublicBaseUrls(
   value: string | string[] | null | undefined,
   fallback: string[],
@@ -367,16 +375,10 @@ function resolvePublicDeployment(
   };
 }
 
-export function loadConfig(
-  env: NodeJS.ProcessEnv = process.env,
+function resolveGeneralRuntimeConfig(
+  env: NodeJS.ProcessEnv,
   options: LoadConfigOptions = {},
-): ServerConfig {
-  const configRuntime = new ConfigRuntime();
-  const runtimeEnvironment = generalConfigRuntimeEnvironment(env);
-  configRuntime.captureResolutionInputs(generalConfigDefinition.domain, {
-    environment: runtimeEnvironment,
-    ...(options.runtimeOverrides ? { cli: options.runtimeOverrides } : {}),
-  });
+) {
   const files = loadForgeRelayFiles(env);
   const generalResolution = resolveGeneralConfig({
     env,
@@ -391,11 +393,38 @@ export function loadConfig(
   });
   assertConfigResolutionValid(generalResolution);
   const config = generalResolution.values as ForgeRelayUserConfig;
-  refreshGeneralUserConfigSource(configRuntime, files.configPath, runtimeEnvironment);
-  const instanceId = files.auth.instanceId?.trim() || generateInstanceId();
   const host = config.host ?? "127.0.0.1";
   const port = config.port ?? 7676;
   const publicDeployment = resolvePublicDeployment(config.publicBaseUrl, host, port);
+  return { files, config, host, port, publicDeployment };
+}
+
+export function resolveRuntimeConfigFacts(
+  env: NodeJS.ProcessEnv = process.env,
+): RuntimeConfigFacts {
+  const { files, config, host, port, publicDeployment } = resolveGeneralRuntimeConfig(env);
+  return {
+    ...(files.auth.instanceId?.trim() ? { instanceId: files.auth.instanceId.trim() } : {}),
+    stateDir: resolve(expandHomePath(config.stateDir ?? defaultStateDir())),
+    host,
+    port,
+    publicBaseUrl: publicDeployment.canonicalBaseUrl,
+  };
+}
+
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  options: LoadConfigOptions = {},
+): ServerConfig {
+  const configRuntime = new ConfigRuntime();
+  const runtimeEnvironment = generalConfigRuntimeEnvironment(env);
+  configRuntime.captureResolutionInputs(generalConfigDefinition.domain, {
+    environment: runtimeEnvironment,
+    ...(options.runtimeOverrides ? { cli: options.runtimeOverrides } : {}),
+  });
+  const { files, config, host, port, publicDeployment } = resolveGeneralRuntimeConfig(env, options);
+  refreshGeneralUserConfigSource(configRuntime, files.configPath, runtimeEnvironment);
+  const instanceId = files.auth.instanceId?.trim() || generateInstanceId();
   const publicBaseUrl = publicDeployment.canonicalBaseUrl;
   const proxyTrust = resolveProxyTrust(env, config, host, publicBaseUrl);
   const commandShellRuntime = resolveConfiguredCommandShellRuntime(config.commandShell, process.platform, env);

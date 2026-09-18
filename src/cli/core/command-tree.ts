@@ -55,6 +55,14 @@ export function routeArguments(route: CliRootRoute, args: readonly string[]): st
   return [...(route.argsPrefix ?? []), ...args];
 }
 
+const SERVE_OPTION_HELP_LINES = [
+  "  --host <host>             Override the bind host for this invocation",
+  "  --port <port>             Override the listen port for this invocation",
+  "  --root <path>             Override allowed roots; repeat for multiple roots",
+  "  --public-url <url>        Override client-facing base URLs; repeat for multiple URLs",
+  "  --allow-elevated          Explicitly allow this invocation to run with elevated/unknown OS privilege",
+] as const;
+
 export function renderCliRootHelp(): string {
   const publicRoutes = CLI_ROOT_ROUTES.filter((route) => route.publicSummary !== undefined);
   const commandWidth = Math.max(...publicRoutes.map((route) => route.command.length));
@@ -71,11 +79,18 @@ export function renderCliRootHelp(): string {
     ),
     "",
     "Serve options:",
-    "  forgerelay serve --host <host>             Override the bind host for this invocation",
-    "  forgerelay serve --port <port>             Override the listen port for this invocation",
-    "  forgerelay serve --root <path>             Override allowed roots; repeat for multiple roots",
-    "  forgerelay serve --public-url <url>        Override client-facing base URLs; repeat for multiple URLs",
-    "  forgerelay serve --allow-elevated",
-    "                            Explicitly allow this invocation to run with elevated/unknown OS privilege",
+    ...SERVE_OPTION_HELP_LINES.map((line) => `  forgerelay serve ${line.slice(2)}`),
+  ].join("\n");
+}
+
+export function renderServeHelp(): string {
+  return [
+    "ForgeRelay serve",
+    "",
+    "Usage:",
+    "  forgerelay serve [options]",
+    "",
+    "Options:",
+    ...SERVE_OPTION_HELP_LINES,
   ].join("\n");
 }

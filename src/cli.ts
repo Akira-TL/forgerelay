@@ -45,6 +45,7 @@ import { formatCommandShellRuntime } from "./runtime/shell/command-shell-runtime
 import { commandShellCompatibilityWarning } from "./cli/shell/setup.js";
 import {
   renderCliRootHelp,
+  renderServeHelp,
   resolveCliRootRoute,
   routeArguments,
   type CliCompatibilityHandler,
@@ -110,6 +111,10 @@ async function runCompatibilityRootCommand(
 }
 
 async function runServeCommand(args: string[]): Promise<void> {
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "-h" || args[0] === "help")) {
+    console.log(renderServeHelp());
+    return;
+  }
   const serveOptions = parseServeCommandArgs(args);
   const runtimePrivilege = detectRuntimePrivilege();
   assertRuntimePrivilegeAllowed(runtimePrivilege, serveOptions.allowElevated);

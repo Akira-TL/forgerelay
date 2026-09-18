@@ -10,6 +10,28 @@ const cleanProductEnv = Object.fromEntries(
 
 const root = mkdtempSync(join(tmpdir(), "forgerelay-system-status-test-"));
 try {
+  const uninitializedConfigDir = join(root, "uninitialized-config");
+  const uninitializedStateDir = join(root, "uninitialized-state");
+  const uninitialized = spawnSync(
+    "node",
+    ["--import", "tsx", "src/cli.ts", "system", "status"],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...cleanProductEnv,
+        FORGERELAY_CONFIG_DIR: uninitializedConfigDir,
+        FORGERELAY_STATE_DIR: uninitializedStateDir,
+      },
+    },
+  );
+  assert.equal(uninitialized.status, 0, uninitialized.stderr);
+  assert.match(uninitialized.stdout, /Instance: not initialized/);
+  assert.match(uninitialized.stdout, /Runtime: not running/);
+  assert.match(uninitialized.stdout, new RegExp(`State dir: ${escapeRegExp(uninitializedStateDir)}`));
+  assert.equal(existsSync(uninitializedConfigDir), false, "system status must not initialize config/auth state");
+  assert.equal(existsSync(uninitializedStateDir), false, "system status must not initialize runtime state");
+
   const configDir = join(root, "config");
   const stateDir = join(root, "state");
   mkdirSync(configDir, { recursive: true });
