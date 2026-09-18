@@ -52,10 +52,12 @@ test("interactive debug uses one dedicated persisted config under ~/.forgerelay/
   assert.equal(result.configDir, configDir);
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, configDir);
   assert.equal(result.baseUrl, "http://127.0.0.1:7677");
-  assert.equal(result.mcpUrl, "http://127.0.0.1:7677/mcp");
+  assert.equal(result.healthUrl, "http://127.0.0.1:7677/forgerelay/debug/healthz");
+  assert.equal(result.mcpUrl, "http://127.0.0.1:7677/forgerelay/debug/mcp");
   assert.deepEqual(interactiveDebugUrls(configDir), {
     baseUrl: "http://127.0.0.1:7677",
-    mcpUrl: "http://127.0.0.1:7677/mcp",
+    healthUrl: "http://127.0.0.1:7677/forgerelay/debug/healthz",
+    mcpUrl: "http://127.0.0.1:7677/forgerelay/debug/mcp",
   });
   assert.equal(result.env.HOST, undefined);
   assert.equal(result.env.PORT, undefined);
@@ -100,6 +102,7 @@ test("interactive debug config directory may be explicitly relocated without fal
   assert.equal(result.ownerToken, "custom-debug-password-123456");
   assert.equal(result.env.FORGERELAY_CONFIG_DIR, customDir);
   assert.equal(result.baseUrl, "http://127.0.0.1:6768");
+  assert.equal(result.healthUrl, "http://127.0.0.1:6768/healthz");
   assert.equal(result.mcpUrl, "http://127.0.0.1:6768/mcp");
   assert.equal(result.env.FORGERELAY_SKILL_PATHS, join(productConfigDir, "skills"));
 });

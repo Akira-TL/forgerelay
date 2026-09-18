@@ -40,7 +40,23 @@ export function interactiveDebugUrls(configDir) {
     : 7677;
   const displayHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
   const baseUrl = `http://${displayHost}:${port}`;
-  return { baseUrl, mcpUrl: `${baseUrl}/mcp` };
+  const publicBaseUrl = Array.isArray(config.publicBaseUrl) ? config.publicBaseUrl[0] : config.publicBaseUrl;
+  const routeBasePath = publicBasePath(publicBaseUrl);
+  return {
+    baseUrl,
+    healthUrl: `${baseUrl}${routeBasePath}/healthz`,
+    mcpUrl: `${baseUrl}${routeBasePath}/mcp`,
+  };
+}
+
+function publicBasePath(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    const pathname = new URL(value).pathname.replace(/\/+$/, "");
+    return pathname === "/" ? "" : pathname;
+  } catch {
+    return "";
+  }
 }
 
 function interactiveDebugOwnerToken(configDir) {
@@ -66,7 +82,7 @@ export function createInteractiveDebugEnvironment({
 } = {}) {
   const configDir = interactiveDebugConfigDir({ env, home });
   const ownerToken = interactiveDebugOwnerToken(configDir);
-  const { baseUrl, mcpUrl } = interactiveDebugUrls(configDir);
+  const { baseUrl, healthUrl, mcpUrl } = interactiveDebugUrls(configDir);
   const productConfigDir = env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR
     ? resolve(env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR.startsWith("~/")
       ? join(home, env.FORGERELAY_DEBUG_PRODUCT_CONFIG_DIR.slice(2))
@@ -99,7 +115,7 @@ export function createInteractiveDebugEnvironment({
     debugEnv.FORGERELAY_SKILLS = productSkillsEnabled;
   }
 
-  return { ownerToken, configDir, baseUrl, mcpUrl, env: debugEnv };
+  return { ownerToken, configDir, baseUrl, healthUrl, mcpUrl, env: debugEnv };
 }
 
 export function createDebugEnvironment({
