@@ -87,25 +87,30 @@ async function acceptFreshInit({ installedCli, root, home }) {
   });
 
   let output = "";
-  let rootsAnswered = false;
-  let modeAnswered = false;
+  const promptsToAccept = [
+    "Where are your projects located?",
+    "Which system instruction file should ForgeRelay load?",
+    "Which project instruction filenames should ForgeRelay discover?",
+    "Which Skill directories should ForgeRelay scan?",
+    "How should clients reach this ForgeRelay instance?",
+  ];
+  const answered = new Set();
   child.onData((data) => {
     output += data;
-    if (!rootsAnswered && output.includes("Where are your projects located?")) {
-      rootsAnswered = true;
-      child.write("\r");
-      return;
-    }
-    if (rootsAnswered && !modeAnswered && output.includes("How should clients reach this ForgeRelay instance?")) {
-      modeAnswered = true;
-      child.write("\r");
+    for (const prompt of promptsToAccept) {
+      if (!answered.has(prompt) && output.includes(prompt)) {
+        answered.add(prompt);
+        child.write("\r");
+        break;
+      }
     }
   });
 
   const exitCode = await waitForPtyExit(child, 20_000);
   assert.equal(exitCode, 0, scrubTerminal(output));
-  assert.equal(rootsAnswered, true, "packaged init did not ask for project roots");
-  assert.equal(modeAnswered, true, "packaged init did not ask for connection mode");
+  for (const prompt of promptsToAccept) {
+    assert.equal(answered.has(prompt), true, `packaged init did not ask: ${prompt}`);
+  }
   for (const unexpected of [
     "Which local port should ForgeRelay use?",
     "Which command shell should Agent commands and Hooks use?",
