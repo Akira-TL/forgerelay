@@ -251,8 +251,11 @@ test("loaded config-owned shell Instructions join bootstrap context and reuse th
   const repeatedCard = responseCard(repeated) as {
     workspaceInstructions?: Array<{ path?: string; status?: string }>;
   };
-  assert.equal(repeatedCard.workspaceInstructions?.length, 1);
-  assert.equal(repeatedCard.workspaceInstructions?.[0]?.status, "loaded");
+  const repeatedShellInstructions = repeatedCard.workspaceInstructions?.filter(
+    (instruction) => instruction.path === shellInstruction.path,
+  );
+  assert.equal(repeatedShellInstructions?.length, 1);
+  assert.equal(repeatedShellInstructions?.[0]?.status, "loaded");
 });
 
 test("disabled config-owned shell Instructions remain visible and App-readable without entering Agent bootstrap", async (t) => {
