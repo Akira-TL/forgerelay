@@ -240,16 +240,41 @@ function newProjectId(): string {
 async function hasGitMetadataAncestor(workspaceRoot: string): Promise<boolean> {
   let current = workspaceRoot;
   for (;;) {
-    try {
-      await lstat(join(current, ".git"));
-      return true;
-    } catch (error) {
-      if (!isErrno(error, "ENOENT")) throw error;
-    }
+    if (await isGitMetadataMarker(join(current, ".git"))) return true;
     const parent = resolve(current, "..");
     if (parent === current) return false;
     current = parent;
   }
+}
+
+async function isGitMetadataMarker(path: string): Promise<boolean> {
+  let metadata;
+  try {
+    metadata = await lstat(path);
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  if (metadata.isDirectory()) {
+    try {
+      return (await readFile(join(path, "HEAD"), "utf8")).trim().length > 0;
+    } catch (error) {
+      if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return false;
+      throw error;
+    }
+  }
+
+  if (metadata.isFile()) {
+    try {
+      return /^gitdir:\s*\S+/i.test((await readFile(path, "utf8")).trim());
+    } catch (error) {
+      if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return false;
+      throw error;
+    }
+  }
+
+  return false;
 }
 
 function isGitRepositoryMiss(error: unknown): boolean {

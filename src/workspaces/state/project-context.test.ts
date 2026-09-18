@@ -97,10 +97,13 @@ test("Git workspaces fail closed instead of changing identity class when Git bec
   const root = await mkdtemp(join(tmpdir(), "forgerelay-project-identity-git-missing-"));
   const configDir = join(root, "config");
   const gitProject = join(root, "git-project");
+  const linkedWorktree = join(root, "linked-worktree");
   const nonGitProject = join(root, "plain-project");
   t.after(() => rm(root, { recursive: true, force: true }));
   await createGitProject(gitProject);
+  await git(gitProject, ["worktree", "add", "-b", "linked", linkedWorktree]);
   await mkdir(nonGitProject);
+  await mkdir(join(root, ".git"));
 
   const previousPath = process.env.PATH;
   process.env.PATH = "";
@@ -108,6 +111,10 @@ test("Git workspaces fail closed instead of changing identity class when Git bec
     const resolver = new ProjectContextResolver(configDir);
     await assert.rejects(
       () => resolver.resolve(gitProject),
+      /Git is required to resolve canonical ForgeRelay Project identity/,
+    );
+    await assert.rejects(
+      () => resolver.resolve(linkedWorktree),
       /Git is required to resolve canonical ForgeRelay Project identity/,
     );
     assert.equal((await resolver.resolve(nonGitProject)).kind, "non-git");
