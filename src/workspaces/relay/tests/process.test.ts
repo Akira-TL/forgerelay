@@ -15,11 +15,37 @@ import { ActivityQueryService } from "../../../activity/history/query-service.js
 import { loadConfig } from "../../../runtime/config/config.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
 import { authenticateRemote, withRemoteMcpClient } from "../auth/remote-auth.js";
+import { remoteToolCallTimeoutMs } from "../transport/remote-call-timeout.js";
 import { createReviewCheckpointManager } from "../../review/review-checkpoints.js";
 import { ProcessManager } from "../../../mcp/process/process-sessions.js";
 import { createMcpServer, createServer } from "../../../server.js";
 import { SqliteWorkspaceStore } from "../../state/workspace-store.js";
 import { WorkspaceRegistry } from "../../../workspaces.js";
+
+assert.equal(
+  remoteToolCallTimeoutMs("bash", { action: "process", processId: 1, yieldTimeMs: 5_000 }),
+  65_000,
+);
+assert.equal(
+  remoteToolCallTimeoutMs("bash", { action: "process", processId: 1, yieldTimeMs: 300_000 }),
+  305_000,
+);
+assert.equal(
+  remoteToolCallTimeoutMs("bash", { action: "process", processId: 1, yieldTimeMs: 0 }),
+  undefined,
+);
+assert.equal(
+  remoteToolCallTimeoutMs("bash", { action: "process", processId: 1, input: "x", yieldTimeMs: 5_000 }),
+  undefined,
+);
+assert.equal(
+  remoteToolCallTimeoutMs("write_stdin", { processId: 1 }),
+  65_000,
+);
+assert.equal(
+  remoteToolCallTimeoutMs("exec_command", { cmd: "echo ok", yieldTimeMs: 60_000 }),
+  65_000,
+);
 
 const cleanProductEnv = Object.fromEntries(
   Object.entries(process.env).filter(([name]) =>
@@ -162,6 +188,12 @@ void test("gateway routes remote commands, process lifecycle, and capabilities t
     arguments: { workspaceId, action: "process", processId: closeGuardProcessId, yieldTimeMs: 0 },
   });
   assert.equal(structuredContent(stillRunning).running, true);
+  const repeatedImmediateProbe = await client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId: closeGuardProcessId, yieldTimeMs: 0 },
+  });
+  assert.equal(repeatedImmediateProbe.isError, true);
+  assert.match(resultText(repeatedImmediateProbe), /immediate wait-only status probe.*already used/i);
   await client.callTool({
     name: "bash",
     arguments: {

@@ -15,6 +15,7 @@ import {
   refreshRemoteAuthentication,
 } from "./auth/remote-auth.js";
 import { RemoteMcpConnectionPool, type RemoteMcpConnection } from "./transport/remote-mcp-connection-pool.js";
+import { remoteToolCallTimeoutMs } from "./transport/remote-call-timeout.js";
 import { withFileLock } from "../../runtime/state/lock/file-lock.js";
 import { withRemoteServiceEndpoint } from "./transport/remote-transport.js";
 import {
@@ -714,14 +715,18 @@ export class RemoteWorkspaceRelay {
     }
 
     const invoke = async (active: RemoteMcpConnection): Promise<ToolCallResult> => {
+      const requestTimeoutMs = remoteToolCallTimeoutMs(name, args);
       const parsed = CompatibilityCallToolResultSchema.parse(
-        await active.client.callTool({
-          name,
-          arguments: args,
-          ...(conversationScopeId
-            ? { _meta: { "openai/session": conversationScopeId } }
-            : {}),
-        } as Parameters<Client["callTool"]>[0]),
+        await active.client.callTool(
+          {
+            name,
+            arguments: args,
+            ...(conversationScopeId
+              ? { _meta: { "openai/session": conversationScopeId } }
+              : {}),
+          } as Parameters<Client["callTool"]>[0],
+          requestTimeoutMs === undefined ? undefined : { timeout: requestTimeoutMs },
+        ),
       );
       if (!Array.isArray((parsed as Record<string, unknown>).content)) {
         throw new Error("Remote ForgeRelay returned a modern-only tool result on the legacy Relay protocol path.");
