@@ -7,6 +7,7 @@ import {
   ProcessSessionManager,
   resolveProcessId,
 } from "./process-sessions.js";
+import { waitOnlyYieldMs } from "./process-wait-policy.js";
 
 const smallBuffer = new HeadTailBuffer(100);
 smallBuffer.append("hello\n");
@@ -36,6 +37,11 @@ assert.match(unicodeResult.output, /^a🙂/);
 assert.match(unicodeResult.output, /🙂c$/);
 
 assert.equal(DEFAULT_POLL_YIELD_MS, 60_000);
+assert.equal(waitOnlyYieldMs(undefined), 60_000);
+assert.equal(waitOnlyYieldMs(5_000), 60_000);
+assert.equal(waitOnlyYieldMs(60_000), 60_000);
+assert.equal(waitOnlyYieldMs(90_000), 90_000);
+assert.equal(waitOnlyYieldMs(25, 80), 80);
 assert.equal(ProcessSessionManager, ProcessManager);
 assert.equal(resolveProcessId(7, undefined), 7);
 assert.equal(resolveProcessId(undefined, 7), 7);
@@ -243,25 +249,6 @@ try {
     /immediate wait-only status probe.*already used/i,
   );
 
-  const completesEarly = await pollingManager.start({
-    workspaceId: "workspace-polling",
-    cwd: process.cwd(),
-    command: `${node} -e "setTimeout(() => console.log('completed-before-minimum'), 30)"`,
-    yieldTimeMs: 0,
-  });
-  assert.equal(completesEarly.running, true);
-  assert.ok(completesEarly.processId);
-  const completionStartedAt = performance.now();
-  const completedBeforeMinimum = await pollingManager.write({
-    workspaceId: "workspace-polling",
-    processId: completesEarly.processId,
-    yieldTimeMs: 25,
-  });
-  const completionElapsedMs = performance.now() - completionStartedAt;
-  assert.equal(completedBeforeMinimum.running, false);
-  assert.match(completedBeforeMinimum.output, /completed-before-minimum/);
-  assert.ok(completionElapsedMs < 80, "process completion should return before the wait-only minimum expires");
-
   const bufferedDefaultWait = await pollingManager.start({
     workspaceId: "workspace-polling",
     cwd: process.cwd(),
@@ -290,6 +277,35 @@ try {
   );
 } finally {
   pollingManager.shutdown();
+}
+
+const earlyCompletionManager = new ProcessManager({ minimumPollYieldMs: 1_000 });
+try {
+  const completesEarly = await earlyCompletionManager.start({
+    workspaceId: "workspace-early-completion",
+    cwd: process.cwd(),
+    command: `${node} -e "setTimeout(() => console.log('completed-before-minimum'), 75)"`,
+    yieldTimeMs: 0,
+  });
+  assert.equal(completesEarly.running, true);
+  assert.ok(completesEarly.processId);
+  const completedBeforeMinimum = await Promise.race([
+    earlyCompletionManager.write({
+      workspaceId: "workspace-early-completion",
+      processId: completesEarly.processId,
+      yieldTimeMs: 25,
+    }),
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(
+        () => reject(new Error("process completion did not return before the one-second poll minimum")),
+        600,
+      );
+    }),
+  ]);
+  assert.equal(completedBeforeMinimum.running, false);
+  assert.match(completedBeforeMinimum.output, /completed-before-minimum/);
+} finally {
+  earlyCompletionManager.shutdown();
 }
 
 const bufferedWait = await manager.start({

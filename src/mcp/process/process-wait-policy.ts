@@ -33,3 +33,14 @@ export function minimumPollYield(value: number | undefined): number {
   }
   return resolved;
 }
+
+export function waitOnlyYieldMs(
+  requested: number | undefined,
+  minimum = DEFAULT_POLL_YIELD_MS,
+): number {
+  const resolvedMinimum = minimumPollYield(minimum);
+  return Math.max(
+    resolvedMinimum,
+    boundedDuration(requested, resolvedMinimum, MAX_POLL_YIELD_MS),
+  );
+}

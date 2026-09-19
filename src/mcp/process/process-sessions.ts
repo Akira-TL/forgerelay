@@ -6,11 +6,11 @@ import {
   DEFAULT_EXEC_YIELD_MS,
   DEFAULT_INTERACTIVE_YIELD_MS,
   MAX_COMMAND_YIELD_MS,
-  MAX_POLL_YIELD_MS,
   MAX_START_YIELD_MS,
   boundedDuration,
   executionTimeout,
   minimumPollYield,
+  waitOnlyYieldMs,
 } from "./process-wait-policy.js";
 export { DEFAULT_POLL_YIELD_MS } from "./process-wait-policy.js";
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
@@ -436,10 +436,7 @@ export class ProcessManager {
         }
         processEntry.waitOnlyProbeUsed = true;
       } else {
-        const yieldTimeMs = Math.max(
-          this.minimumPollYieldMs,
-          boundedDuration(input.yieldTimeMs, this.minimumPollYieldMs, MAX_POLL_YIELD_MS),
-        );
+        const yieldTimeMs = waitOnlyYieldMs(input.yieldTimeMs, this.minimumPollYieldMs);
         await this.waitForExit(processEntry, yieldTimeMs, input.signal);
       }
     }
