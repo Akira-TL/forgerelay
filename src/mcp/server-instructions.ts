@@ -146,14 +146,14 @@ function selectedWorkflowInstructions(config: ServerConfig): string {
 
 function defaultWorkflowInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for commands, and ${toolNames.writeStdin} for running processes. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Short waits are for interaction.`;
+    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Short waits are for interaction.`;
   }
 
   const inspection = `Use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection.`;
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for shell-suited commands. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Process exit returns sooner; short waits are for interaction.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, Git/package scripts, generators, formatters, and shell-suited commands. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Process exit returns sooner; short waits are for interaction.`,
   );
 }
 
