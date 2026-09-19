@@ -1,9 +1,11 @@
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
+import {
+  DEFAULT_EXEC_YIELD_MS,
+  DEFAULT_INTERACTIVE_YIELD_MS,
+  DEFAULT_POLL_YIELD_MS,
+} from "../../../mcp/process/process-wait-policy.js";
 
 const REMOTE_WAIT_HEADROOM_MS = 5_000;
-const DEFAULT_WAIT_ONLY_YIELD_MS = 60_000;
-const DEFAULT_RUN_YIELD_MS = 10_000;
-const DEFAULT_INTERACTION_YIELD_MS = 250;
 
 export function remoteToolCallTimeoutMs(
   name: string,
@@ -22,7 +24,7 @@ function remoteToolWaitMs(
   if (name === "bash") {
     const action = typeof args.action === "string" ? args.action : "run";
     if (action === "output") return undefined;
-    if (action === "run") return requested ?? DEFAULT_RUN_YIELD_MS;
+    if (action === "run") return requested ?? DEFAULT_EXEC_YIELD_MS;
     if (action !== "process") return undefined;
     return processControlWaitMs(
       requested,
@@ -32,7 +34,7 @@ function remoteToolWaitMs(
         args.rows !== undefined,
     );
   }
-  if (name === "exec_command") return requested ?? DEFAULT_RUN_YIELD_MS;
+  if (name === "exec_command") return requested ?? DEFAULT_EXEC_YIELD_MS;
   if (name !== "write_stdin" || args.outputId !== undefined) return undefined;
   return processControlWaitMs(
     requested,
@@ -46,9 +48,9 @@ function processControlWaitMs(
   requested: number | undefined,
   interactionRequested: boolean,
 ): number {
-  if (interactionRequested) return requested ?? DEFAULT_INTERACTION_YIELD_MS;
+  if (interactionRequested) return requested ?? DEFAULT_INTERACTIVE_YIELD_MS;
   if (requested === 0) return 0;
-  return Math.max(DEFAULT_WAIT_ONLY_YIELD_MS, requested ?? DEFAULT_WAIT_ONLY_YIELD_MS);
+  return Math.max(DEFAULT_POLL_YIELD_MS, requested ?? DEFAULT_POLL_YIELD_MS);
 }
 
 function numberField(value: unknown): number | undefined {
