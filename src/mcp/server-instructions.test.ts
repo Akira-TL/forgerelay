@@ -49,9 +49,9 @@ test("Bash default instructions keep a compact core capability contract and buil
   assert.match(result, /capability guide/);
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted content modifications/);
-  assert.match(result, /For long bash commands or wait-only calls/);
-  assert.match(result, /do not poll every few seconds/);
-  assert.match(result, /Completion returns immediately if sooner/);
+  assert.match(result, /Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output/);
+  assert.match(result, /0 is one immediate probe/);
+  assert.match(result, /Process exit returns sooner/);
   assert.match(result, /rename for path moves/);
   assert.match(result, /delete for removals/);
   assert.match(result, /Shell commands may modify ordinary project files/);
@@ -311,6 +311,8 @@ test("codex workflow override relies on tools/list instead of duplicating the to
 
   assert.match(defaultResult, /rename and delete for direct path moves or removals/);
   assert.match(defaultResult, /apply_patch for content modifications/);
+  assert.match(defaultResult, /Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output/);
+  assert.match(defaultResult, /0 is one immediate probe/);
   assert.doesNotMatch(overrideResult, /apply_patch/);
   assert.doesNotMatch(overrideResult, /exec_command/);
   assert.match(overrideResult, /Follow the repository workflow\./);
@@ -329,9 +331,9 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.match(descriptions.shell, /yieldTimeMs/);
   assert.match(descriptions.shell, /timeoutMs/);
   assert.match(descriptions.shell, /action=process/);
-  assert.match(descriptions.shell, /long-running commands or wait-only process calls/);
-  assert.match(descriptions.shell, /60000ms when supported/);
-  assert.match(descriptions.shell, /process finishes sooner, the call returns immediately/);
+  assert.match(descriptions.shell, /Wait-only action=process uses at least 60000ms for positive yieldTimeMs, even with buffered output/);
+  assert.match(descriptions.shell, /0 is one immediate probe/);
+  assert.match(descriptions.shell, /Process exit returns sooner/);
   assert.doesNotMatch(descriptions.shell, /write_stdin/);
   assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);
   assert.doesNotMatch(descriptions.shell, /\/etc\/sudoers/);

@@ -189,6 +189,46 @@ assert.ok(background.processId);
 assert.equal(typeof background.processId, "number");
 assert.equal(background.sessionId, background.processId);
 
+const minimumPollWait = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "setTimeout(() => console.log('minimum-poll-wait-finished'), 180)"`,
+  yieldTimeMs: 1,
+});
+assert.equal(minimumPollWait.running, true);
+assert.ok(minimumPollWait.processId);
+const minimumPollResult = await manager.write({
+  workspaceId: "workspace-a",
+  processId: minimumPollWait.processId,
+  yieldTimeMs: 25,
+});
+assert.equal(
+  minimumPollResult.running,
+  false,
+  "positive wait-only polls shorter than one minute must be raised to the one-minute minimum",
+);
+assert.match(minimumPollResult.output, /minimum-poll-wait-finished/);
+
+const bufferedDefaultWait = await manager.start({
+  workspaceId: "workspace-a",
+  cwd: process.cwd(),
+  command: `${node} -e "console.log('buffered-default-ready'); setTimeout(() => console.log('buffered-default-finished'), 180)"`,
+  yieldTimeMs: 1,
+});
+assert.equal(bufferedDefaultWait.running, true);
+assert.ok(bufferedDefaultWait.processId);
+await new Promise((resolve) => setTimeout(resolve, 40));
+const bufferedDefaultResult = await manager.write({
+  workspaceId: "workspace-a",
+  processId: bufferedDefaultWait.processId,
+});
+assert.equal(
+  bufferedDefaultResult.running,
+  false,
+  "buffered output must not bypass the default one-minute wait-only poll",
+);
+assert.match(bufferedDefaultResult.output, /buffered-default-(?:ready|finished)/);
+
 const bufferedWait = await manager.start({
   workspaceId: "workspace-a",
   cwd: process.cwd(),
