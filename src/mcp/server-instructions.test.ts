@@ -50,7 +50,7 @@ test("Bash default instructions keep a compact core capability contract and buil
   assert.match(result, /Follow instructions returned by open_workspace/);
   assert.match(result, /Prefer edit for targeted content modifications/);
   assert.match(result, /Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output/);
-  assert.match(result, /0 is one immediate probe/);
+  assert.match(result, /0 is one immediate probe per running process and repeats are rejected/);
   assert.match(result, /Process exit returns sooner/);
   assert.match(result, /rename for path moves/);
   assert.match(result, /delete for removals/);
@@ -312,7 +312,7 @@ test("codex workflow override relies on tools/list instead of duplicating the to
   assert.match(defaultResult, /rename and delete for direct path moves or removals/);
   assert.match(defaultResult, /apply_patch for content modifications/);
   assert.match(defaultResult, /Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output/);
-  assert.match(defaultResult, /0 is one immediate probe/);
+  assert.match(defaultResult, /0 is one immediate probe per running process and repeats are rejected/);
   assert.doesNotMatch(overrideResult, /apply_patch/);
   assert.doesNotMatch(overrideResult, /exec_command/);
   assert.match(overrideResult, /Follow the repository workflow\./);
@@ -332,7 +332,7 @@ test("tool descriptions expose invocation semantics without duplicating core pol
   assert.match(descriptions.shell, /timeoutMs/);
   assert.match(descriptions.shell, /action=process/);
   assert.match(descriptions.shell, /Wait-only action=process uses at least 60000ms for positive yieldTimeMs, even with buffered output/);
-  assert.match(descriptions.shell, /0 is one immediate probe/);
+  assert.match(descriptions.shell, /0 is one immediate probe per running process and repeats are rejected/);
   assert.match(descriptions.shell, /Process exit returns sooner/);
   assert.doesNotMatch(descriptions.shell, /write_stdin/);
   assert.doesNotMatch(descriptions.shell, /may modify ordinary project files/);

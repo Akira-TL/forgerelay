@@ -2,13 +2,17 @@ import { spawn } from "node:child_process";
 import type { ProcessAuditContext, ProcessOutputAuditSink, ProcessOutputChannel } from "../../activity/runtime/process-output-audit.js";
 import { releasePtyProcessResources, resolveShellCommandForRuntime, terminateProcessTree, terminatePtyProcessTree } from "./process-platform.js";
 import { resolveCompatibilityCommandShellRuntime, snapshotCommandShellRuntime, type CommandShellRuntime } from "../../runtime/shell/command-shell-runtime.js";
-const DEFAULT_EXEC_YIELD_MS = 10_000;
-const DEFAULT_INTERACTIVE_YIELD_MS = 250;
-export const DEFAULT_POLL_YIELD_MS = 60_000;
-const MAX_START_YIELD_MS = 300_000;
-const MAX_COMMAND_YIELD_MS = 300_000;
-const MAX_POLL_YIELD_MS = 300_000;
-const MAX_EXECUTION_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+import {
+  DEFAULT_EXEC_YIELD_MS,
+  DEFAULT_INTERACTIVE_YIELD_MS,
+  MAX_COMMAND_YIELD_MS,
+  MAX_POLL_YIELD_MS,
+  MAX_START_YIELD_MS,
+  boundedDuration,
+  executionTimeout,
+  minimumPollYield,
+} from "./process-wait-policy.js";
+export { DEFAULT_POLL_YIELD_MS } from "./process-wait-policy.js";
 const DEFAULT_MAX_OUTPUT_TOKENS = 10_000;
 const DEFAULT_BUFFER_CHARACTERS = 256_000;
 const DEFAULT_MAX_ACTIVE_PROCESSES = 64;
@@ -100,6 +104,7 @@ interface ProcessEntry {
   outputWasTruncated: boolean;
   background: boolean;
   discardOnFinish: boolean;
+  waitOnlyProbeUsed: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
   cleanupTimer?: NodeJS.Timeout;
@@ -115,25 +120,10 @@ export interface ProcessManagerOptions {
   /** @deprecated Use completedProcessTtlMs. */
   completedSessionTtlMs?: number;
   maxStartYieldMs?: number;
+  minimumPollYieldMs?: number;
   monotonicNow?: () => number;
   outputAudit?: ProcessOutputAuditSink;
   commandShellRuntime?: CommandShellRuntime;
-}
-
-function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
-  if (value === undefined) return Math.min(fallback, maximum);
-  if (!Number.isFinite(value) || value < 0) {
-    throw new Error("Duration and output limits must be non-negative.");
-  }
-  return Math.min(Math.floor(value), maximum);
-}
-
-function optionalExecutionTimeout(value: number | undefined): number | undefined {
-  if (value === undefined) return undefined;
-  if (!Number.isInteger(value) || value < 1 || value > MAX_EXECUTION_TIMEOUT_MS) {
-    throw new Error(`Execution timeout must be an integer between 1 and ${MAX_EXECUTION_TIMEOUT_MS}ms.`);
-  }
-  return value;
 }
 
 function terminalSize(value: number | undefined, fallback: number): number {
@@ -343,6 +333,7 @@ export class ProcessManager {
   private readonly maxCompletedProcesses: number;
   private readonly completedProcessTtlMs: number;
   private readonly maxStartYieldMs: number;
+  private readonly minimumPollYieldMs: number;
   private readonly monotonicNow: () => number;
   private readonly outputAudit?: ProcessOutputAuditSink;
   private readonly commandShellRuntime: CommandShellRuntime;
@@ -362,6 +353,7 @@ export class ProcessManager {
       ?? options.completedSessionTtlMs
       ?? COMPLETED_PROCESS_TTL_MS;
     this.maxStartYieldMs = options.maxStartYieldMs ?? MAX_START_YIELD_MS;
+    this.minimumPollYieldMs = minimumPollYield(options.minimumPollYieldMs);
     this.monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.outputAudit = options.outputAudit;
     this.commandShellRuntime = snapshotCommandShellRuntime(options.commandShellRuntime ?? resolveCompatibilityCommandShellRuntime());
@@ -373,7 +365,7 @@ export class ProcessManager {
         `Active process limit reached (${this.maxActiveProcesses}). Poll, interrupt, or wait for an existing process before starting another.`,
       );
     }
-    const executionTimeoutMs = optionalExecutionTimeout(input.timeoutMs);
+    const executionTimeoutMs = executionTimeout(input.timeoutMs);
     const processEntry = this.createProcess(input);
     this.processes.set(processEntry.id, processEntry);
 
@@ -390,7 +382,7 @@ export class ProcessManager {
     }
 
     this.armExecutionTimeout(processEntry, executionTimeoutMs);
-    const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, this.maxStartYieldMs);
+    const yieldTimeMs = boundedDuration(input.yieldTimeMs, DEFAULT_EXEC_YIELD_MS, this.maxStartYieldMs);
     try {
       await this.waitForExit(processEntry, yieldTimeMs, input.signal);
       input.signal?.throwIfAborted();
@@ -433,12 +425,20 @@ export class ProcessManager {
 
     if (processEntry.running) {
       if (interactionRequested) {
-        const yieldTimeMs = boundedInteger(input.yieldTimeMs, DEFAULT_INTERACTIVE_YIELD_MS, MAX_COMMAND_YIELD_MS);
+        const yieldTimeMs = boundedDuration(input.yieldTimeMs, DEFAULT_INTERACTIVE_YIELD_MS, MAX_COMMAND_YIELD_MS);
         await this.waitForExit(processEntry, yieldTimeMs, input.signal);
-      } else if (input.yieldTimeMs !== 0) {
+      } else if (input.yieldTimeMs === 0) {
+        if (processEntry.waitOnlyProbeUsed) {
+          throw new Error(
+            `Immediate wait-only status probe for process ${processEntry.id} was already used. ` +
+            "Use a positive or omitted yieldTimeMs for subsequent waits.",
+          );
+        }
+        processEntry.waitOnlyProbeUsed = true;
+      } else {
         const yieldTimeMs = Math.max(
-          DEFAULT_POLL_YIELD_MS,
-          boundedInteger(input.yieldTimeMs, DEFAULT_POLL_YIELD_MS, MAX_POLL_YIELD_MS),
+          this.minimumPollYieldMs,
+          boundedDuration(input.yieldTimeMs, this.minimumPollYieldMs, MAX_POLL_YIELD_MS),
         );
         await this.waitForExit(processEntry, yieldTimeMs, input.signal);
       }
@@ -586,6 +586,7 @@ export class ProcessManager {
       outputWasTruncated: false,
       background: false,
       discardOnFinish: false,
+      waitOnlyProbeUsed: false,
       exitPromise,
       resolveExit,
     };
@@ -721,7 +722,7 @@ export class ProcessManager {
   }
 
   private consume(processEntry: ProcessEntry, maxOutputTokens?: number): ProcessSnapshot {
-    const limit = boundedInteger(maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, 100_000);
+    const limit = boundedDuration(maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, 100_000);
     const maxCharacters = Math.max(256, limit * 4);
     const buffered = processEntry.buffer.drain(maxCharacters);
     if (buffered.truncated) processEntry.outputWasTruncated = true;

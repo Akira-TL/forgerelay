@@ -123,7 +123,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(defaultInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
   assert.doesNotMatch(defaultInstructions, /Do not create or modify files with bash/);
   assert.match(defaultInstructions, /Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output/);
-  assert.match(defaultInstructions, /0 is one immediate probe/);
+  assert.match(defaultInstructions, /0 is one immediate probe per running process and repeats are rejected/);
   assert.match(defaultInstructions, /Process exit returns sooner/);
   assert.equal(openWorkspaceTool?.annotations?.readOnlyHint, false);
   assert.equal(openWorkspaceTool?.annotations?.destructiveHint, false);
@@ -134,7 +134,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.doesNotMatch(shellTool?.description ?? "", /external device or hardware mutations/);
   assert.match(shellTool?.description ?? "", /action=process/);
   assert.match(shellTool?.description ?? "", /Wait-only action=process uses at least 60000ms for positive yieldTimeMs, even with buffered output/);
-  assert.match(shellTool?.description ?? "", /0 is one immediate probe/);
+  assert.match(shellTool?.description ?? "", /0 is one immediate probe per running process and repeats are rejected/);
   assert.match(shellTool?.description ?? "", /Process exit returns sooner/);
   assert.doesNotMatch(shellTool?.description ?? "", /write_stdin/);
   assert.doesNotMatch(shellTool?.description ?? "", /Do not use bash to create, move, rename, or delete project files/);
@@ -148,6 +148,7 @@ test("MCP instructions separate capability contract from configurable workflow p
   assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /Process exit returns sooner/);
   assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /positive shorter values are raised to 60000ms/);
   assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /buffered output does not shorten the wait/);
+  assert.match(shellInputProperties?.yieldTimeMs?.description ?? "", /repeated wait-only 0 is rejected/);
   assert.match(shellInputProperties?.timeoutMs?.description ?? "", /total execution timeout/i);
   assert.equal(shellToolMeta?.ui?.resourceUri, undefined);
   assert.equal(openWorkspaceMeta?.ui?.resourceUri, undefined);

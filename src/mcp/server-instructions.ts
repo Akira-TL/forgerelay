@@ -107,7 +107,7 @@ export function buildToolDescriptions(config: ServerConfig): ToolDescriptions {
     rename: `Rename or move one file or directory inside an open workspace or the OS temp directory without overwriting an existing destination. Source and destination must both remain inside the permitted file roots. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     delete: `Delete one path or multiple paths inside an open workspace or the OS temp directory. Use path for one target or paths for multiple targets; a bulk Delete preflights all targets before deleting anything. Non-empty directories require recursive=true. An allowed root itself cannot be deleted. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
     applyPatch: `Apply one Codex-style patch inside an open workspace or the OS temp directory. Supports adding, overwriting, updating, deleting, and moving files. Workspace paths must remain relative; absolute paths are accepted only inside the OS temp directory. Call ${toolNames.openWorkspace} first and pass workspaceId.`,
-    shell: `Run or manage a shell process inside an open workspace.${shellSurface} Commands run with the local user's authority; workspace containment does not make shell execution a sandbox. action=run uses yieldTimeMs as feedback wait (default 10000ms; 0 returns processId) and timeoutMs as the execution limit. Wait-only action=process uses at least 60000ms for positive yieldTimeMs, even with buffered output; 0 is one immediate probe. Process exit returns sooner; short waits are for interaction. Background completions can arrive later. Call ${toolNames.openWorkspace} first with workspaceId. Expose only behind strong authentication.`,
+    shell: `Run or manage a shell process inside an open workspace.${shellSurface} Commands run with the local user's authority; workspace containment does not make shell execution a sandbox. action=run uses yieldTimeMs as feedback wait (default 10000ms; 0 returns processId) and timeoutMs as the execution limit. Wait-only action=process uses at least 60000ms for positive yieldTimeMs, even with buffered output; 0 is one immediate probe per running process and repeats are rejected. Process exit returns sooner; short waits are for interaction. Background completions can arrive later. Call ${toolNames.openWorkspace} first with workspaceId. Expose only behind strong authentication.`,
     shellCommand: "Shell command to run with the local user's authority.",
   };
 }
@@ -146,14 +146,14 @@ function selectedWorkflowInstructions(config: ServerConfig): string {
 
 function defaultWorkflowInstructions(config: ServerConfig): string {
   if (config.toolMode === "codex") {
-    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Short waits are for interaction.`;
+    return `Use ${toolNames.read} for direct file reads, ${toolNames.rename} and ${toolNames.delete} for direct path moves or removals, apply_patch for content modifications, exec_command for inspection, tests, builds, and other commands, and ${toolNames.writeStdin} to poll or interact with running processes. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe per running process and repeats are rejected. Short waits are for interaction.`;
   }
 
   const inspection = `Use ${toolNames.shell} with command-line tools such as grep, rg, find, ls, and tree for search and directory inspection.`;
 
   return joinInstructions(
     inspection,
-    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, Git/package scripts, generators, formatters, and shell-suited commands. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe. Process exit returns sooner; short waits are for interaction.`,
+    `Prefer ${toolNames.edit} for targeted content modifications, ${toolNames.write} only for new files or complete rewrites, ${toolNames.rename} for path moves, ${toolNames.delete} for removals, and ${toolNames.shell} for tests, builds, Git/package scripts, generators, formatters, and shell-suited commands. Wait-only polling uses at least 60000ms for positive yieldTimeMs even with buffered output; 0 is one immediate probe per running process and repeats are rejected. Process exit returns sooner; short waits are for interaction.`,
   );
 }
 

@@ -469,11 +469,24 @@ test("bash action=process can explicitly keep waiting for a running process", as
     name: "bash",
     arguments: {
       workspaceId,
-      command: `${node} -e "setTimeout(() => console.log('polled-done'), 500)"`,
+      command: `${node} -e "setTimeout(() => console.log('polled-done'), 1200)"`,
     },
   });
   const processId = Number(structuredContent(shell).processId);
   assert.ok(processId > 0);
+
+  const immediateProbe = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 0 },
+  });
+  assert.equal(immediateProbe.isError, undefined, allResponseText(immediateProbe));
+  assert.equal(structuredContent(immediateProbe).running, true);
+  const repeatedImmediateProbe = await context.client.callTool({
+    name: "bash",
+    arguments: { workspaceId, action: "process", processId, yieldTimeMs: 0 },
+  });
+  assert.equal(repeatedImmediateProbe.isError, true);
+  assert.match(allResponseText(repeatedImmediateProbe), /immediate wait-only status probe.*already used/i);
 
   const otherProject = join(dirname(context.project), "other-process-project");
   await mkdir(otherProject, { recursive: true });
