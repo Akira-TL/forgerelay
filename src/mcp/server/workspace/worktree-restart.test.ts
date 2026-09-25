@@ -64,6 +64,8 @@ test("close_workspace finalizes a managed-worktree-backed workspace and supports
   const opened = await callOpen(context.client, context.project, "chat-1", "worktree");
   const workspaceId = structuredContent(opened).workspaceId;
   assert.equal(typeof workspaceId, "string");
+  assert.match(responseText(opened), /activity_panel\(workspaceId=\"ws_/);
+  assert.match(responseText(opened), /exactly once to begin the project Host Turn/);
   const worktree = structuredContent(opened).worktree as Record<string, unknown>;
   assert.equal(worktree.detached, false);
   assert.match(String(worktree.branch), /^forgerelay\//);

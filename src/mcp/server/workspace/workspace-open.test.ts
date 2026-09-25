@@ -122,6 +122,9 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.equal("includeBootstrapContext" in repeatedStructured, false);
 
   const firstText = responseText(first);
+  assert.match(firstText, /activity_panel\(workspaceId=\"ws_/);
+  assert.match(firstText, /exactly once to begin the project Host Turn/);
+  assert.match(firstText, /required even when the Workspace was already open or reused/);
   assert.match(firstText, /workspace\.tasks/);
   assert.match(firstText, /For capability describe\/run, use only names present in capabilityCatalog/);
   assert.match(firstText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
@@ -131,6 +134,9 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
 
   const repeatedText = responseText(repeated);
   assert.match(repeatedText, /Workspace already open as/);
+  assert.match(repeatedText, /activity_panel\(workspaceId=\"ws_/);
+  assert.match(repeatedText, /exactly once to begin the project Host Turn/);
+  assert.match(repeatedText, /required even when the Workspace was already open or reused/);
   assert.match(repeatedText, /same directory previously opened/);
   assert.match(repeatedText, /Reuse this workspaceId for subsequent tool calls/);
   assert.match(repeatedText, /previously provided for this workspace/);

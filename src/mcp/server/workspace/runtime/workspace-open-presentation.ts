@@ -147,6 +147,8 @@ export async function presentLocalWorkspaceOpen(
       const availableAgentsFileOutputs = bootstrapComponents.has("availableAgentsFiles")
         ? cardAvailableAgentsFiles
         : [];
+      const panelTurnReminder =
+        `Before the first non-lifecycle ForgeRelay work tool after this Workspace resolution, call activity_panel(workspaceId=\"${workspace.id}\") exactly once to begin the project Host Turn. This is required even when the Workspace was already open or reused.`;
       const workspaceContextInstruction =
         "For later open_workspace calls, context=\"auto\" avoids repeating unchanged bootstrap context; use context=\"none\" when only the workspace handle/metadata is needed, or context=\"full\" to force a refresh.";
       const workspaceManagementInstruction = [
@@ -157,12 +159,13 @@ export async function presentLocalWorkspaceOpen(
           : undefined,
       ].filter(Boolean).join(" ");
       const cardInstruction = config.skillsEnabled
-        ? `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
-        : `Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`;
+        ? `${panelTurnReminder} Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches an available skill, load it with read(path=\"skills://<name>\") before proceeding. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
+        : `${panelTurnReminder} Use this workspaceId in all subsequent tool calls for this project. Follow loaded agentsFiles instructions. Read an availableAgentsFiles path before working under it. When a task matches a capability guide, read its advertised path before proceeding. ${workspaceContextInstruction} ${workspaceManagementInstruction} ${executionContext.agentInstruction}`;
       const instruction = workspaceReused
         ? effectiveIncludeBootstrapContext
           ? [
               `Workspace already exists as ${workspace.id} for this directory.`,
+              panelTurnReminder,
               "Reuse this workspaceId for subsequent tool calls.",
               effectiveBootstrapContextComponents.length > 0
                 ? `Project bootstrap context components included in this response: ${effectiveBootstrapContextComponents.join(", ")}. Components not listed are unchanged and are not repeated.`
@@ -173,6 +176,7 @@ export async function presentLocalWorkspaceOpen(
             ].join("\n\n")
           : [
               `Workspace already open as ${workspace.id}.`,
+              panelTurnReminder,
               "Reuse this workspaceId for subsequent tool calls. This is the same directory previously opened in this conversation.",
               "Continue following the project instructions, nested instruction files, skills, capability guides, agent profiles, and diagnostics previously provided for this workspace. They remain active and are not repeated here.",
               workspaceContextInstruction,
@@ -180,7 +184,7 @@ export async function presentLocalWorkspaceOpen(
               executionContext.agentInstruction,
             ].join("\n\n")
         : workspace.mode === "worktree"
-          ? `Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree. ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
+          ? `${panelTurnReminder} Use this workspaceId for subsequent tool calls. Follow the project instructions, nested instruction files, skills, agent profiles, and diagnostics returned for this isolated worktree. ${workspaceManagementInstruction} ${executionContext.agentInstruction}`
           : cardInstruction;
       const resultContent: ToolContent[] = [
         {

@@ -59,7 +59,7 @@ export async function runBootstrapAcceptance({ server, packageJson, ownerToken, 
   assert.match(serverInstructions, /Shell commands may modify ordinary project files/);
   assert.match(serverInstructions, /\/etc\/sudoers/);
   assert.match(serverInstructions, /configuration files through shell only when the user's request explicitly calls for that configuration change/);
-  assert.match(serverInstructions, /Project-work order: open_workspace if needed → activity_panel\(workspaceId\) once → work tools/);
+  assert.doesNotMatch(serverInstructions, /activity_panel/);
   assert.ok(serverInstructions.length < 3_000, `server instructions should stay compact, got ${serverInstructions.length} characters`);
   assert.doesNotMatch(serverInstructions, /fast-forwards the original target branch/);
   assert.doesNotMatch(serverInstructions, /Do not create or modify files with bash/);

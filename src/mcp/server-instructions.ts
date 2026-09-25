@@ -125,8 +125,6 @@ function capabilityContractInstructions(config: ServerConfig): string {
     ? ""
     : ` If ${toolNames.openWorkspace} reports stale workspaces, let the user choose resume or ${toolNames.closeWorkspace}; never auto-close.`;
   const workspaceLifecycle = `Default to the user's existing checkout. Reuse workspaceId from ${toolNames.openWorkspace}; change it only when asked.${staleWorkspacePolicy} Only open mode=\"worktree\" when the user explicitly asks for isolated or parallel Git work. ${toolNames.closeWorkspace} preserves Workspace identity. Managed close finalizes backing and needs commitMessage. Composite close preserves members; delete removes only Composite state. Active worktree delete still finalizes safely; checkout files are never deleted.`;
-  const activityPanel = `Project-work order: ${toolNames.openWorkspace} if needed → activity_panel(workspaceId) once → work tools. activity_panel is the single ForgeRelay UI render tool: Workspace above Activity. A new workspaceId creates a new card. Never call activity_panel before needed ${toolNames.openWorkspace}.`;
-
   const agents = `Follow instructions returned by ${toolNames.openWorkspace}. Read an availableAgentsFiles path before working under it.`;
   const capabilityGuides = `For optional capabilities from ${toolNames.openWorkspace}, use ${toolNames.capability}; if unfamiliar, describe first and read its advertised capability guide with ${toolNames.read}.`;
   const skills = config.skillsEnabled
@@ -135,7 +133,7 @@ function capabilityContractInstructions(config: ServerConfig): string {
   const shellMutationPolicy = buildShellMutationPolicy();
   const hooks = "When a ForgeRelay tool result reports Hook results, tell the user which meaningful hooks ran and whether they passed or blocked the operation. Do not claim the requested operation succeeded when a blocking hook prevented it.";
 
-  return joinInstructions(workspaceLifecycle, activityPanel, agents, capabilityGuides, skills, shellMutationPolicy, hooks);
+  return joinInstructions(workspaceLifecycle, agents, capabilityGuides, skills, shellMutationPolicy, hooks);
 }
 
 function selectedWorkflowInstructions(config: ServerConfig): string {
