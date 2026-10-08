@@ -407,6 +407,18 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   assert.equal(activitiesB.some((activity) => activity.target === "session-b.txt"), true);
   assert.equal(activitiesB.some((activity) => activity.target === "session-a.txt"), false);
 
+  for (const [name, args] of [
+    ["activity_snapshot", { turnId: turnA }],
+    ["activity_snapshot", { turnId: turnA, workspaceId }],
+    ["activity_index", { turnId: turnA }],
+    ["activity_detail", { turnId: turnA, activityId: detailActivity.activityId }],
+    ["activity_output", { turnId: turnA, outputId }],
+  ] as const) {
+    const denied = await call(name, args, sessionB);
+    assert.equal(denied.isError, true, `relayed ${name} must reject a foreign Host Turn`);
+    assert.doesNotMatch(JSON.stringify(denied), /session-a-remote|REMOTE-ACTIVITY-BACKGROUND/);
+  }
+
   const snapshotAAfterB = await call("activity_snapshot", { turnId: turnA }, sessionA);
   assert.equal(structuredContent(snapshotAAfterB).activities, undefined);
   const indexAAfterB = await call("activity_index", { turnId: turnA }, sessionA);

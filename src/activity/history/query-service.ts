@@ -209,6 +209,13 @@ export class ActivityQueryService {
     });
   }
 
+  assertConversationTurn(turnId: string, conversationScopeId: string): void {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.conversationScopeId !== conversationScopeId) {
+      throw new Error(`Unknown Host Turn: ${turnId}.`);
+    }
+  }
+
   private requireTurn(turnId: string): void {
     if (!this.turns.get(turnId)) throw new Error(`Unknown Host Turn: ${turnId}.`);
   }

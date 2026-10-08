@@ -207,6 +207,7 @@ export function registerActivityQueryTools(
           "Activity snapshot bootstrap could not resolve the current Host Turn from conversation and workspace metadata.",
         );
       }
+      queries.assertConversationTurn(resolvedTurnId, conversationScopeId);
       const snapshot = queries.state(resolvedTurnId, knownRevision);
       if (logging) {
         logEvent(logging, "debug", "activity_snapshot_call", {
@@ -253,6 +254,7 @@ export function registerActivityQueryTools(
       const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.index(turnId, knownRevision, conversationScopeId);
       if (relayed) return relayed;
+      queries.assertConversationTurn(turnId, conversationScopeId);
       const index = queries.index(turnId, knownRevision);
       if (logging) {
         logEvent(logging, "debug", "activity_index_call", {
@@ -296,6 +298,7 @@ export function registerActivityQueryTools(
       const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.detail(turnId, activityId, conversationScopeId);
       if (relayed) return relayed;
+      queries.assertConversationTurn(turnId, conversationScopeId);
       const detail = queries.detail(turnId, activityId);
       if (logging) {
         logEvent(logging, "debug", "activity_detail_call", {
@@ -347,6 +350,7 @@ export function registerActivityQueryTools(
       const conversationScopeId = hostConversationScopeId(requestContext, connectionScopeId);
       const relayed = await relay?.output(turnId, outputId, conversationScopeId, cursor);
       if (relayed) return relayed;
+      queries.assertConversationTurn(turnId, conversationScopeId);
       const output = queries.bashOutput(turnId, outputId, cursor);
       if (logging) {
         logEvent(logging, "debug", "activity_output_call", {

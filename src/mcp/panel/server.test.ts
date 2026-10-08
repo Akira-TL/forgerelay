@@ -10,7 +10,85 @@ import {
   callOpen,
   fixture,
   structuredContent,
+  waitForCompletedProcess,
 } from "../../runtime/testing/server-fixture.js";
+
+
+test("Activity MCP queries reject another Host conversation's Turn before returning private data", async (t) => {
+  const context = await fixture(t);
+  const scopeA = { "openai/session": "activity-ownership-a" };
+  const scopeB = { "openai/session": "activity-ownership-b" };
+  const call = (name: string, args: Record<string, unknown>, meta: Record<string, string>) =>
+    context.client.callTool({ name, arguments: args, _meta: meta });
+
+  await writeFile(join(context.project, "private.txt"), "SCOPE_A_PRIVATE_CONTENT\n");
+  const opened = await callOpen(context.client, context.project, scopeA["openai/session"]);
+  const workspaceId = String(structuredContent(opened).workspaceId);
+  const panelA = await call("activity_panel", { workspaceId }, scopeA);
+  assert.equal(panelA.isError, undefined, allResponseText(panelA));
+  const turnA = String(structuredContent(panelA).turnId);
+
+  const readA = await call("read", { workspaceId, path: "private.txt" }, scopeA);
+  assert.equal(readA.isError, undefined, allResponseText(readA));
+  assert.match(JSON.stringify(readA), /SCOPE_A_PRIVATE_CONTENT/);
+  const bashA = await call("bash", {
+    workspaceId,
+    action: "run",
+    command: "node -e \"console.log('SCOPE_A_PRIVATE_BASH')\"",
+    yieldTimeMs: 0,
+  }, scopeA);
+  assert.equal(bashA.isError, undefined, allResponseText(bashA));
+  const outputId = String(structuredContent(bashA).outputId);
+  assert.ok(outputId);
+  await waitForCompletedProcess(context.processSessions);
+
+  const indexA = await call("activity_index", { turnId: turnA }, scopeA);
+  assert.equal(indexA.isError, undefined, allResponseText(indexA));
+  const readActivity = (structuredContent(indexA).activities as Array<{ tool: string; activityId: string }>)
+    .find((activity) => activity.tool === "read");
+  assert.ok(readActivity);
+  const detailA = await call("activity_detail", {
+    turnId: turnA,
+    activityId: readActivity.activityId,
+  }, scopeA);
+  assert.equal(detailA.isError, undefined, allResponseText(detailA));
+  assert.match(JSON.stringify(detailA), /SCOPE_A_PRIVATE_CONTENT/);
+  const outputA = await call("activity_output", { turnId: turnA, outputId }, scopeA);
+  assert.equal(outputA.isError, undefined, allResponseText(outputA));
+  assert.match(JSON.stringify(outputA), /SCOPE_A_PRIVATE_BASH/);
+
+  const panelB = await call("activity_panel", { workspaceId }, scopeB);
+  assert.equal(panelB.isError, undefined, allResponseText(panelB));
+  const turnB = String(structuredContent(panelB).turnId);
+  assert.notEqual(turnB, turnA);
+  const bootstrapB = await call("activity_snapshot", { workspaceId }, scopeB);
+  assert.equal(bootstrapB.isError, undefined, allResponseText(bootstrapB));
+  assert.equal(structuredContent(bootstrapB).turnId, turnB);
+
+  for (const [name, args] of [
+    ["activity_snapshot", { turnId: turnA }],
+    ["activity_snapshot", { turnId: turnA, workspaceId }],
+    ["activity_index", { turnId: turnA }],
+    ["activity_index", { turnId: turnA, knownRevision: structuredContent(indexA).revision }],
+    ["activity_detail", { turnId: turnA, activityId: readActivity.activityId }],
+    ["activity_output", { turnId: turnA, outputId }],
+  ] as const) {
+    const denied = await call(name, args, scopeB);
+    assert.equal(denied.isError, true, `${name} must reject a foreign Host Turn`);
+    assert.match(allResponseText(denied), /Unknown Host Turn/);
+    assert.doesNotMatch(JSON.stringify(denied), /SCOPE_A_PRIVATE_(CONTENT|BASH)/);
+  }
+
+  const snapshotA = await call("activity_snapshot", { turnId: turnA }, scopeA);
+  assert.equal(snapshotA.isError, undefined, allResponseText(snapshotA));
+  assert.equal(structuredContent(snapshotA).turnId, turnA);
+  const bootstrapA = await call("activity_snapshot", { workspaceId }, scopeA);
+  assert.equal(bootstrapA.isError, undefined, allResponseText(bootstrapA));
+  assert.equal(structuredContent(bootstrapA).turnId, turnA);
+  const indexB = await call("activity_index", { turnId: turnB }, scopeB);
+  assert.equal(indexB.isError, undefined, allResponseText(indexB));
+  assert.deepEqual(structuredContent(indexB).activities, []);
+});
 
 test("MCP App resource identities include the full public base URL list", async (t) => {
   const first = await fixture(t, {
@@ -214,10 +292,12 @@ test("activity_panel carries one lightweight Workspace presentation in metadata 
   const firstIndex = await context.client.callTool({
     name: "activity_index",
     arguments: { turnId: firstTurnId },
+    _meta: { "openai/session": conversationScopeId },
   });
   const secondIndex = await context.client.callTool({
     name: "activity_index",
     arguments: { turnId: secondTurnId },
+    _meta: { "openai/session": conversationScopeId },
   });
   assert.deepEqual(
     (structuredContent(firstIndex).activities as Array<{ workspaceId?: string }>).map((activity) => activity.workspaceId),
