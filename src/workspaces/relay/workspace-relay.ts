@@ -49,7 +49,7 @@ import type {
 
 export class RemoteWorkspaceRelay {
   private readonly routes = new Map<string, RelayedWorkspaceRoute>();
-  private readonly turnRoutes = new Map<string, string>();
+  private readonly turnRoutes = new Map<string, { workspaceId: string; conversationScopeId: string }>();
   private readonly authEnv: NodeJS.ProcessEnv;
   private readonly routeStateDir: string;
   private readonly routeStatePath: string;
@@ -384,7 +384,7 @@ export class RemoteWorkspaceRelay {
       "turnId",
       "Remote activity_panel response",
     );
-    this.turnRoutes.set(turnId, gatewayWorkspaceId);
+    this.turnRoutes.set(turnId, { workspaceId: gatewayWorkspaceId, conversationScopeId });
     return result;
   }
 
@@ -396,11 +396,17 @@ export class RemoteWorkspaceRelay {
     },
     conversationScopeId: string,
   ): Promise<ToolCallResult | undefined> {
+    const turnRoute = input.turnId ? this.turnRoutes.get(input.turnId) : undefined;
+    if (input.turnId && !turnRoute) return undefined;
+    if (turnRoute && turnRoute.conversationScopeId !== conversationScopeId) {
+      throw new Error(`Unknown Host Turn: ${input.turnId}.`);
+    }
     const gatewayWorkspaceId = input.workspaceId && this.has(input.workspaceId)
       ? input.workspaceId
-      : input.turnId
-        ? this.turnRoutes.get(input.turnId)
-        : undefined;
+      : turnRoute?.workspaceId;
+    if (turnRoute && turnRoute.workspaceId !== gatewayWorkspaceId) {
+      throw new Error(`Unknown Host Turn: ${input.turnId}.`);
+    }
     if (!gatewayWorkspaceId) return undefined;
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
@@ -416,7 +422,10 @@ export class RemoteWorkspaceRelay {
         "turnId",
         "Remote activity_snapshot response",
       );
-      this.turnRoutes.set(turnId, gatewayWorkspaceId);
+      if (input.turnId && turnId !== input.turnId) {
+        throw new Error(`Unknown Host Turn: ${input.turnId}.`);
+      }
+      this.turnRoutes.set(turnId, { workspaceId: gatewayWorkspaceId, conversationScopeId });
       return remapped;
     } catch (error) {
       throw sanitizedRemoteError(error, route.remoteWorkspaceId, gatewayWorkspaceId);
@@ -464,8 +473,12 @@ export class RemoteWorkspaceRelay {
     args: Record<string, unknown>,
     conversationScopeId: string,
   ): Promise<ToolCallResult | undefined> {
-    const gatewayWorkspaceId = this.turnRoutes.get(turnId);
-    if (!gatewayWorkspaceId) return undefined;
+    const turnRoute = this.turnRoutes.get(turnId);
+    if (!turnRoute) return undefined;
+    if (turnRoute.conversationScopeId !== conversationScopeId) {
+      throw new Error(`Unknown Host Turn: ${turnId}.`);
+    }
+    const gatewayWorkspaceId = turnRoute.workspaceId;
     const route = this.requireRoute(gatewayWorkspaceId);
     const resolved = this.remoteByInstance(route.remoteInstanceId);
     try {
@@ -525,8 +538,8 @@ export class RemoteWorkspaceRelay {
       this.routes.delete(gatewayWorkspaceId);
       await this.deletePersistedRoute(gatewayWorkspaceId);
     }
-    for (const [turnId, routedWorkspaceId] of this.turnRoutes) {
-      if (routedWorkspaceId === gatewayWorkspaceId) this.turnRoutes.delete(turnId);
+    for (const [turnId, turnRoute] of this.turnRoutes) {
+      if (turnRoute.workspaceId === gatewayWorkspaceId) this.turnRoutes.delete(turnId);
     }
 
     const actionText = action === "delete" ? "Deleted" : "Closed";

@@ -416,6 +416,7 @@ void test("gateway forwards remote Host activity queries without duplicating exe
   ] as const) {
     const denied = await call(name, args, sessionB);
     assert.equal(denied.isError, true, `relayed ${name} must reject a foreign Host Turn`);
+    assert.match(resultText(denied), /Unknown Host Turn/);
     assert.doesNotMatch(JSON.stringify(denied), /session-a-remote|REMOTE-ACTIVITY-BACKGROUND/);
   }
 
