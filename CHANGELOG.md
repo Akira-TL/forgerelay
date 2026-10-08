@@ -4,6 +4,19 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-08
+
+### Security
+
+- 现在对所有 Activity App 查询校验 Host Turn 的对话归属，阻止知道其他会话 `turnId` 的调用者通过 `activity_snapshot`、`activity_index`、`activity_detail` 或 `activity_output` 读取跨会话操作历史、命令内容及输出。
+- Workspace Relay 网关在转发 Activity 查询前验证会话与远端 Turn 的归属关系；即使远端尚未升级，也不能通过已知的跨会话 Turn 路由读取历史。为本地、Relay 和重启路径补充回归覆盖。
+
+### Fixed
+
+- 修复 Bash 进程的非交互等待轮询可能过早返回或被高频零等待查询绕过的问题；有界等待及带缓存输出的行为由确定性测试覆盖，同时保留交互输入的短等待行为。
+- Workspace Relay 现在为较长的进程等待窗口留出请求截止时间余量，并与本地进程等待共享计算规则，避免在远端等待刚到边界时请求提前超时。
+- Shell 工作流指令在 MCP server instructions 中继续保持可见；重复打开 Workspace 时强化调用 `activity_panel` 建立 Host Turn 的提醒，但不自动创建 Panel，也不改变现有显式面板生命周期。
+
 ## [1.3.1] - 2026-09-18
 
 ### Fixed
