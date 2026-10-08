@@ -521,6 +521,7 @@ test("checkout context and durable Activity queries survive a registry restart",
     ]);
 
     const restored = await callOpen(restoredClient, context.project, "chat-1");
+    const restoredScope = { "openai/session": "chat-1" };
     assert.equal(structuredContent(restored).workspaceId, firstWorkspaceId);
     assert.equal(structuredContent(restored).agentsFiles, undefined);
     assert.match(responseText(restored), /same directory previously opened/);
@@ -528,12 +529,14 @@ test("checkout context and durable Activity queries survive a registry restart",
     const restoredSnapshot = await restoredClient.callTool({
       name: "activity_snapshot",
       arguments: { turnId },
+      _meta: restoredScope,
     });
     assert.equal(restoredSnapshot.isError, undefined);
     assert.equal(structuredContent(restoredSnapshot).activities, undefined);
     const restoredIndex = await restoredClient.callTool({
       name: "activity_index",
       arguments: { turnId },
+      _meta: restoredScope,
     });
     assert.equal(restoredIndex.isError, undefined);
     const restoredActivities = structuredContent(restoredIndex).activities as Array<Record<string, unknown>>;
@@ -563,12 +566,14 @@ test("checkout context and durable Activity queries survive a registry restart",
     const restoredDetail = await restoredClient.callTool({
       name: "activity_detail",
       arguments: { turnId, activityId: restoredActivityId },
+      _meta: restoredScope,
     });
     assert.equal(restoredDetail.isError, undefined);
     assert.match(JSON.stringify(structuredContent(restoredDetail)), /restart-durable-output/);
     const restoredBulkDetail = await restoredClient.callTool({
       name: "activity_detail",
       arguments: { turnId, activityId: String(restoredBulkChildren[0]?.activityId) },
+      _meta: restoredScope,
     });
     assert.equal(restoredBulkDetail.isError, undefined);
     assert.match(JSON.stringify(structuredContent(restoredBulkDetail)), /RESTART-BULK-A/);
@@ -576,6 +581,7 @@ test("checkout context and durable Activity queries survive a registry restart",
     const restoredOutput = await restoredClient.callTool({
       name: "activity_output",
       arguments: { turnId, outputId },
+      _meta: restoredScope,
     });
     assert.equal(restoredOutput.isError, undefined);
     assert.match(String(structuredContent(restoredOutput).output), /restart-durable-output/);
@@ -583,6 +589,7 @@ test("checkout context and durable Activity queries survive a registry restart",
     const restoredBatchOutput = await restoredClient.callTool({
       name: "activity_output",
       arguments: { turnId, outputId: batchOutputId },
+      _meta: restoredScope,
     });
     assert.equal(restoredBatchOutput.isError, undefined);
     assert.match(String(structuredContent(restoredBatchOutput).output), /restart-batch-output/);

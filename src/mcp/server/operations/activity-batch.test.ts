@@ -414,6 +414,7 @@ test("Host cancellation stops queued batch tasks and creates no fake child Activ
   const snapshot = await context.client.callTool({
     name: "activity_index",
     arguments: { turnId },
+    _meta: { "openai/session": conversation },
   });
   const activities = structuredContent(snapshot).activities as Array<Record<string, unknown>>;
   assert.equal(activities.length, 2);
