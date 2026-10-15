@@ -605,7 +605,7 @@ async function handleOpenWorkspace(
             ? `Available skills: ${relayedSkills.map((skill) => String(skill.name ?? "")).filter(Boolean).join(", ")}`
             : undefined,
           relayedCapabilities.length > 0
-            ? `Optional capabilities: ${relayedCapabilities.map((entry) => String(entry.name ?? "")).filter(Boolean).join(", ")}`
+            ? `Optional capability-gateway entries: ${relayedCapabilities.map((entry) => String(entry.name ?? "")).filter(Boolean).join(", ")}`
             : undefined,
           opened.instruction,
         ].filter(Boolean).join("\n");

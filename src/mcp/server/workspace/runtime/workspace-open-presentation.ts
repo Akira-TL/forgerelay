@@ -21,7 +21,7 @@ export const workspaceTaskUsageInstruction =
   "Use workspace.tasks proactively for work that spans multiple steps or sessions: create or update Tasks to preserve useful next steps and current state, and read its summary when resuming relevant unfinished work. Do not query it mechanically on every open_workspace call.";
 
 export const capabilityDiscoveryInstruction =
-  "For capability describe/run, use only names present in capabilityCatalog. capabilityFingerprint.capabilities is a semantic feature fingerprint, not a callable registry; capabilityGuides are documentation descriptors, not callable capabilities.";
+  "Core MCP tools are separate from capabilityCatalog and capabilityFingerprint; the Host's current tools/list snapshot determines which top-level tools can be called. In toolMode=minimal or full, ForgeRelay's regular core surface is open_workspace, capability, close_workspace, read, write, edit, rename, delete, and bash. Do not infer that write, edit, or bash are unavailable merely because they are absent from capabilityCatalog or capabilityFingerprint. If an expected core tool is missing from the Host tool snapshot, treat the Host MCP metadata as stale or incomplete rather than describing ForgeRelay as read-only. For capability describe/run, use only names present in capabilityCatalog. capabilityFingerprint.capabilities is a semantic feature fingerprint, not a callable registry; capabilityGuides are documentation descriptors, not callable capabilities.";
 
 export interface LocalWorkspaceOpenPresentationOptions {
   config: ServerConfig;
@@ -207,7 +207,7 @@ export async function presentLocalWorkspaceOpen(
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
               : undefined,
             capabilityCatalog.length > 0
-              ? `Optional capabilities: ${capabilityCatalog.map((entry) => entry.name).join(", ")}`
+              ? `Optional capability-gateway entries: ${capabilityCatalog.map((entry) => entry.name).join(", ")}`
               : undefined,
             visibleCapabilityGuides.length > 0
               ? `Capability guides: ${visibleCapabilityGuides.map((guide) => guide.name).join(", ")}`
@@ -227,7 +227,7 @@ export async function presentLocalWorkspaceOpen(
             staleWorkspaces.length > 0
               ? `This Workspace has been idle for more than 2 days: ${staleWorkspaces.map((stale) => `${stale.workspaceId} last-used=${stale.lastUsedAt}`).join(", ")}. It remains available to resume or explicitly close; do not clean it up automatically.`
               : undefined,
-            `ForgeRelay ${capabilityFingerprint.version} capabilities: ${capabilityFingerprint.capabilities.join(", ")}`,
+            `ForgeRelay semantic feature fingerprint (${capabilityFingerprint.version}): ${capabilityFingerprint.capabilities.join(", ")}`,
             instruction,
             resourceUpdate?.text,
           ].filter(Boolean).join("\n"),

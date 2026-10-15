@@ -28,7 +28,7 @@ capability
 
 除了 Workspace identity，`open_workspace` 还会返回几类轻量 discovery 信息。
 
-`capabilityFingerprint` 用来描述当前 ForgeRelay package version、tool mode 和 semantic capability names。它适合判断“运行中的 Server 实际支持什么”，但它只是 semantic feature fingerprint，不是 `capability` Gateway 的可调用 registry，也不替代 Host 自己的 `tools/list`。
+`capabilityFingerprint` 用来描述当前 ForgeRelay package version、tool mode 和 semantic capability names。它只是 semantic feature fingerprint，不是 `capability` Gateway 的可调用 registry，也不替代 Host 自己的 `tools/list`。顶层 Core tool 的实际可调用性由 Host 当前的 `tools/list` snapshot 决定；`minimal` / `full` 正常应包含 `open_workspace`、`capability`、`close_workspace`、`read`、`write`、`edit`、`rename`、`delete` 和 `bash`。因此不能因为 `write`、`edit` 或 `bash` 没出现在 fingerprint / catalog 中，就把 ForgeRelay 判断成只读。
 
 `capabilityCatalog` 才是 `capability(action="describe"|"run")` 的可调用 registry，列出当前 Workspace 可用的注册 Capability，例如 `code.intelligence` 或 `workspace.tasks`。只有这里出现的 name 才能传给 `capability`。
 
@@ -48,7 +48,7 @@ Capability guides 则是按需加载的操作说明。Guide name 也是文档 de
 
 ForgeRelay 升级后，Host 可能仍缓存旧的 MCP schema。常见情况是 `open_workspace` 已经报告新的 capability fingerprint，但 ChatGPT 当前 tool snapshot 仍缺工具或参数。
 
-这时刷新或重连 MCP integration，让 Host 重新加载 `tools/list`。ForgeRelay 可以报告自己的实际版本和能力，但不能强制 Host 丢弃缓存。
+这时刷新或重连 MCP integration，让 Host 重新加载 `tools/list`。如果 `minimal` / `full` 的 Host tool snapshot 缺少预期 Core tool，应把它视为 Host MCP metadata 过期或不完整，而不是把 ForgeRelay 描述成只读。ForgeRelay 可以报告自己的实际版本和能力，但不能强制 Host 丢弃缓存。
 
 ## 项目指令
 

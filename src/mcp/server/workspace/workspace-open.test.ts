@@ -126,9 +126,18 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(firstText, /exactly once to begin the project Host Turn/);
   assert.match(firstText, /required even when the Workspace was already open or reused/);
   assert.match(firstText, /workspace\.tasks/);
+  assert.match(firstText, /Core MCP tools are separate from capabilityCatalog and capabilityFingerprint/);
+  assert.match(firstText, /Host's current tools\/list snapshot determines which top-level tools can be called/);
+  assert.match(firstText, /toolMode=minimal or full/);
+  assert.match(firstText, /open_workspace, capability, close_workspace, read, write, edit, rename, delete, and bash/);
+  assert.match(firstText, /Do not infer that write, edit, or bash are unavailable merely because they are absent from capabilityCatalog or capabilityFingerprint/);
+  assert.match(firstText, /stale or incomplete rather than describing ForgeRelay as read-only/);
   assert.match(firstText, /For capability describe\/run, use only names present in capabilityCatalog/);
   assert.match(firstText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
   assert.match(firstText, /capabilityGuides are documentation descriptors, not callable capabilities/);
+  assert.match(firstText, /Optional capability-gateway entries:/);
+  assert.match(firstText, /ForgeRelay semantic feature fingerprint \([^)]*\):/);
+  assert.doesNotMatch(firstText, /ForgeRelay [^\n]+ capabilities:/);
   assert.match(firstText, /proactively/i);
   assert.match(firstText, /do not query it mechanically on every open/i);
 
@@ -142,8 +151,11 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(repeatedText, /previously provided for this workspace/);
   assert.match(repeatedText, /capability guides/);
   assert.match(repeatedText, /workspace\.tasks/);
+  assert.match(repeatedText, /Core MCP tools are separate from capabilityCatalog and capabilityFingerprint/);
+  assert.match(repeatedText, /Do not infer that write, edit, or bash are unavailable merely because they are absent from capabilityCatalog or capabilityFingerprint/);
   assert.match(repeatedText, /For capability describe\/run, use only names present in capabilityCatalog/);
   assert.match(repeatedText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
+  assert.match(repeatedText, /ForgeRelay semantic feature fingerprint \([^)]*\):/);
   assert.match(repeatedText, /proactively/i);
   assert.match(repeatedText, /do not query it mechanically on every open/i);
   assert.match(repeatedText, /not repeated here/);

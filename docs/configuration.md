@@ -453,7 +453,12 @@ version, tool mode, and stable semantic capability names. The fingerprint also
 reports enabled optional domains such as subagent profile discovery, native
 artifact download, MCP App UI, or aggregate `review.changes` when those
 features are actually available; it remains a semantic summary rather than a
-copy of `tools/list`.
+copy of `tools/list`. Neither `capabilityFingerprint` nor `capabilityCatalog`
+is evidence that an omitted Core tool is unavailable. The Host's current
+`tools/list` snapshot is authoritative for top-level callability; in
+`minimal` and `full`, the expected regular Core surface remains
+`open_workspace`, `capability`, `close_workspace`, `read`, `write`,
+`edit`, `rename`, `delete`, and `bash`.
 
 Bootstrap responses also return `capabilityGuides`, which are compact descriptors
 for built-in ForgeRelay documentation that the Agent can explicitly load with
@@ -466,11 +471,14 @@ context.
 
 There is no separate progressive-disclosure configuration switch. Capability
 Guide discovery is built in, while optional low-frequency actions are advertised
-through the workspace Capability catalog instead of adding top-level tools. If the
-fingerprint reports a capability that is missing from the Host's current tool
-snapshot, treat that as stale Host MCP metadata: reconnect/refresh the integration
-or use a Host context that reloads `tools/list`. The ForgeRelay process cannot
-force a Host to invalidate its cached schema.
+through the workspace Capability catalog instead of adding top-level tools. If an
+expected Core tool is missing from the Host's current tool snapshot, or the
+fingerprint reports a semantic feature that the Host metadata does not reflect,
+treat that as stale or incomplete Host MCP metadata: reconnect/refresh the
+integration or use a Host context that reloads `tools/list`. Do not describe
+ForgeRelay as read-only merely because `write`, `edit`, or `bash` is absent
+from the fingerprint or Capability catalog. The ForgeRelay process cannot force
+a Host to invalidate its cached schema.
 
 ### LSP code intelligence
 
