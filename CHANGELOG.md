@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-10-15
+
+### Fixed
+
+- `open_workspace` 现在明确区分 Host 顶层 Core tool、`capabilityCatalog` 与 `capabilityFingerprint`：`minimal` / `full` 的核心工具仍由 Host 当前 `tools/list` snapshot 决定，不再允许仅因 fingerprint/catalog 未列出 `write`、`edit` 或 `bash` 就把 ForgeRelay 判断为只读；模型可见标签也改为明确的 Capability catalog 与 semantic feature fingerprint 表述。
+
 ## [1.3.2] - 2026-10-08
 
 ### Security
