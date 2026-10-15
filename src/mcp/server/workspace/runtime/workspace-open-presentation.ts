@@ -207,7 +207,7 @@ export async function presentLocalWorkspaceOpen(
               ? `Available skills: ${visibleSkills.map((skill) => skill.name).join(", ")}`
               : undefined,
             capabilityCatalog.length > 0
-              ? `Optional capability-gateway entries: ${capabilityCatalog.map((entry) => entry.name).join(", ")}`
+              ? `Capability catalog entries: ${capabilityCatalog.map((entry) => entry.name).join(", ")}`
               : undefined,
             visibleCapabilityGuides.length > 0
               ? `Capability guides: ${visibleCapabilityGuides.map((guide) => guide.name).join(", ")}`

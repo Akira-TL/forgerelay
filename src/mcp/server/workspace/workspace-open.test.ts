@@ -135,7 +135,7 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
   assert.match(firstText, /For capability describe\/run, use only names present in capabilityCatalog/);
   assert.match(firstText, /capabilityFingerprint\.capabilities is a semantic feature fingerprint, not a callable registry/);
   assert.match(firstText, /capabilityGuides are documentation descriptors, not callable capabilities/);
-  assert.match(firstText, /Optional capability-gateway entries:/);
+  assert.match(firstText, /Capability catalog entries:/);
   assert.match(firstText, /ForgeRelay semantic feature fingerprint \([^)]*\):/);
   assert.doesNotMatch(firstText, /ForgeRelay [^\n]+ capabilities:/);
   assert.match(firstText, /proactively/i);
