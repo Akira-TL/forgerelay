@@ -72,6 +72,10 @@ _Avoid_: 泛化部署权限、可变工具参数、approval grant
 用户针对一个精确受治理操作意图作出的独立授权决定。它与 Project execution trust 是不同安全边界；Project 已受信不授予生产权限，一次生产授权也不提升或改变 Project Trust。
 _Avoid_: Project Trust、工具权限、Agent approval
 
+**受治理操作执行器（Governed Operation Executor）**：
+ForgeRelay 内部把一个已冻结、已授权的受治理操作意图映射到预先配置执行后端的边界。Agent 只能选择命名操作并提供该操作声明的类型化参数，不能在执行时选择命令、可执行文件、工作目录、环境变量、External MCP server/tool 或其他后端入口。
+_Avoid_: 任意 shell、普通 `mcp.external call`、provider-specific deploy API
+
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
 _Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
