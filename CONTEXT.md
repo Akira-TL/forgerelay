@@ -64,6 +64,14 @@ _Avoid_: Plugin, extension
 一次 Hook handler 执行后返回给 Host/Agent 的结果，用于让 Agent 感知触发、通过或阻断状态。
 _Avoid_: Approval, user confirmation
 
+**受治理操作意图（Governed Operation Intent）**：
+ForgeRelay 对一次 staging / production 候选操作解析并规范化后冻结得到的不可变对象，绑定 Project 身份、目标与环境引用、操作种类、版本或制品身份以及规范化参数。Agent 可以发起候选操作，但不能修改已经冻结的操作意图，也不能批准它。
+_Avoid_: 泛化部署权限、可变工具参数、approval grant
+
+**生产授权（Production Authorization）**：
+用户针对一个精确受治理操作意图作出的独立授权决定。它与 Project execution trust 是不同安全边界；Project 已受信不授予生产权限，一次生产授权也不提升或改变 Project Trust。
+_Avoid_: Project Trust、工具权限、Agent approval
+
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
 _Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
