@@ -4,6 +4,8 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-10-29
+
 ### Added
 
 - 新增只读 `workspace.conversation-health` Capability：仅使用 ForgeRelay 可观察的 Host Turn、持久 Workspace checkpoint、Task 与 Git 状态给出 `healthy`、`checkpoint-recommended` 或 `rotation-recommended` 建议，不推测 Host token、上下文窗口利用率或模型内部状态。
