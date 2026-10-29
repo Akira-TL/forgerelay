@@ -76,6 +76,14 @@ _Avoid_: Project Trust、工具权限、Agent approval
 ForgeRelay 内部把一个已冻结、已授权的受治理操作意图映射到预先配置执行后端的边界。Agent 只能选择命名操作并提供该操作声明的类型化参数，不能在执行时选择命令、可执行文件、工作目录、环境变量、External MCP server/tool 或其他后端入口。
 _Avoid_: 任意 shell、普通 `mcp.external call`、provider-specific deploy API
 
+**受治理环境（Governed Environment）**：
+一个 Project 内稳定命名的逻辑环境边界，用于组织受治理目标和后续风险/审批策略；它不是网络地址、credential 或具体执行后端。其身份由 Project ID 与环境 key 共同确定。
+_Avoid_: Target、provider endpoint、Workspace
+
+**受治理目标（Governed Target）**：
+一个 Project 内稳定命名、且隶属于恰好一个受治理环境的逻辑执行目的地。其身份由 Project ID 与目标 key 共同确定；机器或 provider 侧实际绑定由有效配置解析得到，而不是目标身份本身。
+_Avoid_: Environment、raw URL、credential、executor
+
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
 _Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
