@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
@@ -20,6 +21,8 @@ export interface ActivityPanelApp {
         domain: string;
         csp: ActivityPanelCsp;
       };
+      "openai/widgetDomain": string;
+      "openai/widgetCSP": OpenAiWidgetCsp;
     };
   };
   toolMeta: {
@@ -28,6 +31,8 @@ export interface ActivityPanelApp {
         resourceUri: string;
         visibility: ["model", "app"];
       };
+      "openai/outputTemplate": string;
+      "openai/widgetAccessible": true;
     };
   };
   readResource(requestedUri: string, transportSessionId?: string): Promise<{
@@ -37,6 +42,8 @@ export interface ActivityPanelApp {
       text: string;
       _meta: {
         ui: { domain: string; csp: ActivityPanelCsp };
+        "openai/widgetDomain": string;
+        "openai/widgetCSP": OpenAiWidgetCsp;
         domain: string;
         csp: ActivityPanelCsp;
       };
@@ -47,6 +54,11 @@ export interface ActivityPanelApp {
 interface ActivityPanelCsp {
   resourceDomains: string[];
   connectDomains: string[];
+}
+
+interface OpenAiWidgetCsp {
+  resource_domains: string[];
+  connect_domains: string[];
 }
 
 const cachedIdentities = new Map<
@@ -67,12 +79,17 @@ export function createActivityPanelApp(
   const identity = currentIdentity(config, fallbackRevision);
   const domain = new URL(config.publicBaseUrl).origin;
   const csp = activityPanelCsp(config);
+  const openAiWidgetCsp = openAiCompatibilityCsp(csp);
 
   return {
     uri: identity.uri,
     resourceMetadata: {
       description: "ForgeRelay unified Workspace and Activity UI for one Host Turn.",
-      _meta: { ui: { domain, csp } },
+      _meta: {
+        ui: { domain, csp },
+        "openai/widgetDomain": domain,
+        "openai/widgetCSP": openAiWidgetCsp,
+      },
     },
     toolMeta: config.widgets === "off"
       ? { _meta: {} }
@@ -82,6 +99,8 @@ export function createActivityPanelApp(
               resourceUri: identity.uri,
               visibility: ["model", "app"],
             },
+            "openai/outputTemplate": identity.uri,
+            "openai/widgetAccessible": true,
           },
         },
     readResource: (requestedUri, transportSessionId) =>
@@ -141,6 +160,13 @@ function activityPanelCsp(config: ServerConfig): ActivityPanelCsp {
   };
 }
 
+function openAiCompatibilityCsp(csp: ActivityPanelCsp): OpenAiWidgetCsp {
+  return {
+    resource_domains: csp.resourceDomains,
+    connect_domains: csp.connectDomains,
+  };
+}
+
 async function readActivityPanelAppResource(
   config: ServerConfig,
   fallbackRevision: string,
@@ -151,6 +177,7 @@ async function readActivityPanelAppResource(
   const entry = readActivityPanelAppManifestEntry(uiManifestUrl());
   const domain = new URL(config.publicBaseUrl).origin;
   const csp = activityPanelCsp(config);
+  const openAiWidgetCsp = openAiCompatibilityCsp(csp);
 
   try {
     await assertMcpAppAssets(entry);
@@ -161,6 +188,10 @@ async function readActivityPanelAppResource(
         text: activityPanelAppHtml(config, entry),
         _meta: {
           ui: { domain, csp },
+          // ChatGPT compatibility aliases remain useful for older/mobile hosts
+          // that have not fully converged on the MCP Apps standard metadata.
+          "openai/widgetDomain": domain,
+          "openai/widgetCSP": openAiWidgetCsp,
           // MCP Apps defines these values under `_meta.ui`. Inspector 2.3.0
           // still reads them directly from the content-item metadata, so mirror
           // them until that installed-host compatibility gap is retired.
@@ -192,11 +223,21 @@ function activityPanelAppHtml(
 ): string {
   const baseUrl = `${config.publicBaseUrl.replace(/\/+$/, "")}/mcp-app-assets`;
   const assetUrl = (assetPath: string) => `${baseUrl}/${assetPath.replace(/^\/+/, "")}`;
-  const stylesheets = (entry.css ?? [])
-    .map((stylesheet) =>
-      `    <link rel="stylesheet" crossorigin href="${assetUrl(stylesheet)}" />`
+  const entryDirectory = entry.file.includes("/")
+    ? entry.file.slice(0, entry.file.lastIndexOf("/") + 1)
+    : "";
+
+  const styles = (entry.css ?? [])
+    .map((stylesheet) => readUiAssetText(stylesheet).replace(/<\/style/gi, "<\\/style"))
+    .join("\\n");
+
+  const script = readUiAssetText(entry.file)
+    .replace(
+      /import\((["'`])\.\/([^"'`]+)\1\)/g,
+      (_match, quote: string, relativePath: string) =>
+        `import(${quote}${assetUrl(`${entryDirectory}${relativePath}`)}${quote})`,
     )
-    .join("\n");
+    .replace(/<\/script/gi, "<\\/script");
 
   return `<!doctype html>
 <html lang="en">
@@ -204,15 +245,19 @@ function activityPanelAppHtml(
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ForgeRelay Activity Panel</title>
-    <script type="module" crossorigin src="${assetUrl(entry.file)}"></script>
-${stylesheets}
+    <style>${styles}</style>
   </head>
   <body>
     <main id="app" class="shell">
       <section class="empty">Waiting for Activity Panel state.</section>
     </main>
+    <script type="module">${script}</script>
   </body>
 </html>`;
+}
+
+function readUiAssetText(assetPath: string): string {
+  return readFileSync(new URL(`../../../dist/ui/${assetPath}`, import.meta.url), "utf8");
 }
 
 async function assertMcpAppAssets(entry: WorkspaceAppManifestEntry): Promise<void> {

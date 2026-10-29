@@ -6,7 +6,7 @@ export const ACTIVITY_PANEL_APP_MANIFEST_ENTRY = "activity-panel-app.html";
 // Host caches are keyed by the ui:// resource URI, so the revision must cover
 // both bundle assets and the HTML/resource contract that serves them. Bump this
 // whenever either side changes so a Host never reuses stale UI bytes.
-export const MCP_APP_RESOURCE_TEMPLATE_REVISION = "5";
+export const MCP_APP_RESOURCE_TEMPLATE_REVISION = "7";
 
 export interface WorkspaceAppManifestEntry {
   file: string;

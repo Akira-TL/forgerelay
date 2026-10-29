@@ -141,6 +141,8 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
       domain?: string;
       csp?: { resourceDomains?: string[]; connectDomains?: string[] };
     };
+    "openai/widgetDomain"?: string;
+    "openai/widgetCSP"?: { resource_domains?: string[]; connect_domains?: string[] };
   } | undefined;
   assert.equal(resourceMeta?.ui?.domain, "https://forge.example.com");
   assert.deepEqual(resourceMeta?.ui?.csp?.resourceDomains, [
@@ -148,6 +150,15 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
     "https://forge-alt.example.com",
   ]);
   assert.deepEqual(resourceMeta?.ui?.csp?.connectDomains, [
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
+  ]);
+  assert.equal(resourceMeta?.["openai/widgetDomain"], "https://forge.example.com");
+  assert.deepEqual(resourceMeta?.["openai/widgetCSP"]?.resource_domains, [
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
+  ]);
+  assert.deepEqual(resourceMeta?.["openai/widgetCSP"]?.connect_domains, [
     "https://forge.example.com",
     "https://forge-alt.example.com",
   ]);
@@ -160,6 +171,8 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
       domain?: string;
       csp?: { resourceDomains?: string[]; connectDomains?: string[] };
     };
+    "openai/widgetDomain"?: string;
+    "openai/widgetCSP"?: { resource_domains?: string[]; connect_domains?: string[] };
     domain?: string;
     csp?: { resourceDomains?: string[]; connectDomains?: string[] };
   } | undefined;
@@ -177,9 +190,24 @@ test("Activity Panel is the single advertised MCP App for new rendering", async 
     "https://forge.example.com",
     "https://forge-alt.example.com",
   ]);
+  assert.equal(activityContentMeta?.["openai/widgetDomain"], "https://forge.example.com");
+  assert.deepEqual(activityContentMeta?.["openai/widgetCSP"]?.resource_domains, [
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
+  ]);
+  assert.deepEqual(activityContentMeta?.["openai/widgetCSP"]?.connect_domains, [
+    "https://forge.example.com",
+    "https://forge-alt.example.com",
+  ]);
+  assert.match(activityText, /<script type="module">/);
+  assert.match(activityText, /<style>[\s\S]+<\/style>/);
+  assert.doesNotMatch(
+    activityText,
+    /<script[^>]+src="https:\/\/forge\.example\.com\/base\/path\/mcp-app-assets\/assets\/activity-panel-app-/,
+  );
   assert.match(
     activityText,
-    /https:\/\/forge\.example\.com\/base\/path\/mcp-app-assets\/assets\/activity-panel-app-[^"']+\.js/,
+    /https:\/\/forge\.example\.com\/base\/path\/mcp-app-assets\/assets\/heavy-payload-[^"'`]+\.js/,
   );
   assert.doesNotMatch(activityText, /workspace-lifecycle-app-/);
 
