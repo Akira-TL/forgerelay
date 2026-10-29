@@ -9,9 +9,13 @@ import {
   type BatchExecuteInput,
 } from "../../operations/batch/types.js";
 import {
-  workspaceCheckpointInputSchema,
-  type WorkspaceCheckpointCapabilityInput,
+  workspaceCheckpointCapabilityDefinitions,
+  type WorkspaceCheckpointCapabilityDependency,
 } from "./capabilities/workspace-checkpoint.js";
+import {
+  workspaceConversationHealthCapabilityDefinitions,
+  type WorkspaceConversationHealthCapabilityDependency,
+} from "./capabilities/workspace-conversation-health.js";
 import {
   externalMcpCapabilityDefinitions,
   type ExternalMcpCapabilityDependency,
@@ -98,6 +102,7 @@ export interface CapabilityRunOptions {
   sessionId?: string;
   batch?: boolean;
   activityId?: string;
+  conversationScopeId?: string;
 }
 
 export interface CapabilityDefinition {
@@ -261,15 +266,8 @@ export interface CapabilityRegistryDependencies {
       options: CapabilityRunOptions,
     ) => Promise<CapabilityExecution>;
   };
-  workspaceCheckpoint?: {
-    available: boolean;
-    unavailableReason?: string;
-    run: (
-      input: WorkspaceCheckpointCapabilityInput,
-      context: CapabilityContext,
-      options: CapabilityRunOptions,
-    ) => Promise<CapabilityExecution>;
-  };
+  workspaceCheckpoint?: WorkspaceCheckpointCapabilityDependency;
+  workspaceConversationHealth?: WorkspaceConversationHealthCapabilityDependency;
   subagentSession?: {
     available: boolean;
     unavailableReason?: string;
@@ -642,27 +640,14 @@ export function createCapabilityRegistry(
             ),
         } satisfies CapabilityDefinition]
       : []),
-    ...(dependencies.workspaceCheckpoint
-      ? [{
-          name: "workspace.checkpoint",
-          description: "Create, list, inspect, safely restore, or delete immutable Git-backed checkpoints owned by the current persistent Workspace.",
-          guideName: "workspace-checkpoints",
-          readGuideBeforeFirstUse: true,
-          batchPolicy: "unsupported",
-          inputSchema: workspaceCheckpointInputSchema,
-          availability: (context) => filesystemWorkspaceAvailability(
-            context,
-            dependencies.workspaceCheckpoint?.available ?? false,
-            dependencies.workspaceCheckpoint?.unavailableReason,
-          ),
-          run: async (input: unknown, context: CapabilityContext, options: CapabilityRunOptions) =>
-            dependencies.workspaceCheckpoint!.run(
-              input as WorkspaceCheckpointCapabilityInput,
-              context,
-              options,
-            ),
-        } satisfies CapabilityDefinition]
-      : []),
+    ...workspaceCheckpointCapabilityDefinitions(
+      dependencies.workspaceCheckpoint,
+      filesystemWorkspaceAvailability,
+    ),
+    ...workspaceConversationHealthCapabilityDefinitions(
+      dependencies.workspaceConversationHealth,
+      filesystemWorkspaceAvailability,
+    ),
     ...(dependencies.workspaceTasks
       ? [{
           name: "workspace.tasks",

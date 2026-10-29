@@ -136,6 +136,79 @@ test("Relay routes workspace.checkpoint ownership, restore, and cleanup to the E
   ], { cwd: remoteRepo }));
 });
 
+test("Relay preserves workspace.conversation-health semantics on the Execution ForgeRelay", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-workspace-relay-conversation-health-"));
+  const remoteRepo = join(root, "remote-repo");
+  const gatewayRoot = join(root, "gateway-root");
+  const remoteServerRoot = join(root, "remote-server");
+  const gatewayServerRoot = join(root, "gateway");
+  await setupGitRepository(remoteRepo);
+  await mkdir(gatewayRoot, { recursive: true });
+
+  const remote = await startForge(t, {
+    root: remoteServerRoot,
+    allowedRoot: remoteRepo,
+    ownerToken: "remote-conversation-health-owner-token",
+    instanceId: "forge-relay-conversation-health-remote",
+  });
+  const remoteRecord = await authenticateRemote(remote.endpoint, remote.ownerToken);
+  const gatewayConfigDir = join(gatewayServerRoot, "config");
+  await mkdir(gatewayConfigDir, { recursive: true });
+  await writeFile(join(gatewayConfigDir, "auth.json"), JSON.stringify({
+    ownerToken: "gateway-conversation-health-owner-token",
+    instanceId: "forge-relay-conversation-health-gateway",
+    remotes: { workstation: remoteRecord },
+  }, null, 2), { mode: 0o600 });
+  const client = await startGatewayClient(t, {
+    root: gatewayServerRoot,
+    allowedRoot: gatewayRoot,
+    configDir: gatewayConfigDir,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const conversation = "relay-conversation-health";
+  const opened = await client.callTool({
+    name: "open_workspace",
+    arguments: { path: remoteRepo, relay: "workstation", context: "none" },
+    _meta: { "openai/session": conversation },
+  });
+  assert.equal(opened.isError, undefined, resultText(opened));
+  const gatewayWorkspaceId = String(structured(opened).workspaceId);
+  const catalog = structured(opened).capabilityCatalog as Array<Record<string, unknown>>;
+  assert.equal(
+    catalog.some((entry) =>
+      entry.name === "workspace.conversation-health" && entry.available === true
+    ),
+    true,
+  );
+
+  for (let index = 0; index < 12; index += 1) {
+    const panel = await client.callTool({
+      name: "activity_panel",
+      arguments: { workspaceId: gatewayWorkspaceId },
+      _meta: { "openai/session": conversation },
+    });
+    assert.equal(panel.isError, undefined, resultText(panel));
+  }
+
+  const health = await client.callTool({
+    name: "capability",
+    arguments: {
+      workspaceId: gatewayWorkspaceId,
+      name: "workspace.conversation-health",
+      action: "run",
+      arguments: {},
+    },
+    _meta: { "openai/session": conversation },
+  });
+  assert.equal(health.isError, undefined, resultText(health));
+  const result = structured(health).result as Record<string, unknown>;
+  assert.equal(result.workspaceId, gatewayWorkspaceId);
+  assert.equal(result.status, "checkpoint-recommended");
+  assert.equal(result.recommendedAction, "checkpoint");
+  assert.equal((result.metrics as Record<string, unknown>).hostTurnCount, 12);
+});
+
 async function checkpointStateFiles(workspacesDir: string): Promise<string[]> {
   let entries;
   try {

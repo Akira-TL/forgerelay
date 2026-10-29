@@ -251,7 +251,7 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
   const openedStructured = structuredContent(opened);
   const catalog = openedStructured.capabilityCatalog as Array<Record<string, unknown>>;
   assert.ok(Array.isArray(catalog));
-  assert.equal(catalog.length, 6);
+  assert.equal(catalog.length, 7);
   assert.deepEqual(catalog[0], {
     name: "hooks.check",
     description: "Validate the active ForgeRelay Hook configuration for this workspace.",
@@ -286,35 +286,49 @@ test("capability gateway supports catalog, describe, guide read, direct run, and
     },
   });
   assert.deepEqual(catalog[3], {
+    name: "workspace.conversation-health",
+    description: [
+      "Inspect deterministic conversation-aging signals and bounded durable handoff metadata",
+      "for the current Workspace.",
+    ].join(" "),
+    available: true,
+    batchPolicy: "unsupported",
+    guide: {
+      name: "workspace-conversation-health",
+      path: catalog[3]?.guide && (catalog[3].guide as Record<string, unknown>).path,
+      readBeforeFirstUse: true,
+    },
+  });
+  assert.deepEqual(catalog[4], {
     name: "workspace.tasks",
     description: "Maintain persistent Task Lists owned by the current Workspace.",
     available: true,
     batchPolicy: "serial",
     guide: {
       name: "workspace-tasks",
-      path: catalog[3]?.guide && (catalog[3].guide as Record<string, unknown>).path,
+      path: catalog[4]?.guide && (catalog[4].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
-  assert.deepEqual(catalog[4], {
+  assert.deepEqual(catalog[5], {
     name: "mcp.external",
     description: "Discover and call tools from user-configured external MCP servers through the ForgeRelay Capability gateway.",
     available: true,
     batchPolicy: "unsupported",
     guide: {
       name: "external-mcp",
-      path: catalog[4]?.guide && (catalog[4].guide as Record<string, unknown>).path,
+      path: catalog[5]?.guide && (catalog[5].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
-  assert.deepEqual(catalog[5], {
+  assert.deepEqual(catalog[6], {
     name: "batch.execute",
     description: "Execute multiple independent ForgeRelay core operations in one Agent interaction.",
     available: true,
     batchPolicy: "unsupported",
     guide: {
       name: "batch-execution",
-      path: catalog[5]?.guide && (catalog[5].guide as Record<string, unknown>).path,
+      path: catalog[6]?.guide && (catalog[6].guide as Record<string, unknown>).path,
       readBeforeFirstUse: true,
     },
   });
@@ -437,6 +451,7 @@ test("review.changes capability owns checkpoints, Hook reports, and review-card 
     ["review.changes", "serial"],
     ["code.intelligence", "parallel"],
     ["workspace.checkpoint", "unsupported"],
+    ["workspace.conversation-health", "unsupported"],
     ["workspace.tasks", "serial"],
     ["mcp.external", "unsupported"],
     ["batch.execute", "unsupported"],

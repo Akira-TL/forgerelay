@@ -689,6 +689,7 @@ export function createOperationRuntime(options: CreateOperationRuntimeOptions) {
                   sessionId: context.sessionId,
                   batch: context.batch,
                   activityId: activityContext.activityId,
+                  conversationScopeId: context.conversationScopeId,
                 },
               );
               changedPaths = execution.changedPaths ?? [];

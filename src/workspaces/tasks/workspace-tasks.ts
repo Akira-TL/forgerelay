@@ -179,6 +179,12 @@ export class WorkspaceTaskStore {
     return taskHeaders(this.ensureWorkspace(workspaceId), listId);
   }
 
+  inspectHeaders(workspaceId: string): WorkspaceTaskHeaders | undefined {
+    const id = normalizeWorkspaceId(workspaceId);
+    const loaded = this.tryReadState(id);
+    return loaded ? taskHeaders(snapshot(loaded.state, loaded.fingerprint)) : undefined;
+  }
+
   readTaskDetail(workspaceId: string, listId: string, taskId: string): WorkspaceTaskDetail {
     return taskDetail(this.ensureWorkspace(workspaceId), listId, taskId);
   }

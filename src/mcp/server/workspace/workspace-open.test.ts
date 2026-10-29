@@ -89,6 +89,7 @@ test("open_workspace keeps lifecycle flags out of model output and makes repeate
       "workspace.tasks",
       "workspace.recovery",
       "workspace.checkpoint",
+      "workspace.conversation-health",
       "batch.execute",
       "mcp.external",
       "ui.mcp-app",

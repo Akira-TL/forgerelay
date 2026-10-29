@@ -67,6 +67,25 @@ export class HostTurnStore {
     return row ? rowToTurn(row) : undefined;
   }
 
+  countForConversationWorkspace(
+    conversationScopeId: string,
+    workspaceId: string,
+    after?: string,
+  ): number {
+    const row = after
+      ? this.database.sqlite.prepare(
+          `select count(*) as count
+           from activity_host_turns
+           where conversation_scope_id = ? and workspace_id = ? and created_at > ?`,
+        ).get(conversationScopeId, workspaceId, after)
+      : this.database.sqlite.prepare(
+          `select count(*) as count
+           from activity_host_turns
+           where conversation_scope_id = ? and workspace_id = ?`,
+        ).get(conversationScopeId, workspaceId);
+    return Number((row as { count?: unknown } | undefined)?.count ?? 0);
+  }
+
   deleteWorkspace(workspaceId: string): void {
     this.database.sqlite.prepare(
       "delete from activity_host_turns where workspace_id = ?",

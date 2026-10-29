@@ -85,6 +85,7 @@ test("capability fingerprint reports optional feature availability without copyi
         "workspace.tasks",
         "workspace.recovery",
         "workspace.checkpoint",
+        "workspace.conversation-health",
         "batch.execute",
         "subagent.session",
         "mcp.external",
@@ -117,6 +118,7 @@ test("capability fingerprint reports optional feature availability without copyi
     "external-mcp",
     "workspace-tasks",
     "workspace-checkpoints",
+    "workspace-conversation-health",
     "batch-execution",
   ]);
 
@@ -152,6 +154,7 @@ test("open_workspace advertises capability guides that read can load on demand",
     "external-mcp",
     "workspace-tasks",
     "workspace-checkpoints",
+    "workspace-conversation-health",
     "batch-execution",
   ]);
   assert.match(String(guides[0]?.description), /Hook/);
@@ -164,7 +167,8 @@ test("open_workspace advertises capability guides that read can load on demand",
   assert.match(String(guides[5]?.path), /capabilities\/host-integration\/external-mcp\/GUIDE\.md$/);
   assert.match(String(guides[6]?.path), /capabilities\/workspace\/workspace-tasks\/GUIDE\.md$/);
   assert.match(String(guides[7]?.path), /capabilities\/workspace\/workspace-checkpoints\/GUIDE\.md$/);
-  assert.match(String(guides[8]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
+  assert.match(String(guides[8]?.path), /capabilities\/workspace\/workspace-conversation-health\/GUIDE\.md$/);
+  assert.match(String(guides[9]?.path), /capabilities\/batch-execution\/GUIDE\.md$/);
 
   const guideExpectations = [
     [0, /BeforeTool/, /BeforeWorktreeClose/],
@@ -174,7 +178,8 @@ test("open_workspace advertises capability guides that read can load on demand",
     [5, /mcp\.external/, /servers|tools|call/],
     [6, /workspace\.tasks/, /current Workspace|当前 Workspace/],
     [7, /workspace\.checkpoint/, /ignored|忽略/i],
-    [8, /1–100 tasks|1-100 tasks/, /bash\.run/],
+    [8, /workspace\.conversation-health/, /12 Host Turns/],
+    [9, /1–100 tasks|1-100 tasks/, /bash\.run/],
   ] as const;
   for (const [index, firstPattern, secondPattern] of guideExpectations) {
     const readGuide = await context.client.callTool({

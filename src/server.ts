@@ -44,6 +44,10 @@ import { formatPathForPrompt } from "./workspaces/resources/skills.js";
 import { WorkspaceTaskReminderTracker } from "./workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "./workspaces/tasks/workspace-tasks.js";
 import { WorkspaceCheckpointStore } from "./workspaces/state/workspace-checkpoints.js";
+import { inspectConversationHealth } from "./workspaces/state/conversation-health.js";
+import {
+  createWorkspaceCheckpointCapabilityRuntime,
+} from "./mcp/server/core/capabilities/workspace-checkpoint-runtime.js";
 import {
   compactCompositeWorkspacePresentation, compactRelayedWorkspacePresentation,
   compactWorkspacePresentation,
@@ -232,37 +236,27 @@ export function createMcpServer(
         value: await workspaces.runManagedWorktreeRecovery(context.workspaceId, input.operation),
       }),
     },
-    workspaceCheckpoint: {
+    workspaceCheckpoint: createWorkspaceCheckpointCapabilityRuntime(workspaceCheckpoints),
+    workspaceConversationHealth: {
       available: true,
-      run: async (input, context) => {
-        const root = requireCapabilityWorkspaceRoot(context);
-        switch (input.operation) {
-          case "create":
-            return {
-              value: {
-                workspaceId: context.workspaceId,
-                checkpoint: await workspaceCheckpoints.create(context.workspaceId, root, input.name),
-                ignoredFilesIncluded: false,
-              },
-            };
-          case "list":
-            return { value: await workspaceCheckpoints.list(context.workspaceId, root, input) };
-          case "inspect":
-            return { value: await workspaceCheckpoints.inspect(context.workspaceId, root, input.checkpointId) };
-          case "restore.preflight":
-            return { value: await workspaceCheckpoints.preflightRestore(context.workspaceId, root, input.checkpointId) };
-          case "restore":
-            return {
-              value: await workspaceCheckpoints.restore(
-                context.workspaceId,
-                root,
-                input.checkpointId,
-                input.expectedCurrentSnapshot,
-              ),
-            };
-          case "delete":
-            return { value: await workspaceCheckpoints.delete(context.workspaceId, root, input.checkpointId) };
+      run: async (context, runOptions) => {
+        const conversationScopeId = runOptions.conversationScopeId;
+        if (!conversationScopeId) {
+          throw new CapabilityError(
+            "capability_unavailable",
+            "workspace.conversation-health requires a resolved Host conversation scope.",
+          );
         }
+        return {
+          value: await inspectConversationHealth(
+            { activityQueries, workspaceTasks, workspaceCheckpoints },
+            {
+              workspaceId: context.workspaceId,
+              workspaceRoot: requireCapabilityWorkspaceRoot(context),
+              conversationScopeId,
+            },
+          ),
+        };
       },
     },
     workspaceTasks: {

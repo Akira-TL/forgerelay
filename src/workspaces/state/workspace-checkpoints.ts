@@ -171,6 +171,23 @@ export class WorkspaceCheckpointStore {
     };
   }
 
+  async latest(
+    workspaceId: string,
+    workspaceRoot: string,
+  ): Promise<{ workspaceId: string; checkpoint?: WorkspaceCheckpoint; ignoredFilesIncluded: false }> {
+    const id = normalizeWorkspaceId(workspaceId);
+    const repository = await resolveRepository(workspaceRoot);
+    const state = this.tryReadState(id);
+    if (state) await assertSameRepository(state.gitCommonDir, repository.gitCommonDir, id);
+    const checkpoint = state?.checkpoints.at(-1);
+    if (checkpoint) await assertCheckpointRef(state!.gitCommonDir, id, checkpoint);
+    return {
+      workspaceId: id,
+      ...(checkpoint ? { checkpoint: cloneCheckpoint(checkpoint) } : {}),
+      ignoredFilesIncluded: false,
+    };
+  }
+
   async inspect(
     workspaceId: string,
     workspaceRoot: string,

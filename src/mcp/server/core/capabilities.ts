@@ -98,6 +98,12 @@ const CAPABILITY_GUIDE_DEFINITIONS: readonly CapabilityGuideDefinition[] = [
     whenToRead: "Read before creating, listing, inspecting, or deleting Workspace checkpoints.",
   },
   {
+    name: "workspace-conversation-health",
+    directory: "workspace/workspace-conversation-health",
+    description: "Deterministic Host conversation aging guidance and bounded durable handoff metadata.",
+    whenToRead: "Read before using workspace.conversation-health for checkpoint or conversation-rotation guidance.",
+  },
+  {
     name: "batch-execution",
     description: "One-call execution of multiple independent ForgeRelay core operations.",
     whenToRead: "Read before using batch.execute for heterogeneous multi-operation work.",
@@ -164,6 +170,7 @@ export function buildCapabilityFingerprint(
     "workspace.tasks",
     "workspace.recovery",
     "workspace.checkpoint",
+    "workspace.conversation-health",
   ];
 
   if (config.toolMode !== "codex") {
