@@ -81,15 +81,11 @@ export async function inspectConversationHealth(
         latestCheckpoint.createdAt,
       )
     : hostTurnCount;
-  const checkpointRecent = Boolean(
-    latestCheckpoint
-    && turnsSinceLatestCheckpoint <= CONVERSATION_HEALTH_POLICY.checkpointFreshTurnWindow,
-  );
-  const policyDecision = decideConversationHealth({
+  const policyDecision = evaluateConversationHealth({
     hostTurnCount,
+    turnsSinceLatestCheckpoint,
     checkpointAvailable: Boolean(gitState),
     checkpointPresent: Boolean(latestCheckpoint),
-    checkpointRecent,
   });
   const taskHeaders = dependencies.workspaceTasks.inspectHeaders(input.workspaceId);
 
@@ -122,12 +118,16 @@ export async function inspectConversationHealth(
   };
 }
 
-function decideConversationHealth(input: {
+export function evaluateConversationHealth(input: {
   hostTurnCount: number;
+  turnsSinceLatestCheckpoint: number;
   checkpointAvailable: boolean;
   checkpointPresent: boolean;
-  checkpointRecent: boolean;
 }): Pick<ConversationHealthResult, "status" | "reasons" | "recommendedAction"> {
+  const checkpointRecent = input.checkpointPresent
+    && input.turnsSinceLatestCheckpoint
+      <= CONVERSATION_HEALTH_POLICY.checkpointFreshTurnWindow;
+
   if (input.hostTurnCount >= CONVERSATION_HEALTH_POLICY.rotationTurnThreshold) {
     if (!input.checkpointAvailable) {
       return {
@@ -143,16 +143,16 @@ function decideConversationHealth(input: {
       status: "rotation-recommended",
       reasons: [
         "host_turn_count_rotation_threshold",
-        input.checkpointRecent ? "checkpoint_recent" : "checkpoint_stale",
+        checkpointRecent ? "checkpoint_recent" : "checkpoint_stale",
       ],
-      recommendedAction: input.checkpointRecent ? "rotate" : "checkpoint-and-rotate",
+      recommendedAction: checkpointRecent ? "rotate" : "checkpoint-and-rotate",
     };
   }
 
   if (
     input.checkpointAvailable
     && input.hostTurnCount >= CONVERSATION_HEALTH_POLICY.checkpointTurnThreshold
-    && !input.checkpointRecent
+    && !checkpointRecent
   ) {
     return {
       status: "checkpoint-recommended",
@@ -166,8 +166,30 @@ function decideConversationHealth(input: {
 
   return {
     status: "healthy",
-    reasons: input.checkpointRecent ? ["checkpoint_recent"] : [],
+    reasons: checkpointRecent ? ["checkpoint_recent"] : [],
     recommendedAction: "continue",
+  };
+}
+
+export function rebaseConversationHealthAge(
+  result: ConversationHealthResult,
+  input: {
+    hostTurnCount: number;
+    turnsSinceLatestCheckpoint: number;
+  },
+): ConversationHealthResult {
+  return {
+    ...result,
+    ...evaluateConversationHealth({
+      ...input,
+      checkpointAvailable: result.git !== undefined,
+      checkpointPresent: result.latestCheckpoint !== undefined,
+    }),
+    policy: CONVERSATION_HEALTH_POLICY,
+    metrics: {
+      hostTurnCount: input.hostTurnCount,
+      turnsSinceLatestCheckpoint: input.turnsSinceLatestCheckpoint,
+    },
   };
 }
 

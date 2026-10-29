@@ -20,6 +20,7 @@ import { RemoteWorkspaceRelay } from "../../../../workspaces/relay/workspace-rel
 import { WorkspaceTaskReminderTracker } from "../../../../workspaces/tasks/workspace-task-reminders.js";
 import { WorkspaceTaskStore } from "../../../../workspaces/tasks/workspace-tasks.js";
 import { WorkspaceCheckpointStore } from "../../../../workspaces/state/workspace-checkpoints.js";
+import { rebaseRemoteCompositeConversationHealth } from "./conversation-health-relay.js";
 import { formatAgentsPath, WorkspaceRegistry } from "../../../../workspaces.js";
 import type { ProcessExecutionTarget } from "../../../process/tools.js";
 import {
@@ -41,14 +42,12 @@ import {
   toolResultIsError,
   workspaceLogContext,
 } from "../../core/tool-support.js";
-
 const WRITE_TOOL_ANNOTATIONS = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: false,
 };
-
 export interface RegisterWorkspaceAuxiliaryToolsOptions {
   server: McpServer;
   config: ServerConfig;
@@ -75,7 +74,6 @@ export interface RegisterWorkspaceAuxiliaryToolsOptions {
   presentExecutionResult: <T>(result: T, target: ProcessExecutionTarget) => T;
   presentSemanticWorkResult: <T>(result: T, target: ProcessExecutionTarget, conversationScopeId?: string) => T;
 }
-
 export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxiliaryToolsOptions): void {
   const {
     server, config, workspaces, remoteWorkspaces, compositeWorkspaces, compositeTaskGuides, capabilityRegistry,
@@ -271,12 +269,24 @@ export function registerWorkspaceAuxiliaryTools(options: RegisterWorkspaceAuxili
       const executionWorkspaceId = target.executionWorkspaceId;
       const executionContext = await prepareExecutionContext(target, requestContext);
       if (remoteWorkspaces.has(executionWorkspaceId)) {
-        const response = await remoteWorkspaces.capability(executionWorkspaceId, {
+        let response = await remoteWorkspaces.capability(executionWorkspaceId, {
           name,
           action,
           ...(capabilityArguments !== undefined ? { arguments: capabilityArguments } : {}),
           ...(file !== undefined ? { file } : {}),
         }, hostScopeIdFor(requestContext));
+        if (
+          action === "run"
+          && name === "workspace.conversation-health"
+          && target.compositeWorkspaceId
+        ) {
+          response = rebaseRemoteCompositeConversationHealth(
+            response,
+            target.compositeWorkspaceId,
+            hostScopeIdFor(requestContext),
+            activityQueries,
+          );
+        }
         return action === "run" && name !== "workspace.tasks"
           ? presentSemanticWorkResult(response, target, hostScopeIdFor(requestContext))
           : presentExecutionResult(response, target);
