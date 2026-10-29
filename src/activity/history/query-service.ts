@@ -105,6 +105,10 @@ export class ActivityQueryService {
     return this.turns.countForConversationWorkspace(conversationScopeId, workspaceId, after);
   }
 
+  turnWorkspaceId(turnId: string): string | undefined {
+    return this.turns.get(turnId)?.workspaceId;
+  }
+
   state(turnId: string, knownRevision?: number): HostTurnState {
     this.requireTurn(turnId);
     const aggregate = this.audit.turnState(turnId);

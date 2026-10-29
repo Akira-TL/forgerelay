@@ -102,6 +102,7 @@ export interface CapabilityRunOptions {
   sessionId?: string;
   batch?: boolean;
   activityId?: string;
+  turnId?: string;
   conversationScopeId?: string;
 }
 

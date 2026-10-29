@@ -254,6 +254,9 @@ export function createMcpServer(
               workspaceId: context.workspaceId,
               workspaceRoot: requireCapabilityWorkspaceRoot(context),
               conversationScopeId,
+              conversationWorkspaceId: runOptions.turnId
+                ? activityQueries.turnWorkspaceId(runOptions.turnId) ?? context.workspaceId
+                : context.workspaceId,
             },
           ),
         };

@@ -101,15 +101,36 @@ test("workspace.conversation-health guides checkpoint and rotation across Host c
     0,
   );
 
-  await beginHostTurns(context.client, workspaceId, conversationA, 11);
+  await beginHostTurns(context.client, workspaceId, conversationA, 8);
+  const freshWindowBoundary = await healthCall(context.client, workspaceId, conversationA);
+  assert.equal(freshWindowBoundary.status, "healthy");
+  assert.equal(freshWindowBoundary.recommendedAction, "continue");
+  assert.equal((freshWindowBoundary.metrics as Record<string, unknown>).hostTurnCount, 20);
+  assert.equal(
+    (freshWindowBoundary.metrics as Record<string, unknown>).turnsSinceLatestCheckpoint,
+    8,
+  );
+  assert.deepEqual(freshWindowBoundary.reasons, ["checkpoint_recent"]);
+
+  await beginHostTurns(context.client, workspaceId, conversationA, 1);
+  const staleWindowBoundary = await healthCall(context.client, workspaceId, conversationA);
+  assert.equal(staleWindowBoundary.status, "checkpoint-recommended");
+  assert.equal(staleWindowBoundary.recommendedAction, "checkpoint");
+  assert.equal((staleWindowBoundary.metrics as Record<string, unknown>).hostTurnCount, 21);
+  assert.equal(
+    (staleWindowBoundary.metrics as Record<string, unknown>).turnsSinceLatestCheckpoint,
+    9,
+  );
+  assert.deepEqual(staleWindowBoundary.reasons, [
+    "host_turn_count_checkpoint_threshold",
+    "checkpoint_stale",
+  ]);
+
+  await beginHostTurns(context.client, workspaceId, conversationA, 2);
   const beforeRotation = await healthCall(context.client, workspaceId, conversationA);
   assert.equal(beforeRotation.status, "checkpoint-recommended");
   assert.equal(beforeRotation.recommendedAction, "checkpoint");
   assert.equal((beforeRotation.metrics as Record<string, unknown>).hostTurnCount, 23);
-  assert.deepEqual(beforeRotation.reasons, [
-    "host_turn_count_checkpoint_threshold",
-    "checkpoint_stale",
-  ]);
 
   await beginHostTurns(context.client, workspaceId, conversationA, 1);
   const rotationNeedsCheckpoint = await healthCall(context.client, workspaceId, conversationA);
@@ -217,6 +238,13 @@ test("Composite workspace.conversation-health requires and scopes through an exp
   assert.equal(withoutMember.isError, true);
   assert.match(allResponseText(withoutMember), /requires member/i);
 
+  await beginHostTurns(
+    context.client,
+    compositeId,
+    "conversation-health-composite",
+    12,
+  );
+
   const memberHealth = await context.client.callTool({
     name: "capability",
     arguments: {
@@ -231,7 +259,9 @@ test("Composite workspace.conversation-health requires and scopes through an exp
   assert.equal(memberHealth.isError, undefined, allResponseText(memberHealth));
   const result = structuredContent(memberHealth).result as Record<string, unknown>;
   assert.equal(result.workspaceId, compositeId);
-  assert.equal(result.status, "healthy");
+  assert.equal(result.status, "checkpoint-recommended");
+  assert.equal(result.recommendedAction, "checkpoint");
+  assert.equal((result.metrics as Record<string, unknown>).hostTurnCount, 12);
   assert.match(String((result.git as Record<string, unknown>).head), /^[a-f0-9]{40,64}$/);
 });
 

@@ -59,11 +59,13 @@ export async function inspectConversationHealth(
     workspaceId: string;
     workspaceRoot: string;
     conversationScopeId: string;
+    conversationWorkspaceId?: string;
   },
 ): Promise<ConversationHealthResult> {
+  const conversationWorkspaceId = input.conversationWorkspaceId ?? input.workspaceId;
   const hostTurnCount = dependencies.activityQueries.countTurns(
     input.conversationScopeId,
-    input.workspaceId,
+    conversationWorkspaceId,
   );
   const gitState = await inspectGitState(input.workspaceRoot);
   const latestCheckpoint = gitState
@@ -75,13 +77,13 @@ export async function inspectConversationHealth(
   const turnsSinceLatestCheckpoint = latestCheckpoint
     ? dependencies.activityQueries.countTurns(
         input.conversationScopeId,
-        input.workspaceId,
+        conversationWorkspaceId,
         latestCheckpoint.createdAt,
       )
     : hostTurnCount;
   const checkpointRecent = Boolean(
     latestCheckpoint
-    && turnsSinceLatestCheckpoint < CONVERSATION_HEALTH_POLICY.checkpointFreshTurnWindow,
+    && turnsSinceLatestCheckpoint <= CONVERSATION_HEALTH_POLICY.checkpointFreshTurnWindow,
   );
   const policyDecision = decideConversationHealth({
     hostTurnCount,
