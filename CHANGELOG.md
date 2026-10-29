@@ -4,6 +4,11 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- 新增只读 `workspace.conversation-health` Capability：仅使用 ForgeRelay 可观察的 Host Turn、持久 Workspace checkpoint、Task 与 Git 状态给出 `healthy`、`checkpoint-recommended` 或 `rotation-recommended` 建议，不推测 Host token、上下文窗口利用率或模型内部状态。
+- 默认策略在当前对话作用域与 Workspace 累积 12 个 Host Turn 时建议建立 checkpoint，在 24 个 Host Turn 时建议轮换到新对话；checkpoint 创建后的 8 个 Host Turn 内视为近期恢复边界。交接信息保持有界，只包含未完成 Task 头部、最新 checkpoint 元数据和 Git 摘要；Relay 与 Composite 显式 member 路径保持同样语义。
+
 ## [1.3.3] - 2026-10-15
 
 ### Fixed
