@@ -69,8 +69,8 @@ ForgeRelay 对一次 staging / production 候选操作解析并规范化后冻�
 _Avoid_: 泛化部署权限、可变工具参数、approval grant
 
 **生产授权（Production Authorization）**：
-用户针对一个精确受治理操作意图作出的独立授权决定。它与 Project execution trust 是不同安全边界；Project 已受信不授予生产权限，一次生产授权也不提升或改变 Project Trust。
-_Avoid_: Project Trust、工具权限、Agent approval
+仅在受治理风险策略要求人工确认时，由用户针对一个精确受治理操作意图作出的独立授权决定。它与 Project execution trust 是不同安全边界；Project 已受信不授予生产权限，一次生产授权也不提升或改变 Project Trust。
+_Avoid_: Project Trust、工具权限、Agent approval、所有 production 操作的固定前置步骤
 
 **受治理操作执行器（Governed Operation Executor）**：
 ForgeRelay 内部把一个已冻结、已授权的受治理操作意图映射到预先配置执行后端的边界。Agent 只能选择命名操作并提供该操作声明的类型化参数，不能在执行时选择命令、可执行文件、工作目录、环境变量、External MCP server/tool 或其他后端入口。
@@ -83,6 +83,10 @@ _Avoid_: Target、provider endpoint、Workspace
 **受治理目标（Governed Target）**：
 一个 Project 内稳定命名、且隶属于恰好一个受治理环境的逻辑执行目的地。其身份由 Project ID 与目标 key 共同确定；机器或 provider 侧实际绑定由有效配置解析得到，而不是目标身份本身。
 _Avoid_: Environment、raw URL、credential、executor
+
+**受治理风险策略（Governed Risk Policy）**：
+Execution ForgeRelay 在操作意图冻结后、执行前应用的 operator-owned policy，直接决定该 Intent 是可自动执行、需要人工生产授权，还是拒绝执行。Project shared config 可以定义操作能力，但不能把 operator policy 从需要确认或拒绝降级成自动执行。
+_Avoid_: 固定 production prompt、Agent 自评风险、通用 low/medium/high 标签
 
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
