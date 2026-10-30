@@ -92,6 +92,10 @@ _Avoid_: 固定 production prompt、Agent 自评风险、通用 low/medium/high 
 仅在风险策略要求人工生产授权时由 ForgeRelay 返回的 MCP App Review UI。它展示冻结后的安全 Intent 投影，并通过仅 UI 可见的服务端工具提交批准或拒绝；没有可用审批界面的 Host 必须 fail closed，不能退化成 Agent 自批或普通文本确认。
 _Avoid_: ChatGPT 原生 tool approval、Activity Panel 提醒、独立授权 token
 
+**受治理执行尝试（Governed Execution Attempt）**：
+ForgeRelay 为一个冻结后的受治理操作意图创建的服务端执行记录。副作用提交前可以安全重试 preflight；一旦进入 ForgeRelay 无法证明“尚未产生副作用”的边界，同一 Intent 不得再启动第二次执行，崩溃或断联后的未知结果记为 uncertain 而不是自动重放。
+_Avoid_: shell process session、Agent retry loop、authorization grant
+
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
 _Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
