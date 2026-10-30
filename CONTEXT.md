@@ -88,6 +88,10 @@ _Avoid_: Environment、raw URL、credential、executor
 Execution ForgeRelay 在操作意图冻结后、执行前应用的 operator-owned policy，直接决定该 Intent 是可自动执行、需要人工生产授权，还是拒绝执行。Project shared config 可以定义操作能力，但不能把 operator policy 从需要确认或拒绝降级成自动执行。
 _Avoid_: 固定 production prompt、Agent 自评风险、通用 low/medium/high 标签
 
+**受治理审批界面（Governed Approval Surface）**：
+仅在风险策略要求人工生产授权时由 ForgeRelay 返回的 MCP App Review UI。它展示冻结后的安全 Intent 投影，并通过仅 UI 可见的服务端工具提交批准或拒绝；没有可用审批界面的 Host 必须 fail closed，不能退化成 Agent 自批或普通文本确认。
+_Avoid_: ChatGPT 原生 tool approval、Activity Panel 提醒、独立授权 token
+
 **Transform Hook**：
 一种使用显式 versioned structured stdin/stdout contract、只修改当前调用数据的 Hook handler。当前仅用于已配置 `mcp.external` 的 request arguments 或 returned MCP result；它不能改写已选择的 server/tool，也不会把 Hook command 自身的文件或网络访问解释为 ForgeRelay 自动权限。
 _Avoid_: Automatic dereference, plugin adapter, arbitrary Hook stdout rewrite
