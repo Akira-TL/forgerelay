@@ -114,15 +114,9 @@ https://forge.example.com/forgerelay/main/mcp
 
 Host 第一次连接时，ForgeRelay 会显示 Owner-password OAuth 授权页面。输入 `forgerelay init` 生成的 Owner password 批准客户端。
 
-默认 OAuth redirect host 包括：
+默认 OAuth 动态客户端注册允许任意 HTTPS redirect URI，以及 localhost / 127.0.0.1 / ::1 的 HTTP 或 HTTPS loopback redirect。ForgeRelay 会为成功注册的客户端签发自己的 `forgerelay-<uuid>` `client_id`，并在后续授权请求中要求 redirect URI 与注册值匹配。
 
-```text
-chatgpt.com
-localhost
-127.0.0.1
-```
-
-其他 MCP Host 可以通过配置扩展 redirect host allowlist。
+`chatgpt.com`、`oauth-redirect.googleusercontent.com` 等域名是 redirect host，不是可直接填写的 `client_id`。需要限制允许注册的公网回调域名时，可通过 `FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS` 设置显式 allowlist；非空 allowlist 会收紧默认的“任意 HTTPS”策略。
 
 ## 7. 运行自检
 

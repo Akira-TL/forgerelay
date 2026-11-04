@@ -165,19 +165,15 @@ FORGERELAY_ALLOWED_HOSTS="*" forgerelay serve
 
 ## OAuth redirect host rejected
 
-默认 redirect hosts：
+默认情况下，动态客户端注册接受任意 HTTPS redirect URI，并接受 localhost / 127.0.0.1 / ::1 的 HTTP 或 HTTPS loopback redirect。非 loopback 的明文 HTTP 与自定义 scheme 会被拒绝。
 
-```text
-chatgpt.com
-localhost
-127.0.0.1
-```
-
-其他 MCP client 可以扩展 allowlist：
+如果需要只允许特定公网回调域名，可以显式收紧：
 
 ```bash
-FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,example.com" forgerelay serve
+FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS="chatgpt.com,oauth-redirect.googleusercontent.com" forgerelay serve
 ```
+
+该变量是 redirect host allowlist，不是 OAuth `client_id` 列表。正常 DCR 流程会由 ForgeRelay 的 `/register` 端点签发 `forgerelay-<uuid>` `client_id`；把 `chatgpt.com`、`gemini` 等平台名称手动填成 `client_id` 会得到 `invalid_client`。
 
 ## Owner password 不接受
 

@@ -317,11 +317,7 @@ assert.throws(
 
 assert.equal(loadConfig(baseEnv).oauth.ownerToken, "test-owner-token-that-is-long-enough");
 assert.deepEqual(loadConfig(baseEnv).oauth.scopes, ["forgerelay"]);
-assert.deepEqual(loadConfig(baseEnv).oauth.allowedRedirectHosts, [
-  "chatgpt.com",
-  "localhost",
-  "127.0.0.1",
-]);
+assert.deepEqual(loadConfig(baseEnv).oauth.allowedRedirectHosts, []);
 assert.equal(loadConfig(baseEnv).oauth.accessTokenTtlSeconds, 3600);
 assert.equal(loadConfig(baseEnv).oauth.refreshTokenTtlSeconds, 2592000);
 

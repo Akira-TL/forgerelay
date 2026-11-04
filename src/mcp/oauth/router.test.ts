@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
 import test from "node:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import express, { type Response } from "express";
 import type { AddressInfo } from "node:net";
 import type { OAuthServerProvider } from "./auth-protocol.js";
+import { SingleUserOAuthProvider } from "./oauth-provider.js";
 import { createForgeRelayAuthRouter } from "./router.js";
 import {
   oauthAuthorizationServerMetadataPath,
@@ -95,6 +99,57 @@ test("OAuth metadata preserves an instance path prefix", async (t) => {
   assert.deepEqual(resourceMetadata.authorization_servers, ["https://babelbeast.com/forgerelay/debug"]);
 });
 
+test("OAuth DCR accepts Gemini-compatible HTTPS callbacks by default", async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), "forgerelay-oauth-router-dcr-"));
+  t.after(() => rm(stateDir, { recursive: true, force: true }));
+  const issuerUrl = new URL("https://babelbeast.com/forgerelay/main");
+  const resourceServerUrl = publicEndpointUrl(issuerUrl, "mcp");
+  const provider = new SingleUserOAuthProvider({
+    ownerToken: "test-owner-token-that-is-long-enough",
+    accessTokenTtlSeconds: 3600,
+    refreshTokenTtlSeconds: 2592000,
+    scopes: ["forgerelay"],
+    allowedRedirectHosts: [],
+  }, resourceServerUrl, stateDir);
+  t.after(() => provider.close());
+
+  const app = express();
+  app.use(createForgeRelayAuthRouter({
+    provider,
+    issuerUrl,
+    resourceServerUrl,
+    scopesSupported: ["forgerelay"],
+  }));
+
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+
+  const callbackUrl =
+    "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example";
+  const response = await fetch(
+    `http://127.0.0.1:${port}/forgerelay/main/register`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Gemini",
+        redirect_uris: [callbackUrl],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+      }),
+    },
+  );
+  if (response.status !== 201) {
+    assert.fail(`DCR registration failed: ${response.status} ${await response.text()}`);
+  }
+  const registered = await response.json() as Record<string, unknown>;
+  assert.match(String(registered.client_id), /^forgerelay-[0-9a-f-]+$/i);
+  assert.deepEqual(registered.redirect_uris, [callbackUrl]);
+});
+
 test("OAuth authorization callback includes the advertised issuer", async (t) => {
   const callbackUrl = "https://chatgpt.com/connector_platform_oauth_redirect";
   const provider = {
@@ -145,6 +200,69 @@ test("OAuth authorization callback includes the advertised issuer", async (t) =>
   assert.equal(location.searchParams.get("iss"), issuerUrl.href);
 });
 
+
+test("OAuth authorization rejects unknown clients and unregistered redirect URIs", async (t) => {
+  const registeredCallback = "https://oauth-redirect.googleusercontent.com/r/registered-client";
+  const provider = {
+    clientsStore: {
+      getClient: async (clientId: string) => clientId === "registered-client"
+        ? {
+            client_id: "registered-client",
+            client_id_issued_at: 1,
+            redirect_uris: [registeredCallback],
+            token_endpoint_auth_method: "none",
+            grant_types: ["authorization_code"],
+            response_types: ["code"],
+          }
+        : undefined,
+    },
+    authorize: async () => {
+      throw new Error("authorize should not run for invalid client metadata");
+    },
+  } as unknown as OAuthServerProvider;
+  const issuerUrl = new URL("https://babelbeast.com/forgerelay/main");
+  const app = express();
+  app.use(createForgeRelayAuthRouter({
+    provider,
+    issuerUrl,
+    resourceServerUrl: publicEndpointUrl(issuerUrl, "mcp"),
+    scopesSupported: ["forgerelay"],
+  }));
+
+  const server = app.listen(0, "127.0.0.1");
+  t.after(() => server.close());
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  const baseAuthorizeUrl = new URL(
+    `http://127.0.0.1:${port}/forgerelay/main/authorize`,
+  );
+  baseAuthorizeUrl.searchParams.set("response_type", "code");
+  baseAuthorizeUrl.searchParams.set("code_challenge", "test-challenge");
+  baseAuthorizeUrl.searchParams.set("code_challenge_method", "S256");
+
+  const unknownClientUrl = new URL(baseAuthorizeUrl);
+  unknownClientUrl.searchParams.set("client_id", "chatgpt.com");
+  unknownClientUrl.searchParams.set("redirect_uri", registeredCallback);
+  const unknownClient = await fetch(unknownClientUrl);
+  assert.equal(unknownClient.status, 400);
+  assert.deepEqual(await unknownClient.json(), {
+    error: "invalid_client",
+    error_description: "Invalid client_id",
+  });
+
+  const unregisteredRedirectUrl = new URL(baseAuthorizeUrl);
+  unregisteredRedirectUrl.searchParams.set("client_id", "registered-client");
+  unregisteredRedirectUrl.searchParams.set(
+    "redirect_uri",
+    "https://oauth-redirect.googleusercontent.com/r/different-client",
+  );
+  const unregisteredRedirect = await fetch(unregisteredRedirectUrl);
+  assert.equal(unregisteredRedirect.status, 400);
+  assert.deepEqual(await unregisteredRedirect.json(), {
+    error: "invalid_request",
+    error_description: "Unregistered redirect_uri",
+  });
+});
 
 test("CLI authentication route issues and refreshes tokens without OAuth browser flow", async (t) => {
   const provider = {

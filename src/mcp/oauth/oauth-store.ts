@@ -34,7 +34,8 @@ function redirectHostAllowed(redirectUri: string, allowedHosts: string[]): boole
 
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
   if (loopback) return parsed.protocol === "http:" || parsed.protocol === "https:";
-  return parsed.protocol === "https:" && allowedHosts.includes(parsed.hostname);
+  if (parsed.protocol !== "https:") return false;
+  return allowedHosts.length === 0 || allowedHosts.includes(parsed.hostname);
 }
 
 export class SqliteOAuthStore {

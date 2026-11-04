@@ -24,7 +24,8 @@ try {
   testPersistenceAndTokenHashing(join(root, "persistence"));
   testExpiredTokenCleanup(join(root, "expiration"));
   testTransactionalTokenRotation(join(root, "rotation"));
-  testRedirectUriSchemeValidation(join(root, "redirect-validation"));
+  testDefaultRedirectUriPolicy(join(root, "redirect-default-policy"));
+  testExplicitRedirectHostRestriction(join(root, "redirect-explicit-policy"));
   await testProviderPrunesExpiredAuthorizationCodes(join(root, "authorization-code-pruning"));
   await testProviderRestartRotationAndRevocation(join(root, "provider"));
   await testCliTokenIssueAndRefresh(join(root, "cli-provider"));
@@ -202,21 +203,47 @@ function testTransactionalTokenRotation(stateDir: string): void {
   }
 }
 
-function testRedirectUriSchemeValidation(stateDir: string): void {
+function testDefaultRedirectUriPolicy(stateDir: string): void {
   const store = new SqliteOAuthStore(stateDir);
-  const clients = new SqliteOAuthClientsStore(store, oauthConfig.allowedRedirectHosts);
+  const clients = new SqliteOAuthClientsStore(store, []);
   try {
+    assert.ok(clients.registerClient({
+      redirect_uris: [
+        "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example",
+      ],
+      client_name: "Gemini",
+    }));
+    assert.ok(clients.registerClient({ redirect_uris: ["https://mcp.example.net/oauth/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["http://127.0.0.1:3456/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["http://localhost:3456/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["https://localhost/callback"] }));
     assert.throws(
-      () => clients.registerClient({ redirect_uris: ["http://chatgpt.com/callback"] }),
+      () => clients.registerClient({ redirect_uris: ["http://mcp.example.net/callback"] }),
       /redirect_uri is not allowed/i,
     );
     assert.throws(
-      () => clients.registerClient({ redirect_uris: ["custom://chatgpt.com/callback"] }),
+      () => clients.registerClient({ redirect_uris: ["custom://mcp.example.net/callback"] }),
       /redirect_uri is not allowed/i,
     );
+  } finally {
+    store.close();
+  }
+}
+
+function testExplicitRedirectHostRestriction(stateDir: string): void {
+  const store = new SqliteOAuthStore(stateDir);
+  const clients = new SqliteOAuthClientsStore(store, ["chatgpt.com"]);
+  try {
     assert.ok(clients.registerClient({ redirect_uris: ["https://chatgpt.com/callback"] }));
     assert.ok(clients.registerClient({ redirect_uris: ["http://127.0.0.1:3456/callback"] }));
-    assert.ok(clients.registerClient({ redirect_uris: ["https://localhost/callback"] }));
+    assert.throws(
+      () => clients.registerClient({
+        redirect_uris: [
+          "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example",
+        ],
+      }),
+      /redirect_uri is not allowed/i,
+    );
   } finally {
     store.close();
   }
