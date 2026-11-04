@@ -216,6 +216,7 @@ function testDefaultRedirectUriPolicy(stateDir: string): void {
     assert.ok(clients.registerClient({ redirect_uris: ["https://mcp.example.net/oauth/callback"] }));
     assert.ok(clients.registerClient({ redirect_uris: ["http://127.0.0.1:3456/callback"] }));
     assert.ok(clients.registerClient({ redirect_uris: ["http://localhost:3456/callback"] }));
+    assert.ok(clients.registerClient({ redirect_uris: ["http://[::1]:3456/callback"] }));
     assert.ok(clients.registerClient({ redirect_uris: ["https://localhost/callback"] }));
     assert.throws(
       () => clients.registerClient({ redirect_uris: ["http://mcp.example.net/callback"] }),
