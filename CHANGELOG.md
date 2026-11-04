@@ -4,6 +4,12 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-11-04
+
+### Fixed
+
+- OAuth Dynamic Client Registration 默认不再绑定 ChatGPT 等厂商 redirect host 名单：现在接受任意 HTTPS callback 以及 localhost / 127.0.0.1 / ::1 的 HTTP/HTTPS loopback callback；显式 `FORGERELAY_OAUTH_ALLOWED_REDIRECT_HOSTS` 继续作为可选收紧策略。Gemini Connected Apps 等标准 MCP Host 可以通过 `/register` 获取 ForgeRelay 签发的 `forgerelay-<uuid>` client ID，同时未知 client ID、未注册 redirect URI、PKCE 与 Owner OAuth 校验保持不变。
+
 ## [1.3.4] - 2026-10-29
 
 ### Added
