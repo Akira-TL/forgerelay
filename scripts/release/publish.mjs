@@ -40,7 +40,7 @@ if (basename(packagePath) !== expectedPackageName) {
   throw new Error(`unexpected release artifact ${basename(packagePath)}; expected ${expectedPackageName}`);
 }
 
-const npmTag = pkg.version.includes("-rc.") ? "next" : "latest";
+const npmTag = /-(?:rc|beta)\.\d+$/.test(pkg.version) ? "next" : "latest";
 const packageSpec = `${pkg.name}@${pkg.version}`;
 if (npmPackageExists(packageSpec)) {
   console.log(`${packageSpec} is already published; leaving npm unchanged.`);

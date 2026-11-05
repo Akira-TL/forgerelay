@@ -135,11 +135,12 @@ function hookTag() {
   }
   const pushCommand = pushMatch[0];
   if (/(?:^|\s)(?:-f|--force(?:-with-lease)?)(?:=\S*)?(?=$|\s)/.test(pushCommand)
-    || /(?:^|\s)\+(?:refs\/tags\/)?v\d+\.\d+\.\d+(?:-rc\.\d+)?(?=$|\s)/.test(pushCommand)) {
+    || /(?:^|\s)\+(?:refs\/tags\/)?v\d+\.\d+\.\d+(?:-(?:rc|beta)\.\d+)?(?=$|\s)/.test(pushCommand)) {
     throw new Error("force push is not allowed for release tags");
   }
   const deleting = /(?:^|\s)(?:-d|--delete)(?=$|\s)/.test(pushCommand);
-  const tagMatch = /(?:^|\s)(?:tag\s+)?(?:refs\/tags\/)?(v\d+\.\d+\.\d+(?:-rc\.\d+)?)(?=$|\s)/.exec(pushCommand);
+  const tagPattern = /(?:^|\s)(?:tag\s+)?(?:refs\/tags\/)?(v\d+\.\d+\.\d+(?:-(?:rc|beta)\.\d+)?)(?=$|\s)/;
+  const tagMatch = tagPattern.exec(pushCommand);
   if (!tagMatch?.[1]) {
     throw new Error("release Hook payload does not contain a release tag push");
   }

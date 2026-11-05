@@ -231,6 +231,27 @@ test("release tag hook gate accepts an rc tag for the package version", async (t
   assert.match(checked.stdout, /Release tag gate OK: v0\.6\.0-rc\.1/);
 });
 
+test("release tag hook validates beta tags instead of treating them as non-release pushes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-beta-proof-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.3.6-beta.1" }) + "\n");
+  await mkdir(join(root, "docs", "releases"), { recursive: true });
+  await writeFile(join(root, "docs", "releases", "v1.3.6-beta.1.md"), "# Beta\n\nDedicated beta notes.\n");
+  await git(root, ["init"]);
+  await git(root, ["config", "user.email", "proof@example.com"]);
+  await git(root, ["config", "user.name", "Release Proof Test"]);
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "release beta"]);
+  await git(root, ["tag", "v1.3.6-beta.1"]);
+  const checked = await runProof(root, "check-hook", {
+    FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin v1.3.6-beta.1" }),
+  });
+  assert.match(checked.stdout, /Release tag gate OK: v1\.3\.6-beta\.1/);
+  await assert.rejects(() => runProof(root, "check-hook", {
+    FORGERELAY_HOOK_PAYLOAD: JSON.stringify({ command: "git push origin +v1.3.6-beta.1" }),
+  }), /force push is not allowed/);
+});
+
 test("release tag hook gate rejects a mismatched tag without invoking a remote", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "forgerelay-release-proof-"));
   t.after(() => rm(root, { recursive: true, force: true }));

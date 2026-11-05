@@ -110,10 +110,22 @@ test("release version tooling prepares and validates an rc release", async (t) =
 test("release version tooling rejects unsupported prerelease identifiers", async (t) => {
   const root = await createFixture(t);
   await assert.rejects(
-    () => runRelease(root, "prepare", "0.6.0-beta.1"),
+    () => runRelease(root, "prepare", "0.6.0-alpha.1"),
     (error) => {
-      assert.match(String(error.stderr ?? error), /prepare X\.Y\.Z\[-rc\.N\]/);
+      assert.match(String(error.stderr ?? error), /prepare X\.Y\.Z\[-rc\.N\|-beta\.N\]/);
       return true;
     },
   );
+});
+
+test("beta metadata and matching tag require dedicated beta notes", async (t) => {
+  const root = await createFixture(t);
+  await runRelease(root, "prepare", "0.5.8-beta.1");
+  const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  assert.equal(pkg.version, "0.5.8-beta.1");
+  await runRelease(root, "check");
+  await assert.rejects(() => runRelease(root, "tag", "v0.5.8-beta.1"), /missing dedicated release notes/);
+  await writeFile(join(root, "docs", "releases", "v0.5.8-beta.1.md"), "# Beta\n\nBeta notes.\n");
+  const checked = await runRelease(root, "tag", "v0.5.8-beta.1");
+  assert.match(checked.stdout, /release tag v0\.5\.8-beta\.1 matches/);
 });

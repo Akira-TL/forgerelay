@@ -9,7 +9,7 @@ const changelogPath = resolve(repoRoot, "CHANGELOG.md");
 const noticePath = resolve(repoRoot, "NOTICE.md");
 const licensePath = resolve(repoRoot, "LICENSE");
 const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const releaseVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/;
+const releaseVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:rc|beta)\.(0|[1-9]\d*))?$/;
 const expectedPackageName = "@akira-tl/forgerelay";
 const expectedRepositoryUrl = "git+https://github.com/Akira-TL/forgerelay.git";
 const expectedHomepage = "https://github.com/Akira-TL/forgerelay#readme";
@@ -27,7 +27,7 @@ switch (command) {
     break;
   case "tag": {
     checkState(state);
-    if (!value) fail("usage: node scripts/release-version.mjs tag vX.Y.Z[-rc.N]");
+    if (!value) fail("usage: node scripts/release-version.mjs tag vX.Y.Z[-rc.N|-beta.N]");
     if (getUnreleasedBody(state.changelog)) {
       fail("CHANGELOG.md still has Unreleased changes; prepare the next version before creating a release tag");
     }
@@ -42,7 +42,7 @@ switch (command) {
   case "prepare": {
     checkState(state);
     if (!value || !releaseVersionPattern.test(value)) {
-      fail("usage: node scripts/release-version.mjs prepare X.Y.Z[-rc.N] [--dry-run]");
+      fail("usage: node scripts/release-version.mjs prepare X.Y.Z[-rc.N|-beta.N] [--dry-run]");
     }
     await prepareRelease(state, value, dryRun);
     break;
@@ -58,10 +58,10 @@ switch (command) {
   }
   case "notes": {
     checkState(state);
-    if (!value) fail("usage: node scripts/release-version.mjs notes vX.Y.Z[-rc.N]");
+    if (!value) fail("usage: node scripts/release-version.mjs notes vX.Y.Z[-rc.N|-beta.N]");
     const version = value.startsWith("v") ? value.slice(1) : value;
     if (!releaseVersionPattern.test(version)) {
-      fail(`release notes version ${JSON.stringify(value)} must be vX.Y.Z[-rc.N] or X.Y.Z[-rc.N]`);
+      fail(`release notes version ${JSON.stringify(value)} must be vX.Y.Z[-rc.N|-beta.N] or X.Y.Z[-rc.N|-beta.N]`);
     }
     const body = getReleaseBody(state.changelog, version);
     if (!body) fail(`CHANGELOG.md has no release notes for ${version}`);
@@ -98,7 +98,7 @@ function checkState(state) {
     fail(`unexpected package name ${JSON.stringify(state.pkg.name)}; expected ${expectedPackageName}`);
   }
   if (typeof version !== "string" || !releaseVersionPattern.test(version)) {
-    fail(`package version ${JSON.stringify(version)} must be X.Y.Z or X.Y.Z-rc.N`);
+    fail(`package version ${JSON.stringify(version)} must be X.Y.Z, X.Y.Z-rc.N or X.Y.Z-beta.N`);
   }
   if (state.pkg.repository?.url !== expectedRepositoryUrl) {
     fail(`package repository.url must be ${expectedRepositoryUrl} for GitHub/npm trusted publishing`);
