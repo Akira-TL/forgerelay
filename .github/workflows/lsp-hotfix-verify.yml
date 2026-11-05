@@ -1,0 +1,39 @@
+name: LSP hotfix verification
+
+on:
+  push:
+    branches:
+      - fix/lsp-runtime-races
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm install --global npm@11.19.1
+      - run: npm ci
+      - name: Mutation diagnostics deterministic stress
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            echo "stress iteration $i"
+            npx tsx src/mcp/server/operations/mutation-diagnostics-stress.test.ts
+          done
+      - name: Code intelligence server regression
+        run: npx tsx src/lsp/code-intelligence.server.test.ts
+      - name: LSP lifecycle and recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx src/lsp/operations/lifecycle.server.test.ts
+          npx tsx src/lsp/operations/recovery.server.test.ts
+          npx tsx src/lsp/runtime/semantic-requests.test.ts
+      - run: npm run typecheck
+      - run: npm run lsp:interop
+        timeout-minutes: 5
