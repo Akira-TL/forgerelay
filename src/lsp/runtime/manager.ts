@@ -87,6 +87,9 @@ export class CodeIntelligenceManager {
   private readonly crashStates = new Map<string, CrashState>();
   private readonly retiredWorkspaceRoots = new Set<string>();
   private serviceCreationQueue: Promise<void> = Promise.resolve();
+  private activeRuns = 0;
+  private readonly runDrainWaiters = new Set<() => void>();
+  private shutdownPromise?: Promise<void>;
   private readonly cleanupTimer: NodeJS.Timeout;
   private readonly policy: CodeIntelligenceRuntimePolicy;
   private readonly crashCooldownMs: number;
@@ -124,6 +127,29 @@ export class CodeIntelligenceManager {
     workspaceRoot: string,
     input: CodeIntelligenceInput,
     options: { signal?: AbortSignal } = {},
+  ): Promise<CodeIntelligenceResult> {
+    if (this.shutdownPromise) {
+      throw new CodeIntelligenceError(
+        "code.language_service_unavailable",
+        "Code intelligence is shutting down.",
+      );
+    }
+    this.activeRuns += 1;
+    try {
+      return await this.runActive(workspaceRoot, input, options);
+    } finally {
+      this.activeRuns = Math.max(0, this.activeRuns - 1);
+      if (this.activeRuns === 0) {
+        for (const resolveDrain of this.runDrainWaiters) resolveDrain();
+        this.runDrainWaiters.clear();
+      }
+    }
+  }
+
+  private async runActive(
+    workspaceRoot: string,
+    input: CodeIntelligenceInput,
+    options: { signal?: AbortSignal },
   ): Promise<CodeIntelligenceResult> {
     const canonicalWorkspaceRoot = await realpath(resolve(workspaceRoot));
     this.assertWorkspaceRootAvailable(canonicalWorkspaceRoot);
@@ -202,7 +228,13 @@ export class CodeIntelligenceManager {
   }
 
   async shutdown(): Promise<void> {
+    this.shutdownPromise ??= this.performShutdown();
+    return this.shutdownPromise;
+  }
+
+  private async performShutdown(): Promise<void> {
     clearInterval(this.cleanupTimer);
+    await this.waitForActiveRuns();
     await Promise.allSettled(this.serviceCreations.values());
     this.serviceCreations.clear();
     const services = [...this.services.values()];
@@ -211,6 +243,13 @@ export class CodeIntelligenceManager {
     this.crashStates.clear();
     this.retiredWorkspaceRoots.clear();
     await Promise.allSettled(services.map((service) => service.shutdown()));
+  }
+
+  private waitForActiveRuns(): Promise<void> {
+    if (this.activeRuns === 0) return Promise.resolve();
+    return new Promise<void>((resolveDrain) => {
+      this.runDrainWaiters.add(resolveDrain);
+    });
   }
 
   get size(): number {
