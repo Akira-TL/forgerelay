@@ -390,7 +390,8 @@ export class CodeIntelligenceManager {
       if (service.isIdle) invalidated.push([key, service]);
     }
     for (const [key, service] of invalidated) {
-      if (this.services.get(key) === service) this.services.delete(key);
+      if (this.services.get(key) !== service || !service.isIdle) continue;
+      this.services.delete(key);
       this.invalidatedServiceKeys.delete(key);
       await service.shutdown();
     }
@@ -411,7 +412,8 @@ export class CodeIntelligenceManager {
       }
     }
     for (const [key, service] of invalidated) {
-      if (this.services.get(key) === service) this.services.delete(key);
+      if (this.services.get(key) !== service || !service.isIdle) continue;
+      this.services.delete(key);
       this.invalidatedServiceKeys.delete(key);
       await service.shutdown();
     }
@@ -490,6 +492,13 @@ export class CodeIntelligenceManager {
       service.isIdle && now - service.lastUsedAt >= this.policy.idleMs
     );
     for (const [key, service] of stale) {
+      if (
+        this.services.get(key) !== service ||
+        !service.isIdle ||
+        now - service.lastUsedAt < this.policy.idleMs
+      ) {
+        continue;
+      }
       this.services.delete(key);
       await service.shutdown();
     }
