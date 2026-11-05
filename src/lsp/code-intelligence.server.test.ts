@@ -18,6 +18,87 @@ test("Windows Language-server command shims use a shell only when required", () 
   assert.equal(languageServerCommandRequiresShell("/usr/local/bin/server.cmd", "darwin"), false);
 });
 
+test("code.intelligence shutdown drains an initializing Language service", async (t) => {
+  const context = await fixture(t, {
+    codeIntelligenceOptions: {
+      startTimeoutMs: 2_000,
+      shutdownTimeoutMs: 100,
+    },
+  });
+  const sourceDir = join(context.project, "src");
+  const fakeServerPath = fileURLToPath(new URL("./test-fixtures/fake-lsp-server.mjs", import.meta.url));
+  const fakeLogPath = join(context.project, ".fake-lsp-shutdown.log");
+  const initializeGatePath = join(context.project, ".fake-lsp-initialize-gate");
+  await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(join(context.project, "tsconfig.json"), "{}\n");
+  await writeFile(join(sourceDir, "main.ts"), "const value = target();\n");
+  await writeFile(join(sourceDir, "target.ts"), "export target;\n");
+  await writeFile(
+    join(context.project, ".forgerelay", "language-servers.json"),
+    JSON.stringify({
+      test: {
+        command: process.execPath,
+        args: [fakeServerPath],
+        env: {
+          FORGERELAY_FAKE_LSP_LOG: fakeLogPath,
+          FORGERELAY_FAKE_LSP_INITIALIZE_GATE_PATH: initializeGatePath,
+        },
+        languages: ["typescript"],
+        extensions: [".ts"],
+        projectMarkers: ["tsconfig.json"],
+      },
+    }, null, 2) + "\n",
+  );
+
+  const pending = context.codeIntelligence.run(context.project, {
+    operation: "definition",
+    path: "src/main.ts",
+    line: 1,
+    column: 15,
+  });
+
+  const initializeDeadline = Date.now() + 2_000;
+  let initializeObserved = false;
+  while (Date.now() < initializeDeadline) {
+    try {
+      initializeObserved = (await readFile(fakeLogPath, "utf8")).includes('"method":"initialize"');
+    } catch {
+      initializeObserved = false;
+    }
+    if (initializeObserved) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(initializeObserved, true, "fake LSP must receive initialize before shutdown starts");
+
+  let shutdownResolved = false;
+  const shutdown = context.codeIntelligence.shutdown().then(() => {
+    shutdownResolved = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(shutdownResolved, false, "shutdown must wait for the in-flight operation");
+
+  await writeFile(initializeGatePath, "continue\n");
+  const result = await pending;
+  assert.equal(result.operation, "definition");
+  await shutdown;
+  assert.equal(shutdownResolved, true);
+
+  await assert.rejects(
+    context.codeIntelligence.run(context.project, {
+      operation: "definition",
+      path: "src/main.ts",
+      line: 1,
+      column: 15,
+    }),
+    (error: unknown) =>
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "code.language_service_unavailable",
+  );
+});
+
 test("code.intelligence definition resolves through a real stdio LSP child process", async (t) => {
   const context = await fixture(t);
   const sourceDir = join(context.project, "src");
