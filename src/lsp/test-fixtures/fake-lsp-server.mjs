@@ -6,6 +6,7 @@ let buffer = Buffer.alloc(0);
 let rootPath = process.cwd();
 const logPath = process.env.FORGERELAY_FAKE_LSP_LOG;
 const mode = process.env.FORGERELAY_FAKE_LSP_MODE ?? "location";
+const initializeGatePath = process.env.FORGERELAY_FAKE_LSP_INITIALIZE_GATE_PATH;
 const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
@@ -114,7 +115,7 @@ function handle(message) {
       rootPath = fileURLToPath(message.params.rootUri);
     }
     if (mode === "never-initialize") return;
-    respond(message.id, {
+    const respondToInitialize = () => respond(message.id, {
       capabilities: {
         definitionProvider: mode !== "unsupported-definition",
         hoverProvider: hoverMode !== "unsupported",
@@ -135,6 +136,15 @@ function handle(message) {
       },
       serverInfo: { name: "forgerelay-fake-lsp", version: "1.0.0" },
     });
+    if (initializeGatePath) {
+      const gatePoll = setInterval(() => {
+        if (!existsSync(initializeGatePath)) return;
+        clearInterval(gatePoll);
+        respondToInitialize();
+      }, 10);
+      return;
+    }
+    respondToInitialize();
     return;
   }
 
