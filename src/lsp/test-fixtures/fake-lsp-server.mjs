@@ -24,7 +24,7 @@ const workspaceSymbolsMode = process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOLS_M
 const workspaceSymbolCount = Number(process.env.FORGERELAY_FAKE_LSP_WORKSPACE_SYMBOL_COUNT ?? "1");
 const diagnosticsMode = process.env.FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE ?? "none";
 const diagnosticCount = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_COUNT ?? "1");
-const diagnosticDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_DELAY_MS ?? "0");
+const diagnosticDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_DELAY_MS ?? "0");\nconst shutdownDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_SHUTDOWN_DELAY_MS ?? "0");
 
 function log(event) {
   if (!logPath) return;
@@ -189,11 +189,13 @@ function handle(message) {
       return;
     }
     if (diagnosticsMode.startsWith("pull") || diagnosticsMode === "mixed") {
-      respond(message.id, {
+      const sendPullDiagnostics = () => respond(message.id, {
         kind: "full",
         resultId: "pull-1",
         items: fakePullDiagnostics(diagnosticCount),
       });
+      if (diagnosticDelayMs > 0) setTimeout(sendPullDiagnostics, diagnosticDelayMs);
+      else sendPullDiagnostics();
       return;
     }
   }
@@ -372,7 +374,9 @@ function handle(message) {
   }
 
   if (message.method === "shutdown") {
-    respond(message.id, null);
+    const respondToShutdown = () => respond(message.id, null);
+    if (shutdownDelayMs > 0) setTimeout(respondToShutdown, shutdownDelayMs);
+    else respondToShutdown();
     return;
   }
 
