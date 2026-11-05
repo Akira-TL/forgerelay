@@ -5,7 +5,7 @@ import { join } from "node:path";
 let buffer = Buffer.alloc(0);
 let rootPath = process.cwd();
 const logPath = process.env.FORGERELAY_FAKE_LSP_LOG;
-const mode = process.env.FORGERELAY_FAKE_LSP_MODE ?? "location";
+const mode = process.env.FORGERELAY_FAKE_LSP_MODE ?? "location";\nconst initializeGatePath = process.env.FORGERELAY_FAKE_LSP_INITIALIZE_GATE_PATH;\nconst initializeCrashOnceStatePath = process.env.FORGERELAY_FAKE_LSP_INITIALIZE_CRASH_ONCE_STATE_PATH;\nconst ignoreShutdown = process.env.FORGERELAY_FAKE_LSP_IGNORE_SHUTDOWN === "1";
 const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
@@ -113,8 +113,15 @@ function handle(message) {
     if (typeof message.params?.rootUri === "string") {
       rootPath = fileURLToPath(message.params.rootUri);
     }
+    if (
+      initializeCrashOnceStatePath &&
+      !existsSync(initializeCrashOnceStatePath)
+    ) {
+      writeFileSync(initializeCrashOnceStatePath, "crashed\n");
+      process.exit(91);
+    }
     if (mode === "never-initialize") return;
-    respond(message.id, {
+    const respondToInitialize = () => respond(message.id, {
       capabilities: {
         definitionProvider: mode !== "unsupported-definition",
         hoverProvider: hoverMode !== "unsupported",
@@ -135,6 +142,15 @@ function handle(message) {
       },
       serverInfo: { name: "forgerelay-fake-lsp", version: "1.0.0" },
     });
+    if (initializeGatePath && !existsSync(initializeGatePath)) {
+      const gatePoll = setInterval(() => {
+        if (!existsSync(initializeGatePath)) return;
+        clearInterval(gatePoll);
+        respondToInitialize();
+      }, 10);
+      return;
+    }
+    respondToInitialize();
     return;
   }
 
@@ -374,6 +390,7 @@ function handle(message) {
   }
 
   if (message.method === "shutdown") {
+    if (ignoreShutdown) return;
     const respondToShutdown = () => respond(message.id, null);
     if (shutdownDelayMs > 0) setTimeout(respondToShutdown, shutdownDelayMs);
     else respondToShutdown();
