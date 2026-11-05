@@ -7,6 +7,11 @@ let rootPath = process.cwd();
 const logPath = process.env.FORGERELAY_FAKE_LSP_LOG;
 const mode = process.env.FORGERELAY_FAKE_LSP_MODE ?? "location";
 const initializeGatePath = process.env.FORGERELAY_FAKE_LSP_INITIALIZE_GATE_PATH;
+const ignoreShutdown = process.env.FORGERELAY_FAKE_LSP_IGNORE_SHUTDOWN === "1";
+const initializeCrashOnceStatePath = process.env.FORGERELAY_FAKE_LSP_INITIALIZE_CRASH_ONCE_STATE_PATH;
+const shutdownGatePath = process.env.FORGERELAY_FAKE_LSP_SHUTDOWN_GATE_PATH;
+const diagnosticGatePath = process.env.FORGERELAY_FAKE_LSP_DIAGNOSTIC_GATE_PATH;
+const shutdownDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_SHUTDOWN_DELAY_MS ?? "0");
 const targetPath = process.env.FORGERELAY_FAKE_LSP_TARGET;
 const syncKind = Number(process.env.FORGERELAY_FAKE_LSP_SYNC_KIND ?? "1");
 const definitionDelayMs = Number(process.env.FORGERELAY_FAKE_LSP_DEFINITION_DELAY_MS ?? "0");
@@ -114,6 +119,10 @@ function handle(message) {
     if (typeof message.params?.rootUri === "string") {
       rootPath = fileURLToPath(message.params.rootUri);
     }
+    if (initializeCrashOnceStatePath && !existsSync(initializeCrashOnceStatePath)) {
+      writeFileSync(initializeCrashOnceStatePath, "crashed\n");
+      process.exit(91);
+    }
     if (mode === "never-initialize") return;
     const respondToInitialize = () => respond(message.id, {
       capabilities: {
@@ -199,11 +208,19 @@ function handle(message) {
       return;
     }
     if (diagnosticsMode.startsWith("pull") || diagnosticsMode === "mixed") {
-      respond(message.id, {
+      const sendPullDiagnostics = () => respond(message.id, {
         kind: "full",
         resultId: "pull-1",
         items: fakePullDiagnostics(diagnosticCount),
       });
+      if (diagnosticGatePath && !existsSync(diagnosticGatePath)) {
+        const poll = setInterval(() => {
+          if (!existsSync(diagnosticGatePath)) return;
+          clearInterval(poll);
+          sendPullDiagnostics();
+        }, 10);
+      } else if (diagnosticDelayMs > 0) setTimeout(sendPullDiagnostics, diagnosticDelayMs);
+      else sendPullDiagnostics();
       return;
     }
   }
@@ -382,7 +399,16 @@ function handle(message) {
   }
 
   if (message.method === "shutdown") {
-    respond(message.id, null);
+    if (ignoreShutdown) return;
+    const respondToShutdown = () => respond(message.id, null);
+    if (shutdownGatePath && !existsSync(shutdownGatePath)) {
+      const poll = setInterval(() => {
+        if (!existsSync(shutdownGatePath)) return;
+        clearInterval(poll);
+        respondToShutdown();
+      }, 10);
+    } else if (shutdownDelayMs > 0) setTimeout(respondToShutdown, shutdownDelayMs);
+    else respondToShutdown();
     return;
   }
 

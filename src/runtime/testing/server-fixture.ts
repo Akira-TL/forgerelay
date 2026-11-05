@@ -15,7 +15,7 @@ import { loadConfig, type ServerConfig } from "../config/config.js";
 import type { ForgeRelayUserConfig } from "../config/user-config.js";
 import type { HookConfigInput } from "../../mcp/hooks/hooks.js";
 import type { IncomingArtifactAdapter } from "../../mcp/artifacts/incoming-artifacts.js";
-import { CodeIntelligenceManager } from "../../lsp/runtime/manager.js";
+import { CodeIntelligenceManager, type CodeIntelligenceManagerOptions } from "../../lsp/runtime/manager.js";
 import { ProcessManager } from "../../mcp/process/process-sessions.js";
 import { createReviewCheckpointManager } from "../../workspaces/review/review-checkpoints.js";
 import { createMcpServer } from "../../server.js";
@@ -48,6 +48,7 @@ export interface ServerFixtureOptions {
   processSessions?: ProcessManager;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
   userConfig?: ForgeRelayUserConfig;
+  codeIntelligenceOptions?: CodeIntelligenceManagerOptions;
 }
 
 /**
@@ -126,7 +127,7 @@ export async function fixture(
     turnIdForConversation: (conversationScopeId, workspaceId) =>
       activityQueries.currentTurnId(conversationScopeId, workspaceId),
   });
-  const codeIntelligence = new CodeIntelligenceManager(config);
+  const codeIntelligence = new CodeIntelligenceManager(config, options.codeIntelligenceOptions);
   const server = createMcpServer(
     config,
     workspaces,
