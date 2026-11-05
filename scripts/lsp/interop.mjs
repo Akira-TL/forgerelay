@@ -113,7 +113,8 @@ for (const fixture of fixtures) {
     console.log(`SKIP ${fixture.id}: ${fixture.command} not found on PATH; ForgeRelay does not install Language servers.`);
     continue;
   }
-  const preflight = probeExecutable(executable);
+  // pyright-langserver has no --version mode; verify it with the real LSP requests below.
+  const preflight = fixture.id === "pyright" ? { available: true } : probeExecutable(executable);
   if (!preflight.available) {
     skipped += 1;
     console.log(`SKIP ${fixture.id}: ${executable} is present but not runnable: ${preflight.reason}`);
