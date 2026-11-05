@@ -29,6 +29,11 @@ import {
 } from "./language-server-config.js";
 import { terminateProcessTree } from "../mcp/process/process-platform.js";
 import { CodeIntelligenceError } from "./code-intelligence-error.js";
+import { randomUUID } from "node:crypto";
+import {
+  diagnosticError, type RuntimeDiagnostics, type RuntimeDiagnosticEvent,
+  type RuntimeDiagnosticFields, type LanguageServiceShutdownReason,
+} from "../runtime/logging/runtime-diagnostics.js";
 import { DEFAULT_CODE_INTELLIGENCE_RESULT_LIMIT } from "./code-intelligence-types.js";
 import type {
   CodeIntelligenceDefinitionInput,
@@ -68,6 +73,7 @@ const STDERR_TAIL_BYTES = 64 * 1024;
 const PUSH_DIAGNOSTIC_WAIT_MS = 1_000;
 
 export interface CodeIntelligenceRuntimePolicy {
+  diagnostics?: RuntimeDiagnostics;
   idleMs: number;
   cleanupIntervalMs: number;
   maxServices: number;
@@ -106,6 +112,7 @@ export class LanguageService {
   private readonly semanticRequests: SemanticRequestCoordinator;
   private stderrTail = Buffer.alloc(0);
   private closed = false;
+  readonly serviceId = randomUUID();
 
   constructor(
     readonly workspaceRoot: string,
@@ -469,8 +476,9 @@ export class LanguageService {
     }
   }
 
-  async shutdown(): Promise<void> {
+  async shutdown(reason: LanguageServiceShutdownReason = "server_shutdown"): Promise<void> {
     if (this.closed) return;
+    this.recordDiagnostic("lsp_shutdown", { reason, ...diagnosticError(new Error()) });
     this.closed = true;
     const connection = this.connection;
     const child = this.child;
@@ -496,6 +504,7 @@ export class LanguageService {
     this.documents.clear();
     this.diagnosticSnapshots.clear();
     if (child && child.exitCode === null && child.signalCode === null) {
+      this.recordDiagnostic("lsp_terminate", { reason, signal: "SIGTERM", ...diagnosticError(new Error()) });
       terminateProcessTree(child, "SIGTERM", process.platform !== "win32");
     }
     this.child = undefined;
@@ -520,6 +529,7 @@ export class LanguageService {
       this.positionEncoding = result.capabilities.positionEncoding ?? PositionEncodingKind.UTF16;
     } catch (error) {
       this.initializePromise = undefined;
+      this.recordDiagnostic("lsp_start_failed", diagnosticError(error));
       this.cleanupFailedStart();
       if (error instanceof CodeIntelligenceError) throw error;
       throw new CodeIntelligenceError(
@@ -549,6 +559,10 @@ export class LanguageService {
       );
     }
     this.child = child;
+    this.recordDiagnostic("lsp_start");
+    child.on("exit", (exitCode, signal) => {
+      this.recordDiagnostic("lsp_exit", { childPid: child.pid, exitCode, signal });
+    });
     child.stderr.on("data", (chunk: Buffer) => this.appendStderr(chunk));
     await waitForChildSpawn(child, definition.id);
 
@@ -643,6 +657,7 @@ export class LanguageService {
         ),
       );
       await connection.sendNotification(InitializedNotification.type, {});
+      this.recordDiagnostic("lsp_ready");
       return result;
     } finally {
       if (onExitDuringInitialization) child.off("exit", onExitDuringInitialization);
@@ -653,12 +668,28 @@ export class LanguageService {
     this.connection?.dispose();
     const child = this.child;
     if (child && child.exitCode === null && child.signalCode === null) {
+      this.recordDiagnostic("lsp_terminate", {
+        reason: "initialization_failed", signal: "SIGTERM", ...diagnosticError(new Error()),
+      });
       terminateProcessTree(child, "SIGTERM", process.platform !== "win32");
     }
     this.connection = undefined;
     this.child = undefined;
     this.documents.clear();
     this.diagnosticSnapshots.clear();
+  }
+
+  recordDiagnostic(event: RuntimeDiagnosticEvent, fields: RuntimeDiagnosticFields = {}): void {
+    this.policy.diagnostics?.record(event, {
+      serviceId: this.serviceId,
+      serverId: this.project.definition.id,
+      projectRoot: this.project.projectRoot,
+      childPid: this.child?.pid,
+      operationsInFlight: this.inFlight,
+      semanticRequestsActive: this.semanticRequests.activeCount,
+      semanticRequestsQueued: this.semanticRequests.queuedCount,
+      ...fields,
+    });
   }
 
   private registerClientHandlers(connection: MessageConnection): void {

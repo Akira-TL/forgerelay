@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { ServerConfig } from "../../runtime/config/config.js";
+import { diagnosticError, type RuntimeDiagnostics } from "../../runtime/logging/runtime-diagnostics.js";
 import {
   CodeIntelligenceError,
   LanguageService,
@@ -38,6 +39,7 @@ const MAX_DIAGNOSTICS_PER_DOCUMENT = 1000;
 const LANGUAGE_SERVICE_CRASH_COOLDOWN_MS = 5_000;
 
 export interface CodeIntelligenceManagerOptions {
+  diagnostics?: RuntimeDiagnostics;
   projectExecutionTrustPolicy?: ProjectExecutionTrustPolicy;
   idleMs?: number;
   cleanupIntervalMs?: number;
@@ -106,6 +108,7 @@ export class CodeIntelligenceManager {
       "crashCooldownMs",
     );
     this.policy = {
+      diagnostics: options.diagnostics,
       idleMs: positiveInteger(options.idleMs, LANGUAGE_SERVICE_IDLE_MS, "idleMs"),
       cleanupIntervalMs: positiveInteger(options.cleanupIntervalMs, LANGUAGE_SERVICE_CLEANUP_INTERVAL_MS, "cleanupIntervalMs"),
       maxServices: positiveInteger(options.maxServices, MAX_LANGUAGE_SERVICES, "maxServices"),
@@ -196,6 +199,7 @@ export class CodeIntelligenceManager {
         this.crashStates.delete(identity);
         return result;
       } catch (error) {
+        service.recordDiagnostic("lsp_operation_failed", { operation: input.operation, ...diagnosticError(error) });
         if (!(error instanceof CodeIntelligenceError) || error.code !== "code.server_crashed") {
           throw error;
         }
@@ -242,7 +246,7 @@ export class CodeIntelligenceManager {
     this.invalidatedServiceKeys.clear();
     this.crashStates.clear();
     this.retiredWorkspaceRoots.clear();
-    await Promise.allSettled(services.map((service) => service.shutdown()));
+    await Promise.allSettled(services.map((service) => service.shutdown("server_shutdown")));
   }
 
   private waitForActiveRuns(): Promise<void> {
@@ -312,7 +316,7 @@ export class CodeIntelligenceManager {
       if (this.services.get(key) === service) this.services.delete(key);
       this.invalidatedServiceKeys.delete(key);
       this.crashStates.delete(key);
-      await service.shutdown();
+      await service.shutdown("workspace_retired");
       releasedServices += 1;
     }
     this.clearIdentityStateForWorkspaceRoot(canonicalRoot);
@@ -393,7 +397,7 @@ export class CodeIntelligenceManager {
       if (this.services.get(key) !== service || !service.isIdle) continue;
       this.services.delete(key);
       this.invalidatedServiceKeys.delete(key);
-      await service.shutdown();
+      await service.shutdown("configuration_unavailable");
     }
   }
 
@@ -415,7 +419,7 @@ export class CodeIntelligenceManager {
       if (this.services.get(key) !== service || !service.isIdle) continue;
       this.services.delete(key);
       this.invalidatedServiceKeys.delete(key);
-      await service.shutdown();
+      await service.shutdown("configuration_changed");
     }
   }
 
@@ -424,13 +428,13 @@ export class CodeIntelligenceManager {
     if (!this.invalidatedServiceKeys.has(service.key) || !service.isIdle) return;
     if (this.services.get(service.key) === service) this.services.delete(service.key);
     this.invalidatedServiceKeys.delete(service.key);
-    await service.shutdown();
+    await service.shutdown("invalidated");
   }
 
   private async discardService(service: LanguageService): Promise<void> {
     if (this.services.get(service.key) === service) this.services.delete(service.key);
     this.invalidatedServiceKeys.delete(service.key);
-    await service.shutdown();
+    await service.shutdown("crashed");
   }
 
   private async acquireService(
@@ -500,7 +504,7 @@ export class CodeIntelligenceManager {
         continue;
       }
       this.services.delete(key);
-      await service.shutdown();
+      await service.shutdown("idle_timeout");
     }
   }
 
@@ -517,7 +521,7 @@ export class CodeIntelligenceManager {
       );
     }
     this.services.delete(candidate[0]);
-    await candidate[1].shutdown();
+    await candidate[1].shutdown("capacity_limit");
   }
 }
 

@@ -30,6 +30,7 @@ import type { ServerConfig } from "../../../runtime/config/config.js";
 import { CodeIntelligenceManager } from "../../../lsp/runtime/manager.js";
 import { createOpenAIIncomingArtifactAdapter, type IncomingArtifactAdapter } from "../../artifacts/incoming-artifacts.js";
 import { logEvent, requestPath, transportSessionIdPrefix } from "../../../runtime/logging/logger.js";
+import { RuntimeDiagnostics } from "../../../runtime/logging/runtime-diagnostics.js";
 import { SingleUserOAuthProvider } from "../../oauth/oauth-provider.js";
 import { createForgeRelayAuthRouter } from "../../oauth/router.js";
 import { publicEndpointPaths, publicEndpointUrl } from "../../oauth/public-url.js";
@@ -77,6 +78,7 @@ type CreateMcpServer = (
 ) => McpServer;
 
 export interface CreateServerOptions {
+  runtimeDiagnostics?: RuntimeDiagnostics;
   incomingArtifactAdapters?: readonly IncomingArtifactAdapter[];
 }
 
@@ -138,7 +140,8 @@ export function createHttpServer(
     outputAudit: bashOutputStore,
     commandShellRuntime: config.commandShellRuntime,
   });
-  const codeIntelligence = new CodeIntelligenceManager(config);
+  const diagnostics = options.runtimeDiagnostics ?? new RuntimeDiagnostics(config.stateDir);
+  const codeIntelligence = new CodeIntelligenceManager(config, { diagnostics });
   const subagentProviders = config.subagents
     ? getSubagentProviderAvailabilitySnapshot()
     : [];

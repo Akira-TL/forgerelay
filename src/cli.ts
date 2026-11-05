@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./runtime/config/config.js";
 import { acquireRuntimeLease } from "./runtime/state/runtime-lease.js";
+import { diagnosticError, observeRuntimeExit, RuntimeDiagnostics } from "./runtime/logging/runtime-diagnostics.js";
 import { runInit } from "./cli/init.js";
 import { runConfigMigration } from "./cli/config/migrate.js";
 import { runConfigInspection } from "./cli/config/inspect.js";
@@ -247,10 +248,15 @@ async function serve(
   const config = loadConfig(process.env, { runtimeOverrides });
   config.runtimePrivilege = runtimePrivilege;
   const runtimeLease = acquireRuntimeLease(config.stateDir);
+  const diagnostics = new RuntimeDiagnostics(config.stateDir);
+  const stopObservingExit = observeRuntimeExit(diagnostics);
+  diagnostics.record("runtime_started", { version: installedForgeRelayVersion(), reason: process.version });
   let server: ReturnType<typeof createServer>;
   try {
-    server = createServer(config);
+    server = createServer(config, { runtimeDiagnostics: diagnostics });
   } catch (error) {
+    diagnostics.record("runtime_start_failed", diagnosticError(error));
+    stopObservingExit();
     runtimeLease.release();
     throw error;
   }
@@ -269,6 +275,7 @@ async function serve(
     console.log(`command shell: ${formatCommandShellRuntime(config.commandShellRuntime)}`);
     console.log(`runtime privilege: ${formatRuntimePrivilege(runtimePrivilege)}`);
     console.log(`logging: ${config.logging.level} ${config.logging.format}`);
+    console.log(`runtime diagnostics: ${diagnostics.path}`);
     if (config.subagents) {
       console.log(`subagent providers: ${formatSubagentProviderAvailabilitySummary(subagentProviders)}`);
     }
@@ -288,14 +295,15 @@ async function serve(
     }
     process.exit(0);
   };
-  const handleShutdown = () => {
+  const handleShutdown = (signal: "SIGINT" | "SIGTERM") => {
+    diagnostics.record("runtime_signal", { signal });
     void shutdown().catch((error) => {
       console.error("forgerelay shutdown failed", error);
       process.exit(1);
     });
   };
-  process.once("SIGINT", handleShutdown);
-  process.once("SIGTERM", handleShutdown);
+  process.once("SIGINT", () => handleShutdown("SIGINT"));
+  process.once("SIGTERM", () => handleShutdown("SIGTERM"));
 }
 
 
