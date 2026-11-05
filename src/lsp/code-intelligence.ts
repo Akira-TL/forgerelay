@@ -63,7 +63,9 @@ import {
 import { lspPositionFromUser, rangeFromLsp } from "./position-encoding.js";
 import { DiagnosticSnapshotStore } from "./runtime/diagnostic-snapshots.js";
 import { DocumentSynchronizer, type OpenDocument } from "./runtime/document-synchronizer.js";
-import { languageServerCommandRequiresShell } from "./runtime/process-launch.js";
+import {
+  languageServerCommandRequiresShell, waitForChildExit, waitForChildSpawn, withTimeout,
+} from "./runtime/process-launch.js";
 import { SemanticRequestCoordinator } from "./runtime/semantic-requests.js";
 
 export { CodeIntelligenceError } from "./code-intelligence-error.js";
@@ -768,59 +770,6 @@ async function workspaceSourcePath(workspaceRoot: string, inputPath: string): Pr
       `Unable to read code-intelligence source ${inputPath}: ${errorMessage(error)}`,
     );
   }
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutError: () => Error,
-): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(timeoutError()), timeoutMs);
-        timer.unref();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function waitForChildSpawn(child: ChildProcessWithoutNullStreams, serverId: string): Promise<void> {
-  await new Promise<void>((resolvePromise, rejectPromise) => {
-    const onSpawn = () => {
-      child.off("error", onError);
-      resolvePromise();
-    };
-    const onError = (error: Error) => {
-      child.off("spawn", onSpawn);
-      rejectPromise(new CodeIntelligenceError(
-        "code.language_service_start_failed",
-        `Unable to start Language server ${serverId}: ${error.message}.`,
-      ));
-    };
-    child.once("spawn", onSpawn);
-    child.once("error", onError);
-  });
-}
-
-async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  return new Promise<boolean>((resolvePromise) => {
-    let timer: NodeJS.Timeout | undefined;
-    const finish = (exited: boolean) => {
-      child.off("exit", onExit);
-      if (timer) clearTimeout(timer);
-      resolvePromise(exited);
-    };
-    const onExit = () => finish(true);
-    child.once("exit", onExit);
-    timer = setTimeout(() => finish(false), timeoutMs);
-    timer.unref();
-  });
 }
 
 function errorMessage(error: unknown): string {
