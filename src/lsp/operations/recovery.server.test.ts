@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +12,48 @@ import {
 
 const fakeServerPath = fileURLToPath(new URL("../test-fixtures/fake-lsp-server.mjs", import.meta.url));
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("synchronous initialize failure stays a mutation warning without terminating the host", () => {
+  const fixtureUrl = new URL("../test-support/server-fixture.ts", import.meta.url).href;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import test from "node:test";
+    import { mkdir, writeFile, readFile } from "node:fs/promises";
+    import { join } from "node:path";
+    import { InitializeRequest } from "vscode-languageserver-protocol";
+    import { createCodeIntelligenceServerFixture, callOpen, structuredContent } from ${JSON.stringify(fixtureUrl)};
+    test("mutation survives synchronous initialize parameter failure", async t => {
+      const context = await createCodeIntelligenceServerFixture(t);
+      await mkdir(join(context.project, ".forgerelay"), { recursive: true });
+      await writeFile(join(context.project, "tsconfig.json"), "{}");
+      await writeFile(join(context.project, ".forgerelay/language-servers.json"), JSON.stringify({
+        test: { command: process.execPath, args: [${JSON.stringify(fakeServerPath)}],
+          languages: ["typescript"], extensions: [".ts"], projectMarkers: ["tsconfig.json"] }
+      }));
+      const opened = await callOpen(context.client, context.project, "initialize-parameter-failure");
+      const workspaceId = structuredContent(opened).workspaceId;
+      Object.defineProperty(InitializeRequest.type, "parameterStructures", {
+        configurable: true, get() { throw new Error("test.initialize-parameter-check"); }
+      });
+      try {
+        const response = await context.client.callTool({ name: "write", arguments: {
+          workspaceId, path: "main.ts", content: "const value = 1;\\n"
+        }});
+        assert.notEqual(response.isError, true);
+        assert.match(JSON.stringify(response.content), /test.initialize-parameter-check/);
+        assert.equal(await readFile(join(context.project, "main.ts"), "utf8"), "const value = 1;\\n");
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } finally { delete InitializeRequest.type.parameterStructures; }
+      const recovered = await context.client.callTool({ name: "write", arguments: {
+        workspaceId, path: "main.ts", content: "const value = 2;\\n"
+      }});
+      assert.notEqual(recovered.isError, true);
+      assert.doesNotMatch(JSON.stringify(recovered.content), /diagnostics warning/i);
+    });
+  `], { env: { ...process.env, NODE_TEST_CONTEXT: undefined }, encoding: "utf8", timeout: 20_000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
 
 async function prepareProject(project: string): Promise<void> {
   await mkdir(join(project, ".forgerelay"), { recursive: true });
