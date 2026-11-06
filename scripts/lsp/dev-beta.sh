@@ -3,9 +3,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 mkdir -p logs
-node --input-type=module - "$@" <<'JS' 2>&1 | tee logs/lsp-beta-dev.log
+node --input-type=module - "$@" <<'JS' 2>&1 | tee -a logs/lsp-beta-dev.log
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { createInteractiveDebugEnvironment, debugRoot } from "./scripts/debug/runtime.mjs";
@@ -14,7 +14,8 @@ import { loadConfig } from "./dist/runtime/config/config.js";
 const { configDir, env } = createInteractiveDebugEnvironment();
 const config = loadConfig(env);
 const repoRoot = realpathSync(".");
-const packageRoot = realpathSync(process.argv[2] ?? repoRoot);
+const stopping = process.argv[2] === "--stop";
+const packageRoot = realpathSync((stopping ? process.argv[4] : process.argv[2]) ?? repoRoot);
 const packageRelative = relative(repoRoot, packageRoot);
 assert.ok(packageRelative !== ".." && !packageRelative.startsWith(`..${sep}`) && !isAbsolute(packageRelative),
   "Beta acceptance package must stay inside the repository.");
@@ -23,6 +24,16 @@ assert.equal(config.host, "127.0.0.1", "Beta acceptance must bind to loopback.")
 const stateRelative = relative(realpathSync(debugRoot), realpathSync(config.stateDir));
 assert.ok(stateRelative !== ".." && !stateRelative.startsWith(`..${sep}`) && !stateRelative.startsWith(sep),
   "Beta acceptance state must stay under .forgerelay-debug/.");
+if (stopping) {
+  const pid = Number(process.argv[3]);
+  assert.ok(Number.isSafeInteger(pid) && pid > 1 && pid !== process.pid, "A specific test PID is required.");
+  const expected = [process.execPath, join(packageRoot, "dist/cli.js"), "serve"].join(" ");
+  const actual = execFileSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf8" }).trim();
+  assert.equal(actual, expected, "Refusing to stop a process outside the selected repository candidate.");
+  process.kill(pid, "SIGTERM");
+  console.error(`[forgerelay:beta] stopped candidate PID ${pid}`);
+  process.exit(0);
+}
 console.error(`[forgerelay:beta] config: ${configDir}; isolated state: ${config.stateDir}`);
 console.error(`[forgerelay:beta] package: ${packageRoot}`);
 const child = spawn(process.execPath, [join(packageRoot, "dist/cli.js"), "serve"], { env, stdio: "inherit" });
