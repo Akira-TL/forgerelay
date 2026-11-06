@@ -4,6 +4,13 @@ All notable ForgeRelay changes are documented here.
 
 ## [Unreleased]
 
+## [1.3.6-beta.2] - 2026-11-06
+
+### Fixed
+
+- 语言服务连接、请求类型和取消令牌统一从协议包取得，移除独立的通信库直接依赖，避免 npm 新安装解析出不同版本后初始化失败。
+- 初始化请求同步抛错时也移除子进程退出监听器，避免失败清理发送 `SIGTERM` 后产生未处理的 Promise 拒绝并使主进程退出；文件修改仍保留，诊断失败按警告返回。
+
 ## [1.3.6-beta.1] - 2026-11-05
 
 ### Fixed
