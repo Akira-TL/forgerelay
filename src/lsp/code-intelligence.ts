@@ -2,8 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile, realpath } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMessageConnection, type MessageConnection } from "vscode-jsonrpc/node";
+// Request signatures and transport must share the protocol package's JSON-RPC instance.
 import {
+  createMessageConnection,
   DefinitionRequest,
   DiagnosticTag,
   DocumentDiagnosticReportKind,
@@ -22,7 +23,8 @@ import {
   type Hover,
   type InitializeParams,
   type InitializeResult,
-} from "vscode-languageserver-protocol";
+  type MessageConnection,
+} from "vscode-languageserver-protocol/node";
 import {
   LanguageServerConfigurationError,
   type ResolvedLanguageProject,

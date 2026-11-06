@@ -1,4 +1,4 @@
-import { CancellationTokenSource, type CancellationToken } from "vscode-jsonrpc";
+import { CancellationTokenSource, type CancellationToken } from "vscode-languageserver-protocol";
 import { CodeIntelligenceError } from "../code-intelligence-error.js";
 
 export interface SemanticRequestCoordinatorOptions {

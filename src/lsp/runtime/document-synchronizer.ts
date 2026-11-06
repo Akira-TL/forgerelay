@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import type { MessageConnection } from "vscode-jsonrpc";
+import type { MessageConnection } from "vscode-languageserver-protocol";
 import {
   DidChangeTextDocumentNotification,
   DidCloseTextDocumentNotification,
