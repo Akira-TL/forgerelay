@@ -18,7 +18,10 @@ await mkdir(configDir);
 await writeFile(join(root, "main.py"), "value: int = 1\n");
 await writeFile(join(root, "pyrightconfig.json"), "{}\n");
 await writeFile(join(configDir, "language-servers.json"), JSON.stringify({
-  pyright: { command: process.execPath, args: [resolve("src/lsp/test-fixtures/fake-lsp-server.mjs")] },
+  pyright: {
+    command: process.execPath, args: [resolve("src/lsp/test-fixtures/fake-lsp-server.mjs")],
+    env: { FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE: "pull" },
+  },
 }));
 const manager = new CodeIntelligenceManager({ configDir, configRuntime: new ConfigRuntime() });
 let initialized = false;

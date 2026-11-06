@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   callOpen,
   createCodeIntelligenceServerFixture,
@@ -12,6 +14,50 @@ import {
 
 const fakeServerPath = fileURLToPath(new URL("../test-fixtures/fake-lsp-server.mjs", import.meta.url));
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("Language service initializes with a separately installed direct JSON-RPC dependency", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "forgerelay-jsonrpc-identity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const require = createRequire(import.meta.url);
+  const rpcRoot = resolve(dirname(require.resolve("vscode-jsonrpc")), "../..");
+  const rpcCopy = join(root, "jsonrpc-copy");
+  await cp(rpcRoot, rpcCopy, { recursive: true });
+  const alternateNode = pathToFileURL(join(rpcCopy, relative(rpcRoot, require.resolve("vscode-jsonrpc/node")))).href;
+  const loader = "data:text/javascript," + encodeURIComponent(`
+    export async function resolve(specifier, context, next) {
+      if (specifier === "vscode-jsonrpc/node") return { url: ${JSON.stringify(alternateNode)}, shortCircuit: true };
+      return next(specifier, context);
+    }
+  `);
+  const managerUrl = new URL("../runtime/manager.ts", import.meta.url).href;
+  const configUrl = new URL("../../runtime/config/runtime/config-runtime.ts", import.meta.url).href;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { register } from "node:module";
+    import { mkdir, writeFile } from "node:fs/promises";
+    import { join } from "node:path";
+    register(${JSON.stringify(loader)}, import.meta.url);
+    const { CodeIntelligenceManager } = await import(${JSON.stringify(managerUrl)});
+    const { ConfigRuntime } = await import(${JSON.stringify(configUrl)});
+    const root = ${JSON.stringify(root)};
+    const configDir = join(root, "config");
+    await mkdir(configDir);
+    await writeFile(join(root, "pyrightconfig.json"), "{}");
+    await writeFile(join(root, "main.py"), "value: int = 1\\n");
+    await writeFile(join(configDir, "language-servers.json"), JSON.stringify({
+      pyright: { command: process.execPath, args: [${JSON.stringify(fakeServerPath)}],
+        env: { FORGERELAY_FAKE_LSP_DIAGNOSTICS_MODE: "pull" } }
+    }));
+    const manager = new CodeIntelligenceManager({ configDir, configRuntime: new ConfigRuntime() });
+    try {
+      const result = await manager.run(root, { operation: "diagnostics", path: "main.py" });
+      assert.equal(result.provider, "pull");
+      assert.ok(result.total > 0);
+    } finally { await manager.shutdown(); }
+  `], { env: { ...process.env, NODE_TEST_CONTEXT: undefined }, encoding: "utf8", timeout: 20_000 });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
 
 test("synchronous initialize failure stays a mutation warning without terminating the host", () => {
   const fixtureUrl = new URL("../test-support/server-fixture.ts", import.meta.url).href;
