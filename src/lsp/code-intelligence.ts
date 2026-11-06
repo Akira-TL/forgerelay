@@ -648,8 +648,8 @@ export class LanguageService {
       },
     };
 
-    const initialize = connection.sendRequest(InitializeRequest.type, initializeParams);
     try {
+      const initialize = connection.sendRequest(InitializeRequest.type, initializeParams);
       const result = await withTimeout(
         Promise.race([initialize, startupFailure]),
         this.policy.startTimeoutMs,
